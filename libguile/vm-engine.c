@@ -134,10 +134,10 @@
 /* Virtual Machine
 
    The VM has three state bits: the instruction pointer (IP), the frame
-   pointer (FP), and the top-of-stack pointer (SP).  We cache the first
-   two of these in machine registers, local to the VM, because they are
-   used extensively by the VM.  As the SP is used more by code outside
-   the VM than by the VM itself, we don't bother caching it locally.
+   pointer (FP), and the stack pointer (SP).  We cache the first two of
+   these in machine registers, local to the VM, because they are used
+   extensively by the VM.  As the SP is used more by code outside the VM
+   than by the VM itself, we don't bother caching it locally.
 
    Since the FP changes infrequently, relative to the IP, we keep vp->fp
    in sync with the local FP.  This would be a big lose for the IP,
@@ -172,17 +172,17 @@
    FP is valid across an ALLOC_FRAME call.  Be careful!  */
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
-    SCM *new_sp = LOCAL_ADDRESS (n - 1);                            \
-    if (new_sp > vp->sp_max_since_gc)                               \
+    union scm_vm_stack_element *new_sp = LOCAL_ADDRESS (n - 1);     \
+    if (new_sp < vp->sp_min_since_gc)                               \
       {                                                             \
-        if (SCM_UNLIKELY (new_sp >= vp->stack_limit))               \
+        if (SCM_UNLIKELY (new_sp < vp->stack_limit))                \
           {                                                         \
             SYNC_IP ();                                             \
             vm_expand_stack (vp, new_sp);                           \
             CACHE_FP ();                                            \
           }                                                         \
         else                                                        \
-          vp->sp_max_since_gc = vp->sp = new_sp;                    \
+          vp->sp_min_since_gc = vp->sp = new_sp;                    \
       }                                                             \
     else                                                            \
       vp->sp = new_sp;                                              \
@@ -193,15 +193,15 @@
 #define RESET_FRAME(n)                                              \
   do {                                                              \
     vp->sp = LOCAL_ADDRESS (n - 1);                                 \
-    if (vp->sp > vp->sp_max_since_gc)                               \
-      vp->sp_max_since_gc = vp->sp;                                 \
+    if (vp->sp < vp->sp_min_since_gc)                               \
+      vp->sp_min_since_gc = vp->sp;                                 \
   } while (0)
 
 /* Compute the number of locals in the frame.  At a call, this is equal
    to the number of actual arguments when a function is first called,
    plus one for the function.  */
 #define FRAME_LOCALS_COUNT_FROM(slot)           \
-  (vp->sp + 1 - LOCAL_ADDRESS (slot))
+  (LOCAL_ADDRESS (slot) + 1 - vp->sp)
 #define FRAME_LOCALS_COUNT() \
   FRAME_LOCALS_COUNT_FROM (0)
 
@@ -246,7 +246,7 @@
   case opcode:
 #endif
 
-#define LOCAL_ADDRESS(i)	(&SCM_FRAME_LOCAL (fp, i))
+#define LOCAL_ADDRESS(i)	SCM_FRAME_SLOT (fp, i)
 #define LOCAL_REF(i)		SCM_FRAME_LOCAL (fp, i)
 #define LOCAL_SET(i,o)		SCM_FRAME_LOCAL (fp, i) = o
 
@@ -257,18 +257,18 @@
 #define RETURN_ONE_VALUE(ret)                           \
   do {                                                  \
     SCM val = ret;                                      \
-    SCM *old_fp;                                        \
+    union scm_vm_stack_element *old_fp;                 \
     VM_HANDLE_INTERRUPTS;                               \
     ALLOC_FRAME (2);					\
     old_fp = fp;                                        \
     ip = SCM_FRAME_RETURN_ADDRESS (fp);                 \
     fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);          \
     /* Clear frame. */                                  \
-    old_fp[-1] = SCM_BOOL_F;                            \
-    old_fp[-2] = SCM_BOOL_F;                            \
+    old_fp[0].scm = SCM_BOOL_F;                         \
+    old_fp[1].scm = SCM_BOOL_F;                         \
     /* Leave proc. */                                   \
     SCM_FRAME_LOCAL (old_fp, 1) = val;                  \
-    vp->sp = &SCM_FRAME_LOCAL (old_fp, 1);              \
+    vp->sp = SCM_FRAME_SLOT (old_fp, 1);                \
     POP_CONTINUATION_HOOK (old_fp);                     \
     NEXT (0);                                           \
   } while (0)
@@ -279,10 +279,10 @@
   do {                                                  \
     SCM vals = vals_;                                   \
     VM_HANDLE_INTERRUPTS;                               \
-    ALLOC_FRAME (3);					\
-    fp[0] = vm_builtin_apply;                           \
-    fp[1] = vm_builtin_values;                          \
-    fp[2] = vals;                                       \
+    ALLOC_FRAME (3);                                    \
+    SCM_FRAME_LOCAL (fp, 0) = vm_builtin_apply;         \
+    SCM_FRAME_LOCAL (fp, 1) = vm_builtin_values;        \
+    SCM_FRAME_LOCAL (fp, 2) = vals;                     \
     ip = (scm_t_uint32 *) vm_builtin_apply_code;        \
     goto op_tail_apply;                                 \
   } while (0)
@@ -429,7 +429,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   /* Frame pointer: A pointer into the stack, off of which we index
      arguments and local variables.  Pushed at function calls, popped on
      returns.  */
-  register SCM *fp FP_REG;
+  register union scm_vm_stack_element *fp FP_REG;
 
   /* Current opcode: A cache of *ip.  */
   register scm_t_uint32 op;
@@ -472,8 +472,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
         {
           scm_t_uint32 n = FRAME_LOCALS_COUNT();
 
-          /* Shuffle args up. */
-          RESET_FRAME (n + 1);
+          /* Shuffle args up.  (FIXME: no real need to shuffle; just set
+             IP and go. ) */
+          ALLOC_FRAME (n + 1);
           while (n--)
             LOCAL_SET (n + 1, LOCAL_REF (n));
 
@@ -546,7 +547,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (1, call, "call", OP2 (U8_U24, X8_U24))
     {
       scm_t_uint32 proc, nlocals;
-      SCM *old_fp;
+      union scm_vm_stack_element *old_fp;
 
       UNPACK_24 (op, proc);
       UNPACK_24 (ip[1], nlocals);
@@ -556,7 +557,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       PUSH_CONTINUATION_HOOK ();
 
       old_fp = fp;
-      fp = vp->fp = old_fp + proc;
+      fp = vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
       SCM_FRAME_SET_RETURN_ADDRESS (fp, ip + 2);
 
@@ -586,7 +587,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_uint32 proc, nlocals;
       scm_t_int32 label;
-      SCM *old_fp;
+      union scm_vm_stack_element *old_fp;
 
       UNPACK_24 (op, proc);
       UNPACK_24 (ip[1], nlocals);
@@ -597,7 +598,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       PUSH_CONTINUATION_HOOK ();
 
       old_fp = fp;
-      fp = vp->fp = old_fp + proc;
+      fp = vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
       SCM_FRAME_SET_RETURN_ADDRESS (fp, ip + 3);
 
@@ -754,7 +755,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (9, return_values, "return-values", OP1 (U8_X24))
     {
-      SCM *old_fp;
+      union scm_vm_stack_element *old_fp;
 
       VM_HANDLE_INTERRUPTS;
 
@@ -763,8 +764,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
 
       /* Clear stack frame.  */
-      old_fp[-1] = SCM_BOOL_F;
-      old_fp[-2] = SCM_BOOL_F;
+      old_fp[0].scm = SCM_BOOL_F;
+      old_fp[1].scm = SCM_BOOL_F;
 
       POP_CONTINUATION_HOOK (old_fp);
 
@@ -804,34 +805,46 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           ret = subr ();
           break;
         case 1:
-          ret = subr (fp[1]);
+          ret = subr (LOCAL_REF (1));
           break;
         case 2:
-          ret = subr (fp[1], fp[2]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2));
           break;
         case 3:
-          ret = subr (fp[1], fp[2], fp[3]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3));
           break;
         case 4:
-          ret = subr (fp[1], fp[2], fp[3], fp[4]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
+                      LOCAL_REF (4));
           break;
         case 5:
-          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
+                      LOCAL_REF (4), LOCAL_REF (5));
           break;
         case 6:
-          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
+                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6));
           break;
         case 7:
-          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
+                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
+                      LOCAL_REF (7));
           break;
         case 8:
-          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
+                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
+                      LOCAL_REF (7), LOCAL_REF (8));
           break;
         case 9:
-          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8], fp[9]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
+                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
+                      LOCAL_REF (7), LOCAL_REF (8), LOCAL_REF (9));
           break;
         case 10:
-          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8], fp[9], fp[10]);
+          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
+                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
+                      LOCAL_REF (7), LOCAL_REF (8), LOCAL_REF (9),
+                      LOCAL_REF (10));
           break;
         default:
           abort ();
@@ -869,7 +882,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       // FIXME: separate args
       ret = scm_i_foreign_call (scm_inline_cons (thread, cif, pointer),
-                                LOCAL_ADDRESS (1));
+                                vp->sp);
 
       CACHE_FP ();
 
@@ -903,7 +916,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       vm_return_to_continuation (scm_i_contregs_vp (contregs),
                                  scm_i_contregs_vm_cont (contregs),
                                  FRAME_LOCALS_COUNT_FROM (1),
-                                 LOCAL_ADDRESS (1));
+                                 vp->sp);
       scm_i_reinstate_continuation (contregs);
 
       /* no NEXT */
@@ -912,7 +925,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
   /* compose-continuation cont:24
    *
-   * Compose a partial continution with the current continuation.  The
+   * Compose a partial continuation with the current continuation.  The
    * arguments to the continuation are taken from the stack.  CONT is a
    * free variable containing the reified continuation.  This
    * instruction is part of the implementation of partial continuations,
@@ -930,9 +943,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       VM_ASSERT (SCM_VM_CONT_REWINDABLE_P (vmcont),
                  vm_error_continuation_not_rewindable (vmcont));
       vm_reinstate_partial_continuation (vp, vmcont, FRAME_LOCALS_COUNT_FROM (1),
-                                         LOCAL_ADDRESS (1),
-                                         &thread->dynstack,
-                                         registers);
+                                         &thread->dynstack, registers);
       CACHE_REGISTER ();
       NEXT (0);
     }
@@ -999,7 +1010,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       SYNC_IP ();
       dynstack = scm_dynstack_capture_all (&thread->dynstack);
-      vm_cont = scm_i_vm_capture_stack (vp->stack_base,
+      vm_cont = scm_i_vm_capture_stack (vp->stack_top,
                                         SCM_FRAME_DYNAMIC_LINK (fp),
                                         SCM_FRAME_PREVIOUS_SP (fp),
                                         SCM_FRAME_RETURN_ADDRESS (fp),
@@ -1051,8 +1062,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          it continues with the next instruction.  */
       ip++;
       SYNC_IP ();
-      vm_abort (vp, LOCAL_REF (1), nlocals - 2, LOCAL_ADDRESS (2),
-                SCM_EOL, LOCAL_ADDRESS (0), registers);
+      vm_abort (vp, LOCAL_REF (1), nlocals - 2, registers);
 
       /* vm_abort should not return */
       abort ();
@@ -2065,8 +2075,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
       scm_dynstack_push_prompt (&thread->dynstack, flags,
                                 LOCAL_REF (tag),
-                                fp - vp->stack_base,
-                                LOCAL_ADDRESS (proc_slot) - vp->stack_base,
+                                vp->stack_top - fp,
+                                vp->stack_top - LOCAL_ADDRESS (proc_slot),
                                 ip + offset,
                                 registers);
       NEXT (3);

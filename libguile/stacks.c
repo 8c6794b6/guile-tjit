@@ -320,14 +320,17 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
     {
       SCM cont;
       struct scm_vm_cont *c;
+      union scm_vm_stack_element *stack_top;
 
       cont = scm_i_capture_current_stack ();
       c = SCM_VM_CONT_DATA (cont);
 
+      /* FIXME vm_cont should hold fp/sp offsets */
+      stack_top = c->stack_bottom + c->stack_size;
       kind = SCM_VM_FRAME_KIND_CONT;
       frame.stack_holder = c;
-      frame.fp_offset = (c->fp + c->reloc) - c->stack_base;
-      frame.sp_offset = (c->sp + c->reloc) - c->stack_base;
+      frame.fp_offset = stack_top - (c->fp + c->reloc);
+      frame.sp_offset = stack_top - (c->sp + c->reloc);
       frame.ip = c->ra;
     }
   else if (SCM_VM_FRAME_P (obj))

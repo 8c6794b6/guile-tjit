@@ -180,10 +180,13 @@ scm_i_continuation_to_frame (SCM continuation, struct scm_frame *frame)
   if (scm_is_true (cont->vm_cont))
     {
       struct scm_vm_cont *data = SCM_VM_CONT_DATA (cont->vm_cont);
+      union scm_vm_stack_element *stack_top;
 
+      /* FIXME vm_cont should hold fp/sp offsets */
+      stack_top = data->stack_bottom + data->stack_size;
       frame->stack_holder = data;
-      frame->fp_offset = (data->fp + data->reloc) - data->stack_base;
-      frame->sp_offset = (data->sp + data->reloc) - data->stack_base;
+      frame->fp_offset = stack_top - (data->fp + data->reloc);
+      frame->sp_offset = stack_top - (data->sp + data->reloc);
       frame->ip = data->ra;
 
       return 1;

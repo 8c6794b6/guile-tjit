@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
  * * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -38,24 +38,29 @@
    Stack frame layout
    ------------------
 
-   /------------------\
-   | Local N-1        | <- sp
    | ...              |
-   | Local 1          |
-   | Local 0          | <- fp = SCM_FRAME_LOCALS_ADDRESS (fp)
-   +==================+
+   +==================+ <- fp + 2 = SCM_FRAME_PREVIOUS_SP (fp)
+   | Dynamic link     |
+   +------------------+
    | Return address   |
-   | Dynamic link     | <- fp - 2 = SCM_FRAME_LOWER_ADDRESS (fp)
-   +==================+
-   |                  | <- fp - 3 = SCM_FRAME_PREVIOUS_SP (fp)
+   +==================+ <- fp
+   | Local 0          |
+   +------------------+
+   | Local 1          |
+   +------------------+
+   | ...              |
+   +------------------+
+   | Local N-1        |
+   \------------------/ <- sp
+
+   The stack grows down.
 
    The calling convention is that a caller prepares a stack frame
    consisting of the saved FP and the return address, followed by the
    procedure and then the arguments to the call, in order.  Thus in the
    beginning of a call, the procedure being called is in slot 0, the
    first argument is in slot 1, and the SP points to the last argument.
-   The number of arguments, including the procedure, is thus SP - FP +
-   1.
+   The number of arguments, including the procedure, is thus FP - SP.
 
    After ensuring that the correct number of arguments have been passed,
    a function will set the stack pointer to point to the last local
@@ -80,35 +85,26 @@
 
 
 
-/* This structure maps to the contents of a VM stack frame.  It can
-   alias a frame directly.  */
-struct scm_vm_frame
+/* Each element on the stack occupies the same amount of space.  */
+union scm_vm_stack_element
 {
-  SCM *dynamic_link;
-  scm_t_uint32 *return_address;
-  SCM locals[1]; /* Variable-length */
+  union scm_vm_stack_element *fp;
+  scm_t_uint32 *ip;
+  SCM scm;
+
+  /* For GC purposes.  */
+  void *ptr;
+  scm_t_bits bits;
 };
 
-#define SCM_FRAME_LOWER_ADDRESS(fp)	(((SCM *) (fp)) - 2)
-#define SCM_FRAME_STRUCT(fp)				\
-  ((struct scm_vm_frame *) SCM_FRAME_LOWER_ADDRESS (fp))
-#define SCM_FRAME_LOCALS_ADDRESS(fp)	(SCM_FRAME_STRUCT (fp)->locals)
-
-#define SCM_FRAME_PREVIOUS_SP(fp)	(((SCM *) (fp)) - 3)
-
-#define SCM_FRAME_RETURN_ADDRESS(fp)            \
-  (SCM_FRAME_STRUCT (fp)->return_address)
-#define SCM_FRAME_SET_RETURN_ADDRESS(fp, ra)    \
-  SCM_FRAME_STRUCT (fp)->return_address = (ra)
-#define SCM_FRAME_DYNAMIC_LINK(fp)              \
-  (SCM_FRAME_STRUCT (fp)->dynamic_link)
-#define SCM_FRAME_SET_DYNAMIC_LINK(fp, dl)      \
-  SCM_FRAME_DYNAMIC_LINK (fp) = (dl)
-#define SCM_FRAME_LOCAL(fp,i)                   \
-  (SCM_FRAME_STRUCT (fp)->locals[i])
-
-#define SCM_FRAME_NUM_LOCALS(fp, sp)            \
-  ((sp) + 1 - &SCM_FRAME_LOCAL (fp, 0))
+#define SCM_FRAME_PREVIOUS_SP(fp_)	((fp_) + 2)
+#define SCM_FRAME_RETURN_ADDRESS(fp_)    ((fp_)[0].ip)
+#define SCM_FRAME_SET_RETURN_ADDRESS(fp_, ra) ((fp_)[0].ip = (ra))
+#define SCM_FRAME_DYNAMIC_LINK(fp_)      ((fp_)[1].fp)
+#define SCM_FRAME_SET_DYNAMIC_LINK(fp_, dl) ((fp_)[1].fp = (dl))
+#define SCM_FRAME_SLOT(fp_,i)           ((fp_) - (i) - 1)
+#define SCM_FRAME_LOCAL(fp_,i)           (SCM_FRAME_SLOT (fp_, i)->scm)
+#define SCM_FRAME_NUM_LOCALS(fp_, sp)    ((fp_) - (sp))
 
 
 /*
@@ -137,13 +133,13 @@ enum scm_vm_frame_kind
 #define SCM_VM_FRAME_STACK_HOLDER(f)	SCM_VM_FRAME_DATA (f)->stack_holder
 #define SCM_VM_FRAME_FP_OFFSET(f)	SCM_VM_FRAME_DATA (f)->fp_offset
 #define SCM_VM_FRAME_SP_OFFSET(f)	SCM_VM_FRAME_DATA (f)->sp_offset
-#define SCM_VM_FRAME_FP(f)	(SCM_VM_FRAME_FP_OFFSET (f) + scm_i_frame_stack_base (f))
-#define SCM_VM_FRAME_SP(f)	(SCM_VM_FRAME_SP_OFFSET (f) + scm_i_frame_stack_base (f))
+#define SCM_VM_FRAME_FP(f)	(scm_i_frame_stack_top (f) - SCM_VM_FRAME_FP_OFFSET (f))
+#define SCM_VM_FRAME_SP(f)	(scm_i_frame_stack_top (f) - SCM_VM_FRAME_SP_OFFSET (f))
 #define SCM_VM_FRAME_IP(f)	SCM_VM_FRAME_DATA (f)->ip
 #define SCM_VM_FRAME_OFFSET(f)	scm_i_frame_offset (f)
 #define SCM_VALIDATE_VM_FRAME(p,x)	SCM_MAKE_VALIDATE (p, x, VM_FRAME_P)
 
-SCM_INTERNAL SCM* scm_i_frame_stack_base (SCM frame);
+SCM_INTERNAL union scm_vm_stack_element* scm_i_frame_stack_top (SCM frame);
 SCM_INTERNAL scm_t_ptrdiff scm_i_frame_offset (SCM frame);
 
 /* See notes in frames.c before using this.  */

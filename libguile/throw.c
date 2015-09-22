@@ -102,14 +102,13 @@ catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
   scm_c_vector_set_x (eh, 3, pre_unwind_handler);
 
   vp = scm_the_vm ();
-  saved_stack_depth = vp->sp - vp->stack_base;
+  saved_stack_depth = vp->stack_top - vp->sp;
 
   /* Push the prompt and exception handler onto the dynamic stack. */
   scm_dynstack_push_prompt (dynstack,
-                            SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY
-                            | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
+                            SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY,
                             prompt_tag,
-                            vp->fp - vp->stack_base,
+                            vp->stack_top - vp->fp,
                             saved_stack_depth,
                             vp->ip,
                             &registers);
@@ -125,7 +124,7 @@ catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
 
       /* FIXME: We know where the args will be on the stack; we could
          avoid consing them.  */
-      args = scm_i_prompt_pop_abort_args_x (vp);
+      args = scm_i_prompt_pop_abort_args_x (vp, saved_stack_depth);
 
       /* Cdr past the continuation. */
       args = scm_cdr (args);

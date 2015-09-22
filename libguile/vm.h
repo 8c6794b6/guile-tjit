@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -37,13 +37,14 @@ enum {
 
 struct scm_vm {
   scm_t_uint32 *ip;		/* instruction pointer */
-  SCM *sp;			/* stack pointer */
-  SCM *fp;			/* frame pointer */
-  SCM *stack_limit;		/* stack limit address */
+  union scm_vm_stack_element *sp; /* stack pointer */
+  union scm_vm_stack_element *fp; /* frame pointer */
+  union scm_vm_stack_element *stack_limit; /* stack limit address */
   int trace_level;              /* traces enabled if trace_level > 0 */
-  SCM *sp_max_since_gc;         /* highest sp since last gc */
+  union scm_vm_stack_element *sp_min_since_gc; /* deepest sp since last gc */
   size_t stack_size;		/* stack size */
-  SCM *stack_base;		/* stack base address */
+  union scm_vm_stack_element *stack_bottom; /* lowest address in allocated stack */
+  union scm_vm_stack_element *stack_top; /* highest address in allocated stack */
   SCM overflow_handler_stack;   /* alist of max-stack-size -> thunk */
   SCM hooks[SCM_VM_NUM_HOOKS];	/* hooks */
   int engine;                   /* which vm engine we're using */
@@ -78,11 +79,13 @@ SCM_INTERNAL void scm_i_vm_free_stack (struct scm_vm *vp);
 #define SCM_F_VM_CONT_REWINDABLE 0x2
 
 struct scm_vm_cont {
-  SCM *sp;
-  SCM *fp;
+  /* FIXME: sp isn't needed, it's effectively the same as
+     stack_bottom */
+  union scm_vm_stack_element *sp;
+  union scm_vm_stack_element *fp;
   scm_t_uint32 *ra;
   scm_t_ptrdiff stack_size;
-  SCM *stack_base;
+  union scm_vm_stack_element *stack_bottom;
   scm_t_ptrdiff reloc;
   scm_t_dynstack *dynstack;
   scm_t_uint32 flags;
@@ -97,7 +100,9 @@ SCM_API SCM scm_load_compiled_with_vm (SCM file);
 
 SCM_INTERNAL SCM scm_i_call_with_current_continuation (SCM proc);
 SCM_INTERNAL SCM scm_i_capture_current_stack (void);
-SCM_INTERNAL SCM scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp,
+SCM_INTERNAL SCM scm_i_vm_capture_stack (union scm_vm_stack_element *stack_top,
+                                         union scm_vm_stack_element *fp,
+                                         union scm_vm_stack_element *sp,
                                          scm_t_uint32 *ra,
                                          scm_t_dynstack *dynstack,
                                          scm_t_uint32 flags);

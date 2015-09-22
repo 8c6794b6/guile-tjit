@@ -129,8 +129,7 @@ typedef enum {
 } scm_t_dynstack_winder_flags;
 
 typedef enum {
-  SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY = (1 << SCM_DYNSTACK_TAG_FLAGS_SHIFT),
-  SCM_F_DYNSTACK_PROMPT_PUSH_NARGS = (2 << SCM_DYNSTACK_TAG_FLAGS_SHIFT)
+  SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY = (1 << SCM_DYNSTACK_TAG_FLAGS_SHIFT)
 } scm_t_dynstack_prompt_flags;
 
 typedef void (*scm_t_guard) (void *);

@@ -484,8 +484,8 @@ scm_dynstack_wind_prompt (scm_t_dynstack *dynstack, scm_t_bits *item,
   scm_dynstack_push_prompt (dynstack,
                             SCM_DYNSTACK_TAG_FLAGS (tag),
                             PROMPT_KEY (item),
-                            PROMPT_FP (item) + reloc,
-                            PROMPT_SP (item) + reloc,
+                            PROMPT_FP (item) - reloc,
+                            PROMPT_SP (item) - reloc,
                             PROMPT_IP (item),
                             registers);
 }

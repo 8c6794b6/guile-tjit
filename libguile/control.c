@@ -39,19 +39,22 @@
 
 /* Only to be called if the SCM_I_SETJMP returns 1 */
 SCM
-scm_i_prompt_pop_abort_args_x (struct scm_vm *vp)
+scm_i_prompt_pop_abort_args_x (struct scm_vm *vp,
+                               scm_t_ptrdiff saved_stack_depth)
 {
   size_t i, n;
+  scm_t_ptrdiff stack_depth;
   SCM vals = SCM_EOL;
 
-  n = scm_to_size_t (vp->sp[0]);
-  for (i = 0; i < n; i++)
-    vals = scm_cons (vp->sp[-(i + 1)], vals);
+  stack_depth = vp->stack_top - vp->sp;
+  if (stack_depth < saved_stack_depth)
+    abort ();
+  n = stack_depth - saved_stack_depth;
 
-  /* The abort did reset the VM's registers, but then these values
-     were pushed on; so we need to pop them ourselves. */
-  vp->sp -= n + 1;
-  /* FIXME NULLSTACK */
+  for (i = 0; i < n; i++)
+    vals = scm_cons (vp->sp[i].scm, vals);
+
+  vp->sp += n;
 
   return vals;
 }
@@ -79,8 +82,8 @@ make_partial_continuation (SCM vm_cont)
 
 static SCM
 reify_partial_continuation (struct scm_vm *vp,
-                            SCM *saved_fp,
-                            SCM *saved_sp,
+                            union scm_vm_stack_element *saved_fp,
+                            union scm_vm_stack_element *saved_sp,
                             scm_t_uint32 *saved_ip,
                             scm_i_jmp_buf *saved_registers,
                             scm_t_dynstack *dynstack,
@@ -88,7 +91,7 @@ reify_partial_continuation (struct scm_vm *vp,
 {
   SCM vm_cont;
   scm_t_uint32 flags;
-  SCM *bottom_fp;
+  union scm_vm_stack_element *base_fp;
 
   flags = SCM_F_VM_CONT_PARTIAL;
   /* If we are aborting to a prompt that has the same registers as those
@@ -98,24 +101,20 @@ reify_partial_continuation (struct scm_vm *vp,
   if (saved_registers && saved_registers == current_registers)
     flags |= SCM_F_VM_CONT_REWINDABLE;
 
-  /* Walk the stack down until we find the first frame after saved_fp.
-     We will save the stack down to that frame.  It used to be that we
-     could determine the stack bottom in O(1) time, but that's no longer
+  /* Walk the stack until we find the first frame newer than saved_fp.
+     We will save the stack until that frame.  It used to be that we
+     could determine the stack base in O(1) time, but that's no longer
      the case, since the thunk application doesn't occur where the
      prompt is saved.  */
-  for (bottom_fp = vp->fp;
-       SCM_FRAME_DYNAMIC_LINK (bottom_fp) > saved_fp;
-       bottom_fp = SCM_FRAME_DYNAMIC_LINK (bottom_fp));
+  for (base_fp = vp->fp;
+       SCM_FRAME_DYNAMIC_LINK (base_fp) < saved_fp;
+       base_fp = SCM_FRAME_DYNAMIC_LINK (base_fp));
 
-  if (SCM_FRAME_DYNAMIC_LINK (bottom_fp) != saved_fp)
+  if (SCM_FRAME_DYNAMIC_LINK (base_fp) != saved_fp)
     abort();
 
-  /* Capture from the top of the thunk application frame up to the end. */
-  vm_cont = scm_i_vm_capture_stack (&SCM_FRAME_LOCAL (bottom_fp, 0),
-                                    vp->fp,
-                                    vp->sp,
-                                    vp->ip,
-                                    dynstack,
+  /* Capture from the base_fp to the top thunk application frame. */
+  vm_cont = scm_i_vm_capture_stack (base_fp, vp->fp, vp->sp, vp->ip, dynstack,
                                     flags);
 
   return make_partial_continuation (vm_cont);
@@ -130,7 +129,7 @@ scm_c_abort (struct scm_vm *vp, SCM tag, size_t n, SCM *argv,
   scm_t_bits *prompt;
   scm_t_dynstack_prompt_flags flags;
   scm_t_ptrdiff fp_offset, sp_offset;
-  SCM *fp, *sp;
+  union scm_vm_stack_element *fp, *sp;
   scm_t_uint32 *ip;
   scm_i_jmp_buf *registers;
   size_t i;
@@ -142,8 +141,8 @@ scm_c_abort (struct scm_vm *vp, SCM tag, size_t n, SCM *argv,
   if (!prompt)
     scm_misc_error ("abort", "Abort to unknown prompt", scm_list_1 (tag));
 
-  fp = vp->stack_base + fp_offset;
-  sp = vp->stack_base + sp_offset;
+  fp = vp->stack_top - fp_offset;
+  sp = vp->stack_top - sp_offset;
 
   /* Only reify if the continuation referenced in the handler. */
   if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
@@ -162,19 +161,17 @@ scm_c_abort (struct scm_vm *vp, SCM tag, size_t n, SCM *argv,
 
   /* Restore VM regs */
   vp->fp = fp;
-  vp->sp = sp;
+  vp->sp = sp - n - 1;
   vp->ip = ip;
 
   /* Since we're jumping down, we should always have enough space.  */
-  if (vp->sp + n + 1 >= vp->stack_limit)
+  if (vp->sp < vp->stack_limit)
     abort ();
 
   /* Push vals */
-  *(++(vp->sp)) = cont;
+  vp->sp[n].scm = cont;
   for (i = 0; i < n; i++)
-    *(++(vp->sp)) = argv[i];
-  if (flags & SCM_F_DYNSTACK_PROMPT_PUSH_NARGS)
-    *(++(vp->sp)) = scm_from_size_t (n+1); /* +1 for continuation */
+    vp->sp[n - i - 1].scm = argv[i];
 
   /* Jump! */
   SCM_I_LONGJMP (*registers, 1);
