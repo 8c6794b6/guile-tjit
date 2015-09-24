@@ -421,10 +421,8 @@ If FILE begins with `-' the -s switch is mandatory.
            ((string-prefix? "--tjit-dump=" arg)
             (parse args
                    (cons `((@ (system vm native tjit parameters)
-                              tjit-dump-option)
-                           ((@ (system vm native tjit parameters)
-                               parse-tjit-dump-flags)
-                            (substring ,arg 12)))
+                              set-tjit-dump-option!)
+                           (substring ,arg 12))
                          out)))
 
            (else

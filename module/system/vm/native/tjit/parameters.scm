@@ -41,8 +41,13 @@
 
             tjit-dump-option
             tjit-dump-locals?
+            tjit-dump-enter?
             tjit-dump-exit?
+            tjit-dump-bytecode?
+            tjit-dump-scm?
+            tjit-dump-cps?
             parse-tjit-dump-flags
+            set-tjit-dump-option!
 
             tjit-max-spills
             tjit-stats))
@@ -52,38 +57,63 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump locals exit)
+  (make-tjit-dump locals enter exit bytecode scm cps)
   tjit-dump?
   (locals tjit-dump-locals? set-tjit-dump-locals!)
-  (exit tjit-dump-exit? set-tjit-dump-exit!))
+  (enter tjit-dump-enter? set-tjit-dump-enter!)
+  (exit tjit-dump-exit? set-tjit-dump-exit!)
+  (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
+  (scm tjit-dump-scm? set-tjit-dump-scm!)
+  (cps tjit-dump-cps? set-tjit-dump-cps!))
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f))
+  (make-tjit-dump #f #f #f #f #f #f))
 
 (define tjit-dump-option
   ;; Parameter to control dump setting during compilation of traces.
   (make-parameter (make-empty-tjit-dump-option)))
 
 (define (parse-tjit-dump-flags str)
-  "Parse dump flags in string STR."
+  "Parse dump flags in string STR and return <tjit-dump> data.
+
+Flags are:
+
+- 'l': dump locals
+- 'e': dump entry
+- 'x': dump exit
+- 'b': dump bytecodes
+- 's': dump scheme IR
+- 'c': dump CPS IR
+
+For instance, @code{(parse-tjit-dump-flags \"lexb\")} will return a <tjit-dump>
+data with locals, entry, exit, and bytecodes field set to #t and other fields to
+#f."
   (let ((o (make-empty-tjit-dump-option)))
     (let lp ((cs (string->list str)))
-      (let-syntax ((p (syntax-rules ()
-                        ((_ (char setter) ...)
-                         (if (null? cs)
-                             o
-                             (let ((c (car cs))
-                                   (cs (cdr cs)))
-                               (cond
-                                ((char=? c char)
-                                 (setter o #t)
-                                 (lp cs))
-                                ...
-                                (else
-                                 (lp cs)))))))))
-        (p (#\l set-tjit-dump-locals!)
-           (#\x set-tjit-dump-exit!))))))
+      (let-syntax ((flags (syntax-rules ()
+                            ((_ (char setter) ...)
+                             (if (null? cs)
+                                 o
+                                 (let ((c (car cs))
+                                       (cs (cdr cs)))
+                                   (cond
+                                    ((char=? c char)
+                                     (setter o #t)
+                                     (lp cs))
+                                    ...
+                                    (else
+                                     (lp cs)))))))))
+        (flags (#\l set-tjit-dump-locals!)
+               (#\e set-tjit-dump-enter!)
+               (#\x set-tjit-dump-exit!)
+               (#\b set-tjit-dump-bytecode!)
+               (#\s set-tjit-dump-scm!)
+               (#\c set-tjit-dump-cps!))))))
+
+(define (set-tjit-dump-option! str)
+  "Set @code{tjit-dump-option} parameter with flags in STR."
+  (tjit-dump-option (parse-tjit-dump-flags str)))
 
 (define tjit-max-spills
   ;; Maximum number of spilled variables.

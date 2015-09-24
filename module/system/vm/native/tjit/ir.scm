@@ -918,10 +918,10 @@
 (define (scm->cps scm)
   "Compiles SCM to CPS IR."
   (define ignored-passes
-    '(#:prune-top-level-scopes? #f
-      #:specialize-primcalls? #f
-      #:type-fold? #f
-      #:inline-constructors? #f))
+    (list #:prune-top-level-scopes? #f
+          #:specialize-primcalls? #f
+          #:type-fold? #f
+          #:inline-constructors? #f))
   (define (body-fun cps)
     (define (go cps k)
       (match (intmap-ref cps k)

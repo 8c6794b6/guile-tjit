@@ -451,7 +451,7 @@ of SRCS, DSTS, TYPES are local index number."
              ;; Shift back FP and sync. Shifting back lowest-offset moved by
              ;; `%return', and shifting for local-offset to match the FP in
              ;; middle of procedure call.
-             (when (< lowest-offset 0)
+             (when (not (= lowest-offset 0))
                (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
                       lowest-offset)
                (refill-dynamic-links local-offset local-x-types))
@@ -509,7 +509,7 @@ of SRCS, DSTS, TYPES are local index number."
      (jit-tramp (imm (* 4 %word-size)))
      (let-values (((nlocals local-offset snapshot)
                    (store-snapshot (hashq-ref snapshots current-side-exit))))
-       (when (< 0 local-offset)
+       (when (not (= 0 local-offset))
          ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP'.
          ;; Adding offset for positive local offset, fp is already shifted in
          ;; store-snapshot for negative local offset.
@@ -535,23 +535,24 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-retval reg-retval)
 
        ;; Debug code to dump tjit-retval and locals.
-       (when (tjit-dump-exit? (tjit-dump-option))
-         (jit-movr reg-thread reg-retval)
-         (jit-prepare)
-         (jit-pushargi (scm-i-makinumi trace-id))
-         (jit-pushargr reg-retval)
-         (jit-calli %scm-dump-tjit-retval)
-         (jit-movr reg-retval reg-thread)
-         (let ((verbosity (lightning-verbosity)))
-           (when (and verbosity (<= 3 verbosity))
-             (jit-movr reg-thread reg-retval)
-             (jit-prepare)
-             (jit-pushargi (scm-i-makinumi trace-id))
-             (jit-pushargi (imm nlocals))
-             (jit-ldxi r0 fp vp->fp-offset)
-             (jit-pushargr r0)
-             (jit-calli %scm-dump-locals)
-             (jit-movr reg-retval reg-thread))))
+       (let ((dump-option (tjit-dump-option)))
+         (when (tjit-dump-exit? dump-option)
+           (jit-movr reg-thread reg-retval)
+           (jit-prepare)
+           (jit-pushargi (scm-i-makinumi trace-id))
+           (jit-pushargr reg-retval)
+           (jit-calli %scm-dump-tjit-retval)
+           (jit-movr reg-retval reg-thread)
+           (let ((verbosity (lightning-verbosity)))
+             (when (tjit-dump-locals? dump-option)
+               (jit-movr reg-thread reg-retval)
+               (jit-prepare)
+               (jit-pushargi (scm-i-makinumi trace-id))
+               (jit-pushargi (imm nlocals))
+               (jit-ldxi r0 fp vp->fp-offset)
+               (jit-pushargr r0)
+               (jit-calli %scm-dump-locals)
+               (jit-movr reg-retval reg-thread)))))
 
        (return-to-interpreter)
        (jit-epilog)
