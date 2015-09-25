@@ -486,6 +486,7 @@ both arguments were register or memory."
     (jit-link next)
     (scm-frame-dynamic-link new-vp->fp old-vp->fp)
     (jit-stxi vp->fp-offset fp new-vp->fp)
+    ;; XXX: Might better not to sync at this point, add more tests.
     (vm-sync-fp new-vp->fp)))
 
 

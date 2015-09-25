@@ -9,4 +9,6 @@
         acc)))
 
 (list (loop #e1e3 125)
+      (loop #e1e3 1.25)
+      (loop #e1e3 125)
       (loop #e1e3 1.25))

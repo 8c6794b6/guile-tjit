@@ -10,7 +10,7 @@
   (let lp ((i n) (acc 0))
     (if (< 0 i)
         (lp (- i 1) (loop1 n acc))
-        acc )))
+        acc)))
 
 (list (loop2 #e1e2)
       (loop2 #e1e3)

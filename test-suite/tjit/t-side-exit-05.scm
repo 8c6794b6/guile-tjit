@@ -5,7 +5,7 @@
       acc)
      ((< low i (+ mid 1))
       (lp (+ i 1) (+ acc 1)))
-     ((< mid i high)
+     ((< mid i (+ high 1))
       (lp (+ i 1) (+ acc 2)))
      (else
       (lp (+ i 1) acc)))))

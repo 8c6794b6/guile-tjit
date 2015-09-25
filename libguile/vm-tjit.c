@@ -486,7 +486,7 @@ scm_make_tjit_retval (scm_i_thread *thread,
 }
 
 SCM
-scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval)
+scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval, struct scm_vm *vp)
 {
   SCM port = scm_current_output_port ();
 
@@ -495,7 +495,7 @@ scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval)
   scm_puts (": exit ", port);
   scm_display (SCM_TJIT_RETVAL_EXIT_ID (tjit_retval), port);
   scm_puts (" => ", port);
-  scm_display (to_hex (SCM_TJIT_RETVAL_EXIT_IP (tjit_retval)), port);
+  scm_display (to_hex (SCM_I_MAKINUM (vp->ip)), port);
   scm_newline (port);
 
   return SCM_UNSPECIFIED;

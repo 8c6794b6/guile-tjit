@@ -40,12 +40,13 @@
             set-tjit-max-retries!
 
             tjit-dump-option
-            tjit-dump-locals?
+            tjit-dump-abort?
+            tjit-dump-bytecode?
+            tjit-dump-cps?
             tjit-dump-enter?
             tjit-dump-exit?
-            tjit-dump-bytecode?
+            tjit-dump-locals?
             tjit-dump-scm?
-            tjit-dump-cps?
             parse-tjit-dump-flags
             set-tjit-dump-option!
 
@@ -57,8 +58,9 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump locals enter exit bytecode scm cps)
+  (make-tjit-dump abort locals enter exit bytecode scm cps)
   tjit-dump?
+  (abort tjit-dump-abort? set-tjit-dump-abort!)
   (locals tjit-dump-locals? set-tjit-dump-locals!)
   (enter tjit-dump-enter? set-tjit-dump-enter!)
   (exit tjit-dump-exit? set-tjit-dump-exit!)
@@ -68,7 +70,7 @@
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f #f #f #f #f))
+  (make-tjit-dump #f #f #f #f #f #f #f))
 
 (define tjit-dump-option
   ;; Parameter to control dump setting during compilation of traces.
@@ -79,12 +81,19 @@
 
 Flags are:
 
-- 'l': dump locals
-- 'e': dump entry
-- 'x': dump exit
-- 'b': dump bytecodes
-- 's': dump scheme IR
-- 'c': dump CPS IR
+- 'a': Dump abort, without this flag true, aborted traces are not shown.
+
+- 'b': Dump recorded bytecode.
+
+- 'c': Dump CPS IR.
+
+- 'e': Dump entry, show brief info when starting native code compilation.
+
+- 'l': Dump locals, see 'x'.
+
+- 's': Dump Scheme IR.
+
+- 'x': Dump exit. When 'l' option is set to true, also shows locals.
 
 For instance, @code{(parse-tjit-dump-flags \"lexb\")} will return a <tjit-dump>
 data with locals, entry, exit, and bytecodes field set to #t and other fields to
@@ -104,7 +113,8 @@ data with locals, entry, exit, and bytecodes field set to #t and other fields to
                                     ...
                                     (else
                                      (lp cs)))))))))
-        (flags (#\l set-tjit-dump-locals!)
+        (flags (#\a set-tjit-dump-abort!)
+               (#\l set-tjit-dump-locals!)
                (#\e set-tjit-dump-enter!)
                (#\x set-tjit-dump-exit!)
                (#\b set-tjit-dump-bytecode!)

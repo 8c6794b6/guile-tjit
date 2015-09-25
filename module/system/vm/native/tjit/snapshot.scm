@@ -89,7 +89,7 @@
   (= (pointer-address (scm->pointer x)) #x904))
 
 (define (false? x)
-  (eq? x #f))
+  (not x))
 
 (define (true? x)
   (eq? x #t))
