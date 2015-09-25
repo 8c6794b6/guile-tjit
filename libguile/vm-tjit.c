@@ -69,11 +69,29 @@ static const int op_sizes[256] = {
  *  Internal variables
  */
 
+/* Hash table to hold iteration counts for loops. Key is bytecode IP,
+   value is current count. */
 static SCM ip_counter_table;
+
+/* Hash table to hold IPs of failed traces. Key is bytecode IP, value is
+   number of failed compilation. */
 static SCM failed_ip_table;
+
+/* Hash table to hold all fragments. Key is fragment ID, value is
+   fragment data. */
 static SCM fragment_table;
+
+/* Hash table to hold fragment data of root traces. Key is bytecode IP,
+   value is fragment data. */
+static SCM root_trace_table;
+
+/* Fluid to hold recorded bytecode. */
 static SCM bytecode_buffer_fluid;
+
+/* Variable to hold Scheme procedure tjitc. */
 static SCM tjitc_var;
+
+/* Initial trace id, increment after native compilation. */
 static int trace_id = 1;
 
 
@@ -83,11 +101,11 @@ static int trace_id = 1;
 
 static inline SCM
 tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
-       scm_t_uintptr *parent_ip, int parent_exit_id, SCM linked_ip,
+       int parent_fragment_id, int parent_exit_id, SCM linked_ip,
        SCM loop_p)
 {
   SCM s_id, s_bytecode, s_bc_idx;
-  SCM s_parent_ip, s_parent_exit_id;
+  SCM s_parent_fragment_id, s_parent_exit_id;
   SCM result;
 
   if (scm_is_null (traces))
@@ -96,12 +114,13 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
   s_id = SCM_I_MAKINUM (trace_id);
   s_bytecode = scm_from_pointer (bytecode, NULL);
   s_bc_idx = SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32));
-  s_parent_ip = SCM_I_MAKINUM (*parent_ip);
+  s_parent_fragment_id = SCM_I_MAKINUM (parent_fragment_id);
   s_parent_exit_id = SCM_I_MAKINUM (parent_exit_id);
 
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
   result = scm_call_8 (tjitc_var, s_id, s_bytecode, s_bc_idx, traces,
-                       s_parent_ip, s_parent_exit_id, linked_ip, loop_p);
+                       s_parent_fragment_id, s_parent_exit_id, linked_ip,
+                       loop_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 
   return result;
@@ -118,12 +137,12 @@ start_recording (size_t *state, scm_t_uint32 *start, scm_t_uint32 *end,
 
 static inline void
 stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx,
-                scm_t_uintptr *parent_ip, int *exit_id)
+                int *parent_fragment_id, int *exit_id)
 {
   *state = SCM_TJIT_STATE_INTERPRET;
   *ips = SCM_EOL;
   *bc_idx = 0;
-  *parent_ip = 0;
+  *parent_fragment_id = 0;
   *exit_id = 0;
 }
 
@@ -173,24 +192,24 @@ static inline void
 call_native (SCM s_ip, SCM fragment,
              scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
-             scm_t_uintptr *parent_ip, int *parent_exit_id,
+             int *parent_fragment_id, int *parent_exit_id,
              scm_t_uint32 *nlocals_out)
 {
   scm_t_native_code f;
   scm_t_uint32 nlocals;
   SCM s_next_ip;
-  SCM code, ret, exit_id, exit_ip, exit_counts, count;
+  SCM code, ret, exit_id, fragment_id, exit_counts, count;
 
   code = SCM_FRAGMENT_CODE (fragment);
   f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = f (thread, vp, registers);
 
   exit_id = SCM_TJIT_RETVAL_EXIT_ID (ret);
-  exit_ip = SCM_TJIT_RETVAL_EXIT_IP (ret);
+  fragment_id = SCM_TJIT_RETVAL_FRAGMENT_ID (ret);
   nlocals = SCM_TJIT_RETVAL_NLOCALS (ret);
 
   s_next_ip = SCM_I_MAKINUM ((scm_t_uintptr) vp->ip);
-  fragment = scm_hashq_ref (fragment_table, exit_ip, SCM_BOOL_F);
+  fragment = scm_hashq_ref (fragment_table, fragment_id, SCM_BOOL_F);
 
   if (scm_is_true (fragment))
     {
@@ -202,8 +221,9 @@ call_native (SCM s_ip, SCM fragment,
   else
     {
       SCM port = scm_current_output_port ();
-      scm_puts ("XXX: No trace for exit_ip ", port);
-      scm_display (scm_number_to_string (exit_ip, SCM_I_MAKINUM (16)), port);
+      scm_puts ("XXX: No trace for fragment_id ", port);
+      scm_display (scm_number_to_string (fragment_id, SCM_I_MAKINUM (16)),
+                   port);
       scm_newline (port);
       count = SCM_INUM0;
     }
@@ -213,23 +233,16 @@ call_native (SCM s_ip, SCM fragment,
       scm_t_uint32 *start = vp->ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-      if (start == end)
-        {
-          /* Deoptimizing root trace. When start and end is the same IP,
-             assuming that this happened because of a guard failure in
-             entry clause of the native code. Recording starts when VM
-             entered the same loop next time.
+      /* XXX: Do PIC, extend entry clause.
 
-             XXX: Do PIC, extend entry clause instead of removing the
-             old one. */
-          scm_hashq_remove_x (fragment_table, s_ip);
-        }
-      else
-        {
-          *parent_ip = (scm_t_uintptr) SCM_I_INUM (exit_ip);
-          *parent_exit_id = (int) SCM_I_INUM (exit_id);
-          start_recording (state, start, end, loop_start, loop_end);
-        }
+         Deoptimizing root trace is not working properly. When start and
+         end is the same IP, guard failure in entry clause of the native
+         code has happened. Recording starts when VM entered the same
+         loop next time. */
+
+      *parent_fragment_id = (int) SCM_I_INUM (fragment_id);
+      *parent_exit_id = (int) SCM_I_INUM (exit_id);
+      start_recording (state, start, end, loop_start, loop_end);
     }
 
   *nlocals_out = nlocals;
@@ -287,16 +300,16 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
     SCM s_ip, fragment;                                                 \
                                                                         \
     s_ip = SCM_I_MAKINUM (ip + jump);                                   \
-    fragment = scm_hashq_ref (fragment_table, s_ip, SCM_BOOL_F);        \
+    fragment = scm_hashq_ref (root_trace_table, s_ip, SCM_BOOL_F);      \
                                                                         \
-    if (is_root_trace (fragment))                                       \
+    if (scm_is_true (fragment))                                         \
       {                                                                 \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
         call_native (s_ip, fragment, thread, vp, registers,             \
                      &tjit_state,                                       \
                      &tjit_loop_start, &tjit_loop_end,                  \
-                     &tjit_parent_ip, &tjit_parent_exit_id,             \
+                     &tjit_parent_fragment_id, &tjit_parent_exit_id,    \
                      &nlocals);                                         \
                                                                         \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
@@ -327,8 +340,8 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
   do {                                                                  \
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
     SCM s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                 \
-    SCM fragment = scm_hashq_ref (fragment_table, s_ip, SCM_BOOL_F);    \
-    int found_root_trace = is_root_trace (fragment);                    \
+    SCM fragment = scm_hashq_ref (root_trace_table, s_ip, SCM_BOOL_F);  \
+    int found_root_trace = scm_is_true (fragment);                      \
                                                                         \
     SCM locals;                                                         \
     int opcode, i, num_locals;                                          \
@@ -363,19 +376,21 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
       {                                                                 \
         SYNC_IP ();                                                     \
         tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,                \
-               &tjit_parent_ip, tjit_parent_exit_id, s_ip,              \
+               tjit_parent_fragment_id, tjit_parent_exit_id, s_ip,      \
                found_root_trace ? SCM_BOOL_F : SCM_BOOL_T);             \
         CACHE_FP ();                                                    \
         ++trace_id;                                                     \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
-                        &tjit_parent_ip, &tjit_parent_exit_id);         \
+                        &tjit_parent_fragment_id,                       \
+                        &tjit_parent_exit_id);                          \
       }                                                                 \
     else if (SCM_I_INUM (tjit_max_record) < tjit_bc_idx)                \
       {                                                                 \
         /* XXX: Log the abort for too long trace. */                    \
         increment_compilation_failure (s_loop_start);                   \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
-                        &tjit_parent_ip, &tjit_parent_exit_id);         \
+                        &tjit_parent_fragment_id,                       \
+                        &tjit_parent_exit_id);                          \
       }                                                                 \
   } while (0)
 
@@ -393,10 +408,18 @@ SCM_DEFINE (scm_tjit_ip_counter, "tjit-ip-counter", 0, 0, 0, (void),
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_fragment_table, "fragment-table", 0, 0, 0, (void),
-            "Hash table containing fragments.")
+            "Hash table containing all fragments.")
 #define FUNC_NAME s_scm_fragment_table
 {
   return fragment_table;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_root_trace_table, "root-trace-table", 0, 0, 0, (void),
+            "Hash table containing root trace fragments.")
+#define FUNC_NAME s_scm_root_trace_table
+{
+  return root_trace_table;
 }
 #undef FUNC_NAME
 
@@ -550,6 +573,7 @@ scm_bootstrap_vm_tjit(void)
   ip_counter_table = scm_c_make_hash_table (31);
   failed_ip_table = scm_c_make_hash_table (31);
   fragment_table = scm_c_make_hash_table (31);
+  root_trace_table = scm_c_make_hash_table (31);
   tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));
 
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);

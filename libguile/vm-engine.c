@@ -529,8 +529,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   /* Scheme list to contain recorded trace. */
   SCM tjit_traces = SCM_EOL;
 
-  /* Instruction pointer of parent trace, if any. */
-  scm_t_uintptr tjit_parent_ip = NULL;
+  /* Fragment ID of parent trace, or 0 for root trace. */
+  int tjit_parent_fragment_id = 0;
 
   /* If tjit_parent_id is not NULL, exit id of parent trace. */
   int tjit_parent_exit_id = 0;

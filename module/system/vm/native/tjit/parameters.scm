@@ -22,7 +22,8 @@
 ;;;
 ;;; Module containing procedure for parameters and statistics used for vm-tjit
 ;;; engine. This module contains @code{load-extension} with
-;;; @code{scm_init_vm_tjit}.
+;;; @code{scm_init_vm_tjit} and exports Scheme procedures to access C functions
+;;; for vm-tjit engine.
 ;;;
 ;;; Code:
 
@@ -30,6 +31,7 @@
   #:use-module (srfi srfi-9)
   #:export (tjit-ip-counter
             fragment-table
+            root-trace-table
             failed-ip-table
 
             tjit-hot-loop

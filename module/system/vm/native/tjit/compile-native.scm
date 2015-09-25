@@ -408,7 +408,7 @@ of SRCS, DSTS, TYPES are local index number."
            (vm-sync-fp new-vp->fp))))))
 
   (define (compile-link args)
-    (let* ((linked-fragment (get-fragment linked-ip))
+    (let* ((linked-fragment (get-root-trace linked-ip))
            (loop-locals (fragment-loop-locals linked-fragment)))
       (define (shift-offset offset locals)
         ;; Shifting locals with given offset.
@@ -529,7 +529,7 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-prepare)
        (jit-pushargr reg-thread)
        (jit-pushargi (scm-i-makinumi current-side-exit))
-       (jit-pushargi (scm-i-makinumi entry-ip))
+       (jit-pushargi (scm-i-makinumi trace-id))
        (jit-pushargi (scm-i-makinumi nlocals))
        (jit-calli %scm-make-tjit-retval)
        (jit-retval reg-retval)
@@ -601,7 +601,7 @@ of SRCS, DSTS, TYPES are local index number."
            (let* ((out-code (trampoline-ref trampoline (- current-side-exit 1)))
                   (end-address (or (and fragment
                                         (fragment-end-address fragment))
-                                   (and=> (get-fragment linked-ip)
+                                   (and=> (get-root-trace linked-ip)
                                           fragment-end-address)))
                   (asm (make-asm env fp-offset out-code end-address)))
              (apply proc asm (map env-ref (append dsts args))))))

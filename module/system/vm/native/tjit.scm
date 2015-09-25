@@ -263,7 +263,7 @@
           (linked-id (if loop?
                          ""
                          (format #f " -> ~a"
-                                 (fragment-id (get-fragment linked-ip))))))
+                                 (fragment-id (get-root-trace linked-ip))))))
       (format #t ";;; trace ~a: ~a~a~a~%" trace-id sline exit-pair linked-id)))
 
   (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
@@ -326,7 +326,7 @@
                  ;; was taken for multiple times. Add another way to
                  ;; store fragments, otherwise native code of fragment
                  ;; could be garbage collected while still in use.
-                 (put-fragment! entry-ip (make-fragment trace-id
+                 (put-fragment! trace-id (make-fragment trace-id
                                                         code
                                                         exit-counts
                                                         entry-ip

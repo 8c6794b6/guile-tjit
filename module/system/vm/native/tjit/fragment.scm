@@ -54,6 +54,7 @@
             dump-fragment
             put-fragment!
             get-fragment
+            get-root-trace
 
             make-trampoline
             trampoline-ref
@@ -150,9 +151,8 @@
 ;; code.  Information stored in this record type is used when re-entering hot
 ;; bytecode IP, patching native code from side exit, ... etc.
 ;;
-;; This record type is shared with C code. Macros written in
-;; "libguile/vm-tjit.h" with "SCM_FRAGMENT" prefix are referring the
-;; contents.
+;; This record type is shared with C code. C macros written in
+;; "libguile/vm-tjit.h" with "SCM_FRAGMENT" prefix are referring the fields.
 ;;
 (define-record-type <fragment>
   (%make-fragment id code exit-counts entry-ip parent-id parent-exit-id
@@ -231,8 +231,16 @@
   (format #t "~19@a: ~a~%" 'fp-offset (fragment-fp-offset fragment))
   (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))
 
-(define (put-fragment! key fragment)
-  (hashq-set! (fragment-table) key fragment))
+(define (root-trace-fragment? fragment)
+  (zero? (fragment-parent-id fragment)))
 
-(define (get-fragment key)
-  (hashq-ref (fragment-table) key #f))
+(define (put-fragment! trace-id fragment)
+  (hashq-set! (fragment-table) trace-id fragment)
+  (when (root-trace-fragment? fragment)
+    (hashq-set! (root-trace-table) (fragment-entry-ip fragment) fragment)))
+
+(define (get-fragment fragment-id)
+  (hashq-ref (fragment-table) fragment-id #f))
+
+(define (get-root-trace ip)
+  (hashq-ref (root-trace-table) ip #f))

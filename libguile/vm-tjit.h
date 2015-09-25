@@ -32,6 +32,7 @@ typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
 
 SCM_API SCM scm_tjit_ip_counter (void);
 SCM_API SCM scm_fragment_table (void);
+SCM_API SCM scm_root_trace_table (void);
 SCM_API SCM scm_failed_ip_table (void);
 SCM_API SCM scm_tjit_hot_loop (void);
 SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
@@ -59,7 +60,7 @@ SCM_API void scm_dump_locals (SCM trace_id, int n, SCM *fp);
 #define SCM_FRAGMENT_LOOP_ADDRESS(T)   SCM_STRUCT_SLOT_REF (T, 6)
 
 #define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
-#define SCM_TJIT_RETVAL_EXIT_IP(R) SCM_CELL_OBJECT (R, 1)
+#define SCM_TJIT_RETVAL_FRAGMENT_ID(R) SCM_CELL_OBJECT (R, 1)
 #define SCM_TJIT_RETVAL_NLOCALS(R) SCM_I_INUM (SCM_CELL_OBJECT (R, 2))
 
 SCM_API void scm_bootstrap_vm_tjit (void);
