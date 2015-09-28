@@ -849,13 +849,14 @@
             ;; passed as argument. Loading later with CPS IR '%frame-ref'
             ;; or '%frame-ref/f'.
             ;;
-            ;; Locals with its index exceeding initial number of locals are also
-            ;; ignored, those are likely to be locals in inlined procedure,
-            ;; which will get assigned or loaded from frame later.
+            ;; In side traces, locals with its index exceeding initial number of
+            ;; locals are also ignored, those are likely to be locals in inlined
+            ;; procedure, which will get assigned or loaded from frame later.
             ;;
             ((or (assq-ref parent-snapshot-locals n)
                  (< n 0)
-                 (<= initial-nlocals n))
+                 (and (not root-trace?)
+                      (<= initial-nlocals n)))
              (lp vars))
             (else
              (let* ((snapshot0 (hashq-ref snapshots 0))
@@ -863,8 +864,13 @@
                     (local (if (and (< -1 i)
                                     (< i (vector-length initial-locals)))
                                (vector-ref initial-locals i)
-                               #f))
-                    (type (type-of-local n local)))
+                               (make-variable #f)))
+                    (type (if root-trace?
+                              (or (hashq-ref expecting-types n)
+                                  ;; XXX: Replace `&box' with a value for type
+                                  ;; to indicate any type.
+                                  &box)
+                              (type-of-local n local))))
                (debug 3 ";;; add-initial-loads: n=~a~%" n)
                (debug 3 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
                (debug 3 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
@@ -882,20 +888,14 @@
         (let ((loop (convert escape trace)))
           `(letrec ((entry (lambda ()
                              (,initial-ip)
-                             ,(let lp ((lp-vars vars))
-                                (match lp-vars
-                                  (((n . var) . lp-vars)
-                                   (let ((type (or (hashq-ref expecting-types n)
-                                                   &box)))
-                                     (with-frame-ref lp lp-vars var type n)))
-                                  (()
-                                   `(begin
-                                      ,(take-snapshot! *ip-key-set-loop-info!*
-                                                       0
-                                                       initial-locals
-                                                       local-indices
-                                                       vars)
-                                      (loop ,@args)))))))
+                             ,(add-initial-loads
+                               `(begin
+                                  ,(take-snapshot! *ip-key-set-loop-info!*
+                                                   0
+                                                   initial-locals
+                                                   local-indices
+                                                   vars)
+                                  (loop ,@args)))))
                     (loop (lambda ,args
                             ,loop)))
              entry)))
