@@ -673,6 +673,9 @@ of SRCS, DSTS, TYPES are local index number."
 
 (define (compile-native cps entry-ip locals snapshots fragment exit-id linked-ip
                         lowest-offset trace-id)
+  (when (tjit-dump-time? (tjit-dump-option))
+    (let ((log (get-tjit-time-log trace-id)))
+      (set-tjit-time-log-assemble! log (get-internal-run-time))))
   (let*-values
       (((max-label max-var) (compute-max-label-and-var cps))
        ((env initial-locals loop-args kstart nspills)

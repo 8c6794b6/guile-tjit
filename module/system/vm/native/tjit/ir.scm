@@ -54,6 +54,7 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit fragment)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit snapshot)
   #:export (trace->cps
             trace->scm
@@ -955,6 +956,7 @@
          (values (+ k 1) (intmap-remove cps k)))
         (_
          (error "body-fun: got ~a" (intmap-ref cps k)))))
+
     (call-with-values
         (lambda ()
           (set! cps (optimize-higher-order-cps cps ignored-passes))
@@ -969,13 +971,20 @@
     (set! cps (and cps (body-fun cps)))
     cps))
 
-(define (trace->cps fragment exit-id loop? trace)
+(define (trace->cps trace-id fragment exit-id loop? trace)
   "Compiles TRACE to CPS IR.
 
 If the trace to be compiles is a side trace, expects FRAGMENT as from parent
 trace, and EXIT-ID is the hot exit id from the parent trace. LOOP? is should be
 a boolean to indicate whether the trace contains loop or not."
-  (call-with-values (lambda () (trace->scm fragment exit-id loop? trace))
+  (when (tjit-dump-time? (tjit-dump-option))
+    (let ((log (get-tjit-time-log trace-id)))
+      (set-tjit-time-log-scm! log (get-internal-run-time))))
+  (call-with-values
+      (lambda () (trace->scm fragment exit-id loop? trace))
     (lambda (locals snapshots lowest-offset scm)
+      (when (tjit-dump-time? (tjit-dump-option))
+        (let ((log (get-tjit-time-log trace-id)))
+          (set-tjit-time-log-cps! log (get-internal-run-time))))
       (let ((cps (scm->cps scm)))
         (values locals snapshots lowest-offset scm cps)))))

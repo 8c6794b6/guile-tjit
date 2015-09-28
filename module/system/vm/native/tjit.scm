@@ -266,6 +266,10 @@
                                  (fragment-id (get-root-trace linked-ip))))))
       (format #t ";;; trace ~a: ~a~a~a~%" trace-id sline exit-pair linked-id)))
 
+  (when (tjit-dump-time? (tjit-dump-option))
+    (put-tjit-time-log! trace-id
+                        (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
+
   (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
          (entry-ip (cadr (car ip-x-ops)))
          (verbosity (lightning-verbosity))
@@ -280,7 +284,8 @@
       (format #t ";;; loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
     (let-values (((locals snapshots lowest-offset scm cps)
-                  (trace->cps fragment parent-exit-id loop? ip-x-ops)))
+                  (trace->cps trace-id fragment parent-exit-id loop?
+                              ip-x-ops)))
       (when (and (tjit-dump-enter? dump-option)
                  (or cps (tjit-dump-abort? dump-option)))
         (show-one-line sline fragment))
@@ -347,7 +352,10 @@
                          (snapshot (hashq-ref (fragment-snapshots fragment)
                                               parent-exit-id)))
                      (trampoline-set! trampoline parent-exit-id ptr)
-                     (set-snapshot-code! snapshot code)))))))))))))
+                     (set-snapshot-code! snapshot code))))))))))
+      (when (tjit-dump-time? dump-option)
+        (let ((log (get-tjit-time-log trace-id)))
+          (set-tjit-time-log-end! log (get-internal-run-time)))))))
 
 
 ;;;
