@@ -136,11 +136,11 @@ start_recording (size_t *state, scm_t_uint32 *start, scm_t_uint32 *end,
 }
 
 static inline void
-stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx,
+stop_recording (size_t *state, SCM *traces, scm_t_uint32 *bc_idx,
                 int *parent_fragment_id, int *exit_id)
 {
   *state = SCM_TJIT_STATE_INTERPRET;
-  *ips = SCM_EOL;
+  *traces = SCM_EOL;
   *bc_idx = 0;
   *parent_fragment_id = 0;
   *exit_id = 0;
@@ -181,15 +181,8 @@ is_hot_exit (SCM ip, SCM count)
           scm_hashq_ref (failed_ip_table, ip, SCM_INUM0) < tjit_max_retries);
 }
 
-static inline int
-is_root_trace (SCM fragment)
-{
-  return scm_is_true (fragment) &&
-    SCM_INUM0 == (SCM_FRAGMENT_PARENT_ID (fragment));
-}
-
 static inline void
-call_native (SCM s_ip, SCM fragment,
+call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
              scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              int *parent_fragment_id, int *parent_exit_id,
@@ -233,12 +226,15 @@ call_native (SCM s_ip, SCM fragment,
       scm_t_uint32 *start = vp->ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-      /* XXX: Do PIC, extend entry clause.
-
-         Deoptimizing root trace is not working properly. When start and
-         end is the same IP, guard failure in entry clause of the native
-         code has happened. Recording starts when VM entered the same
-         loop next time. */
+      /* When start and end is the same IP, assuming as guard failure in
+         entry clause of the native code has happened. Recording starts
+         when VM entered the same loop next time. To prevent the VM
+         interpreter to stop recording immediately without visiting
+         bytecode of the loop, setting end to the IP before the backward
+         jump. Result of record will be a looping side trace starting
+         from entry IP of parent trace. */
+      if (start == end)
+        end = previous_ip;
 
       *parent_fragment_id = (int) SCM_I_INUM (fragment_id);
       *parent_exit_id = (int) SCM_I_INUM (exit_id);
@@ -306,7 +302,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
       {                                                                 \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
-        call_native (s_ip, fragment, thread, vp, registers,             \
+        call_native (s_ip, ip, fragment, thread, vp, registers,         \
                      &tjit_state,                                       \
                      &tjit_loop_start, &tjit_loop_end,                  \
                      &tjit_parent_fragment_id, &tjit_parent_exit_id,    \
@@ -339,26 +335,28 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
 #define SCM_TJIT_MERGE()                                                \
   do {                                                                  \
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
-    SCM s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                 \
-    SCM fragment = scm_hashq_ref (root_trace_table, s_ip, SCM_BOOL_F);  \
-    int found_root_trace = scm_is_true (fragment);                      \
                                                                         \
-    SCM locals;                                                         \
-    int opcode, i, num_locals;                                          \
+    scm_t_uint32 *start_ip = (scm_t_uint32 *) tjit_loop_start;          \
+    scm_t_uint32 *end_ip = (scm_t_uint32 *) tjit_loop_end;              \
                                                                         \
-    /* Record bytecode IP, FP, and locals. When fragment is true,    */ \
+    /* Avoid looking up fragment of looping-side-trace itself. */       \
+    int link_found =                                                    \
+      scm_is_true (scm_hashq_ref (root_trace_table, s_ip, SCM_BOOL_F))  \
+      && ip != start_ip;                                                \
+                                                                        \
+    /* Record bytecode IP, FP, and locals. When link was found,      */ \
     /* current record is side trace, and the current bytecode IP is  */ \
     /* already recorded by root trace.                               */ \
-    if (!found_root_trace)                                              \
+    if (!link_found)                                                    \
       {                                                                 \
+        SCM locals;                                                     \
+        int opcode, i, num_locals;                                      \
+                                                                        \
         opcode = *ip & 0xff;                                            \
                                                                         \
-        /* Store current bytecode and increment bytecode index. */      \
-        for (i = 0; i < op_sizes[opcode]; ++i)                          \
-          {                                                             \
-            tjit_bytecode[tjit_bc_idx] = ip[i];                         \
-            tjit_bc_idx += 1;                                           \
-          }                                                             \
+        /* Store current bytecode with incrementing bytecode index. */  \
+        for (i = 0; i < op_sizes[opcode]; ++i, ++tjit_bc_idx)           \
+          tjit_bytecode[tjit_bc_idx] = ip[i];                           \
                                                                         \
         /* Copying the local contents to vector manually, to get     */ \
         /* updated information from *fp, not from *vp which may out  */ \
@@ -371,13 +369,13 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
         tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
       }                                                                 \
                                                                         \
-    /* Stop recording when IP reached to end or found a link. */        \
-    if (ip == ((scm_t_uint32 *) tjit_loop_end) || found_root_trace)     \
+    /* Stop recording when IP reached to the end or found a link. */    \
+    if (ip == end_ip || link_found)                                     \
       {                                                                 \
         SYNC_IP ();                                                     \
         tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,                \
                tjit_parent_fragment_id, tjit_parent_exit_id, s_ip,      \
-               found_root_trace ? SCM_BOOL_F : SCM_BOOL_T);             \
+               link_found ? SCM_BOOL_F : SCM_BOOL_T);                   \
         CACHE_FP ();                                                    \
         ++trace_id;                                                     \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
@@ -387,7 +385,8 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
     else if (SCM_I_INUM (tjit_max_record) < tjit_bc_idx)                \
       {                                                                 \
         /* XXX: Log the abort for too long trace. */                    \
-        increment_compilation_failure (s_loop_start);                   \
+        SCM s_loop_start_ip = SCM_I_MAKINUM (tjit_loop_start);          \
+        increment_compilation_failure (s_loop_start_ip);                \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
                         &tjit_parent_fragment_id,                       \
                         &tjit_parent_exit_id);                          \
@@ -509,12 +508,12 @@ scm_make_tjit_retval (scm_i_thread *thread,
 }
 
 SCM
-scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval, struct scm_vm *vp)
+scm_dump_tjit_retval (SCM tjit_retval, struct scm_vm *vp)
 {
   SCM port = scm_current_output_port ();
 
   scm_puts (";;; trace ", port);
-  scm_display (trace_id, port);
+  scm_display (SCM_TJIT_RETVAL_FRAGMENT_ID (tjit_retval), port);
   scm_puts (": exit ", port);
   scm_display (SCM_TJIT_RETVAL_EXIT_ID (tjit_retval), port);
   scm_puts (" => ", port);

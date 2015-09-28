@@ -111,14 +111,16 @@
     (match snapshot
       (($ $snapshot offset) offset)
       (_ 0)))
-  (define (get-initial-snapshot-id snapshots nlocals)
+  (define (get-initial-snapshot-id snapshots nlocals locals indices vars
+                                   past-frame)
     ;; For root trace, adding initial snapshot trace with key=0 to hold
     ;; bytevector of native code later. This key=0 snapshot for root trace is
     ;; used for guard failure in entry clause to quickly return to VM
     ;; interpreter without restoring frame locals.
     (if root-trace?
-        (begin
-          (hashq-set! snapshots 0 (%make-snapshot 0 nlocals '() #f #f))
+        (let ((snapshot (make-snapshot 0 0 nlocals locals #f indices vars
+                                       past-frame)))
+          (hashq-set! snapshots 0 snapshot)
           1)
         0))
   (define (make-vars-from-parent vars
@@ -168,7 +170,12 @@
                                                    vars
                                                    vars-from-parent))))
          (snapshots (make-hash-table))
-         (snapshot-id (get-initial-snapshot-id snapshots initial-nlocals)))
+         (snapshot-id (get-initial-snapshot-id snapshots
+                                               initial-nlocals
+                                               initial-locals
+                                               local-indices
+                                               vars
+                                               past-frame)))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -786,8 +793,8 @@
       (match trace
         (((op ip fp ra locals) . ())
          (let ((last-exp
-                (if (and root-trace? loop?)
-                    ;; Root trace with loop. Emit `loop', which is the name of
+                (if loop?
+                    ;; Trace with loop. Emit `loop', which is the name of
                     ;; procedure for looping the body of Scheme IR emitted in
                     ;; `make-scm'.
                     `(loop ,@(reverse (map cdr vars)))
@@ -858,7 +865,7 @@
                                (vector-ref initial-locals i)
                                #f))
                     (type (type-of-local n local)))
-               (debug 3 ";;; add-initial-loads: n=~a local=~a~%" n local)
+               (debug 3 ";;; add-initial-loads: n=~a~%" n)
                (debug 3 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
                (debug 3 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
                (debug 3 ";;;   local:          ~a~%" local)
@@ -870,7 +877,7 @@
     (define (make-scm escape trace)
       (cond
        (root-trace?
-        ;; Invoking `convert' prior to entry clause so that the
+        ;; Invoking `convert' before generating entry clause so that the
         ;; `expecting-types' gets filled in.
         (let ((loop (convert escape trace)))
           `(letrec ((entry (lambda ()
@@ -891,6 +898,19 @@
                                       (loop ,@args)))))))
                     (loop (lambda ,args
                             ,loop)))
+             entry)))
+       (loop?
+        (let ((args-from-vars (reverse! (map cdr vars))))
+          `(letrec ((entry (lambda ,args-from-parent
+                             (begin
+                               ,(take-snapshot! initial-ip
+                                                0
+                                                initial-locals
+                                                local-indices-from-parent
+                                                vars-from-parent)
+                               ,(add-initial-loads `(loop ,@args-from-vars)))))
+                    (loop (lambda ,args-from-vars
+                            ,(convert escape trace))))
              entry)))
        (else
         `(letrec ((patch (lambda ,args-from-parent

@@ -268,7 +268,7 @@ SHIFT."
            (store-frame moffs local type unwrapped-src))
          (hashq-set! acc (+ local shift) unwrapped-src)
          (lp local-x-types srcs acc)))
-      ((() ())
+      (_
        acc))))
 
 (define (move-or-load-carefully dsts srcs types moffs)
@@ -539,7 +539,6 @@ of SRCS, DSTS, TYPES are local index number."
          (when (tjit-dump-exit? dump-option)
            (jit-movr reg-thread reg-retval)
            (jit-prepare)
-           (jit-pushargi (scm-i-makinumi trace-id))
            (jit-pushargr reg-retval)
            (jit-ldxi reg-retval fp vp-offset)
            (jit-pushargr reg-retval)

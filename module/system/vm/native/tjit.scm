@@ -322,10 +322,9 @@
                                      0)))
                  (make-bytevector-executable! code)
 
-                 ;; XXX: Same entry-ip could be used when side exit 0
-                 ;; was taken for multiple times. Add another way to
-                 ;; store fragments, otherwise native code of fragment
-                 ;; could be garbage collected while still in use.
+                 ;; Same entry-ip could be used when side exit 0 was
+                 ;; taken for multiple times. Using trace-id as hash
+                 ;; table key.
                  (put-fragment! trace-id (make-fragment trace-id
                                                         code
                                                         exit-counts
