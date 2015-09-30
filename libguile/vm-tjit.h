@@ -31,9 +31,9 @@ typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
                                   scm_i_jmp_buf *registers);
 
 SCM_API SCM scm_tjit_ip_counter (void);
-SCM_API SCM scm_fragment_table (void);
-SCM_API SCM scm_root_trace_table (void);
-SCM_API SCM scm_failed_ip_table (void);
+SCM_API SCM scm_tjit_fragment_table (void);
+SCM_API SCM scm_tjit_root_trace_table (void);
+SCM_API SCM scm_tjit_failed_ip_table (void);
 SCM_API SCM scm_tjit_hot_loop (void);
 SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
 SCM_API SCM scm_tjit_hot_exit (void);
@@ -41,12 +41,14 @@ SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
 SCM_API SCM scm_tjit_max_retries (void);
 SCM_API SCM scm_set_tjit_max_retries_x (SCM count);
 
-SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
+SCM_API SCM scm_tjit_make_retval (scm_i_thread *thread,
                                   scm_t_bits exit_id,
                                   scm_t_bits exit_ip,
                                   scm_t_bits nlocals);
-SCM_API SCM scm_dump_tjit_retval (SCM tjit_retval, struct scm_vm *vp);
-SCM_API void scm_dump_locals (SCM trace_id, int n, SCM *fp);
+
+SCM_API void scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp);
+SCM_API void scm_tjit_dump_fp (SCM trace_id, SCM *fp);
+SCM_API void scm_tjit_dump_locals (SCM trace_id, int n, SCM *fp);
 
 /* Fields in record-type `fragment', from:
    "module/system/vm/native/tjit/parameters.scm". */

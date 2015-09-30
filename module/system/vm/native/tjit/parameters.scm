@@ -31,9 +31,9 @@
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-9)
   #:export (tjit-ip-counter
-            fragment-table
-            root-trace-table
-            failed-ip-table
+            tjit-fragment-table
+            tjit-root-trace-table
+            tjit-failed-ip-table
 
             tjit-hot-loop
             set-tjit-hot-loop!
@@ -48,6 +48,7 @@
             tjit-dump-cps?
             tjit-dump-enter?
             tjit-dump-locals?
+            tjit-dump-jitc?
             tjit-dump-scm?
             tjit-dump-time?
             tjit-dump-exit?
@@ -75,12 +76,13 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode cps enter locals scm time exit)
+  (make-tjit-dump abort bytecode cps enter jitc locals scm time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
   (cps tjit-dump-cps? set-tjit-dump-cps!)
   (enter tjit-dump-enter? set-tjit-dump-enter!)
+  (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-locals? set-tjit-dump-locals!)
   (scm tjit-dump-scm? set-tjit-dump-scm!)
   (time tjit-dump-time? set-tjit-dump-time!)
@@ -88,7 +90,7 @@
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f #f #f #f #f #f #f))
+  (make-tjit-dump #f #f #f #f #f #f #f #f #f))
 
 (define tjit-dump-option
   ;; Parameter to control dump setting during compilation of traces.
@@ -105,7 +107,9 @@ Flags are:
 
 - 'c': Dump CPS IR.
 
-- 'e': Dump entry, show brief info when starting native code compilation.
+- 'e': Dump enter, show FP, and relevant data when entering native code.
+
+- 'j': Dump brief info when starting JIT compilation.
 
 - 'l': Dump locals, see 'x'.
 
@@ -134,13 +138,14 @@ fields to @code{#f}."
                                     (else
                                      (lp cs)))))))))
         (flags (#\a set-tjit-dump-abort!)
-               (#\l set-tjit-dump-locals!)
-               (#\e set-tjit-dump-enter!)
-               (#\x set-tjit-dump-exit!)
                (#\b set-tjit-dump-bytecode!)
+               (#\c set-tjit-dump-cps!)
+               (#\e set-tjit-dump-enter!)
+               (#\j set-tjit-dump-jitc!)
+               (#\l set-tjit-dump-locals!)
                (#\s set-tjit-dump-scm!)
                (#\t set-tjit-dump-time!)
-               (#\c set-tjit-dump-cps!))))))
+               (#\x set-tjit-dump-exit!))))))
 
 (define (set-tjit-dump-option! str)
   "Set @code{tjit-dump-option} parameter with flags in STR."
@@ -210,7 +215,7 @@ option is set to true."
          (scm-time (if dump-time 0 #f))
          (cps-time (if dump-time 0 #f))
          (asm-time (if dump-time 0 #f))
-         (num-fragments (hash-count (const #t) (fragment-table))))
+         (num-fragments (hash-count (const #t) (tjit-fragment-table))))
     (hash-fold (lambda (k v acc)
                  (set! num-loops (+ num-loops 1))
                  (when (< hot-loop v)

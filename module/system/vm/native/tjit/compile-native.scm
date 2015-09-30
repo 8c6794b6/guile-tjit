@@ -54,15 +54,20 @@
 ;;; Scheme constants and syntax
 ;;;
 
-(define %scm-make-tjit-retval
-  (dynamic-pointer "scm_make_tjit_retval" (dynamic-link)))
+(define %scm-tjit-make-retval
+  (dynamic-pointer "scm_tjit_make_retval" (dynamic-link)))
 
-(define %scm-dump-tjit-retval
-  (dynamic-pointer "scm_dump_tjit_retval" (dynamic-link)))
+(define %scm-tjit-dump-retval
+  (dynamic-pointer "scm_tjit_dump_retval" (dynamic-link)))
 
-(define %scm-dump-locals
-  (dynamic-pointer "scm_dump_locals" (dynamic-link)))
+(define %scm-tjit-dump-locals
+  (dynamic-pointer "scm_tjit_dump_locals" (dynamic-link)))
 
+(define %scm-tjit-dump-fp
+  (dynamic-pointer "scm_tjit_dump_fp" (dynamic-link)))
+
+(define-syntax-rule (scm-i-makinumi n)
+  (make-signed-pointer (+ (ash n 2) 2)))
 
 ;;;
 ;;; Code generation
@@ -168,7 +173,8 @@
     (error "load-frame" local type dst))))
 
 (define (store-frame moffs local type src)
-  (debug 3 ";;; store-frame: local=~a type=~a src=~a~%" local type src)
+  (debug 3 ";;; store-frame: local=~a type=~a src=~a~%"
+         local (pretty-type type) src)
   (cond
    ((return-address? type)
     ;; Moving value coupled with type to frame local. Return address of VM frame
@@ -266,7 +272,7 @@ SHIFT."
                    (return-address? type)
                    (not (assq local references)))
            (store-frame moffs local type unwrapped-src))
-         (hashq-set! acc (+ local shift) unwrapped-src)
+         (hashq-set! acc (- local shift) unwrapped-src)
          (lp local-x-types srcs acc)))
       (_
        acc))))
@@ -382,17 +388,18 @@ of SRCS, DSTS, TYPES are local index number."
           (new-vp->fp r1)
           (offsets
            (let lp ((local-x-types (reverse local-x-types))
-                    (last-offset local-offset)
+                    (prev-offset local-offset)
                     (acc '()))
              (match local-x-types
                (((_ . ($ $dynamic-link offset)) . local-x-types)
                 (lp local-x-types
                     offset
-                    (cons (- last-offset offset) acc)))
+                    (cons (- prev-offset offset) acc)))
                ((_ . local-x-types)
-                (lp local-x-types last-offset acc))
+                (lp local-x-types prev-offset acc))
                (()
                 acc)))))
+      (debug 1 ";;; refill-dynamic-links: offsets=~a~%" offsets)
       (jit-ldxi old-vp->fp fp vp->fp-offset)
       (jit-movr new-vp->fp old-vp->fp)
       (let lp ((offsets offsets))
@@ -421,6 +428,7 @@ of SRCS, DSTS, TYPES are local index number."
        ((hashq-ref snapshots current-side-exit)
         => (match-lambda
             (($ $snapshot local-offset _ local-x-types)
+
              ;; Store unpassed variables, and move variables to linked trace.
              ;; Shift amount in `maybe-store' depending on whether the trace is
              ;; root trace or not.
@@ -430,28 +438,24 @@ of SRCS, DSTS, TYPES are local index number."
                                       local-offset))
                     (references (shift-offset shift-amount loop-locals))
                     (src-table (maybe-store moffs local-x-types args env-ref
-                                            references (- local-offset)))
+                                            references local-offset))
                     (type-table (make-hash-table))
                     (dst-table (make-hash-table)))
                (let lp ((locals loop-locals)
                         (dsts (fragment-loop-vars linked-fragment)))
-                 (match locals
-                   (((local . type) . locals)
+                 (match (list locals dsts)
+                   ((((local . type) . locals) (dst . dsts))
                     (hashq-set! type-table local type)
-                    (match dsts
-                      ((dst . dsts)
-                       (hashq-set! dst-table (- local lowest-offset) dst)
-                       (lp locals dsts))
-                      (()
-                       (debug 3 ";;; compile-link: dsts=null, locals=~a~%"
-                              locals))))
-                   (_ (values))))
+                    (hashq-set! dst-table (- local lowest-offset) dst)
+                    (lp locals dsts))
+                   (_
+                    (values))))
                (move-or-load-carefully dst-table src-table type-table moffs))
 
              ;; Shift back FP and sync. Shifting back lowest-offset moved by
              ;; `%return', and shifting for local-offset to match the FP in
              ;; middle of procedure call.
-             (when (not (= lowest-offset 0))
+             (when (< lowest-offset 0)
                (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
                       lowest-offset)
                (refill-dynamic-links local-offset local-x-types))
@@ -473,8 +477,6 @@ of SRCS, DSTS, TYPES are local index number."
         (debug 3 ";;; compile-link: IP is 0, snapshot not found~%")))))
 
   (define (compile-bailout next-ip args)
-    (define-syntax-rule (scm-i-makinumi n)
-      (make-signed-pointer (+ (ash n 2) 2)))
     (define (store-snapshot snapshot)
       (match snapshot
         (($ $snapshot local-offset nlocals local-x-types)
@@ -531,7 +533,7 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-pushargi (scm-i-makinumi current-side-exit))
        (jit-pushargi (scm-i-makinumi trace-id))
        (jit-pushargi (scm-i-makinumi nlocals))
-       (jit-calli %scm-make-tjit-retval)
+       (jit-calli %scm-tjit-make-retval)
        (jit-retval reg-retval)
 
        ;; Debug code to dump tjit-retval and locals.
@@ -542,7 +544,7 @@ of SRCS, DSTS, TYPES are local index number."
            (jit-pushargr reg-retval)
            (jit-ldxi reg-retval fp vp-offset)
            (jit-pushargr reg-retval)
-           (jit-calli %scm-dump-tjit-retval)
+           (jit-calli %scm-tjit-dump-retval)
            (jit-movr reg-retval reg-thread)
            (let ((verbosity (lightning-verbosity)))
              (when (tjit-dump-locals? dump-option)
@@ -552,7 +554,7 @@ of SRCS, DSTS, TYPES are local index number."
                (jit-pushargi (imm nlocals))
                (jit-ldxi reg-retval fp vp->fp-offset)
                (jit-pushargr reg-retval)
-               (jit-calli %scm-dump-locals)
+               (jit-calli %scm-tjit-dump-locals)
                (jit-movr reg-retval reg-thread)))))
 
        (return-to-interpreter)
@@ -706,15 +708,26 @@ of SRCS, DSTS, TYPES are local index number."
     (cond
      ;; Root trace.
      ((not fragment)
-      ;; Get arguments.
-      (jit-getarg reg-thread (jit-arg)) ; thread
-      (jit-getarg r0 (jit-arg))         ; vp
-      (jit-getarg r1 (jit-arg))         ; registers, for prompt
+      (let ((vp r0)
+            (registers r1))
 
-      ;; Store `vp', `vp->fp', and `registers'.
-      (jit-stxi vp-offset fp r0)
-      (vm-cache-fp r0)
-      (jit-stxi registers-offset fp r1))
+        ;; Get arguments.
+        (jit-getarg reg-thread (jit-arg)) ; thread
+        (jit-getarg vp (jit-arg))         ; vp
+        (jit-getarg registers (jit-arg))  ; registers, for prompt
+
+        ;; Store `vp', `vp->fp', and `registers'.
+        (jit-stxi vp-offset fp vp)
+        (vm-cache-fp vp)
+        (jit-stxi registers-offset fp registers)
+
+        ;; Dump FP at the beginning of native code.
+        (when (tjit-dump-enter? (tjit-dump-option))
+          (jit-prepare)
+          (jit-pushargi (scm-i-makinumi trace-id))
+          (jit-ldxi r0 fp vp->fp-offset)
+          (jit-pushargr r0)
+          (jit-calli %scm-tjit-dump-fp))))
 
      ;; Side trace.
      (else

@@ -31,18 +31,13 @@
   #:use-module (ice-9 match)
   #:use-module (ice-9 format)
   #:use-module (language cps types)
+  #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
+  #:use-module (system vm debug)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit parameters)
-  #:export (type-of
-            fixnum?
-            flonum?
-            unbound?
-            true?
-            false?
-
-            $snapshot
+  #:export ($snapshot
             make-snapshot
             %make-snapshot
             snapshot?
@@ -71,45 +66,16 @@
             dynamic-link?
             dynamic-link-offset
 
+            fixnum?
+            flonum?
+            unbound?
+            true?
+            false?
+            type-of
+            addr->source-line
+            pretty-type
+
             accumulate-locals))
-
-
-;;;
-;;; Type checker based on runtime values
-;;;
-
-(define (fixnum? val)
-  (and (exact-integer? val)
-       (<= most-negative-fixnum val most-positive-fixnum)))
-
-(define (flonum? val)
-  (and (real? val) (inexact? val)))
-
-(define (unbound? x)
-  (= (pointer-address (scm->pointer x)) #x904))
-
-(define (false? x)
-  (not x))
-
-(define (true? x)
-  (eq? x #t))
-
-(define (type-of obj)
-  (cond
-   ((fixnum? obj) &exact-integer)
-   ((flonum? obj) &flonum)
-   ((char? obj) &char)
-   ((unspecified? obj) &unspecified)
-   ((unbound? obj) &unbound)
-   ((false? obj) &false)
-   ((true? obj) &true)
-   ((procedure? obj) &procedure)
-   ((pair? obj) &pair)
-   ((variable? obj) &box)
-   ((struct? obj) &struct)
-   (else
-    (debug 3 "*** Type not determined: ~a~%" obj)
-    #f)))
 
 
 ;;;
@@ -215,6 +181,86 @@
 
   ;; Native code of bailout with this snapshot.
   (code snapshot-code set-snapshot-code!))
+
+
+;;;
+;;; Type checker based on runtime values
+;;;
+
+(define (fixnum? val)
+  (and (exact-integer? val)
+       (<= most-negative-fixnum val most-positive-fixnum)))
+
+(define (flonum? val)
+  (and (real? val) (inexact? val)))
+
+(define (unbound? x)
+  (= (pointer-address (scm->pointer x)) #x904))
+
+(define (false? x)
+  (not x))
+
+(define (true? x)
+  (eq? x #t))
+
+(define (type-of obj)
+  (cond
+   ((fixnum? obj) &exact-integer)
+   ((flonum? obj) &flonum)
+   ((char? obj) &char)
+   ((unspecified? obj) &unspecified)
+   ((unbound? obj) &unbound)
+   ((false? obj) &false)
+   ((true? obj) &true)
+   ((procedure? obj) &procedure)
+   ((pair? obj) &pair)
+   ((variable? obj) &box)
+   ((struct? obj) &struct)
+   ((bytevector? obj) &bytevector)
+   ((bitvector? obj) &bitvector)
+   (else
+    (debug 3 "*** Type not determined: ~a~%" obj)
+    #f)))
+
+(define-syntax-rule (addr->source-line addr)
+  (cond
+   ((find-source-for-addr addr)
+    => (lambda (source)
+         (format #f "~a:~d"
+                 (let ((file (source-file source)))
+                   (or (and (string? file) (basename file))
+                       "(unknown file)"))
+                 (source-line-for-user source))))
+   (else
+    "(invalid IP)")))
+
+(define (pretty-type type)
+  "Show string representation of TYPE."
+  (cond
+   ((eq? type &exact-integer) (blue "snum"))
+   ((eq? type &flonum) (magenta "fnum"))
+   ((eq? type &char) (blue "char"))
+   ((eq? type &unspecified) (green "uspc"))
+   ((eq? type &unbound) (green "ubnd"))
+   ((eq? type &false) (green "fals"))
+   ((eq? type &true) (green "true"))
+   ((eq? type &nil) (green "nil"))
+   ((eq? type &symbol) (blue "symb"))
+   ((eq? type &keyword) (blue "kw"))
+   ((eq? type &procedure) (red "proc"))
+   ((eq? type &pair) (yellow "pair"))
+   ((eq? type &vector) (yellow "vec"))
+   ((eq? type &box) (yellow "box"))
+   ((eq? type &struct) (yellow "strc"))
+   ((dynamic-link? type)
+    (let ((diff (number->string (dynamic-link-offset type))))
+      (string-append "dl:" (cyan diff))))
+   ((return-address? type)
+    (let* ((addr (pointer-address (return-address-ip type)))
+           (hex-ip (number->string addr 16)))
+      (string-append "ra:" (cyan hex-ip)
+                     "/" (bold (addr->source-line addr)))))
+   (else type)))
 
 
 ;;;
@@ -332,11 +378,12 @@
         (when (and verbosity (<= 3 verbosity))
           (format #t ";;; local-indices:~%")
           (format #t ";;;   ~a~%" local-indices)
-          (format #t ";;; lowers:~%")
-          (when (tjit-dump-locals? (tjit-dump-option))
-            (for-each (lambda (lower)
-                        (format #t ";;;   ~a~%" lower))
-                      lowers))))
+          ;; (format #t ";;; lowers:~%")
+          ;; (when (tjit-dump-locals? (tjit-dump-option))
+          ;;   (for-each (lambda (lower)
+          ;;               (format #t ";;;   ~a~%" lower))
+          ;;             lowers))
+          ))
 
       ;; Make past-frame with locals in lower frames.
       ;;
@@ -380,11 +427,9 @@
            (if (and type
                     (<= lowest-offset i highest-offset))
                (begin
-                 (debug 3 ";;;   add-local: i=~a, local=~a~%" i local)
                  (lp is (cons `(,i . ,type) acc)))
                (lp is acc))))
        (define (add-val val)
-         (debug 3 ";;;   add-val: i=~a, val=~a~%" i val)
          (lp is (cons `(,i . ,val) acc)))
        (cond
         ((= local-offset 0)

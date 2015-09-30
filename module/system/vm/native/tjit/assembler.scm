@@ -485,9 +485,11 @@ both arguments were register or memory."
 
     (jit-link next)
     (scm-frame-dynamic-link new-vp->fp old-vp->fp)
-    (jit-stxi vp->fp-offset fp new-vp->fp)
-    ;; XXX: Might better not to sync at this point, add more tests.
-    (vm-sync-fp new-vp->fp)))
+
+    ;; Store new vp->fp to memory, so that the new vp->fp could be referred from
+    ;; other native codes than the one currently compiling. Note that the new
+    ;; vp->fp is not yet synced with fp field in vp at this point.
+    (jit-stxi vp->fp-offset fp new-vp->fp)))
 
 
 ;;;

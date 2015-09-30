@@ -82,10 +82,10 @@
       (match traces
         (((op ip fp ra locals) . traces)
          (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
-           (format #t "~a~%" op-val)
-           ;; (if (tjit-dump-locals? (tjit-dump-option))
-           ;;     (format #t "~40a ; ~a~%" op-val locals)
-           ;;     (format #t "~a~%" op-val))
+           ;; (format #t "~a~%" op-val)
+           (if (tjit-dump-locals? (tjit-dump-option))
+               (format #t "~40a ; ~a~%" op-val locals)
+               (format #t "~a~%" op-val))
            )
          (case (car op)
            ((call call-label)
@@ -95,18 +95,6 @@
            (else
             (lp traces level))))
         (() (values))))))
-
-(define-syntax-rule (addr->source-line addr)
-  (cond
-   ((find-source-for-addr addr)
-    => (lambda (source)
-         (format #f "~a:~d"
-                 (let ((file (source-file source)))
-                   (or (and (string? file) (basename file))
-                       "(unknown file)"))
-                 (source-line-for-user source))))
-   (else
-    "(invalid IP)")))
 
 (define (dump-cps cps snapshots)
   (define (mark-call cont)
@@ -139,32 +127,7 @@
        #t)
       (_
        #f)))
-  (define (pretty-type type)
-    (cond
-     ((eq? type &exact-integer) (blue "snum"))
-     ((eq? type &flonum) (magenta "fnum"))
-     ((eq? type &char) (blue "char"))
-     ((eq? type &unspecified) (green "uspc"))
-     ((eq? type &unbound) (green "ubnd"))
-     ((eq? type &false) (green "fals"))
-     ((eq? type &true) (green "true"))
-     ((eq? type &nil) (green "nil"))
-     ((eq? type &symbol) (blue "symb"))
-     ((eq? type &keyword) (blue "kw"))
-     ((eq? type &procedure) (red "proc"))
-     ((eq? type &pair) (yellow "pair"))
-     ((eq? type &vector) (yellow "vec"))
-     ((eq? type &box) (yellow "box"))
-     ((eq? type &struct) (yellow "strc"))
-     ((dynamic-link? type)
-      (let ((diff (number->string (dynamic-link-offset type))))
-        (string-append "dl:" (cyan diff))))
-     ((return-address? type)
-      (let* ((addr (pointer-address (return-address-ip type)))
-             (hex-ip (number->string addr 16)))
-        (string-append "ra:" (cyan hex-ip)
-                       "/" (bold (addr->source-line addr)))))
-     (else type)))
+
   (define (dump-locals locals)
     ;; Locals could be null. Snapshot 0 in root trace does not contain
     ;; locals.
@@ -251,8 +214,8 @@
           (()
            (reverse! acc))))))
   (define-syntax-rule (increment-compilation-failure ip)
-    (let ((count (hashq-ref (failed-ip-table) ip 0)))
-      (hashq-set! (failed-ip-table) ip (+ count 1))))
+    (let ((count (hashq-ref (tjit-failed-ip-table) ip 0)))
+      (hashq-set! (tjit-failed-ip-table) ip (+ count 1))))
   (define-syntax-rule (show-one-line sline fragment)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
@@ -286,7 +249,7 @@
     (let-values (((locals snapshots lowest-offset scm cps)
                   (trace->cps trace-id fragment parent-exit-id loop?
                               ip-x-ops)))
-      (when (and (tjit-dump-enter? dump-option)
+      (when (and (tjit-dump-jitc? dump-option)
                  (or cps (tjit-dump-abort? dump-option)))
         (show-one-line sline fragment))
       (when (and (tjit-dump-bytecode? dump-option)

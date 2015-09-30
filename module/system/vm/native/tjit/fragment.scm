@@ -210,6 +210,7 @@
   (format #t "~19@a: ~{~a ~}~%" 'exit-counts
           (reverse! (hash-fold acons '() (fragment-exit-counts fragment))))
   (format #t "~19@a: ~x~%" 'entry-ip (fragment-entry-ip fragment))
+  (format #t "~19@a: ~a~%" 'parent-id (fragment-parent-id fragment))
   (format #t "~19@a: ~a~%" 'parent-exit-id (fragment-parent-exit-id fragment))
   (format #t "~19@a:~%" 'snapshots)
   (for-each
@@ -235,12 +236,12 @@
   (zero? (fragment-parent-id fragment)))
 
 (define (put-fragment! trace-id fragment)
-  (hashq-set! (fragment-table) trace-id fragment)
+  (hashq-set! (tjit-fragment-table) trace-id fragment)
   (when (root-trace-fragment? fragment)
-    (hashq-set! (root-trace-table) (fragment-entry-ip fragment) fragment)))
+    (hashq-set! (tjit-root-trace-table) (fragment-entry-ip fragment) fragment)))
 
 (define (get-fragment fragment-id)
-  (hashq-ref (fragment-table) fragment-id #f))
+  (hashq-ref (tjit-fragment-table) fragment-id #f))
 
 (define (get-root-trace ip)
-  (hashq-ref (root-trace-table) ip #f))
+  (hashq-ref (tjit-root-trace-table) ip #f))

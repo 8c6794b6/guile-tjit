@@ -72,12 +72,8 @@
 
 
 ;;;
-;;; Auxiliary procedures for ANF compiler
+;;; Auxiliary procedures
 ;;;
-
-(define (from-fixnum num)
-  `(let ((tmp (%lsh ,num 2)))
-     (%add tmp 2)))
 
 (define (to-fixnum scm)
   `(%rsh ,scm 2))
@@ -326,22 +322,29 @@
                 (proc-offset (+ proc local-offset)))
            (if (<= 0 local-offset)
                (do-next-convert)
-               (let lp ((vars vars))
-                 (match vars
-                   (((n . var) . vars)
-                    (cond
-                     ((<= local-offset n (+ proc-offset -3))
-                      (let* ((i (- n local-offset))
-                             (val (if (< -1 i (vector-length locals))
-                                      (vector-ref locals i)
-                                      #f))
-                             (type (type-of val)))
-                        (let ((idx (- n local-offset)))
-                          (with-frame-ref lp vars var type idx))))
-                     (else
-                      (lp vars))))
-                   (()
-                    (do-next-convert)))))))
+               (begin
+                 `(begin
+                    ,(take-snapshot! ip 0 locals local-indices
+                                     (filter (match-lambda
+                                              ((n . _)
+                                               (<= proc-offset n)))
+                                             vars))
+                    ,(let lp ((vars vars))
+                       (match vars
+                         (((n . var) . vars)
+                          (cond
+                           ((<= local-offset n (+ proc-offset -3))
+                            (let* ((i (- n local-offset))
+                                   (val (if (< -1 i (vector-length locals))
+                                            (vector-ref locals i)
+                                            #f))
+                                   (type (type-of val)))
+                              (let ((idx (- n local-offset)))
+                                (with-frame-ref lp vars var type idx))))
+                           (else
+                            (lp vars))))
+                         (()
+                          (do-next-convert)))))))))
 
         (('receive-values proc allow-extra? nvalues)
          (pop-offset! proc)
@@ -519,9 +522,10 @@
                 (%set-cell-object! ,vdst 1 ,vsrc)
                 ,(convert escape rest)))
             ((fixnum? rdst)
-             `(let ((,vsrc ,(from-fixnum vsrc)))
-                (%set-cell-object! ,vdst 1 ,vsrc)
-                ,(convert escape rest)))
+             `(let ((,vsrc (%lsh ,vsrc 2)))
+                (let ((,vsrc (%add ,vsrc 2)))
+                  (%set-cell-object! ,vdst 1 ,vsrc)
+                  ,(convert escape rest))))
             (else
              `(begin
                 (%set-cell-object! ,vdst 1 ,vsrc)
@@ -938,7 +942,7 @@
 
 (define (scm->cps scm)
   "Compiles SCM to CPS IR."
-  (define ignored-passes
+  (define ignored-higher-passes
     (list #:prune-top-level-scopes? #f
           #:specialize-primcalls? #f
           #:type-fold? #f
@@ -959,7 +963,7 @@
 
     (call-with-values
         (lambda ()
-          (set! cps (optimize-higher-order-cps cps ignored-passes))
+          (set! cps (optimize-higher-order-cps cps ignored-higher-passes))
           (set! cps (convert-closures cps))
           (set! cps (optimize-first-order-cps cps))
           (set! cps (renumber cps))
