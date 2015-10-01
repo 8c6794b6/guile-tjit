@@ -112,8 +112,7 @@
                                    past-frame)
     ;; For root trace, adding initial snapshot trace with key=0 to hold
     ;; bytevector of native code later. This key=0 snapshot for root trace is
-    ;; used for guard failure in entry clause to quickly return to VM
-    ;; interpreter without restoring frame locals.
+    ;; used for guard failure in entry clause.
     (if root-trace?
         (let ((snapshot (make-snapshot 0 0 nlocals locals #f indices vars
                                        past-frame)))
@@ -890,16 +889,17 @@
        (root-trace?
         ;; Invoking `convert' before generating entry clause so that the
         ;; `expecting-types' gets filled in.
-        (let ((loop (convert escape trace)))
+        (let* ((snap (take-snapshot! *ip-key-set-loop-info!*
+                                     0
+                                     initial-locals
+                                     local-indices
+                                     vars))
+               (loop (convert escape trace)))
           `(letrec ((entry (lambda ()
                              (,initial-ip)
                              ,(add-initial-loads
                                `(begin
-                                  ,(take-snapshot! *ip-key-set-loop-info!*
-                                                   0
-                                                   initial-locals
-                                                   local-indices
-                                                   vars)
+                                  ,snap
                                   (loop ,@args)))))
                     (loop (lambda ,args
                             ,loop)))

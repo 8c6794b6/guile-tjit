@@ -154,31 +154,30 @@
         (+ snapshot-id 1)
         snapshot-id))
 
-  (let ((verbosity (lightning-verbosity)))
-    (format #t ";;; cps:~%")
-    (cond
-     ((not cps)
-      (display "#f\n"))
-     (else
-      (let ((kstart (loop-start cps)))
-        (let lp ((conts (reverse! (intmap-fold acons cps '())))
-                 (snapshot-id 0))
-          (match conts
-            (((k . cont) . conts)
-             (and (eq? k kstart)
-                  (format #t "==== loop:~%"))
-             (dump-snapshot cont snapshot-id)
-             (format #t "~4,,,'0@a  ~a~a ~a~%" k
-                     (mark-branch cont)
-                     (mark-call cont)
-                     (unparse-cps cont))
-             (match cont
-               (($ $kargs _ _ ($ $continue knext _ _))
-                (when (< knext k)
-                  (format #t "==== ->loop~%")))
-               (_ (values)))
-             (lp conts (increment-snapshot-id cont snapshot-id)))
-            (() values))))))))
+  (format #t ";;; cps:~%")
+  (cond
+   ((not cps)
+    (display "#f\n"))
+   (else
+    (let ((kstart (loop-start cps)))
+      (let lp ((conts (reverse! (intmap-fold acons cps '())))
+               (snapshot-id 0))
+        (match conts
+          (((k . cont) . conts)
+           (and (eq? k kstart)
+                (format #t "==== loop:~%"))
+           (dump-snapshot cont snapshot-id)
+           (format #t "~4,,,'0@a  ~a~a ~a~%" k
+                   (mark-branch cont)
+                   (mark-call cont)
+                   (unparse-cps cont))
+           (match cont
+             (($ $kargs _ _ ($ $continue knext _ _))
+              (when (< knext k)
+                (format #t "==== ->loop~%")))
+             (_ (values)))
+           (lp conts (increment-snapshot-id cont snapshot-id)))
+          (() values)))))))
 
 (define (dump-native-code trace-id ip-x-ops code code-size)
   (jit-print)

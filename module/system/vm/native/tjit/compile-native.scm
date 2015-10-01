@@ -587,7 +587,8 @@ of SRCS, DSTS, TYPES are local index number."
           => (match-lambda
               (($ $snapshot _ _ local-x-types)
                (set! loop-locals local-x-types)
-               (set! loop-vars (map env-ref args)))))
+               (set! loop-vars (map env-ref args))
+               (set! current-side-exit (+ current-side-exit 1)))))
          (else
           (debug 3 ";;; compile-call: no snapshot at ~a~%" current-side-exit))))
        ((= ip *ip-key-jump-to-linked-code*)

@@ -258,8 +258,7 @@
    ((return-address? type)
     (let* ((addr (pointer-address (return-address-ip type)))
            (hex-ip (number->string addr 16)))
-      (string-append "ra:" (cyan hex-ip)
-                     "/" (bold (addr->source-line addr)))))
+      (string-append "ra:" (cyan hex-ip))))
    (else type)))
 
 

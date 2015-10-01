@@ -28,7 +28,9 @@
 ;;; Code:
 
 (define-module (system vm native tjit parameters)
+  #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (system vm vm)
   #:use-module (srfi srfi-9)
   #:export (tjit-ip-counter
             tjit-fragment-table
@@ -69,7 +71,8 @@
             get-tjit-time-log
             fold-tjit-time-logs
 
-            tjit-stats))
+            tjit-stats
+            dump-tjit-stats))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
@@ -204,7 +207,7 @@ fields to @code{#f}."
   "Returns statistics of vm-tjit engine.
 
 Statistical times will be constantly @code{#f} unless @code{tjit-dump-time?}
-option is set to true."
+option was set to true."
   (let* ((hot-loop (tjit-hot-loop))
          (hot-exit (tjit-hot-exit))
          (num-loops 0)
@@ -238,8 +241,16 @@ option is set to true."
           `(num-loops . ,num-loops)
           `(num-hot-loops . ,num-hot-loops)
           `(num-fragments . ,num-fragments)
-          `(total-time . ,total-time)
           `(init-time . ,init-time)
           `(scm-time . ,scm-time)
           `(cps-time . ,cps-time)
-          `(asm-time . ,asm-time))))
+          `(asm-time . ,asm-time)
+          `(total-time . ,total-time))))
+
+(define (dump-tjit-stats)
+  (if (eq? 'tjit (vm-engine))
+      (for-each
+       (lambda (kv)
+         (format #t "~14@a: ~a~%" (car kv) (cdr kv)))
+       (tjit-stats))
+      (display "not running with `vm-tjit' engine.\n")))
