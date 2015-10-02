@@ -53,6 +53,7 @@
   #:use-module (system base compile)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit snapshot)
@@ -277,11 +278,13 @@
            ;; when taiking side exit.
            `(let ((,vdl #f))
               (let ((,vra ,(+ ip (* 2 4))))
-                ,snapshot
-                ;; Adding `%eq' guard to test the procedure value, to bailout when
-                ;; procedure has been redefined.
-                (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
-                ,(convert escape rest)))))
+                (begin
+                  ,snapshot
+                  ;; Adding `%eq' guard to test the procedure value, to bailout when
+                  ;; procedure has been redefined.
+                  (begin
+                    (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
+                    ,(convert escape rest)))))))
 
         (('call-label proc nlocals label)
          (push-offset! proc)
@@ -357,7 +360,7 @@
                             `((,vdst ,vsrc))))
                 (return (if (< 0 local-offset)
                             '()
-                            `((%return ,ra))))
+                            `(%return ,ra)))
                 (snapshot (take-snapshot! ip 0 locals local-indices vars)))
            (pop-past-frame! past-frame)
            (debug 3 ";;; ir.scm:return~%;;;    fp=~a ip=~x ra=~x local-offset=~a~%"
@@ -365,9 +368,13 @@
            (debug 3 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
                   locals local-indices args)
            `(let ,assign
-              ,snapshot
-              ,@return
-              ,(convert escape rest))))
+              (begin
+                ,snapshot
+                ,(if (null? return)
+                     (convert escape rest)
+                     `(begin
+                        ,return
+                        ,(convert escape rest)))))))
 
         ;; XXX: return-values
 
@@ -430,8 +437,9 @@
                (set-expecting-type! b &exact-integer)
                `(begin
                   ,(take-snapshot! ip dest locals local-indices vars)
-                  ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
-                  ,(convert escape rest)))
+                  (begin
+                    ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
+                    ,(convert escape rest))))
               (else
                (debug 3 "*** ir:convert = ~a ~a~%" ra rb)
                (escape #f))))))
@@ -450,16 +458,18 @@
                (set-expecting-type! b &exact-integer)
                `(begin
                   ,(take-snapshot! ip dest locals local-indices vars)
-                  ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
-                  ,(convert escape rest)))
+                  (begin
+                    ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
+                    ,(convert escape rest))))
 
               ((and (flonum? ra) (flonum? rb))
                (set-expecting-type! a &flonum)
                (set-expecting-type! b &flonum)
                `(begin
                   ,(take-snapshot! ip dest locals local-indices vars)
-                  ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
-                  ,(convert escape rest)))
+                  (begin
+                    ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
+                    ,(convert escape rest))))
               (else
                (debug 3 "ir:convert < ~a ~a~%" ra rb)
                (escape #f))))))
@@ -518,13 +528,15 @@
            (cond
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
-                (%set-cell-object! ,vdst 1 ,vsrc)
-                ,(convert escape rest)))
+                (begin
+                  (%set-cell-object! ,vdst 1 ,vsrc)
+                  ,(convert escape rest))))
             ((fixnum? rdst)
              `(let ((,vsrc (%lsh ,vsrc 2)))
                 (let ((,vsrc (%add ,vsrc 2)))
-                  (%set-cell-object! ,vdst 1 ,vsrc)
-                  ,(convert escape rest))))
+                  (begin
+                    (%set-cell-object! ,vdst 1 ,vsrc)
+                    ,(convert escape rest)))))
             (else
              `(begin
                 (%set-cell-object! ,vdst 1 ,vsrc)
@@ -896,11 +908,12 @@
                                      vars))
                (loop (convert escape trace)))
           `(letrec ((entry (lambda ()
-                             (,initial-ip)
-                             ,(add-initial-loads
-                               `(begin
-                                  ,snap
-                                  (loop ,@args)))))
+                             (begin
+                               (,initial-ip)
+                               ,(add-initial-loads
+                                 `(begin
+                                    ,snap
+                                    (loop ,@args))))))
                     (loop (lambda ,args
                             ,loop)))
              entry)))
@@ -938,7 +951,7 @@
       (let ((indices (if root-trace?
                          local-indices
                          local-indices-from-parent)))
-        (values indices snapshots lowest-offset scm)))))
+        (values indices vars snapshots lowest-offset scm)))))
 
 (define (scm->cps scm)
   "Compiles SCM to CPS IR."
@@ -986,9 +999,11 @@ a boolean to indicate whether the trace contains loop or not."
       (set-tjit-time-log-scm! log (get-internal-run-time))))
   (call-with-values
       (lambda () (trace->scm fragment exit-id loop? trace))
-    (lambda (locals snapshots lowest-offset scm)
+    (lambda (locals vars snapshots lowest-offset scm)
       (when (tjit-dump-time? (tjit-dump-option))
         (let ((log (get-tjit-time-log trace-id)))
           (set-tjit-time-log-cps! log (get-internal-run-time))))
-      (let ((cps (scm->cps scm)))
-        (values locals snapshots lowest-offset scm cps)))))
+      (let (;; (cps (scm->cps scm))
+            (plist (and scm (anf->primlist locals vars scm))))
+        ;; (values locals snapshots lowest-offset scm cps)
+        (values locals snapshots lowest-offset scm plist)))))

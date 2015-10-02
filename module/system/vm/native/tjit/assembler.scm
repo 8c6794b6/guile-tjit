@@ -46,6 +46,7 @@
             make-asm
             asm-fp-offset
             asm-out-code
+            set-asm-out-code!
             asm-end-address
             make-negative-pointer
             make-signed-pointer
@@ -287,7 +288,7 @@
   (fp-offset asm-fp-offset)
 
   ;; Pointer of native code for current side exit.
-  (out-code asm-out-code)
+  (out-code asm-out-code set-asm-out-code!)
 
   ;; Pointer of native code at the end of parent trace.
   (end-address asm-end-address))

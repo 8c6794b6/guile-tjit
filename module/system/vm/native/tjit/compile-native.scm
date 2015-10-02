@@ -40,6 +40,7 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
+  #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
@@ -47,7 +48,8 @@
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
-  #:export (compile-native))
+  #:export (compile-native
+            compile-mcode))
 
 
 ;;;
@@ -353,6 +355,39 @@ of SRCS, DSTS, TYPES are local index number."
            (lp rest))))
         (() (values))))))
 
+(define (refill-dynamic-links local-offset local-x-types)
+  ;; Take difference of dynamic links from the previous one, then refill
+  ;; and update the chain of dynamic links.
+  (let ((old-vp->fp r0)
+        (new-vp->fp r1)
+        (offsets
+         (let lp ((local-x-types (reverse local-x-types))
+                  (prev-offset local-offset)
+                  (acc '()))
+           (match local-x-types
+             (((_ . ($ $dynamic-link offset)) . local-x-types)
+              (lp local-x-types
+                  offset
+                  (cons (- prev-offset offset) acc)))
+             ((_ . local-x-types)
+              (lp local-x-types prev-offset acc))
+             (()
+              acc)))))
+    (debug 1 ";;; refill-dynamic-links: offsets=~a~%" offsets)
+    (jit-ldxi old-vp->fp fp vp->fp-offset)
+    (jit-movr new-vp->fp old-vp->fp)
+    (let lp ((offsets offsets))
+      (match offsets
+        ((offset . offsets)
+         (jit-addi new-vp->fp old-vp->fp
+                   (make-signed-pointer (* offset %word-size)))
+         (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
+         (jit-movr old-vp->fp new-vp->fp)
+         (lp offsets))
+        (()
+         (jit-stxi vp->fp-offset fp new-vp->fp)
+         (vm-sync-fp new-vp->fp))))))
+
 (define (dump-bailout ip exit-id code)
   (let ((verbosity (lightning-verbosity)))
     (when (and verbosity (<= 4 verbosity))
@@ -380,39 +415,6 @@ of SRCS, DSTS, TYPES are local index number."
 
   (define (moffs x)
     (make-signed-pointer (+  fp-offset (* (ref-value x) %word-size))))
-
-  (define (refill-dynamic-links local-offset local-x-types)
-    ;; Take difference of dynamic links from the previous one, then refill
-    ;; and update the chain of dynamic links.
-    (let ((old-vp->fp r0)
-          (new-vp->fp r1)
-          (offsets
-           (let lp ((local-x-types (reverse local-x-types))
-                    (prev-offset local-offset)
-                    (acc '()))
-             (match local-x-types
-               (((_ . ($ $dynamic-link offset)) . local-x-types)
-                (lp local-x-types
-                    offset
-                    (cons (- prev-offset offset) acc)))
-               ((_ . local-x-types)
-                (lp local-x-types prev-offset acc))
-               (()
-                acc)))))
-      (debug 1 ";;; refill-dynamic-links: offsets=~a~%" offsets)
-      (jit-ldxi old-vp->fp fp vp->fp-offset)
-      (jit-movr new-vp->fp old-vp->fp)
-      (let lp ((offsets offsets))
-        (match offsets
-          ((offset . offsets)
-           (jit-addi new-vp->fp old-vp->fp
-                     (make-signed-pointer (* offset %word-size)))
-           (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
-           (jit-movr old-vp->fp new-vp->fp)
-           (lp offsets))
-          (()
-           (jit-stxi vp->fp-offset fp new-vp->fp)
-           (vm-sync-fp new-vp->fp))))))
 
   (define (compile-link args)
     (let* ((linked-fragment (get-root-trace linked-ip))
@@ -782,3 +784,287 @@ of SRCS, DSTS, TYPES are local index number."
     ;; Assemble the primitives in CPS.
     (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
                  fragment trampoline linked-ip lowest-offset trace-id)))
+
+;;;
+;;; Primitive list to machine code
+;;;
+
+(define (compile-mcode plist entry-ip locals snapshots fragment parent-exit-id
+                       linked-ip lowest-offset trace-id)
+  (when (tjit-dump-time? (tjit-dump-option))
+    (let ((log (get-tjit-time-log trace-id)))
+      (set-tjit-time-log-assemble! log (get-internal-run-time))))
+  (let*-values
+      (((trampoline-size)
+        (hash-fold (lambda (k v acc) (+ acc 1)) 1 snapshots))
+       ((trampoline) (make-trampoline trampoline-size))
+       ((nspills) (length locals))
+       ((fp-offset)
+        ;; Root trace allocates spaces for spilled variables, three words to
+        ;; store `vp', `vp->fp', and `registers', and one more word for return
+        ;; address used by side exits. Side trace cannot allocate additional
+        ;; memory, because side trace uses `jit-tramp'. Native code will not
+        ;; work if number of spilled variables exceeds the number returned from
+        ;; parameter `(tjit-max-spills)'.
+        (if (not fragment)
+            (let ((max-spills (tjit-max-spills)))
+              (when (< max-spills nspills)
+                ;; XXX: Escape from this procedure, increment compilation
+                ;; failure for this entry-ip.
+                (error "Too many spilled variables" nspills))
+              (jit-allocai (imm (* (+ max-spills 4) %word-size))))
+            (fragment-fp-offset fragment)))
+       ((moffs)
+        (lambda (mem)
+          (let ((offset (* (ref-value mem) %word-size)))
+            (make-signed-pointer (+ fp-offset offset))))))
+
+    (cond
+     ;; Root trace.
+     ((not fragment)
+      (let ((vp r0)
+            (registers r1))
+
+        ;; Get arguments.
+        (jit-getarg reg-thread (jit-arg)) ; thread
+        (jit-getarg vp (jit-arg))         ; vp
+        (jit-getarg registers (jit-arg))  ; registers, for prompt
+
+        ;; Store `vp', `vp->fp', and `registers'.
+        (jit-stxi vp-offset fp vp)
+        (vm-cache-fp vp)
+        (jit-stxi registers-offset fp registers)
+
+        ;; Dump FP at the beginning of native code.
+        (when (tjit-dump-enter? (tjit-dump-option))
+          (jit-prepare)
+          (jit-pushargi (scm-i-makinumi trace-id))
+          (jit-ldxi r0 fp vp->fp-offset)
+          (jit-pushargr r0)
+          (jit-calli %scm-tjit-dump-fp))))
+
+     ;; Side trace.
+     (else
+      ;; Avoid emitting prologue.
+      (jit-tramp (imm (* 4 %word-size)))
+
+      ;; Load initial arguments from parent trace.
+      (cond
+       ;; ((hashq-ref (fragment-snapshots fragment) exit-id)
+       ;;  => (match-lambda
+       ;;      (($ $snapshot _ _ local-x-types exit-variables)
+       ;;       ;; Store values passed from parent trace when it's not used by this
+       ;;       ;; side trace.
+       ;;       (maybe-store moffs local-x-types exit-variables identity
+       ;;                    initial-locals 0)
+
+       ;;       ;; When passing values from parent trace to side-trace, src could
+       ;;       ;; be overwritten by move or load.  Pairings of local and register
+       ;;       ;; could be different from how it was done in parent trace and this
+       ;;       ;; side trace, move or load without overwriting the sources.
+       ;;       (let ((locals (snapshot-locals (hashq-ref snapshots 0)))
+       ;;             (dst-table (make-hash-table))
+       ;;             (src-table (make-hash-table))
+       ;;             (type-table (make-hash-table)))
+       ;;         (debug 3 ";;; side-trace: initial-locals: ~a~%" initial-locals)
+       ;;         (debug 3 ";;; side-trace: locals: ~a~%" locals)
+       ;;         (for-each
+       ;;          (match-lambda
+       ;;           ((local . var)
+       ;;            (hashq-set! type-table local (assq-ref locals local))
+       ;;            (hashq-set! dst-table local (vector-ref env var))))
+       ;;          initial-locals)
+       ;;         (let lp ((local-x-types local-x-types)
+       ;;                  (vars exit-variables))
+       ;;           (match (list local-x-types vars)
+       ;;             ((((local . type) . local-x-types) (var . vars))
+       ;;              (hashq-set! src-table local var)
+       ;;              (when (not (hashq-ref type-table local))
+       ;;                (debug 3 ";;; side-exit entry, setting type from parent,")
+       ;;                (debug 3 "local ~a to type ~a~%" local type)
+       ;;                (hashq-set! type-table local type))
+       ;;              (lp local-x-types vars))
+       ;;             (_
+       ;;              (values))))
+
+       ;;         ;; Move or load locals in current frame.
+       ;;         (move-or-load-carefully dst-table src-table type-table moffs)))))
+       (else
+        (error "compile-tjit: snapshot not found in parent trace"
+               parent-exit-id)))))
+
+    ;; Assemble the primitives in CPS.
+    (compile-prims plist #f entry-ip snapshots fp-offset
+                   fragment trampoline linked-ip lowest-offset trace-id)))
+
+(define (compile-prims plist env entry-ip snapshots fp-offset fragment
+                       trampoline linked-ip lowest-offset trace-id)
+  (let ((loop-locals #f)
+        (loop-vars #f))
+    (define (compile-ops asm ops)
+      (let lp ((ops ops) (snapshot-id 0))
+        (match ops
+          ((('%snap ip . args) . ops)
+           (cond
+            ((= ip *ip-key-set-loop-info!*)
+             (cond
+              ((hashq-ref snapshots snapshot-id)
+               => (match-lambda
+                   (($ $snapshot _ _ local-x-types)
+                    (set! loop-locals local-x-types)
+                    (set! loop-vars args))))
+              (else
+               (debug 1 ";;; snapshot loop info not found~%"))))
+            ((= ip *ip-key-jump-to-linked-code*)
+             (values))
+            (else
+             (let ((ptr (compile-snapshot asm trace-id snapshot-id snapshots
+                                          ip args)))
+               (trampoline-set! trampoline snapshot-id ptr))))
+           (lp ops (+ snapshot-id 1)))
+          (((op-name . args) . ops)
+           (cond
+            ((hashq-ref *native-prim-procedures* op-name)
+             => (lambda (proc)
+                  (apply proc asm args)
+                  (lp ops snapshot-id)))
+            (else
+             (error "op not found" op-name))))
+          (()
+           (values)))))
+    (match plist
+      (($ $primlist entry loop)
+       (debug 1 ";;; entry:~%~{~a~%~}~%" entry)
+       (debug 1 ";;; loop:~%~{~a~%~}~%" loop)
+       (let* ((end-address (or (and=> fragment
+                                      fragment-end-address)
+                               (and=> (get-root-trace linked-ip)
+                                      fragment-end-address)))
+              (asm (make-asm env fp-offset #f end-address)))
+         (compile-ops asm entry)
+         (let ((loop-label (jit-label)))
+           (compile-ops asm loop)
+           (jump loop-label)
+           (values trampoline loop-label loop-locals loop-vars fp-offset))))
+      (_
+       (error "compile-prims: not a $primlist" plist)))))
+
+(define (compile-snapshot asm trace-id snapshot-id snapshots next-ip args)
+  (define (store-snapshot args snapshot)
+    (match snapshot
+      (($ $snapshot local-offset nlocals local-x-types)
+       ;; No need to recover the frame with snapshot when local-x-types were
+       ;; null.  Still snapshot data is used, so that the bytevector of compiled
+       ;; native code could be stored in fragment, to avoid garbage collection.
+       ;;
+       (cond
+        ((null? local-x-types)
+         (values nlocals local-offset snapshot))
+        (else
+         (let lp ((local-x-types local-x-types)
+                  (args args)
+                  (moffs (lambda (x)
+                           (make-signed-pointer
+                            (+ (asm-fp-offset asm)
+                               (* (ref-value x) %word-size))))))
+           (match (list local-x-types args)
+             ((((local . type) . local-x-types) (arg . args))
+              (store-frame moffs local type arg)
+              (lp local-x-types args moffs))
+             (_
+              (values nlocals local-offset snapshot)))))))
+      (_
+       (debug 3 ";;; store-snapshot: not a snapshot ~a~%" snapshot))))
+  (debug 3 ";;; compile-snapshot:~%")
+  (debug 3 ";;;   snapshot-id: ~a~%" snapshot-id)
+  (debug 3 ";;;   next-ip:     ~a~%" next-ip)
+  (debug 3 ";;;   args:        ~a~%" args)
+  (with-jit-state
+   (jit-prolog)
+   (jit-tramp (imm (* 4 %word-size)))
+   (let ((snapshot (hashq-ref snapshots snapshot-id)))
+     ;; (((nlocals local-offset snapshot)
+     ;;   (store-snapshot args (hashq-ref snapshots snapshot-id))))
+     (match snapshot
+       (($ $snapshot local-offset nlocals local-x-types)
+
+        ;; Store contents of args to frame. No need to recover the frame with
+        ;; snapshot when local-x-types were null.  Still snapshot data is used,
+        ;; so that the bytevector of compiled native code could be stored in
+        ;; fragment, to avoid garbage collection.
+        (when (not (null? local-x-types))
+          (let lp ((local-x-types local-x-types)
+                   (args args)
+                   (moffs (lambda (x)
+                            (make-signed-pointer
+                             (+ (asm-fp-offset asm)
+                                (* (ref-value x) %word-size))))))
+            (match (list local-x-types args)
+              ((((local . type) . local-x-types) (arg . args))
+               (store-frame moffs local type arg)
+               (lp local-x-types args moffs))
+              (_
+               (values)))))
+
+        ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP'.
+        ;; Adding offset for positive local offset, fp is already shifted in
+        ;; store-snapshot for negative local offset.
+        (when (not (= 0 local-offset))
+          (debug 3 ";;; compile-snapshot: shifting FP, local-offset=~a~%"
+                 local-offset)
+          (refill-dynamic-links local-offset local-x-types)
+          ;; (match snapshot
+          ;;   (($ $snapshot offset _ local-x-types)
+          ;;    )
+          ;;   (_
+          ;;    (debug 1 "*** not a snapshot: ~a~%" snapshot)))
+          )
+
+        ;; Sync next IP with vp->ip for VM.
+        (jit-movi r0 (imm next-ip))
+        (vm-sync-ip r0)
+
+        ;; Make tjit-retval for VM interpreter.
+        (jit-prepare)
+        (jit-pushargr reg-thread)
+        (jit-pushargi (scm-i-makinumi snapshot-id))
+        (jit-pushargi (scm-i-makinumi trace-id))
+        (jit-pushargi (scm-i-makinumi nlocals))
+        (jit-calli %scm-tjit-make-retval)
+        (jit-retval reg-retval)
+
+        ;; Debug code to dump tjit-retval and locals.
+        (let ((dump-option (tjit-dump-option)))
+          (when (tjit-dump-exit? dump-option)
+            (jit-movr reg-thread reg-retval)
+            (jit-prepare)
+            (jit-pushargr reg-retval)
+            (jit-ldxi reg-retval fp vp-offset)
+            (jit-pushargr reg-retval)
+            (jit-calli %scm-tjit-dump-retval)
+            (jit-movr reg-retval reg-thread)
+            (when (tjit-dump-locals? dump-option)
+              (jit-movr reg-thread reg-retval)
+              (jit-prepare)
+              (jit-pushargi (scm-i-makinumi trace-id))
+              (jit-pushargi (imm nlocals))
+              (jit-ldxi reg-retval fp vp->fp-offset)
+              (jit-pushargr reg-retval)
+              (jit-calli %scm-tjit-dump-locals)
+              (jit-movr reg-retval reg-thread)))))
+       (_
+        (debug 1 "*** compile-snapshot: not a snapshot ~a~%" snapshot)))
+     (return-to-interpreter)
+     (jit-epilog)
+     (jit-realize)
+     (let* ((estimated-code-size (jit-code-size))
+            (code (make-bytevector estimated-code-size))
+            (exit-vars args))
+       (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+       (let ((ptr (jit-emit)))
+         (debug 3 ";;; compile-snapshot: ptr=~a~%" ptr)
+         (make-bytevector-executable! code)
+         (dump-bailout next-ip snapshot-id code)
+         (set-snapshot-variables! snapshot exit-vars)
+         (set-snapshot-code! snapshot code)
+         (set-asm-out-code! asm ptr))))))
