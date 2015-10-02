@@ -44,6 +44,7 @@
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
+  #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
@@ -95,6 +96,19 @@
            (else
             (lp traces level))))
         (() (values))))))
+
+(define (dump-scm scm)
+  (match scm
+    (`(letrec ((entry ,entry)
+               (loop ,loop))
+        entry)
+     (format #t ";;; scm-entry:~%~y" entry)
+     (format #t ";;; scm-loop:~%~y" loop))
+    (`(letrec ((patch ,patch))
+        patch)
+     (format #t ";;; scm-patch:~%~y" patch))
+    (_
+     (values))))
 
 (define (dump-cps cps snapshots)
   (define (mark-call cont)
@@ -179,6 +193,15 @@
            (lp conts (increment-snapshot-id cont snapshot-id)))
           (() values)))))))
 
+(define (dump-primlist plist snapshots)
+  (match plist
+    (($ $primlist entry loop)
+     (format #t ";;; primitives:~%~{~a~%~}" entry)
+     (when (not (null? loop))
+       (format #t "loop:~%~{~a~%~}->loop~%" loop)))
+    (_
+     (format #t ";;; primitives: ~a~%" plist))))
+
 (define (dump-native-code trace-id ip-x-ops code code-size)
   (jit-print)
   (let ((path (format #f "/tmp/trace-~a-~x.o"
@@ -256,14 +279,14 @@
         (dump-bytecode ip-x-ops))
       (when (and (tjit-dump-scm? dump-option)
                  (or cps (tjit-dump-abort? dump-option)))
-        (format #t ";;; scm:~%~y" scm))
+        (dump-scm scm))
       (cond
        ((not cps)
         (debug 1 ";;; trace ~a: aborted~%" trace-id)
         (increment-compilation-failure entry-ip))
        (else
         (when (tjit-dump-cps? dump-option)
-          (dump-cps cps snapshots))
+          (dump-primlist cps snapshots))
         (with-jit-state
          (jit-prolog)
          (let-values

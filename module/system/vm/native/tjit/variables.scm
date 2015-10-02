@@ -40,11 +40,11 @@
             resolve-variables
             loop-start
             ref? ref-value ref-type
-            constant? constant
+            make-constant constant? constant
             register?
             make-gpr gpr? gpr
             make-fpr fpr? fpr
-            memory?))
+            make-memory memory?))
 
 ;;;
 ;;; Variable

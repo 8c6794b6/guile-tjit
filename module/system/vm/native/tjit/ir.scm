@@ -1003,7 +1003,5 @@ a boolean to indicate whether the trace contains loop or not."
       (when (tjit-dump-time? (tjit-dump-option))
         (let ((log (get-tjit-time-log trace-id)))
           (set-tjit-time-log-cps! log (get-internal-run-time))))
-      (let (;; (cps (scm->cps scm))
-            (plist (and scm (anf->primlist locals vars scm))))
-        ;; (values locals snapshots lowest-offset scm cps)
+      (let ((plist (and scm (anf->primlist vars scm))))
         (values locals snapshots lowest-offset scm plist)))))

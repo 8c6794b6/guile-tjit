@@ -896,8 +896,6 @@ of SRCS, DSTS, TYPES are local index number."
            (values)))))
     (match plist
       (($ $primlist entry loop)
-       (debug 1 ";;; entry:~%~{~a~%~}~%" entry)
-       (debug 1 ";;; loop:~%~{~a~%~}~%" loop)
        (let* ((end-address (or (and=> fragment
                                       fragment-end-address)
                                (and=> (get-root-trace linked-ip)
@@ -912,31 +910,6 @@ of SRCS, DSTS, TYPES are local index number."
        (error "compile-prims: not a $primlist" plist)))))
 
 (define (compile-snapshot asm trace-id snapshot-id snapshots next-ip args)
-  (define (store-snapshot args snapshot)
-    (match snapshot
-      (($ $snapshot local-offset nlocals local-x-types)
-       ;; No need to recover the frame with snapshot when local-x-types were
-       ;; null.  Still snapshot data is used, so that the bytevector of compiled
-       ;; native code could be stored in fragment, to avoid garbage collection.
-       ;;
-       (cond
-        ((null? local-x-types)
-         (values nlocals local-offset snapshot))
-        (else
-         (let lp ((local-x-types local-x-types)
-                  (args args)
-                  (moffs (lambda (x)
-                           (make-signed-pointer
-                            (+ (asm-fp-offset asm)
-                               (* (ref-value x) %word-size))))))
-           (match (list local-x-types args)
-             ((((local . type) . local-x-types) (arg . args))
-              (store-frame moffs local type arg)
-              (lp local-x-types args moffs))
-             (_
-              (values nlocals local-offset snapshot)))))))
-      (_
-       (debug 3 ";;; store-snapshot: not a snapshot ~a~%" snapshot))))
   (debug 3 ";;; compile-snapshot:~%")
   (debug 3 ";;;   snapshot-id: ~a~%" snapshot-id)
   (debug 3 ";;;   next-ip:     ~a~%" next-ip)
@@ -945,8 +918,6 @@ of SRCS, DSTS, TYPES are local index number."
    (jit-prolog)
    (jit-tramp (imm (* 4 %word-size)))
    (let ((snapshot (hashq-ref snapshots snapshot-id)))
-     ;; (((nlocals local-offset snapshot)
-     ;;   (store-snapshot args (hashq-ref snapshots snapshot-id))))
      (match snapshot
        (($ $snapshot local-offset nlocals local-x-types)
 
@@ -974,13 +945,7 @@ of SRCS, DSTS, TYPES are local index number."
         (when (not (= 0 local-offset))
           (debug 3 ";;; compile-snapshot: shifting FP, local-offset=~a~%"
                  local-offset)
-          (refill-dynamic-links local-offset local-x-types)
-          ;; (match snapshot
-          ;;   (($ $snapshot offset _ local-x-types)
-          ;;    )
-          ;;   (_
-          ;;    (debug 1 "*** not a snapshot: ~a~%" snapshot)))
-          )
+          (refill-dynamic-links local-offset local-x-types))
 
         ;; Sync next IP with vp->ip for VM.
         (jit-movi r0 (imm next-ip))
