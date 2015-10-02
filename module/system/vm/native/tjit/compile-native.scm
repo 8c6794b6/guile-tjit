@@ -75,44 +75,6 @@
 ;;; Code generation
 ;;;
 
-(define (move moffs dst src)
-  (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-movi (gpr dst) (constant src)))
-   ((and (gpr? dst) (gpr? src))
-    (jit-movr (gpr dst) (gpr src)))
-   ((and (gpr? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs src))
-    (jit-movr (gpr dst) r0))
-
-   ((and (fpr? dst) (constant? src))
-    (jit-movi-d (fpr dst) (constant src)))
-   ((and (fpr? dst) (fpr? src))
-    (jit-movr-d (fpr dst) (fpr src)))
-   ((and (fpr? dst) (memory? src))
-    (jit-ldxi-d f0 fp (moffs src))
-    (jit-movr-d (fpr dst) f0))
-
-   ((and (memory? dst) (constant? src))
-    (let ((val (ref-value src)))
-      (cond
-       ((fixnum? val)
-        (jit-movi r0 (constant src))
-        (jit-stxi (moffs dst) fp r0))
-       ((flonum? val)
-        (jit-movi-d f0 (constant src))
-        (jit-stxi-d (moffs dst) fp f0)))))
-   ((and (memory? dst) (gpr? src))
-    (jit-stxi (moffs dst) fp (gpr src)))
-   ((and (memory? dst) (fpr? src))
-    (jit-stxi-d (moffs dst) fp (fpr src)))
-   ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs src))
-    (jit-stxi (moffs dst) fp r0))
-
-   (else
-    (debug 3 "*** move: ~a ~a~%" dst src))))
-
 (define (load-frame moffs local type dst)
   (cond
    ((eq? type &exact-integer)
