@@ -331,7 +331,7 @@
                                               ((n . _)
                                                (<= proc-offset n)))
                                              vars))
-                    ,(let lp ((vars vars))
+                    ,(let lp ((vars (reverse vars)))
                        (match vars
                          (((n . var) . vars)
                           (cond
@@ -854,7 +854,7 @@
       (debug 3 ";;; add-initial-loads:~%")
       (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
       (debug 3 ";;;   initial-locals=~a~%" initial-locals)
-      (let lp ((vars vars))
+      (let lp ((vars (reverse vars)))
         (match vars
           (((n . var) . vars)
            (cond

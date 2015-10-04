@@ -36,6 +36,7 @@
             primlist?
             primlist-entry
             primlist-loop
+            primlist-initial-locals
             anf->primlist))
 
 ;;;
@@ -44,13 +45,16 @@
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primlist
-  (make-primlist entry loop)
+  (make-primlist entry loop initial-locals)
   primlist?
   ;; List of primitives for entry clause.
   (entry primlist-entry)
 
   ;; List of primitives for loop body.
-  (loop primlist-loop))
+  (loop primlist-loop)
+
+  ;; Initial locals, if any. Used in side trace.
+  (initial-locals primlist-initial-locals))
 
 
 ;;;
@@ -64,22 +68,32 @@
     (`(letrec ((entry ,entry)
                (loop ,loop))
         entry)
-     (let* ((env (make-hash-table))
-            (entry-asm (compile-primitive entry env))
-            (loop-asm (compile-primitive loop env)))
-       (make-primlist entry-asm loop-asm)))
+     (let ((env (make-hash-table)))
+       (call-with-values
+           (lambda ()
+             (compile-primitive entry env 0 0 0 #f))
+         (lambda (entry-asm gpr-idx fpr-idx mem-idx unused-arg-vars)
+           (call-with-values
+               (lambda ()
+                 (compile-primitive loop env gpr-idx fpr-idx mem-idx #f))
+             (lambda (loop-asm gpr-idx fpr-idx mem-idx unused-arg-vars)
+               (make-primlist entry-asm loop-asm '())))))))
     (`(letrec ((patch ,patch))
         patch)
-     (let ((patch-asm (compile-primitive patch (make-hash-table))))
-       (make-primlist patch-asm '())))
+     (call-with-values
+         (lambda ()
+           (compile-primitive patch (make-hash-table) 0 0 0 #t))
+       (lambda (patch-asm gpr-idx fpr-idx mem-idx initial-locals)
+         (make-primlist patch-asm '() initial-locals))))
     (_
      (error "anf->primlist: malformed term" term))))
 
-(define (compile-primitive term env)
+(define (compile-primitive term env gpr-idx fpr-idx mem-idx assign-args?)
   "Compile ANF form TERM to list of primitive operations."
-  (let ((gpr-idx 0)
-        (fpr-idx 0)
-        (mem-idx 0))
+  (let ((gpr-idx gpr-idx)
+        (fpr-idx fpr-idx)
+        (mem-idx mem-idx)
+        (arg-vars '()))
     (define (lookup-prim-type op)
       (hashq-ref (@ (system vm native tjit assembler) *native-prim-types*) op))
     (define (gen-gpr)
@@ -161,7 +175,17 @@
       `(const . ,v))
     (define (compile-term term acc)
       (match term
-        (('lambda _ rest)
+        (('lambda args rest)
+         (debug 1 ";;; compile-term: args=~a~%" args)
+         (when assign-args?
+           (set! arg-vars (let lp ((args args) (acc '()))
+                            (match args
+                              ((arg . args)
+                               (let ((var (gen-gpr)))
+                                 (hashq-set! env arg var)
+                                 (lp args (cons var acc))))
+                              (()
+                               (reverse! acc))))))
          (compile-term rest acc))
         (('begin term1 rest)
          (compile-term rest (compile-term term1 acc)))
@@ -184,4 +208,5 @@
          (cons `(,op ,@(map ref args)) acc))
         (()
          acc)))
-    (reverse! (compile-term term '()))))
+    (let ((plist (reverse! (compile-term term '()))))
+      (values plist gpr-idx fpr-idx mem-idx arg-vars))))

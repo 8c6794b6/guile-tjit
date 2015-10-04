@@ -747,12 +747,13 @@ of SRCS, DSTS, TYPES are local index number."
     (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
                  fragment trampoline linked-ip lowest-offset trace-id)))
 
+
 ;;;
 ;;; Primitive list to machine code
 ;;;
 
-(define (compile-mcode plist entry-ip locals snapshots fragment parent-exit-id
-                       linked-ip lowest-offset trace-id)
+(define (compile-mcode primlist entry-ip locals snapshots fragment
+                       parent-exit-id linked-ip lowest-offset trace-id)
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
@@ -812,59 +813,73 @@ of SRCS, DSTS, TYPES are local index number."
 
       ;; Load initial arguments from parent trace.
       (cond
-       ;; ((hashq-ref (fragment-snapshots fragment) exit-id)
-       ;;  => (match-lambda
-       ;;      (($ $snapshot _ _ local-x-types exit-variables)
-       ;;       ;; Store values passed from parent trace when it's not used by this
-       ;;       ;; side trace.
-       ;;       (maybe-store moffs local-x-types exit-variables identity
-       ;;                    initial-locals 0)
+       ((hashq-ref (fragment-snapshots fragment) parent-exit-id)
+        => (match-lambda
+            (($ $snapshot _ _ local-x-types exit-variables)
 
-       ;;       ;; When passing values from parent trace to side-trace, src could
-       ;;       ;; be overwritten by move or load.  Pairings of local and register
-       ;;       ;; could be different from how it was done in parent trace and this
-       ;;       ;; side trace, move or load without overwriting the sources.
-       ;;       (let ((locals (snapshot-locals (hashq-ref snapshots 0)))
-       ;;             (dst-table (make-hash-table))
-       ;;             (src-table (make-hash-table))
-       ;;             (type-table (make-hash-table)))
-       ;;         (debug 3 ";;; side-trace: initial-locals: ~a~%" initial-locals)
-       ;;         (debug 3 ";;; side-trace: locals: ~a~%" locals)
-       ;;         (for-each
-       ;;          (match-lambda
-       ;;           ((local . var)
-       ;;            (hashq-set! type-table local (assq-ref locals local))
-       ;;            (hashq-set! dst-table local (vector-ref env var))))
-       ;;          initial-locals)
-       ;;         (let lp ((local-x-types local-x-types)
-       ;;                  (vars exit-variables))
-       ;;           (match (list local-x-types vars)
-       ;;             ((((local . type) . local-x-types) (var . vars))
-       ;;              (hashq-set! src-table local var)
-       ;;              (when (not (hashq-ref type-table local))
-       ;;                (debug 3 ";;; side-exit entry, setting type from parent,")
-       ;;                (debug 3 "local ~a to type ~a~%" local type)
-       ;;                (hashq-set! type-table local type))
-       ;;              (lp local-x-types vars))
-       ;;             (_
-       ;;              (values))))
+             ;; When passing values from parent trace to side-trace, src could
+             ;; be overwritten by move or load.  Pairings of local and register
+             ;; could be different from how it was done in parent trace and this
+             ;; side trace, move or load without overwriting the sources.
+             (let ((locals (snapshot-locals (hashq-ref snapshots 0)))
+                   (dst-table (make-hash-table))
+                   (src-table (make-hash-table))
+                   (type-table (make-hash-table))
+                   (initial-locals (primlist-initial-locals primlist)))
+               (debug 3 ";;; side-trace: initial-locals: ~a~%" initial-locals)
+               (debug 3 ";;; side-trace: locals: ~a~%" locals)
 
-       ;;         ;; Move or load locals in current frame.
-       ;;         (move-or-load-carefully dst-table src-table type-table moffs)))))
+               ;; Store values passed from parent trace when it's not used by this
+               ;; side trace.
+               (maybe-store moffs local-x-types exit-variables identity
+                            ;; initial-locals
+                            locals
+                            0)
+               ;; (for-each
+               ;;  (match-lambda
+               ;;   ((local . var)
+               ;;    (hashq-set! type-table local (assq-ref locals local))
+               ;;    (hashq-set! dst-table local var)))
+               ;;  initial-locals)
+
+               (let lp ((locals locals) (vars initial-locals))
+                 (match (list locals vars)
+                   ((((local . type) . locals) (var . vars))
+                    (hashq-set! type-table local (assq-ref locals local))
+                    (hashq-set! dst-table local var)
+                    (lp locals vars))
+                   (_
+                    (values))))
+
+               (let lp ((local-x-types local-x-types)
+                        (vars exit-variables))
+                 (match (list local-x-types vars)
+                   ((((local . type) . local-x-types) (var . vars))
+                    (hashq-set! src-table local var)
+                    (when (not (hashq-ref type-table local))
+                      (debug 3 ";;; side-exit entry, setting type from parent,")
+                      (debug 3 "local ~a to type ~a~%" local type)
+                      (hashq-set! type-table local type))
+                    (lp local-x-types vars))
+                   (_
+                    (values))))
+
+               ;; Move or load locals in current frame.
+               (move-or-load-carefully dst-table src-table type-table moffs)))))
        (else
         (error "compile-tjit: snapshot not found in parent trace"
                parent-exit-id)))))
 
     ;; Assemble the primitives in CPS.
-    (compile-prims plist #f entry-ip snapshots fp-offset
-                   fragment trampoline linked-ip lowest-offset trace-id)))
+    (compile-prims primlist #f entry-ip snapshots fp-offset fragment
+                   trampoline linked-ip lowest-offset trace-id)))
 
-(define (compile-prims plist env entry-ip snapshots fp-offset fragment
+(define (compile-prims primlist env entry-ip snapshots fp-offset fragment
                        trampoline linked-ip lowest-offset trace-id)
   (let ((loop-locals #f)
         (loop-vars #f))
-    (define (compile-ops asm ops)
-      (let lp ((ops ops) (snapshot-id 0))
+    (define (compile-ops asm ops snapshot-id)
+      (let lp ((ops ops) (snapshot-id snapshot-id))
         (match ops
           ((('%snap ip . args) . ops)
            (cond
@@ -878,11 +893,18 @@ of SRCS, DSTS, TYPES are local index number."
               (else
                (debug 1 ";;; snapshot loop info not found~%"))))
             ((= ip *ip-key-jump-to-linked-code*)
-             (values))
+             (compile-link args
+                           (hashq-ref snapshots snapshot-id)
+                           asm
+                           linked-ip
+                           fragment
+                           lowest-offset))
             (else
              (let ((ptr (compile-snapshot asm trace-id snapshot-id snapshots
-                                          ip args)))
-               (trampoline-set! trampoline snapshot-id ptr))))
+                                          ip args))
+                   (out-code (trampoline-ref trampoline snapshot-id)))
+               (trampoline-set! trampoline snapshot-id ptr)
+               (set-asm-out-code! asm out-code))))
            (lp ops (+ snapshot-id 1)))
           (((op-name . args) . ops)
            (cond
@@ -893,21 +915,25 @@ of SRCS, DSTS, TYPES are local index number."
             (else
              (error "op not found" op-name))))
           (()
-           (values)))))
-    (match plist
+           snapshot-id))))
+    (match primlist
       (($ $primlist entry loop)
        (let* ((end-address (or (and=> fragment
                                       fragment-end-address)
                                (and=> (get-root-trace linked-ip)
                                       fragment-end-address)))
-              (asm (make-asm env fp-offset #f end-address)))
-         (compile-ops asm entry)
-         (let ((loop-label (jit-label)))
-           (compile-ops asm loop)
-           (jump loop-label)
-           (values trampoline loop-label loop-locals loop-vars fp-offset))))
+              (asm (make-asm env fp-offset #f end-address))
+              (snapshot-id (compile-ops asm entry 0))
+              (loop-label (if (null? loop)
+                              #f
+                              (let ((loop-label (jit-label)))
+                                (jit-note "loop" 0)
+                                (compile-ops asm loop snapshot-id)
+                                (jump loop-label)
+                                loop-label))))
+         (values trampoline loop-label loop-locals loop-vars fp-offset)))
       (_
-       (error "compile-prims: not a $primlist" plist)))))
+       (error "compile-prims: not a $primlist" primlist)))))
 
 (define (compile-snapshot asm trace-id snapshot-id snapshots next-ip args)
   (debug 3 ";;; compile-snapshot:~%")
@@ -994,4 +1020,67 @@ of SRCS, DSTS, TYPES are local index number."
          (dump-bailout next-ip snapshot-id code)
          (set-snapshot-variables! snapshot exit-vars)
          (set-snapshot-code! snapshot code)
-         (set-asm-out-code! asm ptr))))))
+         ptr)))))
+
+(define (compile-link args snapshot asm linked-ip fragment lowest-offset)
+  (let* ((linked-fragment (get-root-trace linked-ip))
+         (loop-locals (fragment-loop-locals linked-fragment)))
+    (define (moffs mem)
+      (let ((offset (* (ref-value mem) %word-size)))
+        (make-signed-pointer (+ (asm-fp-offset asm) offset))))
+    (define (shift-offset offset locals)
+      ;; Shifting locals with given offset.
+      (debug 3 ";;; compile-link: shift-offset, offset=~a~%" offset)
+      (map (match-lambda ((local . type)
+                          `(,(- local offset) . ,type)))
+           locals))
+    (debug 3 ";;; compile-link: args=~a~%" args)
+    (match snapshot
+      (($ $snapshot local-offset _ local-x-types)
+
+       ;; Store unpassed variables, and move variables to linked trace.
+       ;; Shift amount in `maybe-store' depending on whether the trace is
+       ;; root trace or not.
+       (debug 3 ";;; compile-link: local-offset=~a~%" local-offset)
+       (let* ((shift-amount (if fragment
+                                lowest-offset
+                                local-offset))
+              (references (shift-offset shift-amount loop-locals))
+              (src-table (maybe-store moffs local-x-types args identity
+                                      references local-offset))
+              (type-table (make-hash-table))
+              (dst-table (make-hash-table)))
+         (let lp ((locals loop-locals)
+                  (dsts (fragment-loop-vars linked-fragment)))
+           (match (list locals dsts)
+             ((((local . type) . locals) (dst . dsts))
+              (hashq-set! type-table local type)
+              (hashq-set! dst-table (- local lowest-offset) dst)
+              (lp locals dsts))
+             (_
+              (values))))
+         (move-or-load-carefully dst-table src-table type-table moffs))
+
+       ;; Shift back FP and sync. Shifting back lowest-offset moved by
+       ;; `%return', and shifting for local-offset to match the FP in
+       ;; middle of procedure call.
+       (when (< lowest-offset 0)
+         (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
+                lowest-offset)
+         (refill-dynamic-links local-offset local-x-types))
+
+       ;; Jumping from loop-less root trace, shifting FP.
+       ;;
+       ;; XXX: Add more tests for checking loop-less root traces.
+       (when (not fragment)
+         (debug 3 ";;; compile-link: shifting FP, loop-less root~%")
+         (let ((vp->fp r0))
+           (jit-ldxi vp->fp fp vp->fp-offset)
+           (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
+           (jit-stxi vp->fp-offset fp vp->fp)
+           (vm-sync-fp vp->fp)))
+
+       ;; Jump to the beginning of loop in linked code.
+       (jumpi (fragment-loop-address linked-fragment)))
+      (_
+       (debug 3 ";;; compile-link: IP is 0, snapshot not found~%")))))
