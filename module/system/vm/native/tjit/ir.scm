@@ -57,9 +57,8 @@
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit snapshot)
-  #:export (trace->cps
-            trace->scm
-            scm->cps))
+  #:export (trace->primlist
+            trace->scm))
 
 
 ;;;
@@ -952,43 +951,8 @@
                          local-indices-from-parent)))
         (values indices vars snapshots lowest-offset scm)))))
 
-(define (scm->cps scm)
-  "Compiles SCM to CPS IR."
-  (define ignored-higher-passes
-    (list #:prune-top-level-scopes? #f
-          #:specialize-primcalls? #f
-          #:type-fold? #f
-          #:inline-constructors? #f))
-  (define (body-fun cps)
-    (define (go cps k)
-      (match (intmap-ref cps k)
-        (($ $kfun _ _ _ _ next)
-         (go (intmap-remove cps k) next))
-        (($ $kclause _ next _)
-         (go (intmap-remove cps k) next))
-        (($ $kargs _ _ ($ $continue next _ expr))
-         (go (intmap-remove cps k) next))
-        (($ $ktail)
-         (values (+ k 1) (intmap-remove cps k)))
-        (_
-         (error "body-fun: got ~a" (intmap-ref cps k)))))
-
-    (call-with-values
-        (lambda ()
-          (set! cps (optimize-higher-order-cps cps ignored-higher-passes))
-          (set! cps (convert-closures cps))
-          (set! cps (optimize-first-order-cps cps))
-          (set! cps (renumber cps))
-          (go cps 0))
-      (lambda (k cps)
-        (set! cps (renumber cps k))
-        cps)))
-  (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps))))
-    (set! cps (and cps (body-fun cps)))
-    cps))
-
-(define (trace->cps trace-id fragment exit-id loop? trace)
-  "Compiles TRACE to CPS IR.
+(define (trace->primlist trace-id fragment exit-id loop? trace)
+  "Compiles TRACE to primlist.
 
 If the trace to be compiles is a side trace, expects FRAGMENT as from parent
 trace, and EXIT-ID is the hot exit id from the parent trace. LOOP? is should be

@@ -878,8 +878,8 @@ of SRCS, DSTS, TYPES are local index number."
                        trampoline linked-ip lowest-offset trace-id)
   (let ((loop-locals #f)
         (loop-vars #f))
-    (define (compile-ops asm ops snapshot-id)
-      (let lp ((ops ops) (snapshot-id snapshot-id))
+    (define (compile-ops asm ops)
+      (let lp ((ops ops))
         (match ops
           ((('%snap id . args) . ops)
            (cond
@@ -904,7 +904,7 @@ of SRCS, DSTS, TYPES are local index number."
                           (out-code (trampoline-ref trampoline id)))
                       (trampoline-set! trampoline id ptr)
                       (set-asm-out-code! asm out-code))))
-                  (lp ops (+ snapshot-id 1))))
+                  (lp ops)))
             (else
              (hash-for-each (lambda (k v)
                               (format #t ";;; key:~a => val:~a~%" k v))
@@ -915,27 +915,27 @@ of SRCS, DSTS, TYPES are local index number."
             ((hashq-ref *native-prim-procedures* op-name)
              => (lambda (proc)
                   (apply proc asm args)
-                  (lp ops snapshot-id)))
+                  (lp ops)))
             (else
              (error "op not found" op-name))))
           (()
-           snapshot-id))))
+           (values)))))
     (match primlist
       (($ $primlist entry loop)
        (let* ((end-address (or (and=> fragment
                                       fragment-end-address)
                                (and=> (get-root-trace linked-ip)
                                       fragment-end-address)))
-              (asm (make-asm env fp-offset #f end-address))
-              (snapshot-id (compile-ops asm entry 0))
-              (loop-label (if (null? loop)
-                              #f
-                              (let ((loop-label (jit-label)))
-                                (jit-note "loop" 0)
-                                (compile-ops asm loop snapshot-id)
-                                (jump loop-label)
-                                loop-label))))
-         (values trampoline loop-label loop-locals loop-vars fp-offset)))
+              (asm (make-asm env fp-offset #f end-address)))
+         (compile-ops asm entry)
+         (let ((loop-label (if (null? loop)
+                               #f
+                               (let ((loop-label (jit-label)))
+                                 (jit-note "loop" 0)
+                                 (compile-ops asm loop)
+                                 (jump loop-label)
+                                 loop-label))))
+           (values trampoline loop-label loop-locals loop-vars fp-offset))))
       (_
        (error "compile-prims: not a $primlist" primlist)))))
 

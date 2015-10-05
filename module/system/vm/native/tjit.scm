@@ -309,8 +309,8 @@
       (format #t ";;; loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
     (let-values (((locals snapshots lowest-offset scm cps)
-                  (trace->cps trace-id fragment parent-exit-id loop?
-                              ip-x-ops)))
+                  (trace->primlist trace-id fragment parent-exit-id loop?
+                                   ip-x-ops)))
       (when (and (tjit-dump-jitc? dump-option)
                  (or cps (tjit-dump-abort? dump-option)))
         (show-one-line sline fragment))
@@ -330,16 +330,10 @@
         (with-jit-state
          (jit-prolog)
          (let-values
-             (
-              ;; ((trampoline loop-label loop-locals loop-vars fp-offset)
-              ;;  (compile-native cps entry-ip locals snapshots fragment
-              ;;                  parent-exit-id linked-ip lowest-offset
-              ;;                  trace-id))
-              ((trampoline loop-label loop-locals loop-vars fp-offset)
+             (((trampoline loop-label loop-locals loop-vars fp-offset)
                (compile-mcode cps entry-ip locals snapshots fragment
                               parent-exit-id linked-ip lowest-offset
-                              trace-id))
-              )
+                              trace-id)))
            (let ((epilog-label (jit-label)))
              (jit-patch epilog-label)
              (jit-retr reg-retval)
