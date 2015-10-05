@@ -391,7 +391,7 @@ of SRCS, DSTS, TYPES are local index number."
       (cond
        ((hashq-ref snapshots current-side-exit)
         => (match-lambda
-            (($ $snapshot local-offset _ local-x-types)
+            (($ $snapshot _ local-offset _ local-x-types)
 
              ;; Store unpassed variables, and move variables to linked trace.
              ;; Shift amount in `maybe-store' depending on whether the trace is
@@ -443,7 +443,7 @@ of SRCS, DSTS, TYPES are local index number."
   (define (compile-bailout next-ip args)
     (define (store-snapshot snapshot)
       (match snapshot
-        (($ $snapshot local-offset nlocals local-x-types)
+        (($ $snapshot _ local-offset nlocals local-x-types)
          (debug 3 ";;; store-snapshot:~%")
          (debug 3 ";;;   current-side-exit: ~a~%" current-side-exit)
          (debug 3 ";;;   local-offset: ~a~%" local-offset)
@@ -482,7 +482,7 @@ of SRCS, DSTS, TYPES are local index number."
          (debug 3 ";;; compile-bailout: shifting FP, local-offset=~a~%"
                 local-offset)
          (match snapshot
-           (($ $snapshot offset _ local-x-types)
+           (($ $snapshot _ offset _ local-x-types)
             (refill-dynamic-links offset local-x-types))
            (_
             (debug 1 "*** not a snapshot: ~a~%" snapshot))))
@@ -549,7 +549,7 @@ of SRCS, DSTS, TYPES are local index number."
         (cond
          ((hashq-ref snapshots current-side-exit)
           => (match-lambda
-              (($ $snapshot _ _ local-x-types)
+              (($ $snapshot _ _ _ local-x-types)
                (set! loop-locals local-x-types)
                (set! loop-vars (map env-ref args))
                (set! current-side-exit (+ current-side-exit 1)))))
@@ -703,7 +703,7 @@ of SRCS, DSTS, TYPES are local index number."
       (cond
        ((hashq-ref (fragment-snapshots fragment) exit-id)
         => (match-lambda
-            (($ $snapshot _ _ local-x-types exit-variables)
+            (($ $snapshot _ _ _ local-x-types exit-variables)
              ;; Store values passed from parent trace when it's not used by this
              ;; side trace.
              (maybe-store moffs local-x-types exit-variables identity
@@ -815,7 +815,7 @@ of SRCS, DSTS, TYPES are local index number."
       (cond
        ((hashq-ref (fragment-snapshots fragment) parent-exit-id)
         => (match-lambda
-            (($ $snapshot _ _ local-x-types exit-variables)
+            (($ $snapshot _ _ _ local-x-types exit-variables)
 
              ;; When passing values from parent trace to side-trace, src could
              ;; be overwritten by move or load.  Pairings of local and register
@@ -881,31 +881,35 @@ of SRCS, DSTS, TYPES are local index number."
     (define (compile-ops asm ops snapshot-id)
       (let lp ((ops ops) (snapshot-id snapshot-id))
         (match ops
-          ((('%snap ip . args) . ops)
+          ((('%snap id . args) . ops)
            (cond
-            ((= ip *ip-key-set-loop-info!*)
-             (cond
-              ((hashq-ref snapshots snapshot-id)
-               => (match-lambda
-                   (($ $snapshot _ _ local-x-types)
-                    (set! loop-locals local-x-types)
-                    (set! loop-vars args))))
-              (else
-               (debug 1 ";;; snapshot loop info not found~%"))))
-            ((= ip *ip-key-jump-to-linked-code*)
-             (compile-link args
-                           (hashq-ref snapshots snapshot-id)
-                           asm
-                           linked-ip
-                           fragment
-                           lowest-offset))
+            ((hashq-ref snapshots id)
+             => (lambda (snapshot)
+                  (cond
+                   ((snapshot-set-loop-info? snapshot)
+                    (match snapshot
+                      (($ $snapshot _ _ _ local-x-types)
+                       (set! loop-locals local-x-types)
+                       (set! loop-vars args))
+                      (else
+                       (debug 1 ";;; snapshot loop info not found~%"))))
+                   ((snapshot-jump-to-linked-code? snapshot)
+                    (compile-link args snapshot asm linked-ip fragment
+                                  lowest-offset))
+                   (else
+                    (let ((ptr (compile-snapshot asm trace-id id
+                                                 snapshots
+                                                 (snapshot-ip snapshot)
+                                                 args))
+                          (out-code (trampoline-ref trampoline id)))
+                      (trampoline-set! trampoline id ptr)
+                      (set-asm-out-code! asm out-code))))
+                  (lp ops (+ snapshot-id 1))))
             (else
-             (let ((ptr (compile-snapshot asm trace-id snapshot-id snapshots
-                                          ip args))
-                   (out-code (trampoline-ref trampoline snapshot-id)))
-               (trampoline-set! trampoline snapshot-id ptr)
-               (set-asm-out-code! asm out-code))))
-           (lp ops (+ snapshot-id 1)))
+             (hash-for-each (lambda (k v)
+                              (format #t ";;; key:~a => val:~a~%" k v))
+                            snapshots)
+             (error "compile-ops: no snapshot with id" id))))
           (((op-name . args) . ops)
            (cond
             ((hashq-ref *native-prim-procedures* op-name)
@@ -945,7 +949,7 @@ of SRCS, DSTS, TYPES are local index number."
    (jit-tramp (imm (* 4 %word-size)))
    (let ((snapshot (hashq-ref snapshots snapshot-id)))
      (match snapshot
-       (($ $snapshot local-offset nlocals local-x-types)
+       (($ $snapshot _ local-offset nlocals local-x-types)
 
         ;; Store contents of args to frame. No need to recover the frame with
         ;; snapshot when local-x-types were null.  Still snapshot data is used,
@@ -1036,7 +1040,7 @@ of SRCS, DSTS, TYPES are local index number."
            locals))
     (debug 3 ";;; compile-link: args=~a~%" args)
     (match snapshot
-      (($ $snapshot local-offset _ local-x-types)
+      (($ $snapshot _ local-offset _ local-x-types)
 
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is

@@ -59,17 +59,7 @@
   #:use-module (system vm native tjit snapshot)
   #:export (trace->cps
             trace->scm
-            scm->cps
-            *ip-key-jump-to-linked-code*
-            *ip-key-set-loop-info!*))
-
-
-;;;
-;;; IP Keys
-;;;
-
-(define *ip-key-jump-to-linked-code* 0)
-(define *ip-key-set-loop-info!* 1)
+            scm->cps))
 
 
 ;;;
@@ -107,16 +97,16 @@
     ;; Initial offset of root trace is constantly 0. Initial offset of side
     ;; trace is where parent trace left, using offset value from SNAPSHOT.
     (match snapshot
-      (($ $snapshot offset) offset)
+      (($ $snapshot _ offset) offset)
       (_ 0)))
   (define (get-initial-snapshot-id snapshots nlocals locals indices vars
-                                   past-frame)
+                                   past-frame ip)
     ;; For root trace, adding initial snapshot trace with key=0 to hold
     ;; bytevector of native code later. This key=0 snapshot for root trace is
     ;; used for guard failure in entry clause.
     (if root-trace?
-        (let ((snapshot (make-snapshot 0 0 nlocals locals #f indices vars
-                                       past-frame)))
+        (let ((snapshot (make-snapshot 0 0 0 nlocals locals #f indices vars
+                                       past-frame ip)))
           (hashq-set! snapshots 0 snapshot)
           1)
         0))
@@ -145,10 +135,10 @@
           (and fragment
                (hashq-ref (fragment-snapshots fragment) exit-id)))
          (parent-snapshot-locals (match parent-snapshot
-                                   (($ $snapshot _ _ locals) locals)
+                                   (($ $snapshot _ _ _ locals) locals)
                                    (_ #f)))
          (parent-snapshot-offset (match parent-snapshot
-                                   (($ $snapshot offset) offset)
+                                   (($ $snapshot _ offset) offset)
                                    (_ 0)))
          (local-offset (get-initial-offset parent-snapshot))
          (past-frame (accumulate-locals local-offset trace))
@@ -172,7 +162,8 @@
                                                initial-locals
                                                local-indices
                                                vars
-                                               past-frame)))
+                                               past-frame
+                                               initial-ip)))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -212,9 +203,11 @@
            ,(proc args)))))
 
     (define (take-snapshot! ip offset locals indices vars)
-      (let ((snap (make-snapshot local-offset lowest-offset highest-offset
+      (let ((snap (make-snapshot snapshot-id
+                                 local-offset lowest-offset highest-offset
                                  locals parent-snapshot-locals indices vars
-                                 past-frame))
+                                 past-frame
+                                 (+ ip (* offset 4))))
             (args (let lp ((vars vars) (acc '()))
                     (match vars
                       (((n . var) . vars)
@@ -227,13 +220,11 @@
         ;; Using snapshot-id as key for hash-table. Identical IP could
         ;; be used for entry clause and first operation in the loop.
         (hashq-set! snapshots snapshot-id snap)
-        (set! snapshot-id (+ snapshot-id 1))
 
-        ;; Call dummy procedure to capture CPS variables by emitting
-        ;; `$call' term.  It might not a good way to use `$call', though
-        ;; no other idea to capture CPS variables with less amount of CPS
-        ;; terms.
-        `(,(+ ip (* offset 4)) ,@args)))
+        ;; Call dummy procedure `%snap' to capture arguments used for snapshot.
+        (let ((ret `(%snap ,snapshot-id ,@args)))
+          (set! snapshot-id (+ snapshot-id 1))
+          ret)))
 
     (define (convert-one escape op ip fp ra locals rest)
       (define-syntax-rule (local-ref i)
@@ -808,12 +799,16 @@
     (define (convert escape trace)
       (match trace
         (((op ip fp ra locals) . ())
-         (let ((last-exp
+         (let ((last-op
+                ;; Last operation is wrapped in a thunk, to assign snapshot ID
+                ;; in last expression after taking snapshots from guards in
+                ;; traced operations.
                 (if loop?
                     ;; Trace with loop. Emit `loop', which is the name of
                     ;; procedure for looping the body of Scheme IR emitted in
                     ;; `make-scm'.
-                    `(loop ,@(reverse (map cdr vars)))
+                    (lambda ()
+                      `(loop ,@(reverse (map cdr vars))))
 
                     ;; Side trace or loop-less root trace.  Capturing CPS
                     ;; variables with `take-snapshot!' at the end, so that the
@@ -823,12 +818,16 @@
                     ;; XXX: Get vars passed to linked code, replace `vars' with
                     ;; it.
                     ;;
-                    (take-snapshot! *ip-key-jump-to-linked-code*
-                                    0 locals local-indices vars))))
-           (convert-one escape op ip fp ra locals last-exp)))
+                    (lambda ()
+                      (take-snapshot! *ip-key-jump-to-linked-code*
+                                      0 locals local-indices vars)))))
+           (convert-one escape op ip fp ra locals last-op)))
         (((op ip fp ra locals) . rest)
          (convert-one escape op ip fp ra locals rest))
-        (_ trace)))
+        (last-op
+         (or (and (procedure? last-op)
+                  (last-op))
+             (error "ir.scm: last arg was not a procedure" last-op)))))
 
     (define (type-of-local n local)
       ;; Current policy for deciding the type of initial argument loaded from
@@ -909,7 +908,7 @@
                (loop (convert escape trace)))
           `(letrec ((entry (lambda ()
                              (begin
-                               (,initial-ip)
+                               (%snap 0)
                                ,(add-initial-loads
                                  `(begin
                                     ,snap

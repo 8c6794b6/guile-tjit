@@ -205,7 +205,9 @@
   (format #t "~20@a~a~%" "*****" " fragment *****")
   (format #t "~19@a: ~a~%" 'id (fragment-id fragment))
   (format #t "~19@a: addr=~a size=~a~%" 'code
-          (bytevector->pointer (fragment-code fragment))
+          (let ((code (fragment-code fragment)))
+            (and (bytevector? code)
+                 (bytevector->pointer code)))
           (bytevector-length (fragment-code fragment)))
   (format #t "~19@a: ~{~a ~}~%" 'exit-counts
           (reverse! (hash-fold acons '() (fragment-exit-counts fragment))))
@@ -218,7 +220,7 @@
     ((i . ($ $snapshot offset nlocals locals variables code))
      (format #t "~21@a: offset=~a nlocals=~a locals=~a variables=~a code=~a~%"
              i offset nlocals locals variables
-             (and code (bytevector->pointer code)))))
+             (and (bytevector? code) (bytevector->pointer code)))))
    (sort (hash-fold acons '() (fragment-snapshots fragment))
          (lambda (a b)
            (< (car a) (car b)))))

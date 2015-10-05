@@ -41,12 +41,19 @@
             make-snapshot
             %make-snapshot
             snapshot?
+            snapshot-id
             snapshot-offset
             snapshot-nlocals
             snapshot-locals
             snapshot-variables
             set-snapshot-variables!
             set-snapshot-code!
+            snapshot-ip
+
+            snapshot-jump-to-linked-code?
+            snapshot-set-loop-info?
+            *ip-key-jump-to-linked-code*
+            *ip-key-set-loop-info!*
 
             $past-frame
             make-past-frame
@@ -164,8 +171,11 @@
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
-  (%make-snapshot offset nlocals locals variables code)
+  (%make-snapshot id offset nlocals locals variables code ip)
   snapshot?
+
+  ;; ID number of this snapshot.
+  (id snapshot-id)
 
   ;; Integer number to shift vp->fp after returning with this snapshot.
   (offset snapshot-offset)
@@ -180,7 +190,10 @@
   (variables snapshot-variables set-snapshot-variables!)
 
   ;; Native code of bailout with this snapshot.
-  (code snapshot-code set-snapshot-code!))
+  (code snapshot-code set-snapshot-code!)
+
+  ;; Bytecode IP of this snapshot to return.
+  (ip snapshot-ip))
 
 
 ;;;
@@ -399,8 +412,9 @@
 ;;; Snapshot
 ;;;
 
-(define (make-snapshot local-offset lowest-offset highest-offset
-                       locals parent-snapshot-locals indices vars past-frame)
+(define (make-snapshot id local-offset lowest-offset highest-offset
+                       locals parent-snapshot-locals indices vars past-frame
+                       ip)
   (define-syntax-rule (local-ref i)
     (vector-ref locals i))
   (define (parent-snapshot-local-ref i)
@@ -488,8 +502,23 @@
          (add-local #f))))
       (()
        (let ((acc (reverse! acc)))
-         (%make-snapshot local-offset
+         (%make-snapshot id
+                         local-offset
                          (vector-length locals)
                          (shift-lowest acc)
                          #f
-                         #f))))))
+                         #f
+                         ip))))))
+
+;;;
+;;; IP Keys
+;;;
+
+(define *ip-key-jump-to-linked-code* 0)
+(define *ip-key-set-loop-info!* 1)
+
+(define (snapshot-jump-to-linked-code? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-jump-to-linked-code*))
+
+(define (snapshot-set-loop-info? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-set-loop-info!*))

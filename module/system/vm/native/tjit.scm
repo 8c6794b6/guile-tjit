@@ -155,7 +155,7 @@
     (when (call-term? cont)
       (let ((snapshot (hashq-ref snapshots snapshot-id)))
         (match snapshot
-          (($ $snapshot offset nlocals locals)
+          (($ $snapshot _ offset nlocals locals)
            (format #t "----     [snap~3,,,' @a] ~a:~a ~a~%"
                    snapshot-id
                    offset
@@ -194,11 +194,51 @@
           (() values)))))))
 
 (define (dump-primlist plist snapshots)
+  (define (mark-op op)
+    (case (car op)
+      ((%return
+        %frame-ref %frame-ref/f
+        %eq %ne %lt %ge
+        %flt %fge)
+       "  >")
+      (else
+       "   ")))
+  (define (pretty-locals locals)
+    (if (null? locals)
+        "--"
+        (map (match-lambda ((n . t)
+                            (cons n (pretty-type t))))
+             locals)))
+  (define (dump-snapshot snapshot)
+    (match snapshot
+      (($ $snapshot id offset nlocals locals)
+       (format #t "----     [snap~3,,,' @a] ~a:~a ~a~%"
+               id offset nlocals (pretty-locals locals)))
+      (_
+       (format #t "----     NOT-A-SNAPSHOT~%"))))
+  (define (dump-one idx op)
+    (match op
+      (('%snap id . _)
+       (dump-snapshot (hashq-ref snapshots id)))
+      (_
+       (let ((mark (mark-op op)))
+         (format #t "~4,,,'0@a ~a ~a~%" idx mark op)))))
+  (define (dump-list idx ops)
+    (let lp ((ops ops) (idx idx))
+      (match ops
+        ((op . ops)
+         (dump-one idx op)
+         (lp ops (+ idx 1)))
+        (()
+         idx))))
   (match plist
     (($ $primlist entry loop)
-     (format #t ";;; primitives:~%~{~a~%~}" entry)
-     (when (not (null? loop))
-       (format #t "loop:~%~{~a~%~}->loop~%" loop)))
+     (format #t ";;; primitives:~%")
+     (let ((idx (dump-list 0 entry)))
+       (when (not (null? loop))
+         (format #t "==== loop:~%")
+         (dump-list idx loop)
+         (format #t "==== ->loop~%"))))
     (_
      (format #t ";;; primitives: ~a~%" plist))))
 
