@@ -852,47 +852,72 @@
       (debug 3 ";;; add-initial-loads:~%")
       (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
       (debug 3 ";;;   initial-locals=~a~%" initial-locals)
-      (let lp ((vars (reverse vars)))
-        (match vars
-          (((n . var) . vars)
-           (cond
-            ;; When locals index was found in parent snapshot locals, the local
-            ;; will be passed from parent fragment, ignoreing.
-            ;;
-            ;; If local index is negative, locals from lower frame won't be
-            ;; passed as argument. Loading later with CPS IR '%frame-ref'
-            ;; or '%frame-ref/f'.
-            ;;
-            ;; In side traces, locals with its index exceeding initial number of
-            ;; locals are also ignored, those are likely to be locals in inlined
-            ;; procedure, which will get assigned or loaded from frame later.
-            ;;
-            ((or (assq-ref parent-snapshot-locals n)
-                 (< n 0)
-                 (and (not root-trace?)
-                      (<= initial-nlocals n)))
-             (lp vars))
-            (else
-             (let* ((snapshot0 (hashq-ref snapshots 0))
-                    (i (- n (snapshot-offset snapshot0)))
-                    (local (if (and (< -1 i)
-                                    (< i (vector-length initial-locals)))
-                               (vector-ref initial-locals i)
-                               (make-variable #f)))
-                    (type (if root-trace?
-                              (or (hashq-ref expecting-types n)
-                                  ;; XXX: Replace `&box' with a value for type
-                                  ;; to indicate any type.
-                                  &box)
-                              (type-of-local n local))))
-               (debug 3 ";;; add-initial-loads: n=~a~%" n)
-               (debug 3 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
-               (debug 3 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
-               (debug 3 ";;;   local:          ~a~%" local)
-               (debug 3 ";;;   type:           ~a~%" type)
-               (with-frame-ref lp vars var type n)))))
-          (()
-           exp-body))))
+      (let ((snapshot0 (hashq-ref snapshots 0)))
+        (define (type-from-snapshot n)
+          (let ((i (- n (snapshot-offset snapshot0))))
+            (and (< -1 i)
+                 (< i (vector-length initial-locals))
+                 (type-of (vector-ref initial-locals i)))))
+        (define (type-from-parent n)
+          (assq-ref parent-snapshot-locals n))
+        (let lp ((vars (reverse vars)))
+          (match vars
+            (((n . var) . vars)
+             (debug 3 ";;;   n:~a~%" n)
+             (debug 3 ";;;   var: ~a~%" n)
+             (debug 3 ";;;   from parent: ~a~%" (type-from-parent n))
+             (debug 3 ";;;   from snapshot: ~a~%" (type-from-snapshot n))
+             (cond
+              ;; When local was passed from parent and snapshot 0 contained the
+              ;; local with same type, no need to load from frame. If type does
+              ;; not match, the value passed from parent has different was
+              ;; untagged with different type, reload from frame.
+              ;;
+              ;; When locals index was found in parent snapshot locals and not
+              ;; from snapshot 0 of this trace, the local will be passed from
+              ;; parent fragment, ignoreing.
+              ;;
+              ;; If local index is negative, locals from lower frame won't be
+              ;; passed as argument. Loading later with '%frame-ref' or
+              ;; '%frame-ref/f'.
+              ;;
+              ;; In side traces, locals with its index exceeding initial number
+              ;; of locals are also ignored, those are likely to be locals in
+              ;; inlined procedure, which will be assigned or loaded later.
+              ;;
+              ((let ((parent-type (type-from-parent n))
+                     (snapshot-type (type-from-snapshot n)))
+                 (or (and parent-type
+                          snapshot-type
+                          (eq? parent-type snapshot-type))
+                     (and (not (type-from-snapshot n))
+                          parent-type)
+                     (< n 0)
+                     (and (not root-trace?)
+                          (<= initial-nlocals n))))
+               (lp vars))
+              (else
+               (let* ((i (- n (snapshot-offset snapshot0)))
+                      (local (if (and (< -1 i)
+                                      (< i (vector-length initial-locals)))
+                                 (vector-ref initial-locals i)
+                                 (make-variable #f)))
+                      (type (if root-trace?
+                                (or (hashq-ref expecting-types n)
+                                    ;; XXX: Replace `&box' with a value for type
+                                    ;; to indicate any type.
+                                    &box)
+                                (type-of-local n local))))
+                 (debug 3 ";;; add-initial-loads: n=~a~%" n)
+                 (debug 3 ";;;   known-type:     ~a~%"
+                        (hashq-ref known-types n))
+                 (debug 3 ";;;   expecting-type: ~a~%"
+                        (hashq-ref expecting-types n))
+                 (debug 3 ";;;   local:          ~a~%" local)
+                 (debug 3 ";;;   type:           ~a~%" type)
+                 (with-frame-ref lp vars var type n)))))
+            (()
+             exp-body)))))
 
     (define (make-scm escape trace)
       (cond
@@ -966,5 +991,5 @@ a boolean to indicate whether the trace contains loop or not."
       (when (tjit-dump-time? (tjit-dump-option))
         (let ((log (get-tjit-time-log trace-id)))
           (set-tjit-time-log-cps! log (get-internal-run-time))))
-      (let ((plist (and scm (anf->primlist vars scm))))
+      (let ((plist (and scm (anf->primlist vars snapshots scm))))
         (values locals snapshots lowest-offset scm plist)))))
