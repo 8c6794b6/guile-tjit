@@ -460,7 +460,7 @@
 
     (($ <module-set> src mod name public? exp)
      (convert-arg cps exp
-       (lambda (val)
+       (lambda (cps val)
          (module-box
           cps src mod name public? #t
           (lambda (cps box)
