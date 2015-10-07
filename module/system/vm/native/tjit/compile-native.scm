@@ -137,7 +137,7 @@
     (error "load-frame" local type dst))))
 
 (define (store-frame moffs local type src)
-  (debug 3 ";;; store-frame: local=~a type=~a src=~a~%"
+  (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
          local (pretty-type type) src)
   (cond
    ((return-address? type)
@@ -731,7 +731,7 @@ of SRCS, DSTS, TYPES are local index number."
                    ((((local . type) . local-x-types) (var . vars))
                     (hashq-set! src-table local var)
                     (when (not (hashq-ref type-table local))
-                      (debug 3 ";;; side-exit entry, setting type from parent,")
+                      (debug 3 ";;; side-exit entry: setting type from parent ")
                       (debug 3 "local ~a to type ~a~%" local type)
                       (hashq-set! type-table local type))
                     (lp local-x-types vars))
@@ -881,9 +881,9 @@ of SRCS, DSTS, TYPES are local index number."
     (define (compile-ops asm ops)
       (let lp ((ops ops))
         (match ops
-          ((('%snap id . args) . ops)
+          ((('%snap snapshot-id . args) . ops)
            (cond
-            ((hashq-ref snapshots id)
+            ((hashq-ref snapshots snapshot-id)
              => (lambda (snapshot)
                   (cond
                    ((snapshot-set-loop-info? snapshot)
@@ -897,23 +897,23 @@ of SRCS, DSTS, TYPES are local index number."
                     (compile-link args snapshot asm linked-ip fragment
                                   lowest-offset))
                    (else
-                    (let ((ptr (compile-snapshot asm trace-id id
-                                                 snapshots
-                                                 (snapshot-ip snapshot)
-                                                 args))
-                          (out-code (trampoline-ref trampoline id)))
-                      (trampoline-set! trampoline id ptr)
+                    (let ((ptr (compile-snapshot asm trace-id snapshot args))
+                          (out-code (trampoline-ref trampoline snapshot-id)))
+                      (trampoline-set! trampoline snapshot-id ptr)
                       (set-asm-out-code! asm out-code))))
                   (lp ops)))
             (else
              (hash-for-each (lambda (k v)
                               (format #t ";;; key:~a => val:~a~%" k v))
                             snapshots)
-             (error "compile-ops: no snapshot with id" id))))
+             (error "compile-ops: no snapshot with id" snapshot-id))))
           (((op-name . args) . ops)
            (cond
             ((hashq-ref *native-prim-procedures* op-name)
              => (lambda (proc)
+                  (let ((verbosity (lightning-verbosity)))
+                    (when (<= 4 verbosity)
+                      (jit-note (format #f "~a" (cons op-name args)) 0)))
                   (apply proc asm args)
                   (lp ops)))
             (else
@@ -939,15 +939,16 @@ of SRCS, DSTS, TYPES are local index number."
       (_
        (error "compile-prims: not a $primlist" primlist)))))
 
-(define (compile-snapshot asm trace-id snapshot-id snapshots next-ip args)
-  (debug 3 ";;; compile-snapshot:~%")
-  (debug 3 ";;;   snapshot-id: ~a~%" snapshot-id)
-  (debug 3 ";;;   next-ip:     ~a~%" next-ip)
-  (debug 3 ";;;   args:        ~a~%" args)
-  (with-jit-state
-   (jit-prolog)
-   (jit-tramp (imm (* 4 %word-size)))
-   (let ((snapshot (hashq-ref snapshots snapshot-id)))
+(define (compile-snapshot asm trace-id snapshot args)
+  (let ((ip (snapshot-ip snapshot))
+        (id (snapshot-id snapshot)))
+    (debug 3 ";;; compile-snapshot:~%")
+    (debug 3 ";;;   snapshot-id: ~a~%" id)
+    (debug 3 ";;;   next-ip:     ~a~%" ip)
+    (debug 3 ";;;   args:        ~a~%" args)
+    (with-jit-state
+     (jit-prolog)
+     (jit-tramp (imm (* 4 %word-size)))
      (match snapshot
        (($ $snapshot _ local-offset nlocals local-x-types)
 
@@ -978,13 +979,13 @@ of SRCS, DSTS, TYPES are local index number."
           (refill-dynamic-links local-offset local-x-types))
 
         ;; Sync next IP with vp->ip for VM.
-        (jit-movi r0 (imm next-ip))
+        (jit-movi r0 (imm ip))
         (vm-sync-ip r0)
 
         ;; Make tjit-retval for VM interpreter.
         (jit-prepare)
         (jit-pushargr reg-thread)
-        (jit-pushargi (scm-i-makinumi snapshot-id))
+        (jit-pushargi (scm-i-makinumi id))
         (jit-pushargi (scm-i-makinumi trace-id))
         (jit-pushargi (scm-i-makinumi nlocals))
         (jit-calli %scm-tjit-make-retval)
@@ -1011,6 +1012,7 @@ of SRCS, DSTS, TYPES are local index number."
               (jit-movr reg-retval reg-thread)))))
        (_
         (debug 1 "*** compile-snapshot: not a snapshot ~a~%" snapshot)))
+
      (return-to-interpreter)
      (jit-epilog)
      (jit-realize)
@@ -1021,7 +1023,7 @@ of SRCS, DSTS, TYPES are local index number."
        (let ((ptr (jit-emit)))
          (debug 3 ";;; compile-snapshot: ptr=~a~%" ptr)
          (make-bytevector-executable! code)
-         (dump-bailout next-ip snapshot-id code)
+         (dump-bailout ip id code)
          (set-snapshot-variables! snapshot exit-vars)
          (set-snapshot-code! snapshot code)
          ptr)))))
@@ -1085,6 +1087,8 @@ of SRCS, DSTS, TYPES are local index number."
            (vm-sync-fp vp->fp)))
 
        ;; Jump to the beginning of loop in linked code.
+       (debug 3 ";;; compile-link: jumpint to ~a~%"
+              (fragment-loop-address linked-fragment))
        (jumpi (fragment-loop-address linked-fragment)))
       (_
        (debug 3 ";;; compile-link: IP is 0, snapshot not found~%")))))

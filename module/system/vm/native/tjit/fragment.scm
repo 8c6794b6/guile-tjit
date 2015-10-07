@@ -218,7 +218,7 @@
   (for-each
    (match-lambda
     ((i . ($ $snapshot offset nlocals locals variables code))
-     (format #t "~21@a: offset=~a nlocals=~a locals=~a variables=~a code=~a~%"
+     (format #t "~13@a: offset=~a nlocals=~a locals=~a variables=~a code=~a~%"
              i offset nlocals locals variables
              (and (bytevector? code) (bytevector->pointer code)))))
    (sort (hash-fold acons '() (fragment-snapshots fragment))

@@ -57,7 +57,7 @@
 ;;; Debug procedures
 ;;;
 
-(define (dump-bytecode ip-x-ops)
+(define (dump-bytecode trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
     (let lp ((ip-x-ops ip-x-ops) (level 0) (lowest 0))
       (match ip-x-ops
@@ -77,8 +77,8 @@
           (lp (- n 1) (cons #\. (cons #\space acc)))
           (list->string acc))))
   (let ((lowest (lowest-level ip-x-ops)))
-    (format #t ";;; bytecode: ~a:~a~%"
-            (length ip-x-ops) lowest)
+    (format #t ";;; trace ~a: bytecode ~a:~a~%"
+            trace-id (length ip-x-ops) lowest)
     (let lp ((traces ip-x-ops) (level (- lowest)))
       (match traces
         (((op ip fp ra locals) . traces)
@@ -97,16 +97,16 @@
             (lp traces level))))
         (() (values))))))
 
-(define (dump-scm scm)
+(define (dump-scm trace-id scm)
   (match scm
     (`(letrec ((entry ,entry)
                (loop ,loop))
         entry)
-     (format #t ";;; scm-entry:~%~y" entry)
-     (format #t ";;; scm-loop:~%~y" loop))
+     (format #t ";;; trace ~a: scm-entry~%~y" trace-id entry)
+     (format #t ";;; trace ~a: scm-loop~%~y" trace-id loop))
     (`(letrec ((patch ,patch))
         patch)
-     (format #t ";;; scm-patch:~%~y" patch))
+     (format #t ";;; trace ~a: scm-patch~%~y" trace-id patch))
     (_
      (values))))
 
@@ -193,7 +193,7 @@
            (lp conts (increment-snapshot-id cont snapshot-id)))
           (() values)))))))
 
-(define (dump-primlist plist snapshots)
+(define (dump-primlist trace-id plist snapshots)
   (define (mark-op op)
     (case (car op)
       ((%return
@@ -222,7 +222,8 @@
        (dump-snapshot (hashq-ref snapshots id)))
       (_
        (let ((mark (mark-op op)))
-         (format #t "~4,,,'0@a ~a ~a~%" idx mark op)))))
+         (format #t "~4,,,'0@a ~a (~12a ~{~a~^ ~})~%" idx mark
+                 (car op) (cdr op))))))
   (define (dump-list idx ops)
     (let lp ((ops ops) (idx idx))
       (match ops
@@ -233,7 +234,7 @@
          idx))))
   (match plist
     (($ $primlist entry loop)
-     (format #t ";;; primitives:~%")
+     (format #t ";;; trace ~a: primitives~%" trace-id)
      (let ((idx (dump-list 0 entry)))
        (when (not (null? loop))
          (format #t "==== loop:~%")
@@ -316,17 +317,17 @@
         (show-one-line sline fragment))
       (when (and (tjit-dump-bytecode? dump-option)
                  (or cps (tjit-dump-abort? dump-option)))
-        (dump-bytecode ip-x-ops))
+        (dump-bytecode trace-id ip-x-ops))
       (when (and (tjit-dump-scm? dump-option)
                  (or cps (tjit-dump-abort? dump-option)))
-        (dump-scm scm))
+        (dump-scm trace-id scm))
       (cond
        ((not cps)
         (debug 1 ";;; trace ~a: aborted~%" trace-id)
         (increment-compilation-failure entry-ip))
        (else
         (when (tjit-dump-cps? dump-option)
-          (dump-primlist cps snapshots))
+          (dump-primlist trace-id cps snapshots))
         (with-jit-state
          (jit-prolog)
          (let-values
