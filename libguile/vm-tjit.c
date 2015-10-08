@@ -198,14 +198,12 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
       scm_hashq_set_x (exit_counts, exit_id, count);
     }
   else
-    {
-      SCM port = scm_current_output_port ();
-      scm_puts ("XXX: No trace for fragment_id ", port);
-      scm_display (scm_number_to_string (fragment_id, SCM_I_MAKINUM (16)),
-                   port);
-      scm_newline (port);
-      count = SCM_INUM0;
-    }
+    /* Formerly, this part was displaying debug message to tell that
+       required fragment was not found. After migrating from CPS IR to
+       ANF IR, the use of SCM port was causing problem, seemed like
+       related to garbage collector and GCC's reordering. Thus, removed
+       the message. */
+    count = SCM_INUM0;
 
   if (is_hot_exit (s_next_ip, count))
     {
