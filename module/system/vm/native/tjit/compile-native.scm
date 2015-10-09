@@ -344,6 +344,12 @@ of SRCS, DSTS, TYPES are local index number."
          (jit-addi new-vp->fp old-vp->fp
                    (make-signed-pointer (* offset %word-size)))
          (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
+
+         ;; XXX: Workaround for lightning. Without move of old vp->fp to itself,
+         ;; lightning will omit the move of old vp->fp to new vp->fp in next
+         ;; iteration of `lp'. Tell lightning to force emit of `movr'.
+         (jit-movr old-vp->fp old-vp->fp)
+
          (jit-movr old-vp->fp new-vp->fp)
          (lp offsets))
         (()
