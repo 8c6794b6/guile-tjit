@@ -199,15 +199,12 @@
                  (_
                   (set! arg-vars (reverse! acc)))))))
          (compile-term rest acc))
-        (('begin term1 term2)
-         (let ((acc (compile-term term1 acc)))
-           (compile-term term2 acc)))
         (('let (('_ ('%snap id . args))) term1)
          (let ((prim `(%snap ,id ,@(map ref args))))
            (set! snapshot-id id)
            (compile-term term1 (cons prim acc))))
         (('let (('_ (op . args))) term1)
-         (let ((prim `(,op ,@(map ref args))))
+         (let ((prim `(,op ,@(get-arg-types! op #f args))))
            (compile-term term1 (cons prim acc))))
         (('let ((dst (? constant? val))) term1)
          (let* ((reg (cond
@@ -232,11 +229,8 @@
            (compile-term term1 (cons prim acc))))
         (('loop . _)
          acc)
-        (('%snap id . args)
-         (set! snapshot-id id)
-         (cons `(%snap ,id ,@(map ref args)) acc))
-        (((? symbol? op) . args)
-         (cons `(,op ,@(get-arg-types! op #f args)) acc))
+        ('_
+         acc)
         (()
          acc)))
 

@@ -258,6 +258,7 @@
                 (vra (var-ref (- proc 1)))
                 (vproc (var-ref proc))
                 (rproc (local-ref proc))
+                (rproc-addr (pointer-address (scm->pointer rproc)))
                 (snapshot (take-snapshot! ip 0 locals local-indices vars)))
            (set-expecting-type! proc &procedure)
            (push-past-frame! past-frame dl ra local-offset locals)
@@ -268,12 +269,10 @@
            ;; when taiking side exit.
            `(let ((,vdl #f))
               (let ((,vra ,(+ ip (* 2 4))))
-                (begin
-                  ,snapshot
+                (let ((_ ,snapshot))
                   ;; Adding `%eq' guard to test the procedure value, to bailout when
                   ;; procedure has been redefined.
-                  (begin
-                    (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
+                  (let ((_ (%eq ,vproc ,rproc-addr)))
                     ,(convert escape rest)))))))
 
         (('call-label proc nlocals label)
@@ -315,12 +314,11 @@
            (if (<= 0 local-offset)
                (do-next-convert)
                (begin
-                 `(begin
-                    ,(take-snapshot! ip 0 locals local-indices
-                                     (filter (match-lambda
-                                              ((n . _)
-                                               (<= proc-offset n)))
-                                             vars))
+                 `(let ((_ ,(take-snapshot! ip 0 locals local-indices
+                                            (filter (match-lambda
+                                                     ((n . _)
+                                                      (<= proc-offset n)))
+                                                    vars))))
                     ,(let lp ((vars (reverse vars)))
                        (match vars
                          (((n . var) . vars)
@@ -358,12 +356,10 @@
            (debug 3 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
                   locals local-indices args)
            `(let ,assign
-              (begin
-                ,snapshot
+              (let ((_ ,snapshot))
                 ,(if (null? return)
                      (convert escape rest)
-                     `(begin
-                        ,return
+                     `(let ((_ ,return))
                         ,(convert escape rest)))))))
 
         ;; XXX: return-values
@@ -425,10 +421,8 @@
               ((and (fixnum? ra) (fixnum? rb))
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
-               `(begin
-                  ,(take-snapshot! ip dest locals local-indices vars)
-                  (begin
-                    ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
+               `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
+                  (let ((_ ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))))
                     ,(convert escape rest))))
               (else
                (debug 3 "*** ir:convert = ~a ~a~%" ra rb)
@@ -446,19 +440,18 @@
               ((and (fixnum? ra) (fixnum? rb))
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
-               `(begin
-                  ,(take-snapshot! ip dest locals local-indices vars)
-                  (begin
-                    ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
-                    ,(convert escape rest))))
+               (let ((op (if (< ra rb)
+                             `(%lt ,va ,vb)
+                             `(%ge ,va ,vb))))
+                 `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
+                    (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
+                      ,(convert escape rest)))))
 
               ((and (flonum? ra) (flonum? rb))
                (set-expecting-type! a &flonum)
                (set-expecting-type! b &flonum)
-               `(begin
-                  ,(take-snapshot! ip dest locals local-indices vars)
-                  (begin
-                    ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
+               `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
+                  (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
                     ,(convert escape rest))))
               (else
                (debug 3 "ir:convert < ~a ~a~%" ra rb)
@@ -518,18 +511,15 @@
            (cond
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
-                (begin
-                  (%set-cell-object! ,vdst 1 ,vsrc)
+                (let ((_ (%set-cell-object! ,vdst 1 ,vsrc)))
                   ,(convert escape rest))))
             ((fixnum? rdst)
              `(let ((,vsrc (%lsh ,vsrc 2)))
                 (let ((,vsrc (%add ,vsrc 2)))
-                  (begin
-                    (%set-cell-object! ,vdst 1 ,vsrc)
+                  (let ((_ (%set-cell-object! ,vdst 1 ,vsrc)))
                     ,(convert escape rest)))))
             (else
-             `(begin
-                (%set-cell-object! ,vdst 1 ,vsrc)
+             `(let ((_ (%set-cell-object! ,vdst 1 ,vsrc)))
                 ,(convert escape rest))))))
 
         ;; XXX: make-closure
@@ -741,8 +731,7 @@
            (cond
             ((and (vector? rsrc) (fixnum? ridx))
              (set-expecting-type! dst &vector)
-             `(begin
-                (%vector-set! ,vdst ,vsrc ,vidx)
+             `(let ((_ (%vector-set! ,vdst ,vsrc ,vidx)))
                 ,(convert escape rest)))
             (else
              (debug 3 "*** ir.scm:convert: NYI vector-set! ~a ~a ~a~%"
@@ -818,8 +807,10 @@
                     ;; it.
                     ;;
                     (lambda ()
-                      (take-snapshot! *ip-key-jump-to-linked-code*
-                                      0 locals local-indices vars)))))
+                      `(let ((_ ,(take-snapshot! *ip-key-jump-to-linked-code*
+                                                 0 locals local-indices
+                                                 vars)))
+                         _)))))
            (convert-one escape op ip fp ra locals last-op)))
         (((op ip fp ra locals) . rest)
          (convert-one escape op ip fp ra locals rest))
@@ -931,11 +922,9 @@
                                      vars))
                (loop (convert escape trace)))
           `(letrec ((entry (lambda ()
-                             (begin
-                               (%snap 0)
+                             (let ((_ (%snap 0)))
                                ,(add-initial-loads
-                                 `(begin
-                                    ,snap
+                                 `(let ((_ ,snap))
                                     (loop ,@args))))))
                     (loop (lambda ,args
                             ,loop)))
@@ -943,24 +932,22 @@
        (loop?
         (let ((args-from-vars (reverse! (map cdr vars))))
           `(letrec ((entry (lambda ,args-from-parent
-                             (begin
-                               ,(take-snapshot! initial-ip
-                                                0
-                                                initial-locals
-                                                local-indices-from-parent
-                                                vars-from-parent)
+                             (let ((_ ,(take-snapshot! initial-ip
+                                                       0
+                                                       initial-locals
+                                                       local-indices-from-parent
+                                                       vars-from-parent)))
                                ,(add-initial-loads `(loop ,@args-from-vars)))))
                     (loop (lambda ,args-from-vars
                             ,(convert escape trace))))
              entry)))
        (else
         `(letrec ((patch (lambda ,args-from-parent
-                           (begin
-                             ,(take-snapshot! initial-ip
-                                              0
-                                              initial-locals
-                                              local-indices-from-parent
-                                              vars-from-parent)
+                           (let ((_ ,(take-snapshot! initial-ip
+                                                     0
+                                                     initial-locals
+                                                     local-indices-from-parent
+                                                     vars-from-parent)))
                              ,(add-initial-loads (convert escape trace))))))
            patch))))
 
