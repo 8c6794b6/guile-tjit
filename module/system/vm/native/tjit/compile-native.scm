@@ -375,31 +375,27 @@ of SRCS, DSTS, TYPES are local index number."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
-  (let*-values
-      (((trampoline-size)
-        (hash-fold (lambda (k v acc) (+ acc 1)) 1 snapshots))
-       ((trampoline) (make-trampoline trampoline-size))
-       ((nspills) (length locals))
-       ((fp-offset)
-        ;; Root trace allocates spaces for spilled variables, three words to
-        ;; store `vp', `vp->fp', and `registers', and one more word for return
-        ;; address used by side exits. Side trace cannot allocate additional
-        ;; memory, because side trace uses `jit-tramp'. Native code will not
-        ;; work if number of spilled variables exceeds the number returned from
-        ;; parameter `(tjit-max-spills)'.
-        (if (not fragment)
-            (let ((max-spills (tjit-max-spills)))
-              (when (< max-spills nspills)
-                ;; XXX: Escape from this procedure, increment compilation
-                ;; failure for this entry-ip.
-                (error "Too many spilled variables" nspills))
-              (jit-allocai (imm (* (+ max-spills 4) %word-size))))
-            (fragment-fp-offset fragment)))
-       ((moffs)
-        (lambda (mem)
-          (let ((offset (* (ref-value mem) %word-size)))
-            (make-signed-pointer (+ fp-offset offset))))))
-
+  (let* ((trampoline (make-trampoline (hash-fold (lambda (k v acc) (+ acc 1))
+                                                 1 snapshots)))
+         (fp-offset
+          ;; Root trace allocates spaces for spilled variables, three words to
+          ;; store `vp', `vp->fp', and `registers', and one more word for return
+          ;; address used by side exits. Side trace cannot allocate additional
+          ;; memory, because side trace uses `jit-tramp'. Native code will not
+          ;; work if number of spilled variables exceeds the number returned
+          ;; from parameter `(tjit-max-spills)'.
+          (if (not fragment)
+              (let ((max-spills (tjit-max-spills))
+                    (nspills (length locals)))
+                (when (< max-spills nspills)
+                  ;; XXX: Escape from this procedure, increment compilation
+                  ;; failure for this entry-ip.
+                  (error "Too many spilled variables" nspills))
+                (jit-allocai (imm (* (+ max-spills 4) %word-size))))
+              (fragment-fp-offset fragment)))
+         (moffs (lambda (mem)
+                  (let ((offset (* (ref-value mem) %word-size)))
+                    (make-signed-pointer (+ fp-offset offset))))))
     (cond
      ;; Root trace.
      ((not fragment)
