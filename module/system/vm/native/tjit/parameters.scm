@@ -47,7 +47,7 @@
             tjit-dump-option
             tjit-dump-abort?
             tjit-dump-bytecode?
-            tjit-dump-cps?
+            tjit-dump-ops?
             tjit-dump-enter?
             tjit-dump-locals?
             tjit-dump-jitc?
@@ -62,7 +62,7 @@
             make-tjit-time-log
             set-tjit-time-log-start!
             set-tjit-time-log-scm!
-            set-tjit-time-log-cps!
+            set-tjit-time-log-ops!
             set-tjit-time-log-assemble!
             set-tjit-time-log-end!
             diff-tjit-time-log
@@ -79,11 +79,11 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode cps enter jitc locals scm time exit)
+  (make-tjit-dump abort bytecode ops enter jitc locals scm time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
-  (cps tjit-dump-cps? set-tjit-dump-cps!)
+  (ops tjit-dump-ops? set-tjit-dump-ops!)
   (enter tjit-dump-enter? set-tjit-dump-enter!)
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-locals? set-tjit-dump-locals!)
@@ -108,13 +108,13 @@ Flags are:
 
 - 'b': Dump recorded bytecode.
 
-- 'c': Dump CPS IR.
-
 - 'e': Dump enter, show FP, and relevant data when entering native code.
 
 - 'j': Dump brief info when starting JIT compilation.
 
 - 'l': Dump locals, see 'x'.
+
+- 'o': Dump list of primitive operations.
 
 - 's': Dump Scheme IR.
 
@@ -142,10 +142,10 @@ fields to @code{#f}."
                                      (lp cs)))))))))
         (flags (#\a set-tjit-dump-abort!)
                (#\b set-tjit-dump-bytecode!)
-               (#\c set-tjit-dump-cps!)
                (#\e set-tjit-dump-enter!)
                (#\j set-tjit-dump-jitc!)
                (#\l set-tjit-dump-locals!)
+               (#\o set-tjit-dump-ops!)
                (#\s set-tjit-dump-scm!)
                (#\t set-tjit-dump-time!)
                (#\x set-tjit-dump-exit!))))))
@@ -161,14 +161,14 @@ fields to @code{#f}."
 
 ;; Record type to hold internal run time at each stage of compilation.
 (define-record-type <tjit-time-log>
-  (make-tjit-time-log start scm cps assemble end)
+  (make-tjit-time-log start scm ops assemble end)
   tjit-time-log?
   ;; Internal time at the time of tjitc entry.
   (start tjit-time-log-start set-tjit-time-log-start!)
   ;; Time at SCM compilation entry.
   (scm tjit-time-log-scm set-tjit-time-log-scm!)
-  ;; Time at CPS compilation entry.
-  (cps tjit-time-log-cps set-tjit-time-log-cps!)
+  ;; Time at primitive operation list compilation entry.
+  (ops tjit-time-log-ops set-tjit-time-log-ops!)
   ;; At assemble entry.
   (assemble tjit-time-log-assemble set-tjit-time-log-assemble!)
   ;; At end.
@@ -181,13 +181,13 @@ fields to @code{#f}."
         0.0))
   (let ((start (tjit-time-log-start log))
         (scm (tjit-time-log-scm log))
-        (cps (tjit-time-log-cps log))
+        (ops (tjit-time-log-ops log))
         (assemble (tjit-time-log-assemble log))
         (end (tjit-time-log-end log)))
     (list (diff start end)
           (diff start scm)
-          (diff scm cps)
-          (diff cps assemble)
+          (diff scm ops)
+          (diff ops assemble)
           (diff assemble end))))
 
 (define *tjit-time-logs*
@@ -216,7 +216,7 @@ option was set to true."
          (total-time (if dump-time 0 #f))
          (init-time (if dump-time 0 #f))
          (scm-time (if dump-time 0 #f))
-         (cps-time (if dump-time 0 #f))
+         (ops-time (if dump-time 0 #f))
          (asm-time (if dump-time 0 #f))
          (num-fragments (hash-count (const #t) (tjit-fragment-table))))
     (hash-fold (lambda (k v acc)
@@ -233,7 +233,7 @@ option was set to true."
             (set! total-time (+ total-time t))
             (set! init-time (+ init-time i))
             (set! scm-time (+ scm-time s))
-            (set! cps-time (+ cps-time c))
+            (set! ops-time (+ ops-time c))
             (set! asm-time (+ asm-time a)))))
        #f))
     (list `(hot-loop . ,hot-loop)
@@ -243,7 +243,7 @@ option was set to true."
           `(num-fragments . ,num-fragments)
           `(init-time . ,init-time)
           `(scm-time . ,scm-time)
-          `(cps-time . ,cps-time)
+          `(ops-time . ,ops-time)
           `(asm-time . ,asm-time)
           `(total-time . ,total-time))))
 

@@ -151,14 +151,14 @@
          idx))))
   (match plist
     (($ $primlist entry loop)
-     (format #t ";;; trace ~a: primitives~%" trace-id)
+     (format #t ";;; trace ~a: primops:~%" trace-id)
      (let ((idx (dump-list 0 entry)))
        (when (not (null? loop))
          (format #t "==== loop:~%")
          (dump-list idx loop)
          (format #t "==== ->loop~%"))))
     (_
-     (format #t ";;; primitives: ~a~%" plist))))
+     (format #t ";;; primops: ~a~%" plist))))
 
 (define (dump-native-code trace-id ip-x-ops code code-size)
   (jit-print)
@@ -226,30 +226,30 @@
       (format #t ";;; parent-exit-id: ~a~%" parent-exit-id)
       (format #t ";;; loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
-    (let-values (((locals snapshots lowest-offset scm cps)
+    (let-values (((locals snapshots lowest-offset scm ops)
                   (trace->primlist trace-id fragment parent-exit-id loop?
                                    ip-x-ops)))
       (when (and (tjit-dump-jitc? dump-option)
-                 (or cps (tjit-dump-abort? dump-option)))
+                 (or ops (tjit-dump-abort? dump-option)))
         (show-one-line sline fragment))
       (when (and (tjit-dump-bytecode? dump-option)
-                 (or cps (tjit-dump-abort? dump-option)))
+                 (or ops (tjit-dump-abort? dump-option)))
         (dump-bytecode trace-id ip-x-ops))
       (when (and (tjit-dump-scm? dump-option)
-                 (or cps (tjit-dump-abort? dump-option)))
+                 (or ops (tjit-dump-abort? dump-option)))
         (dump-scm trace-id scm))
       (cond
-       ((not cps)
+       ((not ops)
         (debug 1 ";;; trace ~a: aborted~%" trace-id)
         (increment-compilation-failure entry-ip))
        (else
-        (when (tjit-dump-cps? dump-option)
-          (dump-primlist trace-id cps snapshots))
+        (when (tjit-dump-ops? dump-option)
+          (dump-primlist trace-id ops snapshots))
         (with-jit-state
          (jit-prolog)
          (let-values
              (((trampoline loop-label loop-locals loop-vars fp-offset)
-               (compile-mcode cps entry-ip locals snapshots fragment
+               (compile-mcode ops entry-ip locals snapshots fragment
                               parent-exit-id linked-ip lowest-offset
                               trace-id)))
            (let ((epilog-label (jit-label)))

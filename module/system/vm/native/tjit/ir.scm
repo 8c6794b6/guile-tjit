@@ -990,6 +990,6 @@ a boolean to indicate whether the trace contains loop or not."
     (lambda (locals vars snapshots lowest-offset scm)
       (when (tjit-dump-time? (tjit-dump-option))
         (let ((log (get-tjit-time-log trace-id)))
-          (set-tjit-time-log-cps! log (get-internal-run-time))))
+          (set-tjit-time-log-ops! log (get-internal-run-time))))
       (let ((plist (and scm (anf->primlist vars snapshots scm))))
         (values locals snapshots lowest-offset scm plist)))))
