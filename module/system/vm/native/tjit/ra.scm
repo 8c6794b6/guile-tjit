@@ -21,6 +21,8 @@
 ;;; Commentary:
 ;;;
 ;;; Assign registers to ANF IR, compile to list of primitive operations.
+;;; Applying naive strategy to assign registers to locals, does nothing
+;;; sophisticated such as linear-scan, binpacking, or graph coloring.
 ;;;
 ;;; Code:
 
