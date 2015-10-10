@@ -210,8 +210,8 @@
         (('let ((dst (? constant? val))) term1)
          (let* ((reg (cond
                       ((ref dst) => identity)
-                      ((flonum? val) (gen-fpr))
-                      (else (gen-gpr))))
+                      ((flonum? val) (get-fpr! dst))
+                      (else (get-gpr! dst))))
                 (prim `(%move ,reg ,(make-constant val))))
            (compile-term term1 (cons prim acc))))
         (('let ((dst (? symbol? src))) term1)
