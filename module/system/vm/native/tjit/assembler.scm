@@ -767,7 +767,7 @@ both arguments were register or memory."
 
 ;; Type check local N with TYPE and load to gpr or memory DST.  Won't work when
 ;; n is negative.
-(define-prim (%frame-ref (int dst) (void n) (void type))
+(define-prim (%fref (int dst) (void n) (void type))
   (let ((exit (jit-forward))
         (next (jit-forward)))
     (define-syntax-rule (load-constant constant)
@@ -779,10 +779,10 @@ both arguments were register or memory."
          ((memory? dst)
           (memory-set! dst r0))
          (else
-          (error "%frame-ref" dst n type)))))
+          (error "%fref" dst n type)))))
     (when (or (not (constant? n))
               (not (constant? type)))
-      (error "%frame-ref" dst n type))
+      (error "%fref" dst n type))
 
     (frame-ref r0 (ref-value n))
 
@@ -820,11 +820,11 @@ both arguments were register or memory."
 
 ;; Load frame local to fpr or memory, with type check. This primitive is used
 ;; for loading to floating point register.
-(define-prim (%frame-ref/f (double dst) (void n))
+(define-prim (%fref/f (double dst) (void n))
   (let ((exit (jit-forward))
         (next (jit-forward)))
     (when (not (constant? n))
-      (error "%frame-ref/f" dst n))
+      (error "%fref/f" dst n))
     (frame-ref r0 (ref-value n))
     (jump (scm-imp r0) exit)
     (scm-cell-type r1 r0)
@@ -837,13 +837,13 @@ both arguments were register or memory."
       (scm-real-value f0 r0)
       (memory-set!/fpr dst f0))
      (else
-      (error "%frame-ref/f" dst n)))
+      (error "%fref/f" dst n)))
     (jump next)
     (jit-link exit)
     (emit-side-exit)
     (jit-link next)))
 
-(define-prim (%cell-object (int dst) (int src) (void n))
+(define-prim (%cref (int dst) (int src) (void n))
   (cond
    ((and (gpr? dst) (constant? src) (constant? n))
     (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
@@ -866,9 +866,9 @@ both arguments were register or memory."
     (jit-ldxi r0 r0 (constant-word n))
     (memory-set! dst r0))
    (else
-    (error "%cell-object" dst src n))))
+    (error "%cref" dst src n))))
 
-(define-prim (%cell-object/f (double dst) (int src) (void n))
+(define-prim (%cref/f (double dst) (int src) (void n))
   (cond
    ((and (fpr? dst) (gpr? src) (constant? n))
     (jit-ldxi-d (fpr dst) (gpr src) (constant-word n)))
@@ -886,9 +886,9 @@ both arguments were register or memory."
     (memory-set!/fpr dst f0))
 
    (else
-    (error "%cell-object/f" dst src n))))
+    (error "%cref/f" dst src n))))
 
-(define-prim (%set-cell-object! (int cell) (void n) (int src))
+(define-prim (%cset (int cell) (void n) (int src))
   (cond
    ((and (gpr? cell) (constant? n) (gpr? src))
     (jit-stxi (constant-word n) (gpr cell) (gpr src)))
@@ -905,7 +905,7 @@ both arguments were register or memory."
     (jit-stxi (constant-word n) r0 r1))
 
    (else
-    (error "%set-cell-object!" cell n src))))
+    (error "%cset" cell n src))))
 
 
 ;;;

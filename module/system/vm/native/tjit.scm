@@ -114,7 +114,7 @@
   (define (mark-op op)
     (case (car op)
       ((%return
-        %frame-ref %frame-ref/f
+        %fref %fref/f
         %eq %ne %lt %ge
         %flt %fge)
        "  >")
@@ -139,7 +139,7 @@
        (dump-snapshot (hashq-ref snapshots id)))
       (_
        (let ((mark (mark-op op)))
-         (format #t "~4,,,'0@a ~a (~12a ~{~a~^ ~})~%" idx mark
+         (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
                  (car op) (cdr op))))))
   (define (dump-list idx ops)
     (let lp ((ops ops) (idx idx))

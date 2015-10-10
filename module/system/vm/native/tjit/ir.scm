@@ -69,7 +69,7 @@
   `(%rsh ,scm 2))
 
 (define (to-double scm)
-  `(%cell-object/f ,scm 2))
+  `(%cref/f ,scm 2))
 
 
 ;;;
@@ -195,10 +195,10 @@
         `(let ((,var #f))
            ,(proc args)))
        ((= type &flonum)
-        `(let ((,var (%frame-ref/f ,idx)))
+        `(let ((,var (%fref/f ,idx)))
            ,(proc args)))
        (else
-        `(let ((,var (%frame-ref ,idx ,type)))
+        `(let ((,var (%fref ,idx ,type)))
            ,(proc args)))))
 
     (define (take-snapshot! ip offset locals indices vars)
@@ -491,7 +491,7 @@
                (rsrc (and (< src (vector-length locals))
                           (variable-ref (vector-ref locals src)))))
            (set-expecting-type! src &box)
-           `(let ((,vdst (%cell-object ,vsrc 1)))
+           `(let ((,vdst (%cref ,vsrc 1)))
               ,(cond
                 ((flonum? rsrc)
                  `(let ((,vdst ,(to-double vdst)))
@@ -511,15 +511,15 @@
            (cond
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
-                (let ((_ (%set-cell-object! ,vdst 1 ,vsrc)))
+                (let ((_ (%cset ,vdst 1 ,vsrc)))
                   ,(convert escape rest))))
             ((fixnum? rdst)
              `(let ((,vsrc (%lsh ,vsrc 2)))
                 (let ((,vsrc (%add ,vsrc 2)))
-                  (let ((_ (%set-cell-object! ,vdst 1 ,vsrc)))
+                  (let ((_ (%cset ,vdst 1 ,vsrc)))
                     ,(convert escape rest)))))
             (else
-             `(let ((_ (%set-cell-object! ,vdst 1 ,vsrc)))
+             `(let ((_ (%cset ,vdst 1 ,vsrc)))
                 ,(convert escape rest))))))
 
         ;; XXX: make-closure
@@ -869,8 +869,8 @@
               ;; parent fragment, ignoreing.
               ;;
               ;; If local index is negative, locals from lower frame won't be
-              ;; passed as argument. Loading later with '%frame-ref' or
-              ;; '%frame-ref/f'.
+              ;; passed as argument. Loading later with '%fref' or
+              ;; '%fref/f'.
               ;;
               ;; In side traces, locals with its index exceeding initial number
               ;; of locals are also ignored, those are likely to be locals in
