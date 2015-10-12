@@ -967,8 +967,8 @@
   "Compiles TRACE to primlist.
 
 If the trace to be compiles is a side trace, expects FRAGMENT as from parent
-trace, and EXIT-ID is the hot exit id from the parent trace. LOOP? is should be
-a boolean to indicate whether the trace contains loop or not."
+trace, and EXIT-ID is the hot exit id from the parent trace. LOOP? is a boolean
+to indicate whether the trace contains loop or not."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-scm! log (get-internal-run-time))))

@@ -186,18 +186,18 @@
       (match term
         (('lambda args rest)
          (when assign-args?
-           (let ((snapshot (hashq-ref snapshots snapshot-id)))
-             (let lp ((args args)
-                      (local-x-types (snapshot-locals snapshot))
-                      (acc '()))
-               (match (list args local-x-types)
-                 (((arg . args) ((local . type) . local-x-types))
-                  (let ((var (if (eq? type &flonum)
-                                 (get-fpr! arg)
-                                 (get-gpr! arg))))
-                    (lp args local-x-types (cons var acc))))
-                 (_
-                  (set! arg-vars (reverse! acc)))))))
+           (let lp ((args args)
+                    (local-x-types (snapshot-locals
+                                    (hashq-ref snapshots snapshot-id)))
+                    (acc '()))
+             (match (list args local-x-types)
+               (((arg . args) ((local . type) . local-x-types))
+                (let ((var (if (eq? type &flonum)
+                               (get-fpr! arg)
+                               (get-gpr! arg))))
+                  (lp args local-x-types (cons var acc))))
+               (_
+                (set! arg-vars (reverse! acc))))))
          (compile-term rest acc))
         (('let (('_ ('%snap id . args))) term1)
          (let ((prim `(%snap ,id ,@(map ref args))))

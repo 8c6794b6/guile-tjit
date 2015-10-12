@@ -25,14 +25,8 @@
 ;;; Code:
 
 (define-module (system vm native tjit variables)
-  #:use-module (ice-9 format)
-  #:use-module (ice-9 match)
-  #:use-module (language cps intmap)
-  #:use-module (language cps intset)
   #:use-module (language cps)
-  #:use-module (srfi srfi-11)
   #:use-module (system foreign)
-  #:use-module (system vm native debug)
   #:use-module (system vm native tjit registers)
   #:export (ref? ref-value ref-type
             make-constant constant? constant
