@@ -63,7 +63,7 @@
 
 
 ;;;
-;;; ANF to Primitive List
+;;; Auxiliary
 ;;;
 
 (define-syntax-rule (make-initial-free-gprs)
@@ -90,64 +90,56 @@
 (define-register-acquire! acquire-gpr! *num-gpr* make-gpr)
 (define-register-acquire! acquire-fpr! *num-fpr* make-fpr)
 
-(define (anf->primlist vars snapshots term)
-  (let ((env (make-hash-table))
-        (free-gprs (make-initial-free-gprs))
-        (free-fprs (make-initial-free-fprs))
-        (mem-idx 0)
-        (initial-local-x-types (snapshot-locals (hashq-ref snapshots 0))))
-    (match term
-      (`(letrec ((entry ,entry)
-                 (loop ,loop))
-          entry)
-       (let*-values (((entry-ops mem-idx snapshot-idx arg-vars)
-                      (compile-primlist entry
-                                        env free-gprs free-fprs mem-idx
-                                        0 initial-local-x-types
-                                        #t))
-                     ((loop-ops mem-idx snapshot-idx arg-vars)
-                      (compile-primlist loop
-                                        env free-gprs free-fprs mem-idx
-                                        snapshot-idx initial-local-x-types
-                                        #f)))
-         (make-primlist entry-ops loop-ops '())))
-      (`(letrec ((patch ,patch))
-          patch)
-       (let*-values (((patch-ops mem-idx snapshot-idx arg-vars)
-                      (compile-primlist patch
-                                        env free-gprs free-fprs mem-idx
-                                        0 initial-local-x-types #t)))
-         (make-primlist patch-ops '() arg-vars)))
+(define-syntax-parameter mem-idx
+  (lambda (x)
+    (syntax-violation 'mem-idx "mem-idx undefined" x)))
 
-      (_
-       (error "anf->primlist: malformed term" term)))))
+(define-syntax-parameter free-gprs
+  (lambda (x)
+    (syntax-violation 'free-gprs "free-gprs undefined" x)))
 
-(define (compile-primlist term env free-gprs free-fprs mem-idx
-                                      snapshot-id local-x-types assign-args?)
+(define-syntax-parameter free-fprs
+  (lambda (x)
+    (syntax-violation 'free-fprs "free-fprs undefined" x)))
+
+(define-syntax-parameter env
+  (lambda (x)
+    (syntax-violation 'env "env undefined" x)))
+
+(define-syntax-rule (gen-mem)
+  (let ((ret (make-memory (variable-ref mem-idx))))
+    (variable-set! mem-idx (+ 1 (variable-ref mem-idx)))
+    ret))
+
+(define-syntax-rule (set-env! gen var)
+  (let ((ret gen))
+    (hashq-set! env var ret)
+    ret))
+
+(define-syntax-rule (get-mem! var)
+  (set-env! (gen-mem) var))
+
+(define-syntax-rule (get-gpr! var)
+  (set-env! (or (acquire-gpr! free-gprs)
+                (gen-mem))
+            var))
+
+(define-syntax-rule (get-fpr! var)
+  (set-env! (or (acquire-fpr! free-fprs)
+                (gen-mem))
+            var))
+
+(define (compile-primlist term arg-env arg-free-gprs arg-free-fprs arg-mem-idx
+                          snapshot-id)
   "Compile ANF term to list of primitive operations."
-  (let ((arg-vars '()))
+  (syntax-parameterize
+      ((env (identifier-syntax arg-env))
+       (free-gprs (identifier-syntax arg-free-gprs))
+       (free-fprs (identifier-syntax arg-free-fprs))
+       (mem-idx (identifier-syntax arg-mem-idx)))
     (define (lookup-prim-type op)
-      (hashq-ref (@ (system vm native tjit assembler) *native-prim-types*) op))
-    (define-syntax-rule (gen-mem)
-      (let ((ret (make-memory mem-idx)))
-        (set! mem-idx (+ 1 mem-idx))
-        ret))
-    (define-syntax-rule (gen-gpr)
-      (or (acquire-gpr! free-gprs)
-          (gen-mem)))
-    (define-syntax-rule (gen-fpr)
-      (or (acquire-fpr! free-fprs)
-          (gen-mem)))
-    (define-syntax-rule (set-env! gen var)
-      (let ((ret (gen)))
-        (hashq-set! env var ret)
-        ret))
-    (define-syntax-rule (get-mem! var)
-      (set-env! gen-mem var))
-    (define-syntax-rule (get-gpr! var)
-      (set-env! gen-gpr var))
-    (define-syntax-rule (get-fpr! var)
-      (set-env! gen-fpr var))
+      (hashq-ref (@ (system vm native tjit assembler) *native-prim-types*)
+                 op))
     (define (get-arg-types! op dst args)
       (let ((types (lookup-prim-type op)))
         (let lp ((types (if dst
@@ -165,16 +157,16 @@
                (cond
                 ((hashq-ref env arg)
                  => (lambda (reg)
-                      (debug 1 ";;; get-arg-types!: ~a already assigned to ~a~%"
+                      (debug 1 ";;; get-arg-types!: found ~a as ~a~%"
                              arg reg)
                       (lp types args (cons reg acc))))
                 ((= type int)
                  (let ((reg (get-gpr! arg)))
-                   (debug 1 ";;; get-arg-types!: ~a to ~a~%" arg reg)
+                   (debug 1 ";;; get-arg-types!: ~a to ~a (int)~%" arg reg)
                    (lp types (cons reg args) acc)))
                 ((= type double)
                  (let ((reg (get-fpr! arg)))
-                   (debug 1 ";;; get-arg-types!: ~a to ~a~%" arg reg)
+                   (debug 1 ";;; get-arg-types!: ~a to ~a (double)~%" arg reg)
                    (lp types (cons reg args) acc)))
                 (else
                  (debug 1 ";;; get-arg-types!: unknown type ~a~%" type)
@@ -194,7 +186,7 @@
                         (not (fpr? assigned)))
                    (and (= type double)
                         (not (gpr? assigned)))))
-          (debug 1 ";;; get-dst-type!: dst already assigned and same type~%")
+          (debug 1 ";;; get-dst-type!: same type assigned to dst~%")
           assigned)
          ((= type int)
           (get-gpr! dst))
@@ -216,20 +208,6 @@
        (else #f)))
     (define (compile-term term acc)
       (match term
-        (('lambda args rest)
-         (when assign-args?
-           (let lp ((args args)
-                    (local-x-types local-x-types)
-                    (acc '()))
-             (match (list args local-x-types)
-               (((arg . args) ((local . type) . local-x-types))
-                (let ((reg (if (eq? type &flonum)
-                               (get-fpr! arg)
-                               (get-gpr! arg))))
-                  (lp args local-x-types (cons reg acc))))
-               (_
-                (set! arg-vars (reverse! acc))))))
-         (compile-term rest acc))
         (('let (('_ ('%snap id . args))) term1)
          (let ((prim `(%snap ,id ,@(map ref args))))
            (set! snapshot-id id)
@@ -266,4 +244,62 @@
          acc)))
 
     (let ((plist (reverse! (compile-term term '()))))
-      (values plist mem-idx snapshot-id arg-vars))))
+      (values plist snapshot-id))))
+
+
+;;;
+;;; ANF to Primitive List
+;;;
+
+(define (anf->primlist vars snapshots term)
+  (let ((initial-free-gprs (make-initial-free-gprs))
+        (initial-free-fprs (make-initial-free-fprs))
+        (initial-mem-idx (make-variable 0))
+        (initial-env (make-hash-table))
+        (initial-local-x-types (snapshot-locals (hashq-ref snapshots 0))))
+    (syntax-parameterize
+        ((free-gprs (identifier-syntax initial-free-gprs))
+         (free-fprs (identifier-syntax initial-free-fprs))
+         (mem-idx (identifier-syntax initial-mem-idx))
+         (env (identifier-syntax initial-env)))
+      (define-syntax-rule (set-initial-args! initial-args local-x-types)
+        (let lp ((args initial-args)
+                 (local-x-types local-x-types)
+                 (acc '()))
+          (match (list args local-x-types)
+            (((arg . args) ((local . type) . local-x-types))
+             (let ((reg (if (eq? type &flonum)
+                            (get-fpr! arg)
+                            (get-gpr! arg))))
+               (lp args local-x-types (cons reg acc))))
+            (_
+             (reverse! acc)))))
+      (match term
+        (`(letrec ((entry (lambda ,entry-args
+                            ,entry-body))
+                   (loop (lambda ,loop-args
+                           ,loop-body)))
+            entry)
+         (let*-values (((_)
+                        (set-initial-args! entry-args initial-local-x-types))
+                       ((entry-ops snapshot-idx)
+                        (compile-primlist entry-body
+                                          env free-gprs free-fprs mem-idx
+                                          0))
+                       ((loop-ops snapshot-idx)
+                        (compile-primlist loop-body
+                                          env free-gprs free-fprs mem-idx
+                                          snapshot-idx)))
+           (make-primlist entry-ops loop-ops '())))
+        (`(letrec ((patch (lambda ,patch-args
+                            ,patch-body)))
+            patch)
+         (let*-values (((arg-vars)
+                        (set-initial-args! patch-args initial-local-x-types))
+                       ((patch-ops snapshot-idx)
+                        (compile-primlist patch-body
+                                          env free-gprs free-fprs mem-idx
+                                          0)))
+           (make-primlist patch-ops '() arg-vars)))
+        (_
+         (error "anf->primlist: malformed term" term))))))
