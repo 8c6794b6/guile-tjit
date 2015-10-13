@@ -251,30 +251,39 @@
 ;;; ANF to Primitive List
 ;;;
 
-(define (anf->primlist vars snapshots term)
+(define (anf->primlist parent-snapshot initial-snapshot vars term)
   (let ((initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
         (initial-env (make-hash-table))
-        (initial-local-x-types (snapshot-locals (hashq-ref snapshots 0))))
+        (initial-local-x-types (snapshot-locals initial-snapshot)))
     (syntax-parameterize
         ((free-gprs (identifier-syntax initial-free-gprs))
          (free-fprs (identifier-syntax initial-free-fprs))
          (mem-idx (identifier-syntax initial-mem-idx))
          (env (identifier-syntax initial-env)))
-      (define-syntax-rule (set-initial-args! initial-args local-x-types)
+      (define-syntax-rule (set-initial-args! initial-args initial-locals)
         (let lp ((args initial-args)
-                 (local-x-types local-x-types)
+                 (local-x-types initial-locals)
                  (acc '()))
           (match (list args local-x-types)
             (((arg . args) ((local . type) . local-x-types))
-             (let ((reg (if (eq? type &flonum)
-                            (get-fpr! arg)
-                            (get-gpr! arg))))
-               (lp args local-x-types (cons reg acc))))
+             (cond
+              ((hashq-ref env arg)
+               => (lambda (reg)
+                    (lp args local-x-types (cons reg acc))))
+              (else
+               (let ((reg (if (eq? type &flonum)
+                              (get-fpr! arg)
+                              (get-gpr! arg))))
+                 (lp args local-x-types (cons reg acc))))))
             (_
              (reverse! acc)))))
+      (define-syntax-rule (make-var n)
+        (string->symbol (string-append "v" (number->string n))))
+
       (match term
+        ;; ANF with entry clause and loop body.
         (`(letrec ((entry (lambda ,entry-args
                             ,entry-body))
                    (loop (lambda ,loop-args
@@ -291,9 +300,36 @@
                                           env free-gprs free-fprs mem-idx
                                           snapshot-idx)))
            (make-primlist entry-ops loop-ops '())))
+
+        ;; ANF without loop.
         (`(letrec ((patch (lambda ,patch-args
                             ,patch-body)))
             patch)
+
+         ;; Refill variables. Using the locals assigned to snapshot, which are
+         ;; determined at the time of exit from parent trace.
+         (match parent-snapshot
+           (($ $snapshot id offset nlocals locals variables code ip)
+            (when (= (length locals)
+                     (length variables))
+              (let lp ((variables variables)
+                       (locals locals))
+                (match (list variables locals)
+                  (((var . vars) ((local . type) . locals))
+                   (hashq-set! env (make-var local) var)
+                   (match var
+                     (('gpr . n)
+                      (vector-set! free-gprs n #f))
+                     (('fpr . n)
+                      (vector-set! free-fprs n #f))
+                     (('mem . n)
+                      (when (<= (variable-ref mem-idx) n)
+                        (variable-set! mem-idx (+ n 1)))))
+                   (lp vars locals))
+                  (_
+                   (values))))))
+           (_
+            (debug 2 ";;; anf->primlist: perhaps loop-less root trace~%")))
          (let*-values (((arg-vars)
                         (set-initial-args! patch-args initial-local-x-types))
                        ((patch-ops snapshot-idx)

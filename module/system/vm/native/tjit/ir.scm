@@ -978,5 +978,11 @@ to indicate whether the trace contains loop or not."
       (when (tjit-dump-time? (tjit-dump-option))
         (let ((log (get-tjit-time-log trace-id)))
           (set-tjit-time-log-ops! log (get-internal-run-time))))
-      (let ((plist (and scm (anf->primlist vars snapshots scm))))
+      (let* ((parent-snapshot (and fragment
+                                   (hashq-ref (fragment-snapshots fragment)
+                                              exit-id)))
+             (initial-snapshot (hashq-ref snapshots 0))
+             (plist (and scm
+                         (anf->primlist parent-snapshot initial-snapshot
+                                        vars scm))))
         (values locals snapshots lowest-offset scm plist)))))

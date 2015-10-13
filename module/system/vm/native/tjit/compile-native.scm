@@ -425,53 +425,16 @@ of SRCS, DSTS, TYPES are local index number."
       ;; Avoid emitting prologue.
       (jit-tramp (imm (* 4 %word-size)))
 
-      ;; Load initial arguments from parent trace.
+      ;; Store values passed from parent trace when it's not used by this
+      ;; side trace.
       (cond
        ((hashq-ref (fragment-snapshots fragment) parent-exit-id)
         => (match-lambda
             (($ $snapshot _ _ _ local-x-types exit-variables)
-
-             ;; When passing values from parent trace to side-trace, src could
-             ;; be overwritten by move or load.  Pairings of local and register
-             ;; could be different from how it was done in parent trace and this
-             ;; side trace, move or load without overwriting the sources.
-             (let ((locals (snapshot-locals (hashq-ref snapshots 0)))
-                   (dst-table (make-hash-table))
-                   (src-table (make-hash-table))
-                   (type-table (make-hash-table))
-                   (initial-locals (primlist-initial-locals primlist)))
-               (debug 3 ";;; side-trace: initial-locals: ~a~%" initial-locals)
+             (let ((locals (snapshot-locals (hashq-ref snapshots 0))))
                (debug 3 ";;; side-trace: locals: ~a~%" locals)
-
-               ;; Store values passed from parent trace when it's not used by this
-               ;; side trace.
                (maybe-store moffs local-x-types exit-variables identity
-                            locals 0)
-
-               (let lp ((locals locals) (vars initial-locals))
-                 (match (list locals vars)
-                   ((((local . type) . locals) (var . vars))
-                    (hashq-set! type-table local (assq-ref locals local))
-                    (hashq-set! dst-table local var)
-                    (lp locals vars))
-                   (_
-                    (values))))
-
-               (let lp ((local-x-types local-x-types)
-                        (vars exit-variables))
-                 (match (list local-x-types vars)
-                   ((((local . type) . local-x-types) (var . vars))
-                    (hashq-set! src-table local var)
-                    (when (not (hashq-ref type-table local))
-                      (debug 3 ";;; side-exit entry, setting type from parent,")
-                      (debug 3 "local ~a to type ~a~%" local type)
-                      (hashq-set! type-table local type))
-                    (lp local-x-types vars))
-                   (_
-                    (values))))
-
-               ;; Move or load locals in current frame.
-               (move-or-load-carefully dst-table src-table type-table moffs)))))
+                            locals 0)))))
        (else
         (error "compile-tjit: snapshot not found in parent trace"
                parent-exit-id)))))
