@@ -307,7 +307,6 @@
 
 (define (init-vm-tjit interactive?)
   "Dummy procedure for @code{autoload}."
-  (initialize-tjit-primitives)
   #t)
 
 (load-extension (string-append "libguile-" (effective-version))

@@ -43,7 +43,6 @@
             *scm-true*
             *scm-undefined*
             *scm-unspecified*
-            initialize-tjit-primitives
             make-asm
             asm-fp-offset
             asm-out-code
@@ -129,17 +128,6 @@
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
-
-(define (initialize-tjit-primitives)
-  (for-each
-   (match-lambda
-    ((name . arity)
-     (module-add! the-root-module name (make-variable #f))
-     (add-interesting-primitive! name)
-     (hashq-set! (force (@@ (language cps primitives) *prim-instructions*))
-                 name name)
-     (hashq-set! (@@ (language cps primitives) *prim-arities*) name arity)))
-   (hash-fold acons '() *native-prim-arities*)))
 
 
 ;;;
