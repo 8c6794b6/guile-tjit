@@ -66,47 +66,77 @@
 ;;; ANF to Primitive List
 ;;;
 
+(define-syntax-rule (make-initial-free-gprs)
+  (make-vector *num-gpr* #t))
+
+(define-syntax-rule (make-initial-free-fprs)
+  (make-vector *num-fpr* #t))
+
+(define-syntax define-register-acquire!
+  (syntax-rules ()
+    ((_ name num constructor)
+     (define (name free-regs)
+       (let lp ((i 0))
+         (cond
+          ((= i num)
+           #f)
+          ((vector-ref free-regs i)
+           (let ((ret (constructor i)))
+             (vector-set! free-regs i #f)
+             ret))
+          (else
+           (lp (+ i 1)))))))))
+
+(define-register-acquire! acquire-gpr! *num-gpr* make-gpr)
+(define-register-acquire! acquire-fpr! *num-fpr* make-fpr)
+
 (define (anf->primlist vars snapshots term)
-  (debug 1 ";;; anf->primlist:~%")
-  (debug 1 ";;;   vars: ~a~%" vars)
-  (let ((env (make-hash-table)))
+  (let ((env (make-hash-table))
+        (free-gprs (make-initial-free-gprs))
+        (free-fprs (make-initial-free-fprs))
+        (mem-idx 0)
+        (initial-local-x-types (snapshot-locals (hashq-ref snapshots 0))))
     (match term
       (`(letrec ((entry ,entry)
                  (loop ,loop))
           entry)
-       (let*-values (((entry-asm gpr-idx fpr-idx mem-idx snapshot-idx arg-vars)
-                      (compile-primlist entry env 0 0 0 0 snapshots #t))
-                     ((loop-asm gpr-idx fpr-idx mem-idx snapshot-idx arg-vars)
-                      (compile-primlist loop env gpr-idx fpr-idx mem-idx
-                                        snapshot-idx snapshots #f)))
-         (make-primlist entry-asm loop-asm '())))
+       (let*-values (((entry-ops mem-idx snapshot-idx arg-vars)
+                      (compile-primlist entry
+                                        env free-gprs free-fprs mem-idx
+                                        0 initial-local-x-types
+                                        #t))
+                     ((loop-ops mem-idx snapshot-idx arg-vars)
+                      (compile-primlist loop
+                                        env free-gprs free-fprs mem-idx
+                                        snapshot-idx initial-local-x-types
+                                        #f)))
+         (make-primlist entry-ops loop-ops '())))
       (`(letrec ((patch ,patch))
           patch)
-       (let-values (((patch-asm gpr-idx fpr-idx mem-idx snapshot-idx arg-vars)
-                     (compile-primlist patch env 0 0 0 0 snapshots #t)))
-         (make-primlist patch-asm '() arg-vars)))
+       (let*-values (((patch-ops mem-idx snapshot-idx arg-vars)
+                      (compile-primlist patch
+                                        env free-gprs free-fprs mem-idx
+                                        0 initial-local-x-types #t)))
+         (make-primlist patch-ops '() arg-vars)))
+
       (_
        (error "anf->primlist: malformed term" term)))))
 
-(define (compile-primlist term env gpr-idx fpr-idx mem-idx
-                          snapshot-id snapshots assign-args?)
+(define (compile-primlist term env free-gprs free-fprs mem-idx
+                                      snapshot-id local-x-types assign-args?)
   "Compile ANF term to list of primitive operations."
   (let ((arg-vars '()))
     (define (lookup-prim-type op)
       (hashq-ref (@ (system vm native tjit assembler) *native-prim-types*) op))
-    (define-syntax-rule (gen-var proc idx)
-      (let ((ret (proc idx)))
-        (set! idx (+ 1 idx))
-        ret))
     (define-syntax-rule (gen-mem)
-      (gen-var make-memory mem-idx))
+      (let ((ret (make-memory mem-idx)))
+        (set! mem-idx (+ 1 mem-idx))
+        ret))
     (define-syntax-rule (gen-gpr)
-      (if (< gpr-idx *num-gpr*)
-          (gen-var make-gpr gpr-idx)
+      (or (acquire-gpr! free-gprs)
           (gen-mem)))
     (define-syntax-rule (gen-fpr)
-      (if (< fpr-idx *num-fpr*)
-          (gen-var make-fpr fpr-idx)
+      (or (acquire-fpr! free-fprs)
           (gen-mem)))
     (define-syntax-rule (set-env! gen var)
       (let ((ret (gen)))
@@ -139,11 +169,13 @@
                              arg reg)
                       (lp types args (cons reg acc))))
                 ((= type int)
-                 (debug 1 ";;; get-arg-types!: ~a to gpr ~a~%" arg gpr-idx)
-                 (lp types args (cons (get-gpr! arg) acc)))
+                 (let ((reg (get-gpr! arg)))
+                   (debug 1 ";;; get-arg-types!: ~a to ~a~%" arg reg)
+                   (lp types (cons reg args) acc)))
                 ((= type double)
-                 (debug 1 ";;; get-arg-types!: ~a to fpr ~a~%" arg fpr-idx)
-                 (lp types args (cons (get-fpr! arg) acc)))
+                 (let ((reg (get-fpr! arg)))
+                   (debug 1 ";;; get-arg-types!: ~a to ~a~%" arg reg)
+                   (lp types (cons reg args) acc)))
                 (else
                  (debug 1 ";;; get-arg-types!: unknown type ~a~%" type)
                  (lp types args acc))))
@@ -153,7 +185,7 @@
              (reverse! acc))))))
     (define (get-dst-type! op dst)
       ;; Assign new register. Overwrite register used for dst if type
-      ;; differs.
+      ;; differs from already assigned register.
       (let ((type (car (lookup-prim-type op)))
             (assigned (hashq-ref env dst)))
         (cond
@@ -187,15 +219,14 @@
         (('lambda args rest)
          (when assign-args?
            (let lp ((args args)
-                    (local-x-types (snapshot-locals
-                                    (hashq-ref snapshots snapshot-id)))
+                    (local-x-types local-x-types)
                     (acc '()))
              (match (list args local-x-types)
                (((arg . args) ((local . type) . local-x-types))
-                (let ((var (if (eq? type &flonum)
+                (let ((reg (if (eq? type &flonum)
                                (get-fpr! arg)
                                (get-gpr! arg))))
-                  (lp args local-x-types (cons var acc))))
+                  (lp args local-x-types (cons reg acc))))
                (_
                 (set! arg-vars (reverse! acc))))))
          (compile-term rest acc))
@@ -234,5 +265,5 @@
         (()
          acc)))
 
-    (let ((plist (compile-term term '())))
-      (values (reverse! plist) gpr-idx fpr-idx mem-idx snapshot-id arg-vars))))
+    (let ((plist (reverse! (compile-term term '()))))
+      (values plist mem-idx snapshot-id arg-vars))))
