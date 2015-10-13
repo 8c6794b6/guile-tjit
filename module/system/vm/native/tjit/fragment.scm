@@ -201,6 +201,10 @@
 
 (define make-fragment %make-fragment)
 
+(define-syntax snapshot-fmt
+  (identifier-syntax
+   "~13@a: id=~a offset=~a nlocals=~a locals=~a variables=~a code=~a ip=~a~%"))
+
 (define (dump-fragment fragment)
   (format #t "~20@a~a~%" "*****" " fragment *****")
   (format #t "~19@a: ~a~%" 'id (fragment-id fragment))
@@ -217,10 +221,11 @@
   (format #t "~19@a:~%" 'snapshots)
   (for-each
    (match-lambda
-    ((i . ($ $snapshot offset nlocals locals variables code))
-     (format #t "~13@a: offset=~a nlocals=~a locals=~a variables=~a code=~a~%"
-             i offset nlocals locals variables
-             (and (bytevector? code) (bytevector->pointer code)))))
+    ((i . ($ $snapshot id offset nlocals locals variables code ip))
+     (format #t snapshot-fmt
+             i id offset nlocals locals variables
+             (and (bytevector? code) (bytevector->pointer code))
+             ip)))
    (sort (hash-fold acons '() (fragment-snapshots fragment))
          (lambda (a b)
            (< (car a) (car b)))))
