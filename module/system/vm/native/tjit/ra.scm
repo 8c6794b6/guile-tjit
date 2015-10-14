@@ -163,16 +163,16 @@
                 ((= type int)
                  (let ((reg (get-gpr! arg)))
                    (debug 1 ";;; get-arg-types!: ~a to ~a (int)~%" arg reg)
-                   (lp types (cons reg args) acc)))
+                   (lp types args (cons reg acc))))
                 ((= type double)
                  (let ((reg (get-fpr! arg)))
                    (debug 1 ";;; get-arg-types!: ~a to ~a (double)~%" arg reg)
-                   (lp types (cons reg args) acc)))
+                   (lp types args (cons reg acc))))
                 (else
                  (debug 1 ";;; get-arg-types!: unknown type ~a~%" type)
                  (lp types args acc))))
               (else
-               (error "set-types!: unknown arg with type" arg type))))
+               (error "get-arg-types!: unknown arg with type" arg type))))
             (_
              (reverse! acc))))))
     (define (get-dst-type! op dst)
