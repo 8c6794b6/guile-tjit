@@ -410,15 +410,7 @@ of SRCS, DSTS, TYPES are local index number."
         ;; Store `vp', `vp->fp', and `registers'.
         (jit-stxi vp-offset fp vp)
         (vm-cache-fp vp)
-        (jit-stxi registers-offset fp registers)
-
-        ;; Dump FP at the beginning of native code.
-        (when (tjit-dump-enter? (tjit-dump-option))
-          (jit-prepare)
-          (jit-pushargi (scm-i-makinumi trace-id))
-          (jit-ldxi r0 fp vp->fp-offset)
-          (jit-pushargr r0)
-          (jit-calli %scm-tjit-dump-fp))))
+        (jit-stxi registers-offset fp registers)))
 
      ;; Side trace.
      (else
@@ -440,11 +432,11 @@ of SRCS, DSTS, TYPES are local index number."
                parent-exit-id)))))
 
     ;; Assemble the primitives in CPS.
-    (compile-prims primlist #f entry-ip snapshots fp-offset fragment
-                   trampoline linked-ip lowest-offset trace-id)))
+    (compile-primlist primlist #f entry-ip snapshots fp-offset fragment
+                      trampoline linked-ip lowest-offset trace-id)))
 
-(define (compile-prims primlist env entry-ip snapshots fp-offset fragment
-                       trampoline linked-ip lowest-offset trace-id)
+(define (compile-primlist primlist env entry-ip snapshots fp-offset fragment
+                          trampoline linked-ip lowest-offset trace-id)
   (let ((loop-locals #f)
         (loop-vars #f))
     (define (compile-ops asm ops)
@@ -495,18 +487,18 @@ of SRCS, DSTS, TYPES are local index number."
                                       fragment-end-address)
                                (and=> (get-root-trace linked-ip)
                                       fragment-end-address)))
-              (asm (make-asm env fp-offset #f end-address)))
-         (compile-ops asm entry)
-         (let ((loop-label (if (null? loop)
-                               #f
-                               (let ((loop-label (jit-label)))
-                                 (jit-note "loop" 0)
-                                 (compile-ops asm loop)
-                                 (jump loop-label)
-                                 loop-label))))
-           (values trampoline loop-label loop-locals loop-vars fp-offset))))
+              (asm (make-asm env fp-offset #f end-address))
+              (_ (compile-ops asm entry))
+              (loop-label (if (null? loop)
+                              #f
+                              (let ((loop-label (jit-label)))
+                                (jit-note "loop" 0)
+                                (compile-ops asm loop)
+                                (jump loop-label)
+                                loop-label))))
+         (values trampoline loop-label loop-locals loop-vars fp-offset)))
       (_
-       (error "compile-prims: not a $primlist" primlist)))))
+       (error "compile-primlist: not a $primlist" primlist)))))
 
 (define (compile-snapshot asm trace-id snapshot args)
   (let ((ip (snapshot-ip snapshot))

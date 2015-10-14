@@ -48,7 +48,6 @@
             tjit-dump-abort?
             tjit-dump-bytecode?
             tjit-dump-ops?
-            tjit-dump-enter?
             tjit-dump-locals?
             tjit-dump-jitc?
             tjit-dump-scm?
@@ -79,12 +78,11 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode ops enter jitc locals scm time exit)
+  (make-tjit-dump abort bytecode ops jitc locals scm time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
   (ops tjit-dump-ops? set-tjit-dump-ops!)
-  (enter tjit-dump-enter? set-tjit-dump-enter!)
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-locals? set-tjit-dump-locals!)
   (scm tjit-dump-scm? set-tjit-dump-scm!)
@@ -93,7 +91,7 @@
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f #f #f #f #f #f #f #f))
+  (make-tjit-dump #f #f #f #f #f #f #f #f))
 
 (define tjit-dump-option
   ;; Parameter to control dump setting during compilation of traces.
@@ -107,8 +105,6 @@ Flags are:
 - 'a': Dump abort, without this flag true, aborted traces are not shown.
 
 - 'b': Dump recorded bytecode.
-
-- 'e': Dump enter, show FP, and relevant data when entering native code.
 
 - 'j': Dump brief info when starting JIT compilation.
 
@@ -142,7 +138,6 @@ fields to @code{#f}."
                                      (lp cs)))))))))
         (flags (#\a set-tjit-dump-abort!)
                (#\b set-tjit-dump-bytecode!)
-               (#\e set-tjit-dump-enter!)
                (#\j set-tjit-dump-jitc!)
                (#\l set-tjit-dump-locals!)
                (#\o set-tjit-dump-ops!)
