@@ -124,7 +124,7 @@
     (if (null? locals)
         "--"
         (map (match-lambda ((n . t)
-                            (cons n (pretty-type t))))
+                            (list n (pretty-type t))))
              locals)))
   (define (dump-snapshot snapshot)
     (match snapshot
