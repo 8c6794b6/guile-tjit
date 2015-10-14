@@ -437,68 +437,66 @@ of SRCS, DSTS, TYPES are local index number."
 
 (define (compile-primlist primlist env entry-ip snapshots fp-offset fragment
                           trampoline linked-ip lowest-offset trace-id)
-  (let ((loop-locals #f)
-        (loop-vars #f))
-    (define (compile-ops asm ops)
-      (let lp ((ops ops))
-        (match ops
-          ((('%snap snapshot-id . args) . ops)
-           (cond
-            ((hashq-ref snapshots snapshot-id)
-             => (lambda (snapshot)
-                  (cond
-                   ((snapshot-set-loop-info? snapshot)
-                    (match snapshot
-                      (($ $snapshot _ _ _ local-x-types)
-                       (set! loop-locals local-x-types)
-                       (set! loop-vars args))
-                      (else
-                       (debug 1 ";;; snapshot loop info not found~%"))))
-                   ((snapshot-jump-to-linked-code? snapshot)
-                    (compile-link args snapshot asm linked-ip fragment
-                                  lowest-offset))
-                   (else
-                    (let ((ptr (compile-snapshot asm trace-id snapshot args))
-                          (out-code (trampoline-ref trampoline snapshot-id)))
-                      (trampoline-set! trampoline snapshot-id ptr)
-                      (set-asm-out-code! asm out-code))))
-                  (lp ops)))
-            (else
-             (hash-for-each (lambda (k v)
-                              (format #t ";;; key:~a => val:~a~%" k v))
-                            snapshots)
-             (error "compile-ops: no snapshot with id" snapshot-id))))
-          (((op-name . args) . ops)
-           (cond
-            ((hashq-ref *native-prim-procedures* op-name)
-             => (lambda (proc)
-                  (let ((verbosity (lightning-verbosity)))
-                    (when (<= 4 verbosity)
-                      (jit-note (format #f "~a" (cons op-name args)) 0)))
-                  (apply proc asm args)
-                  (lp ops)))
-            (else
-             (error "op not found" op-name))))
-          (()
-           (values)))))
-    (match primlist
-      (($ $primlist entry loop)
-       (let* ((end-address (or (and=> fragment
-                                      fragment-end-address)
-                               (and=> (get-root-trace linked-ip)
-                                      fragment-end-address)))
-              (asm (make-asm env fp-offset #f end-address))
-              (_ (compile-ops asm entry))
-              (loop-label (if (null? loop)
-                              #f
-                              (let ((loop-label (jit-label)))
-                                (jit-note "loop" 0)
-                                (compile-ops asm loop)
-                                (jump loop-label)
-                                loop-label))))
-         (values trampoline loop-label loop-locals loop-vars fp-offset)))
-      (_
-       (error "compile-primlist: not a $primlist" primlist)))))
+  (define (compile-ops asm ops)
+    (let lp ((ops ops) (loop-locals #f) (loop-vars #f))
+      (match ops
+        ((('%snap snapshot-id . args) . ops)
+         (cond
+          ((hashq-ref snapshots snapshot-id)
+           => (lambda (snapshot)
+                (cond
+                 ((snapshot-set-loop-info? snapshot)
+                  (match snapshot
+                    (($ $snapshot _ _ _ local-x-types)
+                     (lp ops local-x-types args))
+                    (else
+                     (error "snapshot loop info not found~%"))))
+                 ((snapshot-jump-to-linked-code? snapshot)
+                  (compile-link args snapshot asm linked-ip fragment
+                                lowest-offset)
+                  (lp ops loop-locals loop-vars))
+                 (else
+                  (let ((ptr (compile-snapshot asm trace-id snapshot args))
+                        (out-code (trampoline-ref trampoline snapshot-id)))
+                    (trampoline-set! trampoline snapshot-id ptr)
+                    (set-asm-out-code! asm out-code)
+                    (lp ops loop-locals loop-vars))))))
+          (else
+           (hash-for-each (lambda (k v)
+                            (format #t ";;; key:~a => val:~a~%" k v))
+                          snapshots)
+           (error "compile-ops: no snapshot with id" snapshot-id))))
+        (((op-name . args) . ops)
+         (cond
+          ((hashq-ref *native-prim-procedures* op-name)
+           => (lambda (proc)
+                (let ((verbosity (lightning-verbosity)))
+                  (when (<= 4 verbosity)
+                    (jit-note (format #f "~a" (cons op-name args)) 0)))
+                (apply proc asm args)
+                (lp ops loop-locals loop-vars)))
+          (else
+           (error "op not found" op-name))))
+        (()
+         (values loop-locals loop-vars)))))
+  (match primlist
+    (($ $primlist entry loop)
+     (let*-values (((end-address) (or (and=> fragment
+                                             fragment-end-address)
+                                      (and=> (get-root-trace linked-ip)
+                                             fragment-end-address)))
+                   ((asm) (make-asm env fp-offset #f end-address))
+                   ((loop-locals loop-vars) (compile-ops asm entry))
+                   ((loop-label) (if (null? loop)
+                                     #f
+                                     (let ((loop-label (jit-label)))
+                                       (jit-note "loop" 0)
+                                       (compile-ops asm loop)
+                                       (jump loop-label)
+                                       loop-label))))
+       (values trampoline loop-label loop-locals loop-vars fp-offset)))
+    (_
+     (error "compile-primlist: not a $primlist" primlist))))
 
 (define (compile-snapshot asm trace-id snapshot args)
   (let ((ip (snapshot-ip snapshot))
