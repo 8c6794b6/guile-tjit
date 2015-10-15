@@ -371,7 +371,7 @@ of SRCS, DSTS, TYPES are local index number."
 ;;;
 
 (define (compile-mcode primlist entry-ip locals snapshots fragment
-                       parent-exit-id linked-ip lowest-offset trace-id)
+                       parent-exit-id linked-ip trace-id)
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
@@ -433,34 +433,40 @@ of SRCS, DSTS, TYPES are local index number."
 
     ;; Assemble the primitives in CPS.
     (compile-primlist primlist #f entry-ip snapshots fp-offset fragment
-                      trampoline linked-ip lowest-offset trace-id)))
+                      trampoline linked-ip trace-id)))
 
 (define (compile-primlist primlist env entry-ip snapshots fp-offset fragment
-                          trampoline linked-ip lowest-offset trace-id)
+                          trampoline linked-ip trace-id)
   (define (compile-ops asm ops)
-    (let lp ((ops ops) (loop-locals #f) (loop-vars #f))
+    (let lp ((ops ops) (loop-locals #f) (loop-vars #f) (shifted 0))
       (match ops
         ((('%snap snapshot-id . args) . ops)
          (cond
           ((hashq-ref snapshots snapshot-id)
            => (lambda (snapshot)
-                (cond
-                 ((snapshot-set-loop-info? snapshot)
-                  (match snapshot
-                    (($ $snapshot _ _ _ local-x-types)
-                     (lp ops local-x-types args))
-                    (else
-                     (error "snapshot loop info not found~%"))))
-                 ((snapshot-jump-to-linked-code? snapshot)
-                  (compile-link args snapshot asm linked-ip fragment
-                                lowest-offset)
-                  (lp ops loop-locals loop-vars))
-                 (else
-                  (let ((ptr (compile-snapshot asm trace-id snapshot args))
-                        (out-code (trampoline-ref trampoline snapshot-id)))
-                    (trampoline-set! trampoline snapshot-id ptr)
-                    (set-asm-out-code! asm out-code)
-                    (lp ops loop-locals loop-vars))))))
+                (let* ((this-offset (snapshot-offset snapshot))
+                       ;; Keeping track of shifted amount of FP. This amount
+                       ;; should matches with the amount shifted by `%return'.
+                       (shifted (if (and (< this-offset 0)
+                                         (< this-offset shifted))
+                                    this-offset
+                                    shifted)))
+                  (cond
+                   ((snapshot-set-loop-info? snapshot)
+                    (match snapshot
+                      (($ $snapshot _ _ _ local-x-types)
+                       (lp ops local-x-types args shifted))
+                      (else
+                       (error "snapshot loop info not found~%"))))
+                   ((snapshot-jump-to-linked-code? snapshot)
+                    (compile-link args snapshot asm linked-ip fragment shifted)
+                    (lp ops loop-locals loop-vars shifted))
+                   (else
+                    (let ((ptr (compile-bailout asm trace-id snapshot args))
+                          (out-code (trampoline-ref trampoline snapshot-id)))
+                      (trampoline-set! trampoline snapshot-id ptr)
+                      (set-asm-out-code! asm out-code)
+                      (lp ops loop-locals loop-vars shifted)))))))
           (else
            (hash-for-each (lambda (k v)
                             (format #t ";;; key:~a => val:~a~%" k v))
@@ -474,7 +480,7 @@ of SRCS, DSTS, TYPES are local index number."
                   (when (<= 4 verbosity)
                     (jit-note (format #f "~a" (cons op-name args)) 0)))
                 (apply proc asm args)
-                (lp ops loop-locals loop-vars)))
+                (lp ops loop-locals loop-vars shifted)))
           (else
            (error "op not found" op-name))))
         (()
@@ -498,10 +504,10 @@ of SRCS, DSTS, TYPES are local index number."
     (_
      (error "compile-primlist: not a $primlist" primlist))))
 
-(define (compile-snapshot asm trace-id snapshot args)
+(define (compile-bailout asm trace-id snapshot args)
   (let ((ip (snapshot-ip snapshot))
         (id (snapshot-id snapshot)))
-    (debug 3 ";;; compile-snapshot:~%")
+    (debug 3 ";;; compile-bailout:~%")
     (debug 3 ";;;   snapshot-id: ~a~%" id)
     (debug 3 ";;;   next-ip:     ~a~%" ip)
     (debug 3 ";;;   args:        ~a~%" args)
@@ -533,7 +539,7 @@ of SRCS, DSTS, TYPES are local index number."
         ;; Adding offset for positive local offset, fp is already shifted in
         ;; store-snapshot for negative local offset.
         (when (not (= 0 local-offset))
-          (debug 3 ";;; compile-snapshot: shifting FP, local-offset=~a~%"
+          (debug 3 ";;; compile-bailout: shifting FP, local-offset=~a~%"
                  local-offset)
           (refill-dynamic-links local-offset local-x-types))
 
@@ -570,7 +576,7 @@ of SRCS, DSTS, TYPES are local index number."
               (jit-calli %scm-tjit-dump-locals)
               (jit-movr reg-retval reg-thread)))))
        (_
-        (debug 1 "*** compile-snapshot: not a snapshot ~a~%" snapshot)))
+        (debug 1 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
 
      (return-to-interpreter)
      (jit-epilog)
@@ -580,14 +586,14 @@ of SRCS, DSTS, TYPES are local index number."
             (exit-vars args))
        (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
        (let ((ptr (jit-emit)))
-         (debug 3 ";;; compile-snapshot: ptr=~a~%" ptr)
+         (debug 3 ";;; compile-bailout: ptr=~a~%" ptr)
          (make-bytevector-executable! code)
          (dump-bailout ip id code)
          (set-snapshot-variables! snapshot exit-vars)
          (set-snapshot-code! snapshot code)
          ptr)))))
 
-(define (compile-link args snapshot asm linked-ip fragment lowest-offset)
+(define (compile-link args snapshot asm linked-ip fragment fp-shifted)
   (let* ((linked-fragment (get-root-trace linked-ip))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (define (moffs mem)
@@ -601,16 +607,17 @@ of SRCS, DSTS, TYPES are local index number."
            locals))
     (debug 3 ";;; compile-link: args=~a~%" args)
     (match snapshot
-      (($ $snapshot _ local-offset _ local-x-types)
-
+      (($ $snapshot sid local-offset _ local-x-types)
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
-       (debug 3 ";;; compile-link: local-offset=~a~%" local-offset)
-       (let* ((shift-amount (if fragment
-                                lowest-offset
-                                local-offset))
-              (references (shift-offset shift-amount loop-locals))
+       (let* ((src-shift-amount (if fragment
+                                    fp-shifted
+                                    local-offset))
+              (dst-shift-amount (if fragment
+                                    fp-shifted
+                                    0))
+              (references (shift-offset src-shift-amount loop-locals))
               (src-table (maybe-store moffs local-x-types args identity
                                       references local-offset))
               (type-table (make-hash-table))
@@ -620,34 +627,30 @@ of SRCS, DSTS, TYPES are local index number."
            (match (list locals dsts)
              ((((local . type) . locals) (dst . dsts))
               (hashq-set! type-table local type)
-              (hashq-set! dst-table (- local lowest-offset) dst)
+              (hashq-set! dst-table (- local dst-shift-amount) dst)
               (lp locals dsts))
              (_
               (values))))
          (move-or-load-carefully dst-table src-table type-table moffs))
 
-       ;; Shift back FP and sync. Shifting back lowest-offset moved by
+       ;; Shift back FP and sync. Shifting back fp-shifted moved by
        ;; `%return', and shifting for local-offset to match the FP in
        ;; middle of procedure call.
-       (when (< lowest-offset 0)
-         (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
-                lowest-offset)
+       (when (< fp-shifted 0)
          (refill-dynamic-links local-offset local-x-types))
 
        ;; Jumping from loop-less root trace, shifting FP.
        ;;
        ;; XXX: Add more tests for checking loop-less root traces.
-       (when (not fragment)
-         (debug 3 ";;; compile-link: shifting FP, loop-less root~%")
+       (when (and (not fragment)
+                  (not (= local-offset 0)))
          (let ((vp->fp r0))
            (jit-ldxi vp->fp fp vp->fp-offset)
            (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
            (jit-stxi vp->fp-offset fp vp->fp)
            (vm-sync-fp vp->fp)))
 
-       ;; Jump to the beginning of loop in linked code.
-       (debug 3 ";;; compile-link: jumpint to ~a~%"
-              (fragment-loop-address linked-fragment))
+       ;; Jump to the beginning of linked trace.
        (jumpi (fragment-loop-address linked-fragment)))
       (_
        (debug 3 ";;; compile-link: IP is 0, snapshot not found~%")))))

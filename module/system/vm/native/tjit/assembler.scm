@@ -836,11 +836,11 @@ both arguments were register or memory."
    ((and (gpr? dst) (constant? src) (constant? n))
     (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
       (jit-ldi (gpr dst) (imm addr))))
+   ((and (gpr? dst) (gpr? src) (constant? n))
+    (jit-ldxi (gpr dst) (gpr src) (constant-word n)))
    ((and (gpr? dst) (memory? src) (constant? n))
     (memory-ref r0 src)
     (jit-ldxi (gpr dst) r0 (constant-word n)))
-   ((and (gpr? dst) (gpr? src) (constant? n))
-    (jit-ldxi (gpr dst) (gpr src) (constant-word n)))
 
    ((and (memory? dst) (constant? src) (constant? n))
     (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))

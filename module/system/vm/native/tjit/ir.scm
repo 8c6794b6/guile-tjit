@@ -346,21 +346,17 @@
                 (assign (if (eq? vdst vsrc)
                             '()
                             `((,vdst ,vsrc))))
-                (return (if (< 0 local-offset)
-                            '()
-                            `(%return ,ra)))
-                (snapshot (take-snapshot! ip 0 locals local-indices vars)))
-           (pop-past-frame! past-frame)
-           (debug 3 ";;; ir.scm:return~%;;;    fp=~a ip=~x ra=~x local-offset=~a~%"
-                  fp ip ra local-offset)
-           (debug 3 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
-                  locals local-indices args)
-           `(let ,assign
-              (let ((_ ,snapshot))
-                ,(if (null? return)
-                     (convert escape rest)
-                     `(let ((_ ,return))
-                        ,(convert escape rest)))))))
+                (snapshot (take-snapshot! ip 0 locals local-indices vars))
+                (_ (pop-past-frame! past-frame))
+                (body `(let ((_ ,snapshot))
+                         ,(if (< 0 local-offset)
+                              (convert escape rest)
+                              `(let ((_ (%return ,ra)))
+                                 ,(convert escape rest))))))
+           (if (eq? vdst vsrc)
+               body
+               `(let ((,vdst ,vsrc))
+                  ,body))))
 
         ;; XXX: return-values
 
@@ -961,7 +957,7 @@
       (let ((indices (if root-trace?
                          local-indices
                          local-indices-from-parent)))
-        (values indices vars snapshots lowest-offset scm)))))
+        (values indices vars snapshots scm)))))
 
 (define (trace->primlist trace-id fragment exit-id loop? trace)
   "Compiles TRACE to primlist.
@@ -974,7 +970,7 @@ to indicate whether the trace contains loop or not."
       (set-tjit-time-log-scm! log (get-internal-run-time))))
   (call-with-values
       (lambda () (trace->scm fragment exit-id loop? trace))
-    (lambda (locals vars snapshots lowest-offset scm)
+    (lambda (locals vars snapshots scm)
       (when (tjit-dump-time? (tjit-dump-option))
         (let ((log (get-tjit-time-log trace-id)))
           (set-tjit-time-log-ops! log (get-internal-run-time))))
@@ -985,4 +981,4 @@ to indicate whether the trace contains loop or not."
              (plist (and scm
                          (anf->primlist parent-snapshot initial-snapshot
                                         vars scm))))
-        (values locals snapshots lowest-offset scm plist)))))
+        (values locals snapshots scm plist)))))

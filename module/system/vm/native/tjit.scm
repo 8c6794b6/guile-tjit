@@ -226,7 +226,7 @@
       (format #t ";;; parent-exit-id: ~a~%" parent-exit-id)
       (format #t ";;; loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
-    (let-values (((locals snapshots lowest-offset scm ops)
+    (let-values (((locals snapshots scm ops)
                   (trace->primlist trace-id fragment parent-exit-id loop?
                                    ip-x-ops)))
       (when (and (tjit-dump-jitc? dump-option)
@@ -250,7 +250,7 @@
          (let-values
              (((trampoline loop-label loop-locals loop-vars fp-offset)
                (compile-mcode ops entry-ip locals snapshots fragment
-                              parent-exit-id linked-ip lowest-offset
+                              parent-exit-id linked-ip
                               trace-id)))
            (let ((epilog-label (jit-label)))
              (jit-patch epilog-label)
