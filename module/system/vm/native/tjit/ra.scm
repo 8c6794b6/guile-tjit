@@ -41,7 +41,7 @@
             primlist?
             primlist-entry
             primlist-loop
-            primlist-initial-locals
+            primlist-nspills
             anf->primlist))
 
 ;;;
@@ -50,7 +50,7 @@
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primlist
-  (make-primlist entry loop initial-locals)
+  (make-primlist entry loop nspills)
   primlist?
   ;; List of primitives for entry clause.
   (entry primlist-entry)
@@ -58,8 +58,8 @@
   ;; List of primitives for loop body.
   (loop primlist-loop)
 
-  ;; Initial locals, if any. Used in side trace.
-  (initial-locals primlist-initial-locals))
+  ;; Number of spilled variables.
+  (nspills primlist-nspills))
 
 
 ;;;
@@ -299,7 +299,7 @@
                         (compile-primlist loop-body
                                           env free-gprs free-fprs mem-idx
                                           snapshot-idx)))
-           (make-primlist entry-ops loop-ops '())))
+           (make-primlist entry-ops loop-ops (variable-ref mem-idx))))
 
         ;; ANF without loop.
         (`(letrec ((patch (lambda ,patch-args
@@ -334,6 +334,6 @@
                        (compile-primlist patch-body
                                          env free-gprs free-fprs mem-idx
                                          0)))
-           (make-primlist patch-ops '() '())))
+           (make-primlist patch-ops '() (variable-ref mem-idx))))
         (_
          (error "anf->primlist: malformed term" term))))))

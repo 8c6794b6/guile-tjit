@@ -386,7 +386,7 @@ of SRCS, DSTS, TYPES are local index number."
           ;; from parameter `(tjit-max-spills)'.
           (if (not fragment)
               (let ((max-spills (tjit-max-spills))
-                    (nspills (length locals)))
+                    (nspills (primlist-nspills primlist)))
                 (when (< max-spills nspills)
                   ;; XXX: Escape from this procedure, increment compilation
                   ;; failure for this entry-ip.
@@ -486,7 +486,7 @@ of SRCS, DSTS, TYPES are local index number."
         (()
          (values loop-locals loop-vars)))))
   (match primlist
-    (($ $primlist entry loop)
+    (($ $primlist entry loop mem-idx)
      (let*-values (((end-address) (or (and=> fragment
                                              fragment-end-address)
                                       (and=> (get-root-trace linked-ip)
