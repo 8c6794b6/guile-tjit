@@ -330,12 +330,10 @@
                    (values))))))
            (_
             (debug 2 ";;; anf->primlist: perhaps loop-less root trace~%")))
-         (let*-values (((arg-vars)
-                        (set-initial-args! patch-args initial-local-x-types))
-                       ((patch-ops snapshot-idx)
-                        (compile-primlist patch-body
-                                          env free-gprs free-fprs mem-idx
-                                          0)))
-           (make-primlist patch-ops '() arg-vars)))
+         (let-values (((patch-ops snapshot-idx)
+                       (compile-primlist patch-body
+                                         env free-gprs free-fprs mem-idx
+                                         0)))
+           (make-primlist patch-ops '() '())))
         (_
          (error "anf->primlist: malformed term" term))))))

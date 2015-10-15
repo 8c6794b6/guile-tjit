@@ -116,14 +116,14 @@
       (match vars
         (((n . var) . vars)
          ;; When parent-snapshot-offset is negative, side trace entered from a
-         ;; side exit which is somewhere in a bytecode in the middle of lower
-         ;; frame than the beginning of root trace.
-         (if (assq-ref parent-snapshot-locals
-                       (if (< parent-snapshot-offset 0)
-                           (- n parent-snapshot-offset)
-                           n))
-             (lp vars (cons (cons n var) acc))
-             (lp vars acc)))
+         ;; side exit which is somewhere in the middle of bytecode of lower
+         ;; frame than the beginning of the parent trace.
+         (let ((m (if (< parent-snapshot-offset 0)
+                      (- n parent-snapshot-offset)
+                      n)))
+           (if (assq-ref parent-snapshot-locals m)
+               (lp vars (cons (cons n var) acc))
+               (lp vars acc))))
         (()
          (reverse! acc)))))
 
