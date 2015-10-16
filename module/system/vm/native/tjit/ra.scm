@@ -316,7 +316,10 @@
                        (locals locals))
                 (match (list variables locals)
                   (((var . vars) ((local . type) . locals))
-                   (hashq-set! env (make-var local) var)
+                   (let ((local-from-parent (if (< offset 0)
+                                                (+ local offset)
+                                                local)))
+                     (hashq-set! env (make-var local-from-parent) var))
                    (match var
                      (('gpr . n)
                       (vector-set! free-gprs n #f))

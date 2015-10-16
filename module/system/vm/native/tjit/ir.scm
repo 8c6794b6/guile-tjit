@@ -851,7 +851,7 @@
           (match vars
             (((n . var) . vars)
              (debug 3 ";;;   n:~a~%" n)
-             (debug 3 ";;;   var: ~a~%" n)
+             (debug 3 ";;;   var: ~a~%" var)
              (debug 3 ";;;   from parent: ~a~%" (type-from-parent n))
              (debug 3 ";;;   from snapshot: ~a~%" (type-from-snapshot n))
              (cond
