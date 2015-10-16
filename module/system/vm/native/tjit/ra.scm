@@ -213,7 +213,7 @@
            (set! snapshot-id id)
            (compile-term term1 (cons prim acc))))
         (('let (('_ (op . args))) term1)
-         (let ((prim `(,op ,@(get-arg-types! op #f args))))
+         (let ((prim `(,op ,@(map ref args))))
            (compile-term term1 (cons prim acc))))
         (('let ((dst (? constant? val))) term1)
          (let* ((reg (cond

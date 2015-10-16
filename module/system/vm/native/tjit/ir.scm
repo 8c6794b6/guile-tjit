@@ -877,7 +877,7 @@
                  (or (and parent-type
                           snapshot-type
                           (eq? parent-type snapshot-type))
-                     (and (not (type-from-snapshot n))
+                     (and (not snapshot-type)
                           parent-type)
                      (< n 0)
                      (and (not root-trace?)
