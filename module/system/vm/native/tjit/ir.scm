@@ -139,7 +139,8 @@
          (parent-snapshot-offset (match parent-snapshot
                                    (($ $snapshot _ offset) offset)
                                    (_ 0)))
-         (local-offset (get-initial-offset parent-snapshot))
+         (initial-offset (get-initial-offset parent-snapshot))
+         (local-offset initial-offset)
          (past-frame (accumulate-locals local-offset trace))
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
@@ -864,9 +865,9 @@
               ;; from snapshot 0 of this trace, the local will be passed from
               ;; parent fragment, ignoreing.
               ;;
-              ;; If local index is negative, locals from lower frame won't be
-              ;; passed as argument. Loading later with '%fref' or
-              ;; '%fref/f'.
+              ;; If initial offset is positive and local index is negative,
+              ;; locals from lower frame won't be passed as argument. Loading
+              ;; later with '%fref' or '%fref/f'.
               ;;
               ;; In side traces, locals with its index exceeding initial number
               ;; of locals are also ignored, those are likely to be locals in
@@ -879,7 +880,8 @@
                           (eq? parent-type snapshot-type))
                      (and (not snapshot-type)
                           parent-type)
-                     (< n 0)
+                     (and (<= 0 initial-offset)
+                          (< n 0))
                      (and (not root-trace?)
                           (<= initial-nlocals n))))
                (lp vars))
