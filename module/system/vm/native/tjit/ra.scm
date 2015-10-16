@@ -151,25 +151,25 @@
             (((type . types) (arg . args))
              (cond
               ((constant? arg)
-               (debug 1 ";;; get-arg-types!: got constant ~a~%" arg)
+               (debug 2 ";;; get-arg-types!: got constant ~a~%" arg)
                (lp types args (cons (make-constant arg) acc)))
               ((symbol? arg)
                (cond
                 ((hashq-ref env arg)
                  => (lambda (reg)
-                      (debug 1 ";;; get-arg-types!: found ~a as ~a~%"
+                      (debug 2 ";;; get-arg-types!: found ~a as ~a~%"
                              arg reg)
                       (lp types args (cons reg acc))))
                 ((= type int)
                  (let ((reg (get-gpr! arg)))
-                   (debug 1 ";;; get-arg-types!: ~a to ~a (int)~%" arg reg)
+                   (debug 2 ";;; get-arg-types!: ~a to ~a (int)~%" arg reg)
                    (lp types args (cons reg acc))))
                 ((= type double)
                  (let ((reg (get-fpr! arg)))
-                   (debug 1 ";;; get-arg-types!: ~a to ~a (double)~%" arg reg)
+                   (debug 2 ";;; get-arg-types!: ~a to ~a (double)~%" arg reg)
                    (lp types args (cons reg acc))))
                 (else
-                 (debug 1 ";;; get-arg-types!: unknown type ~a~%" type)
+                 (debug 2 ";;; get-arg-types!: unknown type ~a~%" type)
                  (lp types args acc))))
               (else
                (error "get-arg-types!: unknown arg with type" arg type))))
@@ -281,6 +281,15 @@
              (reverse! acc)))))
       (define-syntax-rule (make-var n)
         (string->symbol (string-append "v" (number->string n))))
+      (define (sort-variables-in-env t)
+        (define (var-index sym)
+          (string->number
+           (substring (symbol->string sym) 1)))
+        (sort (hash-map->list (lambda (k v)
+                                (list k v)) t)
+              (lambda (a b)
+                (< (var-index (car a))
+                   (var-index (car b))))))
 
       (match term
         ;; ANF with entry clause and loop body.
@@ -310,33 +319,44 @@
          ;; determined at the time of exit from parent trace.
          (match parent-snapshot
            (($ $snapshot id offset nlocals locals variables code ip)
-            (when (= (length locals)
-                     (length variables))
-              (let lp ((variables variables)
-                       (locals locals))
-                (match (list variables locals)
-                  (((var . vars) ((local . type) . locals))
-                   (let ((local-from-parent (if (< offset 0)
-                                                (+ local offset)
-                                                local)))
-                     (hashq-set! env (make-var local-from-parent) var))
-                   (match var
-                     (('gpr . n)
-                      (vector-set! free-gprs n #f))
-                     (('fpr . n)
-                      (vector-set! free-fprs n #f))
-                     (('mem . n)
-                      (when (<= (variable-ref mem-idx) n)
-                        (variable-set! mem-idx (+ n 1)))))
-                   (lp vars locals))
-                  (_
-                   (values))))))
+            (debug 2 ";;; [a->pf] locals from parent:    ~a~%" locals)
+            (debug 2 ";;; [a->pf] variables from parent: ~a~%" variables)
+            ;; The number of assigned variables might fewer than the number of
+            ;; locals. Reversed and assigning from highest frame to lowest
+            ;; frame.
+            (let lp ((variables (reverse variables))
+                     (locals (reverse locals)))
+              (match (list variables locals)
+                (((var . vars) ((local . type) . locals))
+                 (let ((local-from-parent (if (< offset 0)
+                                              (+ local offset)
+                                              local)))
+                   (hashq-set! env (make-var local-from-parent) var))
+                 (match var
+                   (('gpr . n)
+                    (vector-set! free-gprs n #f))
+                   (('fpr . n)
+                    (vector-set! free-fprs n #f))
+                   (('mem . n)
+                    (when (<= (variable-ref mem-idx) n)
+                      (variable-set! mem-idx (+ n 1))))
+                   (_
+                    (debug 1
+                           "XXX anf->primlist: var ~a at local ~a, type ~a~%"
+                           var local type)))
+                 (lp vars locals))
+                (_
+                 (values)))))
            (_
             (debug 2 ";;; anf->primlist: perhaps loop-less root trace~%")))
+         (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
+                (sort-variables-in-env env))
          (let-values (((patch-ops snapshot-idx)
                        (compile-primlist patch-body
                                          env free-gprs free-fprs mem-idx
                                          0)))
+           (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
+                  (sort-variables-in-env env))
            (make-primlist patch-ops '() (variable-ref mem-idx))))
         (_
          (error "anf->primlist: malformed term" term))))))

@@ -397,7 +397,7 @@ epilog part. Native code of side trace does not reset %rsp, since the use of
     (jit-stxi (moffs dst) fp r0))
 
    (else
-    (debug 3 "*** move: ~a ~a~%" dst src))))
+    (debug 1 "XXX move: ~a ~a~%" dst src))))
 
 
 ;;;

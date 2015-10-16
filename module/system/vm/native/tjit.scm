@@ -104,10 +104,10 @@
       (match term
         (('let ((var exp))
            '_)
-         (format #t "(~3a ~a))~%    _)~%" var exp))
+         (format #t "(~3a ~a))~%    _))~%" var exp))
         (('let ((var exp))
            ('loop . args))
-         (format #t "(~3a ~a))~%    ~a)~%" var exp (cons 'loop args)))
+         (format #t "(~3a ~a))~%    ~a))~%" var exp (cons 'loop args)))
         (('let ((var exp))
            next-term)
          (format #t "(~3a ~a)~%         " var exp)
