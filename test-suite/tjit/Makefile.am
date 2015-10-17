@@ -67,6 +67,7 @@ TESTS = \
 	t-nest-14.scm \
 	t-nest-15.scm \
 	t-nest-16.scm \
+	t-nest-17.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \

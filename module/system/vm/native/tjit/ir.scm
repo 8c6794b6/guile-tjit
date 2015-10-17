@@ -104,7 +104,7 @@
     ;; bytevector of native code later. This key=0 snapshot for root trace is
     ;; used for guard failure in entry clause.
     (if root-trace?
-        (let ((snapshot (make-snapshot 0 0 0 nlocals locals #f indices vars
+        (let ((snapshot (make-snapshot 0 0 0 nlocals locals #f 0 indices vars
                                        past-frame ip)))
           (hashq-set! snapshots 0 snapshot)
           1)
@@ -136,9 +136,6 @@
          (parent-snapshot-locals (match parent-snapshot
                                    (($ $snapshot _ _ _ locals) locals)
                                    (_ #f)))
-         (parent-snapshot-offset (match parent-snapshot
-                                   (($ $snapshot _ offset) offset)
-                                   (_ 0)))
          (initial-offset (get-initial-offset parent-snapshot))
          (local-offset initial-offset)
          (past-frame (accumulate-locals local-offset trace))
@@ -147,12 +144,12 @@
          (vars (make-vars local-indices))
          (vars-from-parent (make-vars-from-parent vars
                                                   parent-snapshot-locals
-                                                  parent-snapshot-offset))
+                                                  initial-offset))
          (args-from-parent (reverse (map cdr vars-from-parent)))
          (local-indices-from-parent (map car vars-from-parent))
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
-         (lowest-offset 0)
+         (lowest-offset (min initial-offset 0))
          (highest-offset (apply max 0 (map car (if root-trace?
                                                    vars
                                                    vars-from-parent))))
@@ -205,7 +202,8 @@
     (define (take-snapshot! ip offset locals indices vars)
       (let ((snap (make-snapshot snapshot-id
                                  local-offset lowest-offset highest-offset
-                                 locals parent-snapshot-locals indices vars
+                                 locals parent-snapshot-locals
+                                 initial-offset indices vars
                                  past-frame
                                  (+ ip (* offset 4))))
             (args (let lp ((vars vars) (acc '()))
@@ -847,7 +845,9 @@
                  (< i (vector-length initial-locals))
                  (type-of (vector-ref initial-locals i)))))
         (define (type-from-parent n)
-          (assq-ref parent-snapshot-locals n))
+          (assq-ref parent-snapshot-locals (if (<= 0 initial-offset)
+                                               n
+                                               (- n initial-offset))))
         (let lp ((vars (reverse vars)))
           (match vars
             (((n . var) . vars)
@@ -904,7 +904,10 @@
                         (hashq-ref expecting-types n))
                  (debug 3 ";;;   local:          ~a~%" local)
                  (debug 3 ";;;   type:           ~a~%" type)
-                 (with-frame-ref lp vars var type n)))))
+                 (let ((j (if (< initial-offset 0)
+                              (- n initial-offset)
+                              n)))
+                   (with-frame-ref lp vars var type j))))))
             (()
              exp-body)))))
 

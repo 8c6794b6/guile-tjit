@@ -83,11 +83,9 @@
       (match traces
         (((op ip fp ra locals) . traces)
          (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
-           ;; (format #t "~a~%" op-val)
            (if (tjit-dump-locals? (tjit-dump-option))
-               (format #t "~40a ; ~a~%" op-val locals)
-               (format #t "~a~%" op-val))
-           )
+               (format #t "~48a; ~a~%" op-val locals)
+               (format #t "~a~%" op-val)))
          (case (car op)
            ((call call-label)
             (lp traces (+ level 1)))

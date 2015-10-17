@@ -413,13 +413,16 @@
 ;;;
 
 (define (make-snapshot id local-offset lowest-offset highest-offset
-                       locals parent-snapshot-locals indices vars past-frame
+                       locals parent-snapshot-locals initial-offset
+                       indices vars past-frame
                        ip)
   (define-syntax-rule (local-ref i)
     (vector-ref locals i))
   (define (parent-snapshot-local-ref i)
     (and parent-snapshot-locals
-         (assq-ref parent-snapshot-locals i)))
+         (assq-ref parent-snapshot-locals (if (< 0 initial-offset)
+                                              i
+                                              (- i initial-offset)))))
   (define (shift-lowest acc)
     (map (match-lambda
           ((n . local)
@@ -448,9 +451,15 @@
         ((= local-offset 0)
          (if (< i 0)
              (let ((frame-val (dl-or-ra i)))
-               (if frame-val
-                   (add-val frame-val)
-                   (add-local (past-frame-lower-ref past-frame i))))
+               (cond
+                (frame-val
+                 => add-val)
+                ((not (null? (past-frame-lowers past-frame)))
+                 (add-local (past-frame-lower-ref past-frame i)))
+                (else
+                 (match (past-frame-local-ref past-frame i)
+                   ((_ . x) (add-local x))
+                   (_ (debug 1 "XXX: local ~a not found" i))))))
              (add-local (and (< i (vector-length locals))
                              (local-ref i)))))
 
@@ -462,7 +471,7 @@
          => add-val)
 
         ;; Local in inlined procedure.
-        ((<= 0 local-offset i)
+        ((<= initial-offset local-offset i)
          (let ((j (- i local-offset)))
            (if (< -1 j (vector-length locals))
                (add-local (local-ref j))
@@ -472,7 +481,7 @@
                  (lp is acc)))))
 
         ;; Local in lower frame.
-        ((<= local-offset i 0)
+        ((<= local-offset i initial-offset)
          (let ((j (- i local-offset)))
            (if (< -1 j (vector-length locals))
                (add-local (local-ref j))
