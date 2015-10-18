@@ -224,7 +224,7 @@
                          ((src . dst) (emit-mov asm dst src)))
                         (lookup-parallel-moves handler allocation))
               (emit-reset-frame asm frame-size)
-              (emit-br asm khandler-body)))))
+              (emit-br asm (forward-label khandler-body))))))
         (($ $primcall 'cache-current-module! (sym scope))
          (emit-cache-current-module! asm (slot sym) (constant scope)))
         (($ $primcall 'free-set! (closure idx value))
