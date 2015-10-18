@@ -904,10 +904,17 @@
                         (hashq-ref expecting-types n))
                  (debug 3 ";;;   local:          ~a~%" local)
                  (debug 3 ";;;   type:           ~a~%" type)
+
+                 ;; Shift the index when this trace started from negative
+                 ;; offset. Skip loading from frame when shifted index is
+                 ;; negative, should be loaded explicitly with `%fref' or
+                 ;; `%fref/f'.
                  (let ((j (if (< initial-offset 0)
                               (- n initial-offset)
                               n)))
-                   (with-frame-ref lp vars var type j))))))
+                   (if (< j 0)
+                       (lp vars)
+                       (with-frame-ref lp vars var type j)))))))
             (()
              exp-body)))))
 

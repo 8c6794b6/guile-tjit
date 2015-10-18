@@ -165,7 +165,7 @@
        (let ((j (- i offset)))
          (or (and (<= 0 j)
                   (< j (vector-length locals))
-                  (vector-ref locals j))
+                  (cons #t (vector-ref locals j)))
              #f)))
       (_ #f))))
 
@@ -450,16 +450,17 @@
        (cond
         ((= local-offset 0)
          (if (< i 0)
-             (let ((frame-val (dl-or-ra i)))
-               (cond
-                (frame-val
-                 => add-val)
-                ((not (null? (past-frame-lowers past-frame)))
-                 (add-local (past-frame-lower-ref past-frame i)))
-                (else
-                 (match (past-frame-local-ref past-frame i)
+             (cond
+              ((dl-or-ra i)
+               => add-val)
+              ((past-frame-lower-ref past-frame i)
+               => (match-lambda
                    ((_ . x) (add-local x))
-                   (_ (debug 1 "XXX: local ~a not found" i))))))
+                   (x (debug 1 "XXX: unknown value in lower ref ~a" x))))
+              (else
+               (match (past-frame-local-ref past-frame i)
+                 ((_ . x) (add-local x))
+                 (_ (debug 1 "XXX: local ~a not found~%" i)))))
              (add-local (and (< i (vector-length locals))
                              (local-ref i)))))
 
