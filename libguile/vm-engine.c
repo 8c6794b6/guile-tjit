@@ -268,13 +268,13 @@
     union scm_vm_stack_element *old_fp;                 \
     VM_HANDLE_INTERRUPTS;                               \
     ALLOC_FRAME (2);					\
-    old_fp = vp->fp;                                        \
-    ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);                 \
-    vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);          \
-    CACHE_LOCALS ();                                        \
+    old_fp = vp->fp;                                    \
+    ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);             \
+    vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);           \
+    CACHE_LOCALS ();                                    \
     /* Clear frame. */                                  \
-    old_fp[0].scm = SCM_BOOL_F;                         \
-    old_fp[1].scm = SCM_BOOL_F;                         \
+    old_fp[0].as_scm = SCM_BOOL_F;                      \
+    old_fp[1].as_scm = SCM_BOOL_F;                      \
     /* Leave proc. */                                   \
     SCM_FRAME_LOCAL (old_fp, 1) = val;                  \
     vp->sp = SCM_FRAME_SLOT (old_fp, 1);                \
@@ -289,9 +289,9 @@
     SCM vals = vals_;                                   \
     VM_HANDLE_INTERRUPTS;                               \
     ALLOC_FRAME (3);                                    \
-    SCM_FRAME_LOCAL (vp->fp, 0) = vm_builtin_apply;         \
-    SCM_FRAME_LOCAL (vp->fp, 1) = vm_builtin_values;        \
-    SCM_FRAME_LOCAL (vp->fp, 2) = vals;                     \
+    SCM_FRAME_LOCAL (vp->fp, 0) = vm_builtin_apply;     \
+    SCM_FRAME_LOCAL (vp->fp, 1) = vm_builtin_values;    \
+    SCM_FRAME_LOCAL (vp->fp, 2) = vals;                 \
     ip = (scm_t_uint32 *) vm_builtin_apply_code;        \
     goto op_tail_apply;                                 \
   } while (0)
@@ -776,8 +776,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       CACHE_LOCALS ();
 
       /* Clear stack frame.  */
-      old_fp[0].scm = SCM_BOOL_F;
-      old_fp[1].scm = SCM_BOOL_F;
+      old_fp[0].as_scm = SCM_BOOL_F;
+      old_fp[1].as_scm = SCM_BOOL_F;
 
       POP_CONTINUATION_HOOK (old_fp);
 

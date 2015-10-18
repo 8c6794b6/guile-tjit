@@ -1016,7 +1016,7 @@ scm_i_foreign_call (SCM foreign, const union scm_vm_stack_element *argv)
       args[i] = (void *) ROUND_UP ((scm_t_uintptr) data + off,
 				   cif->arg_types[i]->alignment);
       assert ((scm_t_uintptr) args[i] % cif->arg_types[i]->alignment == 0);
-      unpack (cif->arg_types[i], args[i], argv[cif->nargs - i - 1].scm, 0);
+      unpack (cif->arg_types[i], args[i], argv[cif->nargs - i - 1].as_scm, 0);
     }
 
   /* Prepare space for the return value.  On some platforms, such as

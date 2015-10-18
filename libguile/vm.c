@@ -218,9 +218,9 @@ vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n,
      copy on an empty frame and the return values, as the continuation
      expects.  */
   vm_push_sp (vp, vp->sp - 3 - n);
-  vp->sp[n+2].scm = SCM_BOOL_F;
-  vp->sp[n+1].scm = SCM_BOOL_F;
-  vp->sp[n].scm = SCM_BOOL_F;
+  vp->sp[n+2].as_scm = SCM_BOOL_F;
+  vp->sp[n+1].as_scm = SCM_BOOL_F;
+  vp->sp[n].as_scm = SCM_BOOL_F;
   memcpy(vp->sp, argv_copy, n * sizeof (union scm_vm_stack_element));
 
   vp->ip = cp->ra;
@@ -298,7 +298,7 @@ vm_dispatch_hook (struct scm_vm *vp, int hook_num,
       SCM args[2];
 
       args[0] = SCM_PACK_POINTER (frame);
-      args[1] = argv[0].scm;
+      args[1] = argv[0].as_scm;
       scm_c_run_hookn (hook, args, 2);
     }
   else
@@ -307,7 +307,7 @@ vm_dispatch_hook (struct scm_vm *vp, int hook_num,
       int i;
 
       for (i = 0; i < n; i++)
-        args = scm_cons (argv[i].scm, args);
+        args = scm_cons (argv[i].as_scm, args);
       scm_c_run_hook (hook, scm_cons (SCM_PACK_POINTER (frame), args));
     }
 
@@ -352,7 +352,7 @@ vm_abort (struct scm_vm *vp, SCM tag, size_t nargs,
   
   argv = alloca (nargs * sizeof (SCM));
   for (i = 0; i < nargs; i++)
-    argv[i] = vp->sp[nargs - i - 1].scm;
+    argv[i] = vp->sp[nargs - i - 1].as_scm;
 
   vp->sp = vp->fp;
 
@@ -422,7 +422,7 @@ vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont, size_t nargs,
   /* The resume continuation will expect ARGS on the stack as if from a
      multiple-value return.  Fill in the closure slot with #f, and copy
      the arguments into place.  */
-  vp->sp[nargs].scm = SCM_BOOL_F;
+  vp->sp[nargs].as_scm = SCM_BOOL_F;
   memcpy (vp->sp, args, nargs * sizeof (*args));
 
   /* The prompt captured a slice of the dynamic stack.  Here we wind
@@ -973,7 +973,8 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
       size_t slot = nlocals - 1;
       for (slot = nlocals - 1; sp < fp; sp++, slot--)
         {
-          if (SCM_NIMP (sp->scm) && sp->ptr >= lower && sp->ptr <= upper)
+          if (SCM_NIMP (sp->as_scm) &&
+              sp->as_ptr >= lower && sp->as_ptr <= upper)
             {
               if (dead_slots)
                 {
@@ -981,12 +982,12 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
                     {
                       /* This value may become dead as a result of GC,
                          so we can't just leave it on the stack.  */
-                      sp->scm = SCM_UNSPECIFIED;
+                      sp->as_scm = SCM_UNSPECIFIED;
                       continue;
                     }
                 }
 
-              mark_stack_ptr = GC_mark_and_push (sp->ptr,
+              mark_stack_ptr = GC_mark_and_push (sp->as_ptr,
                                                  mark_stack_ptr,
                                                  mark_stack_limit,
                                                  NULL);

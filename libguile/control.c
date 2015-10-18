@@ -52,7 +52,7 @@ scm_i_prompt_pop_abort_args_x (struct scm_vm *vp,
   n = stack_depth - saved_stack_depth;
 
   for (i = 0; i < n; i++)
-    vals = scm_cons (vp->sp[i].scm, vals);
+    vals = scm_cons (vp->sp[i].as_scm, vals);
 
   vp->sp += n;
 
@@ -169,9 +169,9 @@ scm_c_abort (struct scm_vm *vp, SCM tag, size_t n, SCM *argv,
     abort ();
 
   /* Push vals */
-  vp->sp[n].scm = cont;
+  vp->sp[n].as_scm = cont;
   for (i = 0; i < n; i++)
-    vp->sp[n - i - 1].scm = argv[i];
+    vp->sp[n - i - 1].as_scm = argv[i];
 
   /* Jump! */
   SCM_I_LONGJMP (*registers, 1);
