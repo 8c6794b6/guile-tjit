@@ -59,7 +59,6 @@
             make-past-frame
             past-frame-local-indices
             past-frame-local-ref
-            past-frame-lower-ref
             pop-past-frame!
             push-past-frame!
 
@@ -89,11 +88,13 @@
 ;;; Record types
 ;;;
 
+;; Record type to represent return address in frame.
 (define-record-type $return-address
   (make-return-address ip)
   return-address?
   (ip return-address-ip))
 
+;; Record type to represent dynamic link in frame.
 (define-record-type $dynamic-link
   (make-dynamic-link offset)
   dynamic-link?
@@ -104,7 +105,7 @@
 ;; Stores dynamic link, return addresses, and locals of caller procedure when
 ;; inlined procedure exist in trace.
 (define-record-type $past-frame
-  (%make-past-frame dls ras locals local-indices lowers)
+  (%make-past-frame dls ras locals local-indices)
   past-frame?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -117,12 +118,9 @@
   (locals past-frame-locals set-past-frame-locals!)
 
   ;; All local indices found in trace.
-  (local-indices past-frame-local-indices)
+  (local-indices past-frame-local-indices))
 
-  ;; Lower frame data.
-  (lowers past-frame-lowers))
-
-(define (make-past-frame dls ras local-offset locals local-indices lowers)
+(define (make-past-frame dls ras local-offset locals local-indices)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (let ((table (make-hash-table))
@@ -133,7 +131,7 @@
               (j (+ i local-offset)))
           (hashq-set! table j elem))
         (lp (+ i 1) end)))
-    (%make-past-frame dls ras table local-indices lowers)))
+    (%make-past-frame dls ras table local-indices)))
 
 (define (push-past-frame! past-frame dl ra local-offset locals)
   (set-past-frame-dls! past-frame (cons dl (past-frame-dls past-frame)))
@@ -157,17 +155,6 @@
 
 (define (past-frame-local-ref past-frame i)
   (hashq-get-handle (past-frame-locals past-frame) i))
-
-(define (past-frame-lower-ref past-frame i)
-  (let ((frames (past-frame-lowers past-frame)))
-    (match frames
-      (((offset . locals) . _)
-       (let ((j (- i offset)))
-         (or (and (<= 0 j)
-                  (< j (vector-length locals))
-                  (cons #t (vector-ref locals j)))
-             #f)))
-      (_ #f))))
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
@@ -281,7 +268,6 @@
 
 (define (accumulate-locals local-offset ops)
   (let* ((ret (make-hash-table))
-         (lowers '())
          (offset local-offset))
     (define (nyi st op)
       (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
@@ -352,7 +338,6 @@
               (when (and (< ret-index (vector-length locals))
                          (< a1 (vector-length locals-copy)))
                 (vector-set! locals-copy a1 (vector-ref locals ret-index)))
-              (set! lowers (acons offset locals-copy lowers))
               (add! st a1 a2)))
            ((receive-values)
             (pop-offset! a1)
@@ -389,23 +374,18 @@
       (let ((verbosity (lightning-verbosity)))
         (when (and verbosity (<= 3 verbosity))
           (format #t ";;; local-indices:~%")
-          (format #t ";;;   ~a~%" local-indices)
-          ;; (format #t ";;; lowers:~%")
-          ;; (when (tjit-dump-locals? (tjit-dump-option))
-          ;;   (for-each (lambda (lower)
-          ;;               (format #t ";;;   ~a~%" lower))
-          ;;             lowers))
-          ))
+          (format #t ";;;   ~a~%" local-indices)))
 
       ;; Make past-frame with locals in lower frames.
       ;;
       ;; Lower frame data is saved at the time of accumulation. Otherwise, if
       ;; one of the guard operation appeared soon after bytecode sequence
       ;; `return' and `receive', snapshot does not know the value of locals in
-      ;; lower frame. When recorded bytecode contains `return', snapshot will
-      ;; recover a frame lower than the one used to enter the native call.
+      ;; lower frame. When recorded bytecode contains `return' before `call',
+      ;; snapshot will recover a frame lower than the one used to enter the
+      ;; native call.
       ;;
-      (make-past-frame '() '() local-offset #() local-indices lowers))))
+      (make-past-frame '() '() local-offset #() local-indices))))
 
 
 ;;;
@@ -453,14 +433,13 @@
              (cond
               ((dl-or-ra i)
                => add-val)
-              ((past-frame-lower-ref past-frame i)
-               => (match-lambda
-                   ((_ . x) (add-local x))
-                   (x (debug 1 "XXX: unknown value in lower ref ~a" x))))
               (else
                (match (past-frame-local-ref past-frame i)
-                 ((_ . x) (add-local x))
-                 (_ (debug 1 "XXX: local ~a not found~%" i)))))
+                 ((_ . x)
+                  (add-local x))
+                 (_
+                  (debug 1 "XXX: local ~a not found~%" i)
+                  (lp is acc)))))
              (add-local (and (< i (vector-length locals))
                              (local-ref i)))))
 

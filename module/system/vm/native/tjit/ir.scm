@@ -345,7 +345,12 @@
                 (assign (if (eq? vdst vsrc)
                             '()
                             `((,vdst ,vsrc))))
-                (snapshot (take-snapshot! ip 0 locals local-indices vars))
+                (vars-in-current-frame
+                 (filter (lambda (local-x-type)
+                           (<= local-offset (car local-x-type)))
+                         vars))
+                (snapshot (take-snapshot! ip 0 locals local-indices
+                                          vars-in-current-frame))
                 (_ (pop-past-frame! past-frame))
                 (body `(let ((_ ,snapshot))
                          ,(if (< 0 local-offset)
