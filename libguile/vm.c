@@ -179,21 +179,6 @@ vm_return_to_continuation_inner (void *data_ptr)
           cp->stack_size * sizeof (*cp->stack_bottom));
   vm_restore_sp (vp, vp->stack_top - cp->stack_size);
 
-  if (reloc)
-    {
-      union scm_vm_stack_element *fp = vp->fp;
-      while (fp)
-        {
-          union scm_vm_stack_element *next_fp = SCM_FRAME_DYNAMIC_LINK (fp);
-          if (next_fp)
-            {
-              next_fp += reloc;
-              SCM_FRAME_SET_DYNAMIC_LINK (fp, next_fp);
-            }
-          fp = next_fp;
-        }
-    }
-
   return NULL;
 }
 
@@ -384,13 +369,6 @@ vm_reinstate_partial_continuation_inner (void *data_ptr)
 
   vp->fp = cp->fp + reloc;
   vp->ip = cp->ra;
-
-  /* now relocate frame pointers */
-  {
-    union scm_vm_stack_element *fp;
-    for (fp = vp->fp; fp < base_fp; fp = SCM_FRAME_DYNAMIC_LINK (fp))
-      SCM_FRAME_SET_DYNAMIC_LINK (fp, SCM_FRAME_DYNAMIC_LINK (fp) + reloc);
-  }
 
   data->reloc = reloc;
 
@@ -876,7 +854,7 @@ make_vm (void)
   vp->ip = NULL;
   vp->sp = vp->stack_top;
   vp->sp_min_since_gc = vp->sp;
-  vp->fp = NULL;
+  vp->fp = vp->stack_top;
   vp->engine = vm_default_engine;
   vp->trace_level = 0;
   for (i = 0; i < SCM_VM_NUM_HOOKS; i++)
@@ -967,7 +945,9 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
 
   memset (&cache, 0, sizeof (cache));
 
-  for (fp = vp->fp, sp = vp->sp; fp; fp = SCM_FRAME_DYNAMIC_LINK (fp))
+  for (fp = vp->fp, sp = vp->sp;
+       fp < vp->stack_top;
+       fp = SCM_FRAME_DYNAMIC_LINK (fp))
     {
       scm_t_ptrdiff nlocals = SCM_FRAME_NUM_LOCALS (fp, sp);
       size_t slot = nlocals - 1;
@@ -1047,24 +1027,9 @@ vm_expand_stack_inner (void *data_ptr)
   vp->stack_limit = vp->stack_bottom;
   reloc = vp->stack_top - old_top;
 
-  if (reloc)
-    {
-      union scm_vm_stack_element *fp;
-      if (vp->fp)
-        vp->fp += reloc;
-      data->new_sp += reloc;
-      fp = vp->fp;
-      while (fp)
-        {
-          union scm_vm_stack_element *next_fp = SCM_FRAME_DYNAMIC_LINK (fp);
-          if (next_fp)
-            {
-              next_fp += reloc;
-              SCM_FRAME_SET_DYNAMIC_LINK (fp, next_fp);
-            }
-          fp = next_fp;
-        }
-    }
+  if (vp->fp)
+    vp->fp += reloc;
+  data->new_sp += reloc;
 
   return new_bottom;
 }

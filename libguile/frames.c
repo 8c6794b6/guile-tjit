@@ -309,8 +309,6 @@ SCM_DEFINE (scm_frame_return_address, "frame-return-address", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-#define RELOC(kind, frame, val) ((val) + frame_offset (kind, frame))
-
 SCM_DEFINE (scm_frame_dynamic_link, "frame-dynamic-link", 1, 0, 0,
 	    (SCM frame),
 	    "")
@@ -320,8 +318,7 @@ SCM_DEFINE (scm_frame_dynamic_link, "frame-dynamic-link", 1, 0, 0,
   /* fixme: munge fp if holder is a continuation */
   return scm_from_uintptr_t
     ((scm_t_uintptr)
-     RELOC (SCM_VM_FRAME_KIND (frame), SCM_VM_FRAME_DATA (frame),
-            SCM_FRAME_DYNAMIC_LINK (SCM_VM_FRAME_FP (frame))));
+     SCM_FRAME_DYNAMIC_LINK (SCM_VM_FRAME_FP (frame)));
 }
 #undef FUNC_NAME
 
@@ -339,12 +336,7 @@ scm_c_frame_previous (enum scm_vm_frame_kind kind, struct scm_frame *frame)
 
   new_fp = SCM_FRAME_DYNAMIC_LINK (this_fp);
 
-  if (!new_fp)
-    return 0;
-
-  new_fp = RELOC (kind, frame, new_fp);
-
-  if (new_fp > stack_top)
+  if (new_fp >= stack_top)
     return 0;
 
   new_sp = SCM_FRAME_PREVIOUS_SP (this_fp);

@@ -88,7 +88,7 @@
 /* Each element on the stack occupies the same amount of space.  */
 union scm_vm_stack_element
 {
-  union scm_vm_stack_element *as_fp;
+  scm_t_uintptr as_uint;
   scm_t_uint32 *as_ip;
   SCM as_scm;
 
@@ -100,8 +100,8 @@ union scm_vm_stack_element
 #define SCM_FRAME_PREVIOUS_SP(fp)	((fp) + 2)
 #define SCM_FRAME_RETURN_ADDRESS(fp)    ((fp)[0].as_ip)
 #define SCM_FRAME_SET_RETURN_ADDRESS(fp, ra) ((fp)[0].as_ip = (ra))
-#define SCM_FRAME_DYNAMIC_LINK(fp)      ((fp)[1].as_fp)
-#define SCM_FRAME_SET_DYNAMIC_LINK(fp, dl) ((fp)[1].as_fp = (dl))
+#define SCM_FRAME_DYNAMIC_LINK(fp)      ((fp) + (fp)[1].as_uint)
+#define SCM_FRAME_SET_DYNAMIC_LINK(fp, dl) ((fp)[1].as_uint = ((dl) - (fp)))
 #define SCM_FRAME_SLOT(fp,i)            ((fp) - (i) - 1)
 #define SCM_FRAME_LOCAL(fp,i)           (SCM_FRAME_SLOT (fp, i)->as_scm)
 #define SCM_FRAME_NUM_LOCALS(fp, sp)    ((fp) - (sp))
