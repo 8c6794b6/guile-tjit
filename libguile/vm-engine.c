@@ -107,7 +107,7 @@
       {                                                 \
         SYNC_IP ();                                     \
         exp;                                            \
-        CACHE_FP ();                                    \
+        CACHE_LOCALS ();                                    \
       }                                                 \
   } while (0)
 #else
@@ -128,37 +128,39 @@
   RUN_HOOK0 (abort)
 
 #define VM_HANDLE_INTERRUPTS                     \
-  SCM_ASYNC_TICK_WITH_GUARD_CODE (thread, SYNC_IP (), CACHE_FP ())
+  SCM_ASYNC_TICK_WITH_GUARD_CODE (thread, SYNC_IP (), CACHE_LOCALS ())
 
 
 /* Virtual Machine
 
    The VM has three state bits: the instruction pointer (IP), the frame
-   pointer (FP), and the stack pointer (SP).  We cache the first two of
-   these in machine registers, local to the VM, because they are used
-   extensively by the VM.  As the SP is used more by code outside the VM
-   than by the VM itself, we don't bother caching it locally.
+   pointer (FP), and the stack pointer (SP).  We cache the IP in a
+   machine register, local to the VM, because it is used extensively by
+   the VM.  We cache the address of local 0 too, for now; when we change
+   to reference variables relative to the SP we'll cache the SP instead.
+   As it is, the SP is used more by code outside the VM than by the VM
+   itself, we don't bother caching it locally.
 
-   Since the FP changes infrequently, relative to the IP, we keep vp->fp
-   in sync with the local FP.  This would be a big lose for the IP,
-   though, so instead of updating vp->ip all the time, we call SYNC_IP
-   whenever we would need to know the IP of the top frame.  In practice,
-   we need to SYNC_IP whenever we call out of the VM to a function that
-   would like to walk the stack, perhaps as the result of an
-   exception.
+   Keeping vp->ip in sync with the local IP would be a big lose, as it
+   is updated so often.  Instead of updating vp->ip all the time, we
+   call SYNC_IP whenever we would need to know the IP of the top frame.
+   In practice, we need to SYNC_IP whenever we call out of the VM to a
+   function that would like to walk the stack, perhaps as the result of
+   an exception.
 
    One more thing.  We allow the stack to move, when it expands.
    Therefore if you call out to a C procedure that could call Scheme
    code, or otherwise push anything on the stack, you will need to
-   CACHE_FP afterwards to restore the possibly-changed FP. */
+   CACHE_LOCALS afterwards to restore the possibly-changed address of
+   local 0. */
 
 #define SYNC_IP() vp->ip = (ip)
 
-#define CACHE_FP() fp = (vp->fp)
+#define CACHE_LOCALS() locals = (vp->fp - 1)
 #define CACHE_REGISTER()                        \
   do {                                          \
     ip = vp->ip;                                \
-    fp = vp->fp;                                \
+    CACHE_LOCALS ();                            \
   } while (0)
 
 
@@ -179,7 +181,7 @@
           {                                                         \
             SYNC_IP ();                                             \
             vm_expand_stack (vp, new_sp);                           \
-            CACHE_FP ();                                            \
+            CACHE_LOCALS ();                                            \
           }                                                         \
         else                                                        \
           vp->sp_min_since_gc = vp->sp = new_sp;                    \
@@ -246,9 +248,15 @@
   case opcode:
 #endif
 
-#define LOCAL_ADDRESS(i)	SCM_FRAME_SLOT (fp, i)
-#define LOCAL_REF(i)		SCM_FRAME_LOCAL (fp, i)
-#define LOCAL_SET(i,o)		SCM_FRAME_LOCAL (fp, i) = o
+// This "locals + 1" is actually an optimization, because vp->fp points
+// on before the zeroeth local.  The result is to reference locals[-i].
+// In the future we should change to reference locals relative to the SP
+// and cache the SP instead, which would give direct (non-negated)
+// indexing off the SP, which is more in line with addressing modes
+// supported by common CPUs.
+#define LOCAL_ADDRESS(i)	SCM_FRAME_SLOT (locals + 1, i)
+#define LOCAL_REF(i)		SCM_FRAME_LOCAL (locals + 1, i)
+#define LOCAL_SET(i,o)		SCM_FRAME_LOCAL (locals + 1, i) = o
 
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
@@ -260,9 +268,10 @@
     union scm_vm_stack_element *old_fp;                 \
     VM_HANDLE_INTERRUPTS;                               \
     ALLOC_FRAME (2);					\
-    old_fp = fp;                                        \
-    ip = SCM_FRAME_RETURN_ADDRESS (fp);                 \
-    fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);          \
+    old_fp = vp->fp;                                        \
+    ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);                 \
+    vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);          \
+    CACHE_LOCALS ();                                        \
     /* Clear frame. */                                  \
     old_fp[0].scm = SCM_BOOL_F;                         \
     old_fp[1].scm = SCM_BOOL_F;                         \
@@ -280,9 +289,9 @@
     SCM vals = vals_;                                   \
     VM_HANDLE_INTERRUPTS;                               \
     ALLOC_FRAME (3);                                    \
-    SCM_FRAME_LOCAL (fp, 0) = vm_builtin_apply;         \
-    SCM_FRAME_LOCAL (fp, 1) = vm_builtin_values;        \
-    SCM_FRAME_LOCAL (fp, 2) = vals;                     \
+    SCM_FRAME_LOCAL (vp->fp, 0) = vm_builtin_apply;         \
+    SCM_FRAME_LOCAL (vp->fp, 1) = vm_builtin_values;        \
+    SCM_FRAME_LOCAL (vp->fp, 2) = vals;                     \
     ip = (scm_t_uint32 *) vm_builtin_apply_code;        \
     goto op_tail_apply;                                 \
   } while (0)
@@ -355,7 +364,7 @@
         SCM res;                                                        \
         SYNC_IP ();                                                     \
         res = srel (x, y);                                              \
-        CACHE_FP ();                                                    \
+        CACHE_LOCALS ();                                                    \
         if ((ip[1] & 0x1) ? scm_is_false (res) : scm_is_true (res))     \
           {                                                             \
             scm_t_int32 offset = ip[1];                                 \
@@ -382,7 +391,7 @@
 #define RETURN(x)                               \
   do { LOCAL_SET (dst, x); NEXT (1); } while (0)
 #define RETURN_EXP(exp)                         \
-  do { SCM __x; SYNC_IP (); __x = exp; CACHE_FP (); RETURN (__x); } while (0)
+  do { SCM __x; SYNC_IP (); __x = exp; CACHE_LOCALS (); RETURN (__x); } while (0)
 
 /* The maximum/minimum tagged integers.  */
 #define INUM_MAX  \
@@ -429,7 +438,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   /* Frame pointer: A pointer into the stack, off of which we index
      arguments and local variables.  Pushed at function calls, popped on
      returns.  */
-  register union scm_vm_stack_element *fp FP_REG;
+  register union scm_vm_stack_element *locals FP_REG;
 
   /* Current opcode: A cache of *ip.  */
   register scm_t_uint32 op;
@@ -524,9 +533,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           ret = scm_values (ret);
         }
 
-      vp->ip = SCM_FRAME_RETURN_ADDRESS (fp);
-      vp->sp = SCM_FRAME_PREVIOUS_SP (fp);
-      vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
+      vp->ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);
+      vp->sp = SCM_FRAME_PREVIOUS_SP (vp->fp);
+      vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);
 
       return ret;
     }
@@ -556,10 +565,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       PUSH_CONTINUATION_HOOK ();
 
-      old_fp = fp;
-      fp = vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
-      SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
-      SCM_FRAME_SET_RETURN_ADDRESS (fp, ip + 2);
+      old_fp = vp->fp;
+      vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
+      CACHE_LOCALS ();
+      SCM_FRAME_SET_DYNAMIC_LINK (vp->fp, old_fp);
+      SCM_FRAME_SET_RETURN_ADDRESS (vp->fp, ip + 2);
 
       RESET_FRAME (nlocals);
 
@@ -597,10 +607,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       PUSH_CONTINUATION_HOOK ();
 
-      old_fp = fp;
-      fp = vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
-      SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
-      SCM_FRAME_SET_RETURN_ADDRESS (fp, ip + 3);
+      old_fp = vp->fp;
+      vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
+      CACHE_LOCALS ();
+      SCM_FRAME_SET_DYNAMIC_LINK (vp->fp, old_fp);
+      SCM_FRAME_SET_RETURN_ADDRESS (vp->fp, ip + 3);
 
       RESET_FRAME (nlocals);
 
@@ -759,9 +770,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       VM_HANDLE_INTERRUPTS;
 
-      old_fp = fp;
-      ip = SCM_FRAME_RETURN_ADDRESS (fp);
-      fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
+      old_fp = vp->fp;
+      ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);
+      vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);
+      CACHE_LOCALS ();
 
       /* Clear stack frame.  */
       old_fp[0].scm = SCM_BOOL_F;
@@ -850,7 +862,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           abort ();
         }
 
-      CACHE_FP ();
+      CACHE_LOCALS ();
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         /* multiple values returned to continuation */
@@ -884,7 +896,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       ret = scm_i_foreign_call (scm_inline_cons (thread, cif, pointer),
                                 vp->sp);
 
-      CACHE_FP ();
+      CACHE_LOCALS ();
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         /* multiple values returned to continuation */
@@ -1011,9 +1023,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SYNC_IP ();
       dynstack = scm_dynstack_capture_all (&thread->dynstack);
       vm_cont = scm_i_vm_capture_stack (vp->stack_top,
-                                        SCM_FRAME_DYNAMIC_LINK (fp),
-                                        SCM_FRAME_PREVIOUS_SP (fp),
-                                        SCM_FRAME_RETURN_ADDRESS (fp),
+                                        SCM_FRAME_DYNAMIC_LINK (vp->fp),
+                                        SCM_FRAME_PREVIOUS_SP (vp->fp),
+                                        SCM_FRAME_RETURN_ADDRESS (vp->fp),
                                         dynstack,
                                         0);
       /* FIXME: Seems silly to capture the registers here, when they are
@@ -1477,7 +1489,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in A is equal? to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  // FIXME: Should sync_ip before calling out and cache_fp before coming
+  // FIXME: Should sync_ip before calling out and cache_locals before coming
   // back!  Another reason to remove this opcode!
   VM_DEFINE_OP (40, br_if_equal, "br-if-equal", OP2 (U8_U12_U12, B1_X7_L24))
     {
@@ -1893,7 +1905,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       SYNC_IP ();
       var = scm_lookup (LOCAL_REF (sym));
-      CACHE_FP ();
+      CACHE_LOCALS ();
       if (ip[1] & 0x1)
         VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (LOCAL_REF (sym)));
       LOCAL_SET (dst, var);
@@ -1912,7 +1924,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, sym, val);
       SYNC_IP ();
       scm_define (LOCAL_REF (sym), LOCAL_REF (val));
-      CACHE_FP ();
+      CACHE_LOCALS ();
       NEXT (1);
     }
 
@@ -1972,7 +1984,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
             mod = scm_the_root_module ();
 
           var = scm_module_lookup (mod, sym);
-          CACHE_FP ();
+          CACHE_LOCALS ();
           if (ip[4] & 0x1)
             VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (sym));
 
@@ -2033,7 +2045,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           else
             var = scm_private_lookup (SCM_CDR (modname), sym);
 
-          CACHE_FP ();
+          CACHE_LOCALS ();
 
           if (ip[4] & 0x1)
             VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (sym));
@@ -2075,7 +2087,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
       scm_dynstack_push_prompt (&thread->dynstack, flags,
                                 LOCAL_REF (tag),
-                                vp->stack_top - fp,
+                                vp->stack_top - vp->fp,
                                 vp->stack_top - LOCAL_ADDRESS (proc_slot),
                                 ip + offset,
                                 registers);
