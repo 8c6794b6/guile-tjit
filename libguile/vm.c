@@ -120,7 +120,7 @@ scm_i_vm_cont_to_frame (SCM cont, struct scm_frame *frame)
   stack_top = data->stack_bottom + data->stack_size;
   frame->stack_holder = data;
   frame->fp_offset = stack_top - (data->fp + data->reloc);
-  frame->sp_offset = stack_top - (data->sp + data->reloc);
+  frame->sp_offset = data->stack_size;
   frame->ip = data->ra;
 
   return 1;
@@ -142,7 +142,6 @@ scm_i_vm_capture_stack (union scm_vm_stack_element *stack_top,
   p->stack_bottom = scm_gc_malloc (p->stack_size * sizeof (*p->stack_bottom),
                                    "capture_vm_cont");
   p->ra = ra;
-  p->sp = sp;
   p->fp = fp;
   memcpy (p->stack_bottom, sp, p->stack_size * sizeof (*p->stack_bottom));
   p->reloc = (p->stack_bottom + p->stack_size) - stack_top;
@@ -178,7 +177,7 @@ vm_return_to_continuation_inner (void *data_ptr)
   memcpy (vp->stack_top - cp->stack_size,
           cp->stack_bottom,
           cp->stack_size * sizeof (*cp->stack_bottom));
-  vm_restore_sp (vp, cp->sp + reloc);
+  vm_restore_sp (vp, vp->stack_top - cp->stack_size);
 
   if (reloc)
     {

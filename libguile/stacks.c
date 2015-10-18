@@ -330,7 +330,7 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
       kind = SCM_VM_FRAME_KIND_CONT;
       frame.stack_holder = c;
       frame.fp_offset = stack_top - (c->fp + c->reloc);
-      frame.sp_offset = stack_top - (c->sp + c->reloc);
+      frame.sp_offset = c->stack_size;
       frame.ip = c->ra;
     }
   else if (SCM_VM_FRAME_P (obj))

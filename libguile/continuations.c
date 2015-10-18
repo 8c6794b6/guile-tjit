@@ -186,7 +186,7 @@ scm_i_continuation_to_frame (SCM continuation, struct scm_frame *frame)
       stack_top = data->stack_bottom + data->stack_size;
       frame->stack_holder = data;
       frame->fp_offset = stack_top - (data->fp + data->reloc);
-      frame->sp_offset = stack_top - (data->sp + data->reloc);
+      frame->sp_offset = data->stack_size;
       frame->ip = data->ra;
 
       return 1;

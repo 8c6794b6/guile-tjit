@@ -79,9 +79,6 @@ SCM_INTERNAL void scm_i_vm_free_stack (struct scm_vm *vp);
 #define SCM_F_VM_CONT_REWINDABLE 0x2
 
 struct scm_vm_cont {
-  /* FIXME: sp isn't needed, it's effectively the same as
-     stack_bottom */
-  union scm_vm_stack_element *sp;
   union scm_vm_stack_element *fp;
   scm_t_uint32 *ra;
   scm_t_ptrdiff stack_size;
