@@ -372,7 +372,15 @@ epilog part. Native code of side trace does not reset %rsp, since the use of
     (jit-movr (gpr dst) r0))
 
    ((and (fpr? dst) (constant? src))
-    (jit-movi-d (fpr dst) (constant src)))
+    (let ((val (ref-value src)))
+      (cond
+       ((and (number? val) (flonum? val))
+        (jit-movi-d (fpr dst) (constant src)))
+       ((and (number? val) (exact? val))
+        (jit-movi r0 (constant src))
+        (jit-extr-d (fpr dst) r0))
+       (else
+        (debug 3 "XXX move: ~a ~a~%" dst src)))))
    ((and (fpr? dst) (fpr? src))
     (jit-movr-d (fpr dst) (fpr src)))
    ((and (fpr? dst) (memory? src))
@@ -838,6 +846,9 @@ both arguments were register or memory."
       (jit-ldi (gpr dst) (imm addr))))
    ((and (gpr? dst) (gpr? src) (constant? n))
     (jit-ldxi (gpr dst) (gpr src) (constant-word n)))
+   ((and (gpr? dst) (fpr? src) (constant? n))
+    (jit-truncr-d r0 (fpr src))
+    (jit-ldxi (gpr dst) r0 (constant-word n)))
    ((and (gpr? dst) (memory? src) (constant? n))
     (memory-ref r0 src)
     (jit-ldxi (gpr dst) r0 (constant-word n)))

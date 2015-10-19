@@ -203,7 +203,7 @@
    jit-ungtr-d jit-ungti-d jit-ltgtr-d jit-ltgti-d
    jit-ordr-d jit-ordi-d jit-unordr-d jit-unordi-d
 
-   jit-truncr-d-i jit-truncr-d-l ;; x86
+   jit-truncr-d-i jit-truncr-d-l jit-truncr-d ;; x86
    jit-extr-d jit-extr-f-d jit-movr-d jit-movi-d
 
    jit-ldr-d jit-ldr-i jit-ldxr-d jit-ldxi-d
