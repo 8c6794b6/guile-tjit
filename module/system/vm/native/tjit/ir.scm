@@ -92,12 +92,7 @@
     (map (lambda (n)
            (cons n (make-var n)))
          locals))
-  (define (get-initial-offset snapshot)
-    ;; Initial offset of root trace is constantly 0. Initial offset of side
-    ;; trace is where parent trace left, using offset value from SNAPSHOT.
-    (match snapshot
-      (($ $snapshot _ offset) offset)
-      (_ 0)))
+
   (define (get-initial-snapshot-id snapshots nlocals locals indices vars
                                    past-frame ip)
     ;; For root trace, adding initial snapshot trace with key=0 to hold
@@ -136,17 +131,16 @@
          (parent-snapshot-locals (match parent-snapshot
                                    (($ $snapshot _ _ _ locals) locals)
                                    (_ #f)))
-         (initial-offset (get-initial-offset parent-snapshot))
+         ;; Initial offset of root trace is constantly 0. Initial offset of side
+         ;; trace is where parent trace left, using offset value from SNAPSHOT.
+         (initial-offset (match parent-snapshot
+                           (($ $snapshot _ offset) offset)
+                           (_ 0)))
          (local-offset initial-offset)
          (past-frame (accumulate-locals local-offset trace))
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
-         (vars-from-parent (make-vars-from-parent vars
-                                                  parent-snapshot-locals
-                                                  initial-offset))
-         (args-from-parent (reverse (map cdr vars-from-parent)))
-         (local-indices-from-parent (map car vars-from-parent))
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
          (lowest-offset (min initial-offset 0))
@@ -198,12 +192,12 @@
 
     (define (take-snapshot! ip offset locals indices vars)
       (let* ((nlocals (vector-length locals))
+             (dst-ip (+ ip (* offset 4)))
              (snapshot (make-snapshot snapshot-id
                                       local-offset lowest-offset nlocals
                                       locals parent-snapshot-locals
                                       initial-offset indices vars
-                                      past-frame
-                                      (+ ip (* offset 4))))
+                                      past-frame dst-ip))
              (args (let lp ((vars vars) (acc '()))
                      (match vars
                        (((n . var) . vars)
@@ -318,6 +312,7 @@
                          (((n . var) . vars)
                           (cond
                            ((<= local-offset n (+ proc-offset -3))
+                            ;; Loading local from lower frame.
                             (let* ((i (- n local-offset))
                                    (val (if (< -1 i (vector-length locals))
                                             (vector-ref locals i)
@@ -786,21 +781,21 @@
                 ;; Last operation is wrapped in a thunk, to assign snapshot ID
                 ;; in last expression after taking snapshots from guards in
                 ;; traced operations.
+                ;;
+                ;; Trace with loop will emit `loop', which is the name of
+                ;; procedure for looping the body of Scheme IR emitted in
+                ;; `make-scm'.
+                ;;
+                ;; Side trace or loop-less root trace are apturing CPS variables
+                ;; with `take-snapshot!' at the end, so that the native code can
+                ;; pass the register information to linked code.
+                ;;
+                ;; XXX: Get vars passed to linked code, replace `vars' with
+                ;; it.
+                ;;
                 (if loop?
-                    ;; Trace with loop. Emit `loop', which is the name of
-                    ;; procedure for looping the body of Scheme IR emitted in
-                    ;; `make-scm'.
                     (lambda ()
                       `(loop ,@(reverse (map cdr vars))))
-
-                    ;; Side trace or loop-less root trace.  Capturing CPS
-                    ;; variables with `take-snapshot!' at the end, so that the
-                    ;; native code can pass the register information to linked
-                    ;; code.
-                    ;;
-                    ;; XXX: Get vars passed to linked code, replace `vars' with
-                    ;; it.
-                    ;;
                     (lambda ()
                       `(let ((_ ,(take-snapshot! *ip-key-jump-to-linked-code*
                                                  0 locals local-indices
@@ -814,161 +809,170 @@
                   (last-op))
              (error "ir.scm: last arg was not a procedure" last-op)))))
 
-    (define (type-of-local n local)
-      ;; Current policy for deciding the type of initial argument loaded from
-      ;; frame:
-      ;;
-      ;; * If local has known type, use the known type.
-      ;; * Else if local has expecting type, use the expecting type.
-      ;; * Else if local is found, load from frame with type of the found
-      ;;   value.
-      ;; * Otherwise, initialize the variable as false, without loading from
-      ;;   frame.
-      (cond
-       ((hashq-ref known-types n)
-        => identity)
-       ((hashq-ref expecting-types n)
-        => identity)
-       ((type-of local)
-        => identity)
-       (else
-        #f)))
+    (let* ((vars-from-parent (make-vars-from-parent vars
+                                                    parent-snapshot-locals
+                                                    initial-offset))
+           (args-from-parent (reverse (map cdr vars-from-parent)))
+           (local-indices-from-parent (map car vars-from-parent)))
 
-    (define (add-initial-loads exp-body)
-      (debug 3 ";;; add-initial-loads:~%")
-      (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
-      (debug 3 ";;;   initial-locals=~a~%" initial-locals)
-      (let ((snapshot0 (hashq-ref snapshots 0)))
-        (define (type-from-snapshot n)
-          (let ((i (- n (snapshot-offset snapshot0))))
-            (and (< -1 i)
-                 (< i (vector-length initial-locals))
-                 (type-of (vector-ref initial-locals i)))))
-        (define (type-from-parent n)
-          (assq-ref parent-snapshot-locals (if (<= 0 initial-offset)
-                                               n
-                                               (- n initial-offset))))
-        (let lp ((vars (reverse vars)))
-          (match vars
-            (((n . var) . vars)
-             (debug 3 ";;;   n:~a~%" n)
-             (debug 3 ";;;   var: ~a~%" var)
-             (debug 3 ";;;   from parent: ~a~%" (type-from-parent n))
-             (debug 3 ";;;   from snapshot: ~a~%" (type-from-snapshot n))
-             (cond
-              ;; When local was passed from parent and snapshot 0 contained the
-              ;; local with same type, no need to load from frame. If type does
-              ;; not match, the value passed from parent has different was
-              ;; untagged with different type, reload from frame.
-              ;;
-              ;; When locals index was found in parent snapshot locals and not
-              ;; from snapshot 0 of this trace, the local will be passed from
-              ;; parent fragment, ignoreing.
-              ;;
-              ;; If initial offset is positive and local index is negative,
-              ;; locals from lower frame won't be passed as argument. Loading
-              ;; later with '%fref' or '%fref/f'.
-              ;;
-              ;; In side traces, locals with its index exceeding initial number
-              ;; of locals are also ignored, those are likely to be locals in
-              ;; inlined procedure, which will be assigned or loaded later.
-              ;;
-              ((let ((parent-type (type-from-parent n))
-                     (snapshot-type (type-from-snapshot n)))
-                 (or (and parent-type
-                          snapshot-type
-                          (eq? parent-type snapshot-type))
-                     (and (not snapshot-type)
-                          parent-type)
-                     (and (<= 0 initial-offset)
-                          (< n 0))
-                     (and (not root-trace?)
-                          (<= initial-nlocals n))))
-               (lp vars))
-              (else
-               (let* ((i (- n (snapshot-offset snapshot0)))
-                      (local (if (and (< -1 i)
-                                      (< i (vector-length initial-locals)))
-                                 (vector-ref initial-locals i)
-                                 (make-variable #f)))
-                      (type (if root-trace?
-                                (or (hashq-ref expecting-types n)
-                                    ;; XXX: Replace `&box' with a value for type
-                                    ;; to indicate any type.
-                                    &box)
-                                (type-of-local n local))))
-                 (debug 3 ";;; add-initial-loads: n=~a~%" n)
-                 (debug 3 ";;;   known-type:     ~a~%"
-                        (hashq-ref known-types n))
-                 (debug 3 ";;;   expecting-type: ~a~%"
-                        (hashq-ref expecting-types n))
-                 (debug 3 ";;;   local:          ~a~%" local)
-                 (debug 3 ";;;   type:           ~a~%" type)
+      (define (type-of-local n local)
+        ;; Current policy for deciding the type of initial argument loaded from
+        ;; frame:
+        ;;
+        ;; * If local has known type, use the known type.
+        ;; * Else if local has expecting type, use the expecting type.
+        ;; * Else if local is found, load from frame with type of the found
+        ;;   value.
+        ;; * Otherwise, initialize the variable as false, without loading from
+        ;;   frame.
+        (cond
+         ((hashq-ref known-types n)
+          => identity)
+         ((hashq-ref expecting-types n)
+          => identity)
+         ((type-of local)
+          => identity)
+         (else
+          #f)))
 
-                 ;; Shift the index when this trace started from negative
-                 ;; offset. Skip loading from frame when shifted index is
-                 ;; negative, should be loaded explicitly with `%fref' or
-                 ;; `%fref/f'.
-                 (let ((j (if (< initial-offset 0)
-                              (- n initial-offset)
-                              n)))
-                   (if (< j 0)
-                       (lp vars)
-                       (with-frame-ref lp vars var type j)))))))
-            (()
-             exp-body)))))
+      (define (add-initial-loads exp-body)
+        (debug 3 ";;; add-initial-loads:~%")
+        (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
+        (debug 3 ";;;   initial-locals=~a~%" initial-locals)
+        (let ((snapshot0 (hashq-ref snapshots 0)))
+          (define (type-from-snapshot n)
+            (let ((i (- n (snapshot-offset snapshot0))))
+              (and (< -1 i)
+                   (< i (vector-length initial-locals))
+                   (type-of (vector-ref initial-locals i)))))
+          (define (type-from-parent n)
+            (assq-ref parent-snapshot-locals (if (<= 0 initial-offset)
+                                                 n
+                                                 (- n initial-offset))))
+          (let lp ((vars (reverse vars)))
+            (match vars
+              (((n . var) . vars)
+               (debug 3 ";;;   n:~a~%" n)
+               (debug 3 ";;;   var: ~a~%" var)
+               (debug 3 ";;;   from parent: ~a~%" (type-from-parent n))
+               (debug 3 ";;;   from snapshot: ~a~%" (type-from-snapshot n))
+               (cond
+                ;; When local was passed from parent and snapshot 0 contained the
+                ;; local with same type, no need to load from frame. If type does
+                ;; not match, the value passed from parent has different was
+                ;; untagged with different type, reload from frame.
+                ;;
+                ;; When locals index was found in parent snapshot locals and not
+                ;; from snapshot 0 of this trace, the local will be passed from
+                ;; parent fragment, ignoreing.
+                ;;
+                ;; If initial offset is positive and local index is negative,
+                ;; locals from lower frame won't be passed as argument. Loading
+                ;; later with '%fref' or '%fref/f'.
+                ;;
+                ;; In side traces, locals with its index exceeding initial number
+                ;; of locals are also ignored, those are likely to be locals in
+                ;; inlined procedure, which will be assigned or loaded later.
+                ;;
+                ((let ((parent-type (type-from-parent n))
+                       (snapshot-type (type-from-snapshot n)))
+                   (or (and parent-type
+                            snapshot-type
+                            (eq? parent-type snapshot-type))
+                       (and (not snapshot-type)
+                            parent-type)
+                       (and (<= 0 initial-offset)
+                            (< n 0))
+                       (and (not root-trace?)
+                            (<= initial-nlocals n))))
+                 (lp vars))
+                (else
+                 (let* ((i (- n (snapshot-offset snapshot0)))
+                        (local (if (and (< -1 i)
+                                        (< i (vector-length initial-locals)))
+                                   (vector-ref initial-locals i)
+                                   (make-variable #f)))
+                        (type (if root-trace?
+                                  (or (hashq-ref expecting-types n)
+                                      ;; XXX: Replace `&box' with a value for type
+                                      ;; to indicate any type.
+                                      &box)
+                                  (type-of-local n local))))
+                   (debug 3 ";;; add-initial-loads: n=~a~%" n)
+                   (debug 3 ";;;   known-type:     ~a~%"
+                          (hashq-ref known-types n))
+                   (debug 3 ";;;   expecting-type: ~a~%"
+                          (hashq-ref expecting-types n))
+                   (debug 3 ";;;   local:          ~a~%" local)
+                   (debug 3 ";;;   type:           ~a~%" type)
 
-    (define (make-scm escape trace)
-      (cond
-       (root-trace?
-        ;; Invoking `convert' before generating entry clause so that the
-        ;; `expecting-types' gets filled in.
-        (let* ((snap (take-snapshot! *ip-key-set-loop-info!*
-                                     0
-                                     initial-locals
-                                     local-indices
-                                     vars))
-               (loop (convert escape trace)))
-          `(letrec ((entry (lambda ()
-                             (let ((_ (%snap 0)))
-                               ,(add-initial-loads
-                                 `(let ((_ ,snap))
-                                    (loop ,@args))))))
-                    (loop (lambda ,args
-                            ,loop)))
-             entry)))
-       (loop?
-        (let ((args-from-vars (reverse! (map cdr vars))))
-          `(letrec ((entry (lambda ,args-from-parent
-                             (let ((_ ,(take-snapshot! initial-ip
-                                                       0
-                                                       initial-locals
-                                                       local-indices-from-parent
-                                                       vars-from-parent)))
-                               ,(add-initial-loads `(loop ,@args-from-vars)))))
-                    (loop (lambda ,args-from-vars
-                            ,(convert escape trace))))
-             entry)))
-       (else
-        `(letrec ((patch (lambda ,args-from-parent
-                           (let ((_ ,(take-snapshot! initial-ip
-                                                     0
-                                                     initial-locals
-                                                     local-indices-from-parent
-                                                     vars-from-parent)))
-                             ,(add-initial-loads (convert escape trace))))))
-           patch))))
+                   ;; Shift the index when this trace started from negative
+                   ;; offset. Skip loading from frame when shifted index is
+                   ;; negative, should be loaded explicitly with `%fref' or
+                   ;; `%fref/f'.
+                   (let ((j (if (< initial-offset 0)
+                                (- n initial-offset)
+                                n)))
+                     (if (< j 0)
+                         (lp vars)
+                         (with-frame-ref lp vars var type j)))))))
+              (()
+               exp-body)))))
 
-    (let ((scm (call-with-escape-continuation
-                (lambda (escape)
-                  (make-scm escape trace)))))
-      (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
-             (sort (hash-fold acons '() snapshots)
-                   (lambda (a b) (< (car a) (car b)))))
-      (let ((indices (if root-trace?
-                         local-indices
-                         local-indices-from-parent)))
-        (values indices vars snapshots scm)))))
+      (define (make-scm escape trace)
+        (cond
+         (root-trace?
+          ;; Invoking `convert' before generating entry clause so that the
+          ;; `expecting-types' gets filled in.
+          (let* ((snap (take-snapshot! *ip-key-set-loop-info!*
+                                       0
+                                       initial-locals
+                                       local-indices
+                                       vars))
+                 (loop (convert escape trace)))
+            `(letrec ((entry (lambda ()
+                               (let ((_ (%snap 0)))
+                                 ,(add-initial-loads
+                                   `(let ((_ ,snap))
+                                      (loop ,@args))))))
+                      (loop (lambda ,args
+                              ,loop)))
+               entry)))
+         (loop?
+          (let ((args-from-vars (reverse! (map cdr vars)))
+                (snap (take-snapshot! initial-ip
+                                      0
+                                      initial-locals
+                                      local-indices-from-parent
+                                      vars-from-parent)))
+            `(letrec ((entry (lambda ,args-from-parent
+                               (let ((_ ,snap))
+                                 ,(add-initial-loads
+                                   `(loop ,@args-from-vars)))))
+                      (loop (lambda ,args-from-vars
+                              ,(convert escape trace))))
+               entry)))
+         (else
+          (let ((snap (take-snapshot! initial-ip
+                                      0
+                                      initial-locals
+                                      local-indices-from-parent
+                                      vars-from-parent)))
+            `(letrec ((patch (lambda ,args-from-parent
+                               (let ((_ ,snap))
+                                 ,(add-initial-loads (convert escape trace))))))
+               patch)))))
+
+      (let ((scm (call-with-escape-continuation
+                  (lambda (escape)
+                    (make-scm escape trace)))))
+        (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
+               (sort (hash-fold acons '() snapshots)
+                     (lambda (a b) (< (car a) (car b)))))
+        (let ((indices (if root-trace?
+                           local-indices
+                           local-indices-from-parent)))
+          (values indices vars snapshots scm))))))
 
 (define (trace->primlist trace-id fragment exit-id loop? trace)
   "Compiles TRACE to primlist.
