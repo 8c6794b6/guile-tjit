@@ -392,7 +392,7 @@
 ;;; Snapshot
 ;;;
 
-(define (make-snapshot id local-offset lowest-offset highest-offset
+(define (make-snapshot id local-offset lowest-offset nlocals
                        locals parent-snapshot-locals initial-offset
                        indices vars past-frame
                        ip)
@@ -421,7 +421,7 @@
        (define (add-local local)
          (let ((type (type-of local)))
            (if (and type
-                    (<= lowest-offset i highest-offset))
+                    (<= lowest-offset i (+ local-offset nlocals)))
                (begin
                  (lp is (cons `(,i . ,type) acc)))
                (lp is acc))))

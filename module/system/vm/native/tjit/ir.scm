@@ -150,9 +150,6 @@
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
          (lowest-offset (min initial-offset 0))
-         (highest-offset (apply max 0 (map car (if root-trace?
-                                                   vars
-                                                   vars-from-parent))))
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id snapshots
                                                initial-nlocals
@@ -200,24 +197,25 @@
            ,(proc args)))))
 
     (define (take-snapshot! ip offset locals indices vars)
-      (let ((snap (make-snapshot snapshot-id
-                                 local-offset lowest-offset highest-offset
-                                 locals parent-snapshot-locals
-                                 initial-offset indices vars
-                                 past-frame
-                                 (+ ip (* offset 4))))
-            (args (let lp ((vars vars) (acc '()))
-                    (match vars
-                      (((n . var) . vars)
-                       (if (<= lowest-offset n highest-offset)
-                           (lp vars (cons var acc))
-                           (lp vars acc)))
-                      (()
-                       acc)))))
+      (let* ((nlocals (vector-length locals))
+             (snapshot (make-snapshot snapshot-id
+                                      local-offset lowest-offset nlocals
+                                      locals parent-snapshot-locals
+                                      initial-offset indices vars
+                                      past-frame
+                                      (+ ip (* offset 4))))
+             (args (let lp ((vars vars) (acc '()))
+                     (match vars
+                       (((n . var) . vars)
+                        (if (<= lowest-offset n (+ local-offset nlocals))
+                            (lp vars (cons var acc))
+                            (lp vars acc)))
+                       (()
+                        acc)))))
 
         ;; Using snapshot-id as key for hash-table. Identical IP could
         ;; be used for entry clause and first operation in the loop.
-        (hashq-set! snapshots snapshot-id snap)
+        (hashq-set! snapshots snapshot-id snapshot)
 
         ;; Call dummy procedure `%snap' to capture arguments used for snapshot.
         (let ((ret `(%snap ,snapshot-id ,@args)))
@@ -228,10 +226,7 @@
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
       (define-syntax-rule (var-ref i)
-        (let ((n (+ i local-offset)))
-          (when (< highest-offset n)
-            (set! highest-offset n))
-          (assq-ref vars n)))
+        (assq-ref vars (+ i local-offset)))
 
       ;; (debug 3 ";;; convert-one: ~a ~a ~a ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
@@ -964,7 +959,6 @@
                              ,(add-initial-loads (convert escape trace))))))
            patch))))
 
-    (debug 3 ";;; initial highest-offset: ~a~%" highest-offset)
     (let ((scm (call-with-escape-continuation
                 (lambda (escape)
                   (make-scm escape trace)))))
