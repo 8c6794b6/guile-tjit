@@ -258,6 +258,9 @@
 #define LOCAL_REF(i)		SCM_FRAME_LOCAL (locals + 1, i)
 #define LOCAL_SET(i,o)		SCM_FRAME_LOCAL (locals + 1, i) = o
 
+#define SP_REF(i)		(vp->sp[i].as_scm)
+#define SP_SET(i,o)		(vp->sp[i].as_scm = o)
+
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
 #define VARIABLE_BOUNDP(v)      (!scm_is_eq (VARIABLE_REF (v), SCM_UNDEFINED))
@@ -323,57 +326,59 @@
   NEXT (2)
 
 #define BR_BINARY(x, y, exp)                    \
-  scm_t_uint16 a, b;                            \
+  scm_t_uint32 a, b;                            \
   SCM x, y;                                     \
-  UNPACK_12_12 (op, a, b);                      \
+  UNPACK_24 (op, a);                            \
+  UNPACK_24 (ip[1], b);                         \
   x = LOCAL_REF (a);                            \
   y = LOCAL_REF (b);                            \
-  if ((ip[1] & 0x1) ? !(exp) : (exp))           \
+  if ((ip[2] & 0x1) ? !(exp) : (exp))           \
     {                                           \
-      scm_t_int32 offset = ip[1];               \
+      scm_t_int32 offset = ip[2];               \
       offset >>= 8; /* Sign-extending shift. */ \
       if (offset <= 0)                          \
         VM_HANDLE_INTERRUPTS;                   \
       NEXT (offset);                            \
     }                                           \
-  NEXT (2)
+  NEXT (3)
 
 #define BR_ARITHMETIC(crel,srel)                                        \
   {                                                                     \
-    scm_t_uint16 a, b;                                                  \
+    scm_t_uint32 a, b;                                                  \
     SCM x, y;                                                           \
-    UNPACK_12_12 (op, a, b);                                            \
+    UNPACK_24 (op, a);                                                  \
+    UNPACK_24 (ip[1], b);                                               \
     x = LOCAL_REF (a);                                                  \
     y = LOCAL_REF (b);                                                  \
     if (SCM_I_INUMP (x) && SCM_I_INUMP (y))                             \
       {                                                                 \
         scm_t_signed_bits x_bits = SCM_UNPACK (x);                      \
         scm_t_signed_bits y_bits = SCM_UNPACK (y);                      \
-        if ((ip[1] & 0x1) ? !(x_bits crel y_bits) : (x_bits crel y_bits)) \
+        if ((ip[2] & 0x1) ? !(x_bits crel y_bits) : (x_bits crel y_bits)) \
           {                                                             \
-            scm_t_int32 offset = ip[1];                                 \
+            scm_t_int32 offset = ip[2];                                 \
             offset >>= 8; /* Sign-extending shift. */                   \
             if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
             NEXT (offset);                                              \
           }                                                             \
-        NEXT (2);                                                       \
+        NEXT (3);                                                       \
       }                                                                 \
     else                                                                \
       {                                                                 \
         SCM res;                                                        \
         SYNC_IP ();                                                     \
         res = srel (x, y);                                              \
-        CACHE_LOCALS ();                                                    \
-        if ((ip[1] & 0x1) ? scm_is_false (res) : scm_is_true (res))     \
+        CACHE_LOCALS ();                                                \
+        if ((ip[2] & 0x1) ? scm_is_false (res) : scm_is_true (res))     \
           {                                                             \
-            scm_t_int32 offset = ip[1];                                 \
+            scm_t_int32 offset = ip[2];                                 \
             offset >>= 8; /* Sign-extending shift. */                   \
             if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
             NEXT (offset);                                              \
           }                                                             \
-        NEXT (2);                                                       \
+        NEXT (3);                                                       \
       }                                                                 \
   }
 
@@ -515,7 +520,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Bring the VM to a halt, returning all the values from the stack.
    */
-  VM_DEFINE_OP (0, halt, "halt", OP1 (U8_X24))
+  VM_DEFINE_OP (0, halt, "halt", OP1 (X32))
     {
       /* Boot closure in r0, empty frame in r1/r2, proc in r3, values from r4.  */
 
@@ -553,7 +558,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * stack; the precise number can be had by subtracting the address of
    * PROC from the post-call SP.
    */
-  VM_DEFINE_OP (1, call, "call", OP2 (U8_U24, X8_U24))
+  VM_DEFINE_OP (1, call, "call", OP2 (X8_F24, X8_C24))
     {
       scm_t_uint32 proc, nlocals;
       union scm_vm_stack_element *old_fp;
@@ -593,7 +598,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * the current IP.  Since PROC is not dereferenced, it may be some
    * other representation of the closure.
    */
-  VM_DEFINE_OP (2, call_label, "call-label", OP3 (U8_U24, X8_U24, L32))
+  VM_DEFINE_OP (2, call_label, "call-label", OP3 (X8_F24, X8_C24, L32))
     {
       scm_t_uint32 proc, nlocals;
       scm_t_int32 label;
@@ -628,7 +633,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * arguments have already been shuffled into position.  Will reset the
    * frame to NLOCALS.
    */
-  VM_DEFINE_OP (3, tail_call, "tail-call", OP1 (U8_U24))
+  VM_DEFINE_OP (3, tail_call, "tail-call", OP1 (X8_C24))
     {
       scm_t_uint32 nlocals;
       
@@ -653,7 +658,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Tail-call a known procedure.  As call is to call-label, tail-call
    * is to tail-call-label.
    */
-  VM_DEFINE_OP (4, tail_call_label, "tail-call-label", OP2 (U8_U24, L32))
+  VM_DEFINE_OP (4, tail_call_label, "tail-call-label", OP2 (X8_C24, L32))
     {
       scm_t_uint32 nlocals;
       scm_t_int32 label;
@@ -679,7 +684,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * FROM, shuffled down to start at slot 0.  This is part of the
    * implementation of the call-with-values builtin.
    */
-  VM_DEFINE_OP (5, tail_call_shuffle, "tail-call/shuffle", OP1 (U8_U24))
+  VM_DEFINE_OP (5, tail_call_shuffle, "tail-call/shuffle", OP1 (X8_F24))
     {
       scm_t_uint32 n, from, nlocals;
 
@@ -711,7 +716,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * PROC, asserting that the call actually returned at least one
    * value.  Afterwards, resets the frame to NLOCALS locals.
    */
-  VM_DEFINE_OP (6, receive, "receive", OP2 (U8_U12_U12, X8_U24) | OP_DST)
+  VM_DEFINE_OP (6, receive, "receive", OP2 (X8_F12_F12, X8_C24) | OP_DST)
     {
       scm_t_uint16 dst, proc;
       scm_t_uint32 nlocals;
@@ -731,7 +736,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * return values equals NVALUES exactly.  After receive-values has
    * run, the values can be copied down via `mov'.
    */
-  VM_DEFINE_OP (7, receive_values, "receive-values", OP2 (U8_U24, B1_X7_U24))
+  VM_DEFINE_OP (7, receive_values, "receive-values", OP2 (X8_F24, B1_X7_C24))
     {
       scm_t_uint32 proc, nvalues;
       UNPACK_24 (op, proc);
@@ -749,7 +754,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Return a value.
    */
-  VM_DEFINE_OP (8, return, "return", OP1 (U8_U24))
+  VM_DEFINE_OP (8, return, "return", OP1 (X8_S24))
     {
       scm_t_uint32 src;
       UNPACK_24 (op, src);
@@ -764,7 +769,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * shuffled down to a contiguous array starting at slot 1.
    * We also expect the frame has already been reset.
    */
-  VM_DEFINE_OP (9, return_values, "return-values", OP1 (U8_X24))
+  VM_DEFINE_OP (9, return_values, "return-values", OP1 (X32))
     {
       union scm_vm_stack_element *old_fp;
 
@@ -798,7 +803,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * calling frame.  This instruction is part of the trampolines
    * created in gsubr.c, and is not generated by the compiler.
    */
-  VM_DEFINE_OP (10, subr_call, "subr-call", OP1 (U8_U24))
+  VM_DEFINE_OP (10, subr_call, "subr-call", OP1 (X8_C24))
     {
       scm_t_uint32 ptr_idx;
       SCM pointer, ret;
@@ -879,7 +884,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * part of the trampolines created by the FFI, and is not generated by
    * the compiler.
    */
-  VM_DEFINE_OP (11, foreign_call, "foreign-call", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (11, foreign_call, "foreign-call", OP1 (X8_C12_C12))
     {
       scm_t_uint16 cif_idx, ptr_idx;
       SCM closure, cif, pointer, ret;
@@ -913,7 +918,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * the implementation of undelimited continuations, and is not
    * generated by the compiler.
    */
-  VM_DEFINE_OP (12, continuation_call, "continuation-call", OP1 (U8_U24))
+  VM_DEFINE_OP (12, continuation_call, "continuation-call", OP1 (X8_C24))
     {
       SCM contregs;
       scm_t_uint32 contregs_idx;
@@ -943,7 +948,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * instruction is part of the implementation of partial continuations,
    * and is not generated by the compiler.
    */
-  VM_DEFINE_OP (13, compose_continuation, "compose-continuation", OP1 (U8_U24))
+  VM_DEFINE_OP (13, compose_continuation, "compose-continuation", OP1 (X8_C24))
     {
       SCM vmcont;
       scm_t_uint32 cont_idx;
@@ -966,7 +971,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * arguments.  This instruction is part of the implementation of
    * `apply', and is not generated by the compiler.
    */
-  VM_DEFINE_OP (14, tail_apply, "tail-apply", OP1 (U8_X24))
+  VM_DEFINE_OP (14, tail_apply, "tail-apply", OP1 (X32))
     {
       int i, list_idx, list_len, nlocals;
       SCM list;
@@ -1012,7 +1017,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * local slot 1 to it.  This instruction is part of the implementation
    * of `call/cc', and is not generated by the compiler.
    */
-  VM_DEFINE_OP (15, call_cc, "call/cc", OP1 (U8_X24))
+  VM_DEFINE_OP (15, call_cc, "call/cc", OP1 (X32))
     {
       SCM vm_cont, cont;
       scm_t_dynstack *dynstack;
@@ -1064,7 +1069,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * of the values in the frame are returned to the prompt handler.
    * This corresponds to a tail application of abort-to-prompt.
    */
-  VM_DEFINE_OP (16, abort, "abort", OP1 (U8_X24))
+  VM_DEFINE_OP (16, abort, "abort", OP1 (X32))
     {
       scm_t_uint32 nlocals = FRAME_LOCALS_COUNT ();
 
@@ -1084,7 +1089,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Load a builtin stub by index into DST.
    */
-  VM_DEFINE_OP (17, builtin_ref, "builtin-ref", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (17, builtin_ref, "builtin-ref", OP1 (X8_S12_C12) | OP_DST)
     {
       scm_t_uint16 dst, idx;
 
@@ -1109,15 +1114,15 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * than EXPECTED, respectively, add OFFSET, a signed 24-bit number, to
    * the current instruction pointer.
    */
-  VM_DEFINE_OP (18, br_if_nargs_ne, "br-if-nargs-ne", OP2 (U8_U24, X8_L24))
+  VM_DEFINE_OP (18, br_if_nargs_ne, "br-if-nargs-ne", OP2 (X8_C24, X8_L24))
     {
       BR_NARGS (!=);
     }
-  VM_DEFINE_OP (19, br_if_nargs_lt, "br-if-nargs-lt", OP2 (U8_U24, X8_L24))
+  VM_DEFINE_OP (19, br_if_nargs_lt, "br-if-nargs-lt", OP2 (X8_C24, X8_L24))
     {
       BR_NARGS (<);
     }
-  VM_DEFINE_OP (20, br_if_nargs_gt, "br-if-nargs-gt", OP2 (U8_U24, X8_L24))
+  VM_DEFINE_OP (20, br_if_nargs_gt, "br-if-nargs-gt", OP2 (X8_C24, X8_L24))
     {
       BR_NARGS (>);
     }
@@ -1129,7 +1134,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the number of actual arguments is not ==, >=, or <= EXPECTED,
    * respectively, signal an error.
    */
-  VM_DEFINE_OP (21, assert_nargs_ee, "assert-nargs-ee", OP1 (U8_U24))
+  VM_DEFINE_OP (21, assert_nargs_ee, "assert-nargs-ee", OP1 (X8_C24))
     {
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
@@ -1137,7 +1142,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
                  vm_error_wrong_num_args (LOCAL_REF (0)));
       NEXT (1);
     }
-  VM_DEFINE_OP (22, assert_nargs_ge, "assert-nargs-ge", OP1 (U8_U24))
+  VM_DEFINE_OP (22, assert_nargs_ge, "assert-nargs-ge", OP1 (X8_C24))
     {
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
@@ -1145,7 +1150,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
                  vm_error_wrong_num_args (LOCAL_REF (0)));
       NEXT (1);
     }
-  VM_DEFINE_OP (23, assert_nargs_le, "assert-nargs-le", OP1 (U8_U24))
+  VM_DEFINE_OP (23, assert_nargs_le, "assert-nargs-le", OP1 (X8_C24))
     {
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
@@ -1160,7 +1165,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * setting them all to SCM_UNDEFINED, except those nargs values that
    * were passed as arguments and procedure.
    */
-  VM_DEFINE_OP (24, alloc_frame, "alloc-frame", OP1 (U8_U24))
+  VM_DEFINE_OP (24, alloc_frame, "alloc-frame", OP1 (X8_C24))
     {
       scm_t_uint32 nlocals, nargs;
       UNPACK_24 (op, nlocals);
@@ -1179,11 +1184,56 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Used to reset the frame size to something less than the size that
    * was previously set via alloc-frame.
    */
-  VM_DEFINE_OP (25, reset_frame, "reset-frame", OP1 (U8_U24))
+  VM_DEFINE_OP (25, reset_frame, "reset-frame", OP1 (X8_C24))
     {
       scm_t_uint32 nlocals;
       UNPACK_24 (op, nlocals);
       RESET_FRAME (nlocals);
+      NEXT (1);
+    }
+
+  /* push src:24
+   *
+   * Push SRC onto the stack.
+   */
+  VM_DEFINE_OP (26, push, "push", OP1 (X8_S24))
+    {
+      scm_t_uint32 src;
+      SCM val;
+
+      UNPACK_24 (op, src);
+      val = SP_REF (src);
+      ALLOC_FRAME (FRAME_LOCALS_COUNT () + 1);
+      SP_SET (0, val);
+      NEXT (1);
+    }
+
+  /* pop dst:24
+   *
+   * Pop the stack, storing to DST.
+   */
+  VM_DEFINE_OP (27, pop, "pop", OP1 (X8_S24) | OP_DST)
+    {
+      scm_t_uint32 dst;
+      SCM val;
+
+      UNPACK_24 (op, dst);
+      val = SP_REF (0);
+      vp->sp++;
+      SP_SET (dst, val);
+      NEXT (1);
+    }
+
+  /* drop count:24
+   *
+   * Drop some number of values from the stack.
+   */
+  VM_DEFINE_OP (28, drop, "drop", OP1 (X8_C24))
+    {
+      scm_t_uint32 count;
+
+      UNPACK_24 (op, count);
+      vp->sp += count;
       NEXT (1);
     }
 
@@ -1192,7 +1242,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Equivalent to a sequence of assert-nargs-ee and reserve-locals.  The
    * number of locals reserved is EXPECTED + NLOCALS.
    */
-  VM_DEFINE_OP (26, assert_nargs_ee_locals, "assert-nargs-ee/locals", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (29, assert_nargs_ee_locals, "assert-nargs-ee/locals", OP1 (X8_C12_C12))
     {
       scm_t_uint16 expected, nlocals;
       UNPACK_12_12 (op, expected, nlocals);
@@ -1215,7 +1265,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * See "Case-lambda" in the manual, for more on how case-lambda
    * chooses the clause to apply.
    */
-  VM_DEFINE_OP (27, br_if_npos_gt, "br-if-npos-gt", OP3 (U8_U24, X8_U24, X8_L24))
+  VM_DEFINE_OP (30, br_if_npos_gt, "br-if-npos-gt", OP3 (X8_C24, X8_C24, X8_L24))
     {
       scm_t_uint32 nreq, npos;
 
@@ -1253,7 +1303,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * A macro-mega-instruction.
    */
-  VM_DEFINE_OP (28, bind_kwargs, "bind-kwargs", OP4 (U8_U24, U8_U24, X8_U24, N32))
+  VM_DEFINE_OP (31, bind_kwargs, "bind-kwargs", OP4 (X8_C24, C8_C24, X8_C24, N32))
     {
       scm_t_uint32 nreq, nreq_and_opt, ntotal, npositional, nkw, n, nargs;
       scm_t_int32 kw_offset;
@@ -1339,7 +1389,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Collect any arguments at or above DST into a list, and store that
    * list at DST.
    */
-  VM_DEFINE_OP (29, bind_rest, "bind-rest", OP1 (U8_U24) | OP_DST)
+  VM_DEFINE_OP (32, bind_rest, "bind-rest", OP1 (X8_F24) | OP_DST)
     {
       scm_t_uint32 dst, nargs;
       SCM rest = SCM_EOL;
@@ -1381,7 +1431,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Add OFFSET, a signed 24-bit number, to the current instruction
    * pointer.
    */
-  VM_DEFINE_OP (30, br, "br", OP1 (U8_L24))
+  VM_DEFINE_OP (33, br, "br", OP1 (X8_L24))
     {
       scm_t_int32 offset = op;
       offset >>= 8; /* Sign-extending shift. */
@@ -1395,7 +1445,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in TEST is true for the purposes of Scheme, add
    * OFFSET, a signed 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (31, br_if_true, "br-if-true", OP2 (U8_U24, B1_X7_L24))
+  VM_DEFINE_OP (34, br_if_true, "br-if-true", OP2 (X8_S24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_true (x));
     }
@@ -1405,7 +1455,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in TEST is the end-of-list or Lisp nil, add OFFSET, a
    * signed 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (32, br_if_null, "br-if-null", OP2 (U8_U24, B1_X7_L24))
+  VM_DEFINE_OP (35, br_if_null, "br-if-null", OP2 (X8_S24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_null (x));
     }
@@ -1415,7 +1465,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in TEST is false to Lisp, add OFFSET, a signed 24-bit
    * number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (33, br_if_nil, "br-if-nil", OP2 (U8_U24, B1_X7_L24))
+  VM_DEFINE_OP (36, br_if_nil, "br-if-nil", OP2 (X8_S24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_lisp_false (x));
     }
@@ -1425,7 +1475,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in TEST is a pair, add OFFSET, a signed 24-bit number,
    * to the current instruction pointer.
    */
-  VM_DEFINE_OP (34, br_if_pair, "br-if-pair", OP2 (U8_U24, B1_X7_L24))
+  VM_DEFINE_OP (37, br_if_pair, "br-if-pair", OP2 (X8_S24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_pair (x));
     }
@@ -1435,7 +1485,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in TEST is a struct, add OFFSET, a signed 24-bit
    * number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (35, br_if_struct, "br-if-struct", OP2 (U8_U24, B1_X7_L24))
+  VM_DEFINE_OP (38, br_if_struct, "br-if-struct", OP2 (X8_S24, B1_X7_L24))
     {
       BR_UNARY (x, SCM_STRUCTP (x));
     }
@@ -1445,7 +1495,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in TEST is a char, add OFFSET, a signed 24-bit number,
    * to the current instruction pointer.
    */
-  VM_DEFINE_OP (36, br_if_char, "br-if-char", OP2 (U8_U24, B1_X7_L24))
+  VM_DEFINE_OP (39, br_if_char, "br-if-char", OP2 (X8_S24, B1_X7_L24))
     {
       BR_UNARY (x, SCM_CHARP (x));
     }
@@ -1455,7 +1505,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in TEST has the TC7 given in the second word, add
    * OFFSET, a signed 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (37, br_if_tc7, "br-if-tc7", OP2 (U8_U24, B1_U7_L24))
+  VM_DEFINE_OP (40, br_if_tc7, "br-if-tc7", OP2 (X8_S24, B1_C7_L24))
     {
       BR_UNARY (x, SCM_HAS_TYP7 (x, (ip[1] >> 1) & 0x7f));
     }
@@ -1465,7 +1515,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in A is eq? to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (38, br_if_eq, "br-if-eq", OP2 (U8_U12_U12, B1_X7_L24))
+  VM_DEFINE_OP (41, br_if_eq, "br-if-eq", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
       BR_BINARY (x, y, scm_is_eq (x, y));
     }
@@ -1475,7 +1525,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in A is eqv? to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (39, br_if_eqv, "br-if-eqv", OP2 (U8_U12_U12, B1_X7_L24))
+  VM_DEFINE_OP (42, br_if_eqv, "br-if-eqv", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
       BR_BINARY (x, y,
                  scm_is_eq (x, y)
@@ -1491,7 +1541,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   // FIXME: Should sync_ip before calling out and cache_locals before coming
   // back!  Another reason to remove this opcode!
-  VM_DEFINE_OP (40, br_if_equal, "br-if-equal", OP2 (U8_U12_U12, B1_X7_L24))
+  VM_DEFINE_OP (43, br_if_equal, "br-if-equal", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
       BR_BINARY (x, y,
                  scm_is_eq (x, y)
@@ -1499,12 +1549,26 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
                      && scm_is_true (scm_equal_p (x, y))));
     }
 
+  /* br-if-logtest a:24 _:8 b:24 invert:1 _:7 offset:24
+   *
+   * If the exact integer in A has any bits in common with the exact
+   * integer in B, add OFFSET, a signed 24-bit number, to the current
+   * instruction pointer.
+   */
+  VM_DEFINE_OP (44, br_if_logtest, "br-if-logtest", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_BINARY (x, y,
+                 ((SCM_I_INUMP (x) && SCM_I_INUMP (y))
+                  ? (SCM_UNPACK (x) & SCM_UNPACK (y) & ~scm_tc2_int)
+                  : scm_is_true (scm_logtest (x, y))));
+    }
+
   /* br-if-= a:12 b:12 invert:1 _:7 offset:24
    *
    * If the value in A is = to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (41, br_if_ee, "br-if-=", OP2 (U8_U12_U12, B1_X7_L24))
+  VM_DEFINE_OP (45, br_if_ee, "br-if-=", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
       BR_ARITHMETIC (==, scm_num_eq_p);
     }
@@ -1514,7 +1578,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in A is < to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (42, br_if_lt, "br-if-<", OP2 (U8_U12_U12, B1_X7_L24))
+  VM_DEFINE_OP (46, br_if_lt, "br-if-<", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
       BR_ARITHMETIC (<, scm_less_p);
     }
@@ -1524,7 +1588,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in A is <= to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (43, br_if_le, "br-if-<=", OP2 (U8_U12_U12, B1_X7_L24))
+  VM_DEFINE_OP (47, br_if_le, "br-if-<=", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
       BR_ARITHMETIC (<=, scm_leq_p);
     }
@@ -1540,7 +1604,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Copy a value from one local slot to another.
    */
-  VM_DEFINE_OP (44, mov, "mov", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (48, mov, "mov", OP1 (X8_S12_S12) | OP_DST)
     {
       scm_t_uint16 dst;
       scm_t_uint16 src;
@@ -1555,7 +1619,24 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Copy a value from one local slot to another.
    */
-  VM_DEFINE_OP (45, long_mov, "long-mov", OP2 (U8_U24, X8_U24) | OP_DST)
+  VM_DEFINE_OP (49, long_mov, "long-mov", OP2 (X8_S24, X8_S24) | OP_DST)
+    {
+      scm_t_uint32 dst;
+      scm_t_uint32 src;
+
+      UNPACK_24 (op, dst);
+      UNPACK_24 (ip[1], src);
+      LOCAL_SET (dst, LOCAL_REF (src));
+
+      NEXT (2);
+    }
+
+  /* long-fmov dst:24 _:8 src:24
+   *
+   * Copy a value from one local slot to another.  Slot indexes are
+   * relative to the FP.
+   */
+  VM_DEFINE_OP (50, long_fmov, "long-fmov", OP2 (X8_F24, X8_F24) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_uint32 src;
@@ -1571,7 +1652,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Create a new variable holding SRC, and place it in DST.
    */
-  VM_DEFINE_OP (46, box, "box", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (51, box, "box", OP1 (X8_S12_S12) | OP_DST)
     {
       scm_t_uint16 dst, src;
       UNPACK_12_12 (op, dst, src);
@@ -1585,7 +1666,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Unpack the variable at SRC into DST, asserting that the variable is
    * actually bound.
    */
-  VM_DEFINE_OP (47, box_ref, "box-ref", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (52, box_ref, "box-ref", OP1 (X8_S12_S12) | OP_DST)
     {
       scm_t_uint16 dst, src;
       SCM var;
@@ -1602,7 +1683,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Set the contents of the variable at DST to SET.
    */
-  VM_DEFINE_OP (48, box_set, "box-set!", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (53, box_set, "box-set!", OP1 (X8_S12_S12))
     {
       scm_t_uint16 dst, src;
       SCM var;
@@ -1621,7 +1702,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * signed 32-bit integer.  Space for NFREE free variables will be
    * allocated.
    */
-  VM_DEFINE_OP (49, make_closure, "make-closure", OP3 (U8_U24, L32, X8_U24) | OP_DST)
+  VM_DEFINE_OP (54, make_closure, "make-closure", OP3 (X8_S24, L32, X8_C24) | OP_DST)
     {
       scm_t_uint32 dst, nfree, n;
       scm_t_int32 offset;
@@ -1646,7 +1727,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Load free variable IDX from the closure SRC into local slot DST.
    */
-  VM_DEFINE_OP (50, free_ref, "free-ref", OP2 (U8_U12_U12, X8_U24) | OP_DST)
+  VM_DEFINE_OP (55, free_ref, "free-ref", OP2 (X8_S12_S12, X8_C24) | OP_DST)
     {
       scm_t_uint16 dst, src;
       scm_t_uint32 idx;
@@ -1661,7 +1742,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Set free variable IDX from the closure DST to SRC.
    */
-  VM_DEFINE_OP (51, free_set, "free-set!", OP2 (U8_U12_U12, X8_U24))
+  VM_DEFINE_OP (56, free_set, "free-set!", OP2 (X8_S12_S12, X8_C24))
     {
       scm_t_uint16 dst, src;
       scm_t_uint32 idx;
@@ -1684,7 +1765,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Make an immediate whose low bits are LOW-BITS, and whose top bits are
    * 0.
    */
-  VM_DEFINE_OP (52, make_short_immediate, "make-short-immediate", OP1 (U8_U8_I16) | OP_DST)
+  VM_DEFINE_OP (57, make_short_immediate, "make-short-immediate", OP1 (X8_S8_I16) | OP_DST)
     {
       scm_t_uint8 dst;
       scm_t_bits val;
@@ -1699,7 +1780,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Make an immediate whose low bits are LOW-BITS, and whose top bits are
    * 0.
    */
-  VM_DEFINE_OP (53, make_long_immediate, "make-long-immediate", OP2 (U8_U24, I32) | OP_DST)
+  VM_DEFINE_OP (58, make_long_immediate, "make-long-immediate", OP2 (X8_S24, I32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_bits val;
@@ -1714,7 +1795,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Make an immediate with HIGH-BITS and LOW-BITS.
    */
-  VM_DEFINE_OP (54, make_long_long_immediate, "make-long-long-immediate", OP3 (U8_U24, A32, B32) | OP_DST)
+  VM_DEFINE_OP (59, make_long_long_immediate, "make-long-long-immediate", OP3 (X8_S24, A32, B32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_bits val;
@@ -1745,7 +1826,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Whether the object is mutable or immutable depends on where it was
    * allocated by the compiler, and loaded by the loader.
    */
-  VM_DEFINE_OP (55, make_non_immediate, "make-non-immediate", OP2 (U8_U24, N32) | OP_DST)
+  VM_DEFINE_OP (60, make_non_immediate, "make-non-immediate", OP2 (X8_S24, N32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_int32 offset;
@@ -1774,7 +1855,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * that the compiler is unable to statically allocate, like symbols.
    * These values would be initialized when the object file loads.
    */
-  VM_DEFINE_OP (56, static_ref, "static-ref", OP2 (U8_U24, S32) | OP_DST)
+  VM_DEFINE_OP (61, static_ref, "static-ref", OP2 (X8_S24, R32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_int32 offset;
@@ -1797,7 +1878,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Store a SCM value into memory, OFFSET 32-bit words away from the
    * current instruction pointer.  OFFSET is a signed value.
    */
-  VM_DEFINE_OP (57, static_set, "static-set!", OP2 (U8_U24, LO32))
+  VM_DEFINE_OP (62, static_set, "static-set!", OP2 (X8_S24, LO32))
     {
       scm_t_uint32 src;
       scm_t_int32 offset;
@@ -1819,7 +1900,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * are signed 32-bit values, indicating a memory address as a number
    * of 32-bit words away from the current instruction pointer.
    */
-  VM_DEFINE_OP (58, static_patch, "static-patch!", OP3 (U8_X24, LO32, L32))
+  VM_DEFINE_OP (63, static_patch, "static-patch!", OP3 (X32, LO32, L32))
     {
       scm_t_int32 dst_offset, src_offset;
       void *src;
@@ -1877,7 +1958,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Store the current module in DST.
    */
-  VM_DEFINE_OP (59, current_module, "current-module", OP1 (U8_U24) | OP_DST)
+  VM_DEFINE_OP (64, current_module, "current-module", OP1 (X8_S24) | OP_DST)
     {
       scm_t_uint32 dst;
 
@@ -1894,7 +1975,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Resolve SYM in the current module, and place the resulting variable
    * in DST.
    */
-  VM_DEFINE_OP (60, resolve, "resolve", OP2 (U8_U24, B1_X7_U24) | OP_DST)
+  VM_DEFINE_OP (65, resolve, "resolve", OP2 (X8_S24, B1_X7_S24) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_uint32 sym;
@@ -1918,7 +1999,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Look up a binding for SYM in the current module, creating it if
    * necessary.  Set its value to VAL.
    */
-  VM_DEFINE_OP (61, define, "define!", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (66, define, "define!", OP1 (X8_S12_S12))
     {
       scm_t_uint16 sym, val;
       UNPACK_12_12 (op, sym, val);
@@ -1947,7 +2028,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * DST, and caching the resolved variable so that we will hit the cache next
    * time.
    */
-  VM_DEFINE_OP (62, toplevel_box, "toplevel-box", OP5 (U8_U24, S32, S32, N32, B1_X31) | OP_DST)
+  VM_DEFINE_OP (67, toplevel_box, "toplevel-box", OP5 (X8_S24, R32, R32, N32, B1_X31) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_int32 var_offset;
@@ -2000,7 +2081,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Like toplevel-box, except MOD-OFFSET points at the name of a module
    * instead of the module itself.
    */
-  VM_DEFINE_OP (63, module_box, "module-box", OP5 (U8_U24, S32, N32, N32, B1_X31) | OP_DST)
+  VM_DEFINE_OP (68, module_box, "module-box", OP5 (X8_S24, R32, N32, N32, B1_X31) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_int32 var_offset;
@@ -2070,7 +2151,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * will expect a multiple-value return as if from a call with the
    * procedure at PROC-SLOT.
    */
-  VM_DEFINE_OP (64, prompt, "prompt", OP3 (U8_U24, B1_X7_U24, X8_L24))
+  VM_DEFINE_OP (69, prompt, "prompt", OP3 (X8_S24, B1_X7_F24, X8_L24))
     {
       scm_t_uint32 tag, proc_slot;
       scm_t_int32 offset;
@@ -2102,7 +2183,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * the compiler should have inserted checks that they wind and unwind
    * procs are thunks, if it could not prove that to be the case.
    */
-  VM_DEFINE_OP (65, wind, "wind", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (70, wind, "wind", OP1 (X8_S12_S12))
     {
       scm_t_uint16 winder, unwinder;
       UNPACK_12_12 (op, winder, unwinder);
@@ -2116,7 +2197,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * A normal exit from the dynamic extent of an expression. Pop the top
    * entry off of the dynamic stack.
    */
-  VM_DEFINE_OP (66, unwind, "unwind", OP1 (U8_X24))
+  VM_DEFINE_OP (71, unwind, "unwind", OP1 (X32))
     {
       scm_dynstack_pop (&thread->dynstack);
       NEXT (1);
@@ -2126,7 +2207,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Dynamically bind VALUE to FLUID.
    */
-  VM_DEFINE_OP (67, push_fluid, "push-fluid", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (72, push_fluid, "push-fluid", OP1 (X8_S12_S12))
     {
       scm_t_uint32 fluid, value;
 
@@ -2143,7 +2224,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Leave the dynamic extent of a with-fluid* expression, restoring the
    * fluid to its previous value.
    */
-  VM_DEFINE_OP (68, pop_fluid, "pop-fluid", OP1 (U8_X24))
+  VM_DEFINE_OP (73, pop_fluid, "pop-fluid", OP1 (X32))
     {
       /* This function must not allocate.  */
       scm_dynstack_unwind_fluid (&thread->dynstack,
@@ -2155,7 +2236,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Reference the fluid in SRC, and place the value in DST.
    */
-  VM_DEFINE_OP (69, fluid_ref, "fluid-ref", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (74, fluid_ref, "fluid-ref", OP1 (X8_S12_S12) | OP_DST)
     {
       scm_t_uint16 dst, src;
       size_t num;
@@ -2188,7 +2269,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Set the value of the fluid in DST to the value in SRC.
    */
-  VM_DEFINE_OP (70, fluid_set, "fluid-set", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (75, fluid_set, "fluid-set", OP1 (X8_S12_S12))
     {
       scm_t_uint16 a, b;
       size_t num;
@@ -2221,7 +2302,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Store the length of the string in SRC in DST.
    */
-  VM_DEFINE_OP (71, string_length, "string-length", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (76, string_length, "string-length", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (str);
       if (SCM_LIKELY (scm_is_string (str)))
@@ -2238,7 +2319,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Fetch the character at position IDX in the string in SRC, and store
    * it in DST.
    */
-  VM_DEFINE_OP (72, string_ref, "string-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (77, string_ref, "string-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       scm_t_signed_bits i = 0;
       ARGS2 (str, idx);
@@ -2260,7 +2341,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Parse a string in SRC to a number, and store in DST.
    */
-  VM_DEFINE_OP (73, string_to_number, "string->number", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (78, string_to_number, "string->number", OP1 (X8_S12_S12) | OP_DST)
     {
       scm_t_uint16 dst, src;
 
@@ -2276,7 +2357,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Parse a string in SRC to a symbol, and store in DST.
    */
-  VM_DEFINE_OP (74, string_to_symbol, "string->symbol", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (79, string_to_symbol, "string->symbol", OP1 (X8_S12_S12) | OP_DST)
     {
       scm_t_uint16 dst, src;
 
@@ -2290,7 +2371,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Make a keyword from the symbol in SRC, and store it in DST.
    */
-  VM_DEFINE_OP (75, symbol_to_keyword, "symbol->keyword", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (80, symbol_to_keyword, "symbol->keyword", OP1 (X8_S12_S12) | OP_DST)
     {
       scm_t_uint16 dst, src;
       UNPACK_12_12 (op, dst, src);
@@ -2309,7 +2390,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Cons CAR and CDR, and store the result in DST.
    */
-  VM_DEFINE_OP (76, cons, "cons", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (81, cons, "cons", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       RETURN (scm_inline_cons (thread, x, y));
@@ -2319,7 +2400,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Place the car of SRC in DST.
    */
-  VM_DEFINE_OP (77, car, "car", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (82, car, "car", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (x);
       VM_VALIDATE_PAIR (x, "car");
@@ -2330,7 +2411,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Place the cdr of SRC in DST.
    */
-  VM_DEFINE_OP (78, cdr, "cdr", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (83, cdr, "cdr", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (x);
       VM_VALIDATE_PAIR (x, "cdr");
@@ -2341,7 +2422,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Set the car of DST to SRC.
    */
-  VM_DEFINE_OP (79, set_car, "set-car!", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (84, set_car, "set-car!", OP1 (X8_S12_S12))
     {
       scm_t_uint16 a, b;
       SCM x, y;
@@ -2357,7 +2438,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Set the cdr of DST to SRC.
    */
-  VM_DEFINE_OP (80, set_cdr, "set-cdr!", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (85, set_cdr, "set-cdr!", OP1 (X8_S12_S12))
     {
       scm_t_uint16 a, b;
       SCM x, y;
@@ -2380,7 +2461,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Add A to B, and place the result in DST.
    */
-  VM_DEFINE_OP (81, add, "add", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (86, add, "add", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       BINARY_INTEGER_OP (+, scm_sum);
     }
@@ -2389,7 +2470,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Add 1 to the value in SRC, and place the result in DST.
    */
-  VM_DEFINE_OP (82, add1, "add1", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (87, add1, "add1", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (x);
 
@@ -2413,7 +2494,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Subtract B from A, and place the result in DST.
    */
-  VM_DEFINE_OP (83, sub, "sub", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (88, sub, "sub", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       BINARY_INTEGER_OP (-, scm_difference);
     }
@@ -2422,7 +2503,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Subtract 1 from SRC, and place the result in DST.
    */
-  VM_DEFINE_OP (84, sub1, "sub1", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (89, sub1, "sub1", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (x);
 
@@ -2446,7 +2527,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Multiply A and B, and place the result in DST.
    */
-  VM_DEFINE_OP (85, mul, "mul", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (90, mul, "mul", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       RETURN_EXP (scm_product (x, y));
@@ -2456,7 +2537,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Divide A by B, and place the result in DST.
    */
-  VM_DEFINE_OP (86, div, "div", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (91, div, "div", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       RETURN_EXP (scm_divide (x, y));
@@ -2466,7 +2547,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Divide A by B, and place the quotient in DST.
    */
-  VM_DEFINE_OP (87, quo, "quo", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (92, quo, "quo", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       RETURN_EXP (scm_quotient (x, y));
@@ -2476,7 +2557,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Divide A by B, and place the remainder in DST.
    */
-  VM_DEFINE_OP (88, rem, "rem", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (93, rem, "rem", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       RETURN_EXP (scm_remainder (x, y));
@@ -2486,7 +2567,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Place the modulo of A by B in DST.
    */
-  VM_DEFINE_OP (89, mod, "mod", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (94, mod, "mod", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       RETURN_EXP (scm_modulo (x, y));
@@ -2496,7 +2577,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Shift A arithmetically by B bits, and place the result in DST.
    */
-  VM_DEFINE_OP (90, ash, "ash", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (95, ash, "ash", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2533,7 +2614,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Place the bitwise AND of A and B into DST.
    */
-  VM_DEFINE_OP (91, logand, "logand", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (96, logand, "logand", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2546,7 +2627,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Place the bitwise inclusive OR of A with B in DST.
    */
-  VM_DEFINE_OP (92, logior, "logior", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (97, logior, "logior", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2559,7 +2640,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Place the bitwise exclusive OR of A with B in DST.
    */
-  VM_DEFINE_OP (93, logxor, "logxor", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (98, logxor, "logxor", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2572,7 +2653,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Make a vector and write it to DST.  The vector will have space for
    * LENGTH slots.  They will be filled with the value in slot INIT.
    */
-  VM_DEFINE_OP (94, make_vector, "make-vector", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (99, make_vector, "make-vector", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       scm_t_uint8 dst, init, length;
 
@@ -2589,7 +2670,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * will have space for LENGTH slots, an immediate value.  They will be
    * filled with the value in slot INIT.
    */
-  VM_DEFINE_OP (95, make_vector_immediate, "make-vector/immediate", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (100, make_vector_immediate, "make-vector/immediate", OP1 (X8_S8_C8_S8) | OP_DST)
     {
       scm_t_uint8 dst, init;
       scm_t_int32 length, n;
@@ -2610,7 +2691,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Store the length of the vector in SRC in DST.
    */
-  VM_DEFINE_OP (96, vector_length, "vector-length", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (101, vector_length, "vector-length", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (vect);
       VM_ASSERT (SCM_I_IS_VECTOR (vect),
@@ -2623,7 +2704,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Fetch the item at position IDX in the vector in SRC, and store it
    * in DST.
    */
-  VM_DEFINE_OP (97, vector_ref, "vector-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (102, vector_ref, "vector-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       scm_t_signed_bits i = 0;
       ARGS2 (vect, idx);
@@ -2641,7 +2722,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Fill DST with the item IDX elements into the vector at SRC.  Useful
    * for building data types using vectors.
    */
-  VM_DEFINE_OP (98, vector_ref_immediate, "vector-ref/immediate", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (103, vector_ref_immediate, "vector-ref/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
     {
       scm_t_uint8 dst, src, idx;
       SCM v;
@@ -2660,7 +2741,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Store SRC into the vector DST at index IDX.
    */
-  VM_DEFINE_OP (99, vector_set, "vector-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (104, vector_set, "vector-set!", OP1 (X8_S8_S8_S8))
     {
       scm_t_uint8 dst, idx_var, src;
       SCM vect, idx, val;
@@ -2686,7 +2767,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Store SRC into the vector DST at index IDX.  Here IDX is an
    * immediate value.
    */
-  VM_DEFINE_OP (100, vector_set_immediate, "vector-set!/immediate", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (105, vector_set_immediate, "vector-set!/immediate", OP1 (X8_S8_C8_S8))
     {
       scm_t_uint8 dst, idx, src;
       SCM vect, val;
@@ -2714,11 +2795,96 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Store the vtable of SRC into DST.
    */
-  VM_DEFINE_OP (101, struct_vtable, "struct-vtable", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (106, struct_vtable, "struct-vtable", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (obj);
       VM_VALIDATE_STRUCT (obj, "struct_vtable");
       RETURN (SCM_STRUCT_VTABLE (obj));
+    }
+
+  /* allocate-struct dst:8 vtable:8 nfields:8
+   *
+   * Allocate a new struct with VTABLE, and place it in DST.  The struct
+   * will be constructed with space for NFIELDS fields, which should
+   * correspond to the field count of the VTABLE.
+   */
+  VM_DEFINE_OP (107, allocate_struct, "allocate-struct", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, vtable, nfields;
+      SCM ret;
+
+      UNPACK_8_8_8 (op, dst, vtable, nfields);
+
+      SYNC_IP ();
+      ret = scm_allocate_struct (LOCAL_REF (vtable), LOCAL_REF (nfields));
+      LOCAL_SET (dst, ret);
+
+      NEXT (1);
+    }
+
+  /* struct-ref dst:8 src:8 idx:8
+   *
+   * Fetch the item at slot IDX in the struct in SRC, and store it
+   * in DST.
+   */
+  VM_DEFINE_OP (108, struct_ref, "struct-ref", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, src, idx;
+      SCM obj;
+      SCM index;
+
+      UNPACK_8_8_8 (op, dst, src, idx);
+
+      obj = LOCAL_REF (src);
+      index = LOCAL_REF (idx);
+
+      if (SCM_LIKELY (SCM_STRUCTP (obj)
+                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
+                                                        SCM_VTABLE_FLAG_SIMPLE)
+                      && SCM_I_INUMP (index)
+                      && SCM_I_INUM (index) >= 0
+                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
+                                               (SCM_STRUCT_VTABLE (obj),
+                                                scm_vtable_index_size))))
+        RETURN (SCM_STRUCT_SLOT_REF (obj, SCM_I_INUM (index)));
+
+      SYNC_IP ();
+      RETURN (scm_struct_ref (obj, index));
+    }
+
+  /* struct-set! dst:8 idx:8 src:8
+   *
+   * Store SRC into the struct DST at slot IDX.
+   */
+  VM_DEFINE_OP (109, struct_set, "struct-set!", OP1 (X8_S8_S8_S8))
+    {
+      scm_t_uint8 dst, idx, src;
+      SCM obj, val, index;
+
+      UNPACK_8_8_8 (op, dst, idx, src);
+
+      obj = LOCAL_REF (dst);
+      val = LOCAL_REF (src);
+      index = LOCAL_REF (idx);
+
+      if (SCM_LIKELY (SCM_STRUCTP (obj)
+                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
+                                                        SCM_VTABLE_FLAG_SIMPLE)
+                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
+                                                        SCM_VTABLE_FLAG_SIMPLE_RW)
+                      && SCM_I_INUMP (index)
+                      && SCM_I_INUM (index) >= 0
+                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
+                                               (SCM_STRUCT_VTABLE (obj),
+                                                scm_vtable_index_size))))
+        {
+          SCM_STRUCT_SLOT_SET (obj, SCM_I_INUM (index), val);
+          NEXT (1);
+        }
+
+      SYNC_IP ();
+      scm_struct_set_x (obj, index, val);
+      NEXT (1);
     }
 
   /* allocate-struct/immediate dst:8 vtable:8 nfields:8
@@ -2727,7 +2893,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * will be constructed with space for NFIELDS fields, which should
    * correspond to the field count of the VTABLE.
    */
-  VM_DEFINE_OP (102, allocate_struct_immediate, "allocate-struct/immediate", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (110, allocate_struct_immediate, "allocate-struct/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
     {
       scm_t_uint8 dst, vtable, nfields;
       SCM ret;
@@ -2746,7 +2912,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Fetch the item at slot IDX in the struct in SRC, and store it
    * in DST.  IDX is an immediate unsigned 8-bit value.
    */
-  VM_DEFINE_OP (103, struct_ref_immediate, "struct-ref/immediate", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (111, struct_ref_immediate, "struct-ref/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
     {
       scm_t_uint8 dst, src, idx;
       SCM obj;
@@ -2771,7 +2937,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Store SRC into the struct DST at slot IDX.  IDX is an immediate
    * unsigned 8-bit value.
    */
-  VM_DEFINE_OP (104, struct_set_immediate, "struct-set!/immediate", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (112, struct_set_immediate, "struct-set!/immediate", OP1 (X8_S8_C8_S8))
     {
       scm_t_uint8 dst, idx, src;
       SCM obj, val;
@@ -2802,7 +2968,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    *
    * Store the vtable of SRC into DST.
    */
-  VM_DEFINE_OP (105, class_of, "class-of", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (113, class_of, "class-of", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (obj);
       if (SCM_INSTANCEP (obj))
@@ -2817,41 +2983,45 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Arrays, packed uniform arrays, and bytevectors.
    */
 
-  /* load-typed-array dst:8 type:8 shape:8 offset:32 len:32
+  /* load-typed-array dst:24 _:8 type:24 _:8 shape:24 offset:32 len:32
    *
    * Load the contiguous typed array located at OFFSET 32-bit words away
    * from the instruction pointer, and store into DST.  LEN is a byte
    * length.  OFFSET is signed.
    */
-  VM_DEFINE_OP (106, load_typed_array, "load-typed-array", OP3 (U8_U8_U8_U8, N32, U32) | OP_DST)
+  VM_DEFINE_OP (114, load_typed_array, "load-typed-array", OP5 (X8_S24, X8_S24, X8_S24, N32, C32) | OP_DST)
     {
-      scm_t_uint8 dst, type, shape;
+      scm_t_uint32 dst, type, shape;
       scm_t_int32 offset;
       scm_t_uint32 len;
 
-      UNPACK_8_8_8 (op, dst, type, shape);
-      offset = ip[1];
-      len = ip[2];
+      UNPACK_24 (op, dst);
+      UNPACK_24 (ip[1], type);
+      UNPACK_24 (ip[2], shape);
+      offset = ip[3];
+      len = ip[4];
       SYNC_IP ();
       LOCAL_SET (dst, scm_from_contiguous_typed_array (LOCAL_REF (type),
                                                        LOCAL_REF (shape),
                                                        ip + offset, len));
-      NEXT (3);
+      NEXT (5);
     }
 
-  /* make-array dst:8 type:8 fill:8 _:8 bounds:24
+  /* make-array dst:24 _:8 type:24 _:8 fill:24 _:8 bounds:24
    *
    * Make a new array with TYPE, FILL, and BOUNDS, storing it in DST.
    */
-  VM_DEFINE_OP (107, make_array, "make-array", OP2 (U8_U8_U8_U8, X8_U24) | OP_DST)
+  VM_DEFINE_OP (115, make_array, "make-array", OP4 (X8_S24, X8_S24, X8_S24, X8_S24) | OP_DST)
     {
-      scm_t_uint8 dst, type, fill, bounds;
-      UNPACK_8_8_8 (op, dst, type, fill);
-      UNPACK_24 (ip[1], bounds);
+      scm_t_uint32 dst, type, fill, bounds;
+      UNPACK_24 (op, dst);
+      UNPACK_24 (ip[1], type);
+      UNPACK_24 (ip[2], fill);
+      UNPACK_24 (ip[3], bounds);
       SYNC_IP ();
       LOCAL_SET (dst, scm_make_typed_array (LOCAL_REF (type), LOCAL_REF (fill),
                                             LOCAL_REF (bounds)));
-      NEXT (2);
+      NEXT (4);
     }
 
   /* bv-u8-ref dst:8 src:8 idx:8
@@ -2941,42 +3111,42 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       RETURN (scm_bytevector_ ## fn_stem ## _native_ref (bv, idx));	\
   } while (0)
 
-  VM_DEFINE_OP (108, bv_u8_ref, "bv-u8-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (116, bv_u8_ref, "bv-u8-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_FIXABLE_INT_REF (u8, u8, uint8, 1);
 
-  VM_DEFINE_OP (109, bv_s8_ref, "bv-s8-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (117, bv_s8_ref, "bv-s8-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_FIXABLE_INT_REF (s8, s8, int8, 1);
 
-  VM_DEFINE_OP (110, bv_u16_ref, "bv-u16-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (118, bv_u16_ref, "bv-u16-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_FIXABLE_INT_REF (u16, u16_native, uint16, 2);
 
-  VM_DEFINE_OP (111, bv_s16_ref, "bv-s16-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (119, bv_s16_ref, "bv-s16-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_FIXABLE_INT_REF (s16, s16_native, int16, 2);
 
-  VM_DEFINE_OP (112, bv_u32_ref, "bv-u32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (120, bv_u32_ref, "bv-u32-ref", OP1 (X8_S8_S8_S8) | OP_DST)
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_REF (u32, u32_native, uint32, 4);
 #else
     BV_INT_REF (u32, uint32, 4);
 #endif
 
-  VM_DEFINE_OP (113, bv_s32_ref, "bv-s32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (121, bv_s32_ref, "bv-s32-ref", OP1 (X8_S8_S8_S8) | OP_DST)
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_REF (s32, s32_native, int32, 4);
 #else
     BV_INT_REF (s32, int32, 4);
 #endif
 
-  VM_DEFINE_OP (114, bv_u64_ref, "bv-u64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (122, bv_u64_ref, "bv-u64-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_INT_REF (u64, uint64, 8);
 
-  VM_DEFINE_OP (115, bv_s64_ref, "bv-s64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (123, bv_s64_ref, "bv-s64-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_INT_REF (s64, int64, 8);
 
-  VM_DEFINE_OP (116, bv_f32_ref, "bv-f32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (124, bv_f32_ref, "bv-f32-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_FLOAT_REF (f32, ieee_single, float, 4);
 
-  VM_DEFINE_OP (117, bv_f64_ref, "bv-f64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (125, bv_f64_ref, "bv-f64-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     BV_FLOAT_REF (f64, ieee_double, double, 8);
 
   /* bv-u8-set! dst:8 idx:8 src:8
@@ -3080,149 +3250,44 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     NEXT (1);                                                           \
   } while (0)
 
-  VM_DEFINE_OP (118, bv_u8_set, "bv-u8-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (126, bv_u8_set, "bv-u8-set!", OP1 (X8_S8_S8_S8))
     BV_FIXABLE_INT_SET (u8, u8, uint8, 0, SCM_T_UINT8_MAX, 1);
 
-  VM_DEFINE_OP (119, bv_s8_set, "bv-s8-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (127, bv_s8_set, "bv-s8-set!", OP1 (X8_S8_S8_S8))
     BV_FIXABLE_INT_SET (s8, s8, int8, SCM_T_INT8_MIN, SCM_T_INT8_MAX, 1);
 
-  VM_DEFINE_OP (120, bv_u16_set, "bv-u16-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (128, bv_u16_set, "bv-u16-set!", OP1 (X8_S8_S8_S8))
     BV_FIXABLE_INT_SET (u16, u16_native, uint16, 0, SCM_T_UINT16_MAX, 2);
 
-  VM_DEFINE_OP (121, bv_s16_set, "bv-s16-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (129, bv_s16_set, "bv-s16-set!", OP1 (X8_S8_S8_S8))
     BV_FIXABLE_INT_SET (s16, s16_native, int16, SCM_T_INT16_MIN, SCM_T_INT16_MAX, 2);
 
-  VM_DEFINE_OP (122, bv_u32_set, "bv-u32-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (130, bv_u32_set, "bv-u32-set!", OP1 (X8_S8_S8_S8))
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_SET (u32, u32_native, uint32, 0, SCM_T_UINT32_MAX, 4);
 #else
     BV_INT_SET (u32, uint32, 4);
 #endif
 
-  VM_DEFINE_OP (123, bv_s32_set, "bv-s32-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (131, bv_s32_set, "bv-s32-set!", OP1 (X8_S8_S8_S8))
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_SET (s32, s32_native, int32, SCM_T_INT32_MIN, SCM_T_INT32_MAX, 4);
 #else
     BV_INT_SET (s32, int32, 4);
 #endif
 
-  VM_DEFINE_OP (124, bv_u64_set, "bv-u64-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (132, bv_u64_set, "bv-u64-set!", OP1 (X8_S8_S8_S8))
     BV_INT_SET (u64, uint64, 8);
 
-  VM_DEFINE_OP (125, bv_s64_set, "bv-s64-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (133, bv_s64_set, "bv-s64-set!", OP1 (X8_S8_S8_S8))
     BV_INT_SET (s64, int64, 8);
 
-  VM_DEFINE_OP (126, bv_f32_set, "bv-f32-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (134, bv_f32_set, "bv-f32-set!", OP1 (X8_S8_S8_S8))
     BV_FLOAT_SET (f32, ieee_single, float, 4);
 
-  VM_DEFINE_OP (127, bv_f64_set, "bv-f64-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (135, bv_f64_set, "bv-f64-set!", OP1 (X8_S8_S8_S8))
     BV_FLOAT_SET (f64, ieee_double, double, 8);
 
-  /* br-if-logtest a:12 b:12 invert:1 _:7 offset:24
-   *
-   * If the exact integer in A has any bits in common with the exact
-   * integer in B, add OFFSET, a signed 24-bit number, to the current
-   * instruction pointer.
-   */
-  VM_DEFINE_OP (128, br_if_logtest, "br-if-logtest", OP2 (U8_U12_U12, B1_X7_L24))
-    {
-      BR_BINARY (x, y,
-                 ((SCM_I_INUMP (x) && SCM_I_INUMP (y))
-                  ? (SCM_UNPACK (x) & SCM_UNPACK (y) & ~scm_tc2_int)
-                  : scm_is_true (scm_logtest (x, y))));
-    }
-
-  /* FIXME: Move above */
-
-  /* allocate-struct dst:8 vtable:8 nfields:8
-   *
-   * Allocate a new struct with VTABLE, and place it in DST.  The struct
-   * will be constructed with space for NFIELDS fields, which should
-   * correspond to the field count of the VTABLE.
-   */
-  VM_DEFINE_OP (129, allocate_struct, "allocate-struct", OP1 (U8_U8_U8_U8) | OP_DST)
-    {
-      scm_t_uint8 dst, vtable, nfields;
-      SCM ret;
-
-      UNPACK_8_8_8 (op, dst, vtable, nfields);
-
-      SYNC_IP ();
-      ret = scm_allocate_struct (LOCAL_REF (vtable), LOCAL_REF (nfields));
-      LOCAL_SET (dst, ret);
-
-      NEXT (1);
-    }
-
-  /* struct-ref dst:8 src:8 idx:8
-   *
-   * Fetch the item at slot IDX in the struct in SRC, and store it
-   * in DST.
-   */
-  VM_DEFINE_OP (130, struct_ref, "struct-ref", OP1 (U8_U8_U8_U8) | OP_DST)
-    {
-      scm_t_uint8 dst, src, idx;
-      SCM obj;
-      SCM index;
-
-      UNPACK_8_8_8 (op, dst, src, idx);
-
-      obj = LOCAL_REF (src);
-      index = LOCAL_REF (idx);
-
-      if (SCM_LIKELY (SCM_STRUCTP (obj)
-                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
-                                                        SCM_VTABLE_FLAG_SIMPLE)
-                      && SCM_I_INUMP (index)
-                      && SCM_I_INUM (index) >= 0
-                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
-                                               (SCM_STRUCT_VTABLE (obj),
-                                                scm_vtable_index_size))))
-        RETURN (SCM_STRUCT_SLOT_REF (obj, SCM_I_INUM (index)));
-
-      SYNC_IP ();
-      RETURN (scm_struct_ref (obj, index));
-    }
-
-  /* struct-set! dst:8 idx:8 src:8
-   *
-   * Store SRC into the struct DST at slot IDX.
-   */
-  VM_DEFINE_OP (131, struct_set, "struct-set!", OP1 (U8_U8_U8_U8))
-    {
-      scm_t_uint8 dst, idx, src;
-      SCM obj, val, index;
-
-      UNPACK_8_8_8 (op, dst, idx, src);
-
-      obj = LOCAL_REF (dst);
-      val = LOCAL_REF (src);
-      index = LOCAL_REF (idx);
-
-      if (SCM_LIKELY (SCM_STRUCTP (obj)
-                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
-                                                        SCM_VTABLE_FLAG_SIMPLE)
-                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
-                                                        SCM_VTABLE_FLAG_SIMPLE_RW)
-                      && SCM_I_INUMP (index)
-                      && SCM_I_INUM (index) >= 0
-                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
-                                               (SCM_STRUCT_VTABLE (obj),
-                                                scm_vtable_index_size))))
-        {
-          SCM_STRUCT_SLOT_SET (obj, SCM_I_INUM (index), val);
-          NEXT (1);
-        }
-
-      SYNC_IP ();
-      scm_struct_set_x (obj, index, val);
-      NEXT (1);
-    }
-
-  VM_DEFINE_OP (132, unused_132, NULL, NOP)
-  VM_DEFINE_OP (133, unused_133, NULL, NOP)
-  VM_DEFINE_OP (134, unused_134, NULL, NOP)
-  VM_DEFINE_OP (135, unused_135, NULL, NOP)
   VM_DEFINE_OP (136, unused_136, NULL, NOP)
   VM_DEFINE_OP (137, unused_137, NULL, NOP)
   VM_DEFINE_OP (138, unused_138, NULL, NOP)
