@@ -393,15 +393,18 @@
 ;;;
 
 (define (make-snapshot id local-offset lowest-offset nlocals
-                       locals parent-snapshot-locals initial-offset
-                       indices past-frame ip)
+                       locals parent-snapshot indices past-frame ip)
   (define-syntax-rule (local-ref i)
     (vector-ref locals i))
+  (define initial-offset
+    (or (and=> parent-snapshot snapshot-offset)))
+  (define parent-locals
+    (and=> parent-snapshot snapshot-locals))
   (define (parent-snapshot-local-ref i)
-    (and parent-snapshot-locals
-         (assq-ref parent-snapshot-locals (if (< 0 initial-offset)
-                                              i
-                                              (- i initial-offset)))))
+    (and parent-snapshot
+         (assq-ref parent-locals (if (< 0 initial-offset)
+                                     i
+                                     (- i initial-offset)))))
   (define (shift-lowest acc)
     (map (match-lambda
           ((n . local)

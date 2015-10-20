@@ -73,10 +73,6 @@
   `(%cref/f ,scm 2))
 
 
-;;;
-;;; Scheme ANF compiler
-;;;
-
 (define-syntax-rule (with-frame-ref proc args var type idx)
   (cond
    ((not type)
@@ -90,8 +86,7 @@
        ,(proc args)))))
 
 (define (take-snapshot ip dst-offset locals vars snapshot-id
-                       local-offset lowest-offset
-                       parent-snapshot-locals initial-offset past-frame)
+                       local-offset lowest-offset parent-snapshot past-frame)
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
          (args-and-indices
@@ -106,21 +101,25 @@
          (args (car args-and-indices))
          (indices (cdr args-and-indices))
          (snapshot (make-snapshot snapshot-id
-                                  local-offset lowest-offset nlocals
-                                  locals parent-snapshot-locals
-                                  initial-offset indices
-                                  past-frame dst-ip)))
+                                  local-offset
+                                  lowest-offset
+                                  nlocals
+                                  locals
+                                  parent-snapshot
+                                  indices
+                                  past-frame
+                                  dst-ip)))
 
-    ;; Retur `%snap' term to pass arguments used for snapshot and the snapshot.
     (values `(%snap ,snapshot-id ,@args) snapshot)))
 
+
+;;;
+;;; Scheme ANF compiler
+;;;
+
 (define (trace->scm fragment exit-id loop? trace)
-  (define-syntax br-op-size
-    (identifier-syntax 2))
   (define-syntax root-trace?
     (identifier-syntax (not fragment)))
-  (define (dereference-scm addr)
-    (pointer->scm (dereference-pointer (make-pointer addr))))
   (define (make-var index)
     (string->symbol (string-append "v" (number->string index))))
   (define (make-vars locals)
@@ -130,72 +129,58 @@
     (map (lambda (n)
            (cons n (make-var n)))
          locals))
+  (define (get-initial-snapshot-id)
+    ;; For root trace, initial snapshot already added in `make-scm'.
+    (if root-trace? 1 0))
+  (define (get-initial-offset parent-snapshot)
+    ;; Initial offset of root trace is constantly 0. Initial offset of side
+    ;; trace is where parent trace left, using offset value from SNAPSHOT.
+    (match parent-snapshot
+      (($ $snapshot _ offset) offset)
+      (_ 0)))
 
-  (define (get-initial-snapshot-id snapshots nlocals locals indices vars
-                                   past-frame ip)
-    ;; For root trace, adding initial snapshot trace with key=0 to hold
-    ;; bytevector of native code later. This key=0 snapshot for root trace is
-    ;; used for guard failure in entry clause.
-    (if root-trace?
-        (let ((snapshot (make-snapshot 0 0 0 nlocals locals #f 0
-                                       (reverse indices) past-frame ip)))
-          (hashq-set! snapshots 0 snapshot)
-          1)
-        0))
-
-  (let* ((initial-ip (cadr (car trace)))
-         (initial-locals (list-ref (car trace) 4))
-         (initial-nlocals (vector-length initial-locals))
-         (parent-snapshot
+  (let* ((parent-snapshot
           (and fragment
                (hashq-ref (fragment-snapshots fragment) exit-id)))
-         (parent-snapshot-locals (match parent-snapshot
-                                   (($ $snapshot _ _ _ locals) locals)
-                                   (_ #f)))
-         ;; Initial offset of root trace is constantly 0. Initial offset of side
-         ;; trace is where parent trace left, using offset value from SNAPSHOT.
-         (initial-offset (match parent-snapshot
-                           (($ $snapshot _ offset) offset)
-                           (_ 0)))
+         (initial-offset (get-initial-offset parent-snapshot))
          (local-offset initial-offset)
          (past-frame (accumulate-locals local-offset trace))
          (local-indices (past-frame-local-indices past-frame))
-         (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
-         (lowest-offset (min initial-offset 0))
+         (lowest-offset (min local-offset 0))
          (snapshots (make-hash-table))
-         (snapshot-id (get-initial-snapshot-id snapshots
-                                               initial-nlocals
-                                               initial-locals
-                                               local-indices
-                                               vars
-                                               past-frame
-                                               initial-ip)))
-
-    (define-syntax-rule (push-offset! n)
-      (set! local-offset (+ local-offset n)))
-
-    (define-syntax-rule (pop-offset! n)
-      (begin
-        (set! local-offset (- local-offset n))
-        (when (< local-offset lowest-offset)
-          (set! lowest-offset local-offset))))
+         (snapshot-id (get-initial-snapshot-id)))
 
     (define (take-snapshot! ip dst-offset locals vars)
       (let-values (((ret snapshot)
-                    (take-snapshot ip dst-offset locals vars
-                                   snapshot-id local-offset lowest-offset
-                                   parent-snapshot-locals initial-offset
+                    (take-snapshot ip
+                                   dst-offset
+                                   locals vars
+                                   snapshot-id
+                                   local-offset
+                                   lowest-offset
+                                   parent-snapshot
                                    past-frame)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
 
     (define (convert-one escape op ip fp ra locals rest)
+      (define-syntax br-op-size
+        (identifier-syntax 2))
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
       (define-syntax-rule (var-ref i)
         (assq-ref vars (+ i local-offset)))
+      (define-syntax-rule (push-offset! n)
+        (set! local-offset (+ local-offset n)))
+      (define-syntax-rule (pop-offset! n)
+        (begin
+          (set! local-offset (- local-offset n))
+          (when (< local-offset lowest-offset)
+            (set! lowest-offset local-offset))))
+      (define (dereference-scm addr)
+        (pointer->scm (dereference-pointer (make-pointer addr))))
 
       (match op
         ;; *** Call and return
@@ -245,8 +230,8 @@
          (pop-offset! proc)
          (debug 3 ";;; ir.scm:receive~%")
          (debug 3 ";;;   dst=~a proc=~a nlocals=~a~%" dst proc nlocals)
-         (debug 3 ";;;   args=~a fp=~x ra=~x ip=~x~%"
-                args (pointer-address fp) ra ip)
+         ;; (debug 3 ";;;   args=~a fp=~x ra=~x ip=~x~%"
+         ;;        args (pointer-address fp) ra ip)
          (debug 3 ";;;   local-offset=~a~%" local-offset)
 
          ;; `local-offset' could be modified during `convert' with
@@ -751,7 +736,14 @@
           (()
            (reverse! acc)))))
 
-    (let* ((vars-from-parent (make-vars-from-parent vars
+    (let* ((args (map make-var (reverse local-indices)))
+           (initial-ip (cadr (car trace)))
+           (initial-locals (list-ref (car trace) 4))
+           (initial-nlocals (vector-length initial-locals))
+           (parent-snapshot-locals (match parent-snapshot
+                                     (($ $snapshot _ _ _ locals) locals)
+                                     (_ #f)))
+           (vars-from-parent (make-vars-from-parent vars
                                                     parent-snapshot-locals
                                                     initial-offset))
            (args-from-parent (reverse (map cdr vars-from-parent)))
@@ -791,10 +783,6 @@
                 ;; locals from lower frame won't be passed as argument. Loading
                 ;; later with '%fref' or '%fref/f'.
                 ;;
-                ;; In side traces, locals with its index exceeding initial number
-                ;; of locals are also ignored, those are likely to be locals in
-                ;; inlined procedure, which will be assigned or loaded later.
-                ;;
                 ((let ((parent-type (type-from-parent n))
                        (snapshot-type (type-from-snapshot n)))
                    (or (and parent-type
@@ -803,9 +791,7 @@
                        (and (not snapshot-type)
                             parent-type)
                        (and (<= 0 initial-offset)
-                            (< n 0))
-                       (and (not root-trace?)
-                            (<= initial-nlocals n))))
+                            (< n 0))))
                  (lp vars))
                 (else
                  (let* ((i (- n (snapshot-offset snapshot0)))
@@ -834,7 +820,16 @@
       (define (make-scm escape trace)
         (cond
          (root-trace?
-          (let* ((snap (take-snapshot! *ip-key-set-loop-info!*
+          (let* ((snapshot (make-snapshot 0
+                                          0
+                                          0
+                                          initial-nlocals initial-locals
+                                          #f
+                                          (reverse local-indices)
+                                          past-frame
+                                          initial-ip))
+                 (_ (hashq-set! snapshots 0 snapshot))
+                 (snap (take-snapshot! *ip-key-set-loop-info!*
                                        0 initial-locals vars))
                  (loop (convert escape trace)))
             `(letrec ((entry (lambda ()
