@@ -108,7 +108,7 @@
          (snapshot (make-snapshot snapshot-id
                                   local-offset lowest-offset nlocals
                                   locals parent-snapshot-locals
-                                  initial-offset indices vars
+                                  initial-offset indices
                                   past-frame dst-ip)))
 
     ;; Retur `%snap' term to pass arguments used for snapshot and the snapshot.
@@ -138,8 +138,7 @@
     ;; used for guard failure in entry clause.
     (if root-trace?
         (let ((snapshot (make-snapshot 0 0 0 nlocals locals #f 0
-                                       (reverse indices) vars
-                                       past-frame ip)))
+                                       (reverse indices) past-frame ip)))
           (hashq-set! snapshots 0 snapshot)
           1)
         0))

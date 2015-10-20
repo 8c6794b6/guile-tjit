@@ -394,8 +394,7 @@
 
 (define (make-snapshot id local-offset lowest-offset nlocals
                        locals parent-snapshot-locals initial-offset
-                       indices vars past-frame
-                       ip)
+                       indices past-frame ip)
   (define-syntax-rule (local-ref i)
     (vector-ref locals i))
   (define (parent-snapshot-local-ref i)
@@ -428,76 +427,47 @@
        (define (add-val val)
          (lp is (cons `(,i . ,val) acc)))
        (cond
-        ((= local-offset 0)
-         (if (< i 0)
-             (cond
-              ((dl-or-ra i)
-               => add-val)
-              (else
-               (match (past-frame-local-ref past-frame i)
-                 ((_ . x)
-                  (add-local x))
-                 (_
-                  (debug 1 "XXX: local ~a not found~%" i)
-                  (lp is acc)))))
-             (add-local (and (< i (vector-length locals))
-                             (local-ref i)))))
 
-        ;; Dynamic link and return address might need to be passed from
-        ;; parent trace. When side trace of inlined procedure takes bailout
-        ;; code, recorded trace might not contain bytecode operation to fill
-        ;; in the dynamic link and return address of past frame.
+        ;; Inlined local in initial frame in root trace. The frame contents
+        ;; should be a scheme value, not dynamic link or return address.
+        ((and (= local-offset 0)
+              (<= 0 i))
+         (add-local (and (< i (vector-length locals))
+                         (local-ref i))))
+
+        ;; Dynamic link and return address might need to be passed from parent
+        ;; trace. When side trace of inlined procedure takes bailout code,
+        ;; recorded trace might not contain bytecode operation to fill in the
+        ;; dynamic link and return address of past frame.
         ((dl-or-ra i)
          => add-val)
 
-        ;; Local in inlined procedure.
-        ((<= initial-offset local-offset i)
-         (let ((j (- i local-offset)))
-           (if (< -1 j (vector-length locals))
-               (add-local (local-ref j))
-               (begin
-                 (debug 1 ";;;   i=~a, local-offset=~a, skipping~%"
-                        i local-offset)
-                 (lp is acc)))))
+        ;; Local from a vector saved at the tme of recording the trace.
+        ((< -1 (- i local-offset) (vector-length locals))
+         (add-local (local-ref (- i local-offset))))
 
-        ;; Local in lower frame.
-        ((<= local-offset i initial-offset)
-         (let ((j (- i local-offset)))
-           (if (< -1 j (vector-length locals))
-               (add-local (local-ref j))
-               (begin
-                 (debug 1 ";;;   i=~a, local-offset=~a, skipping~%"
-                        i local-offset)
-                 (lp is acc)))))
-
-        ;; When side trace contains inlined procedure and the guard taking
-        ;; this snapshot is from the caller of the inlined procedure,
-        ;; saving local in upper frame. Looking up locals from newest
-        ;; locals in past-frame.
+        ;; When side trace contains inlined procedure and the guard taking this
+        ;; snapshot is from the caller of the inlined procedure, saving local in
+        ;; upper frame. Looking up locals from newest locals in past-frame.
         ((past-frame-local-ref past-frame i)
          => (match-lambda ((_ . local)
                            (add-local local))))
 
-        ;; Side trace could start from the middle of inlined procedure,
-        ;; locals in past frame may not have enough information to recover
-        ;; locals in caller of the inlined procedure. In such case, look
-        ;; up locals in the snapshot of parent trace.
+        ;; Side trace could start from the middle of inlined procedure, locals
+        ;; in past frame may not have enough information to recover locals in
+        ;; caller of the inlined procedure. In such case, look up locals in the
+        ;; snapshot of parent trace.
         ((parent-snapshot-local-ref i)
          => add-val)
 
         ;; Giving up, skip this local.
         (else
-         (debug 3 "*** local for i=~a not found~%" i)
+         (debug 3 "XXX: local for i=~a not found~%" i)
          (add-local #f))))
       (()
        (let ((acc (reverse! acc)))
-         (%make-snapshot id
-                         local-offset
-                         (vector-length locals)
-                         (shift-lowest acc)
-                         #f
-                         #f
-                         ip))))))
+         (%make-snapshot id local-offset (vector-length locals)
+                         (shift-lowest acc) #f #f ip))))))
 
 ;;;
 ;;; IP Keys
