@@ -408,7 +408,7 @@
           ((n . local)
            `(,(- n lowest-offset) . ,local)))
          acc))
-  (let lp ((is (reverse indices)) (acc '()))
+  (let lp ((is indices) (acc '()))
     (match is
       ((i . is)
        (define (dl-or-ra i)

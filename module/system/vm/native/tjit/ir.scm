@@ -50,6 +50,7 @@
   #:use-module (language cps types)
   #:use-module (language scheme spec)
   #:use-module (rnrs bytevectors)
+  #:use-module (srfi srfi-11)
   #:use-module (system base compile)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
@@ -76,6 +77,43 @@
 ;;; Scheme ANF compiler
 ;;;
 
+(define-syntax-rule (with-frame-ref proc args var type idx)
+  (cond
+   ((not type)
+    `(let ((,var #f))
+       ,(proc args)))
+   ((= type &flonum)
+    `(let ((,var (%fref/f ,idx)))
+       ,(proc args)))
+   (else
+    `(let ((,var (%fref ,idx ,type)))
+       ,(proc args)))))
+
+(define (take-snapshot ip dst-offset locals vars snapshot-id
+                       local-offset lowest-offset
+                       parent-snapshot-locals initial-offset past-frame)
+  (let* ((nlocals (vector-length locals))
+         (dst-ip (+ ip (* dst-offset 4)))
+         (args-and-indices
+          (let lp ((vars vars) (args '()) (indices '()))
+            (match vars
+              (((n . var) . vars)
+               (if (<= lowest-offset n (+ local-offset nlocals))
+                   (lp vars (cons var args) (cons n indices))
+                   (lp vars args indices)))
+              (()
+               (cons args indices)))))
+         (args (car args-and-indices))
+         (indices (cdr args-and-indices))
+         (snapshot (make-snapshot snapshot-id
+                                  local-offset lowest-offset nlocals
+                                  locals parent-snapshot-locals
+                                  initial-offset indices vars
+                                  past-frame dst-ip)))
+
+    ;; Retur `%snap' term to pass arguments used for snapshot and the snapshot.
+    (values `(%snap ,snapshot-id ,@args) snapshot)))
+
 (define (trace->scm fragment exit-id loop? trace)
   (define-syntax br-op-size
     (identifier-syntax 2))
@@ -99,28 +137,12 @@
     ;; bytevector of native code later. This key=0 snapshot for root trace is
     ;; used for guard failure in entry clause.
     (if root-trace?
-        (let ((snapshot (make-snapshot 0 0 0 nlocals locals #f 0 indices vars
+        (let ((snapshot (make-snapshot 0 0 0 nlocals locals #f 0
+                                       (reverse indices) vars
                                        past-frame ip)))
           (hashq-set! snapshots 0 snapshot)
           1)
         0))
-  (define (make-vars-from-parent vars
-                                 parent-snapshot-locals
-                                 parent-snapshot-offset)
-    (let lp ((vars vars) (acc '()))
-      (match vars
-        (((n . var) . vars)
-         ;; When parent-snapshot-offset is negative, side trace entered from a
-         ;; side exit which is somewhere in the middle of bytecode of lower
-         ;; frame than the beginning of the parent trace.
-         (let ((m (if (< parent-snapshot-offset 0)
-                      (- n parent-snapshot-offset)
-                      n)))
-           (if (assq-ref parent-snapshot-locals m)
-               (lp vars (cons (cons n var) acc))
-               (lp vars acc))))
-        (()
-         (reverse! acc)))))
 
   (let* ((initial-ip (cadr (car trace)))
          (initial-locals (list-ref (car trace) 4))
@@ -160,43 +182,15 @@
         (when (< local-offset lowest-offset)
           (set! lowest-offset local-offset))))
 
-    (define-syntax-rule (with-frame-ref proc args var type idx)
-      (cond
-       ((not type)
-        `(let ((,var #f))
-           ,(proc args)))
-       ((= type &flonum)
-        `(let ((,var (%fref/f ,idx)))
-           ,(proc args)))
-       (else
-        `(let ((,var (%fref ,idx ,type)))
-           ,(proc args)))))
-
-    (define (take-snapshot! ip offset locals indices vars)
-      (let* ((nlocals (vector-length locals))
-             (dst-ip (+ ip (* offset 4)))
-             (snapshot (make-snapshot snapshot-id
-                                      local-offset lowest-offset nlocals
-                                      locals parent-snapshot-locals
-                                      initial-offset indices vars
-                                      past-frame dst-ip))
-             (args (let lp ((vars vars) (acc '()))
-                     (match vars
-                       (((n . var) . vars)
-                        (if (<= lowest-offset n (+ local-offset nlocals))
-                            (lp vars (cons var acc))
-                            (lp vars acc)))
-                       (()
-                        acc)))))
-
-        ;; Using snapshot-id as key for hash-table. Identical IP could
-        ;; be used for entry clause and first operation in the loop.
+    (define (take-snapshot! ip dst-offset locals vars)
+      (let-values (((ret snapshot)
+                    (take-snapshot ip dst-offset locals vars
+                                   snapshot-id local-offset lowest-offset
+                                   parent-snapshot-locals initial-offset
+                                   past-frame)))
         (hashq-set! snapshots snapshot-id snapshot)
-
-        ;; Call dummy procedure `%snap' to capture arguments used for snapshot.
-        (let ((ret `(%snap ,snapshot-id ,@args)))
-          (set! snapshot-id (+ snapshot-id 1))
-          ret)))
+        (set! snapshot-id (+ snapshot-id 1))
+        ret))
 
     (define (convert-one escape op ip fp ra locals rest)
       (define-syntax-rule (local-ref i)
@@ -222,7 +216,7 @@
                 (vproc (var-ref proc))
                 (rproc (local-ref proc))
                 (rproc-addr (pointer-address (scm->pointer rproc)))
-                (snapshot (take-snapshot! ip 0 locals local-indices vars)))
+                (snapshot (take-snapshot! ip 0 locals vars)))
            (push-past-frame! past-frame dl ra local-offset locals)
            (push-offset! proc)
 
@@ -276,11 +270,7 @@
            (if (<= 0 local-offset)
                (do-next-convert)
                (begin
-                 `(let ((_ ,(take-snapshot! ip 0 locals local-indices
-                                            (filter (match-lambda
-                                                     ((n . _)
-                                                      (<= proc-offset n)))
-                                                    vars))))
+                 `(let ((_ ,(take-snapshot! ip 0 locals vars)))
                     ,(let lp ((vars (reverse vars)))
                        (match vars
                          (((n . var) . vars)
@@ -309,12 +299,7 @@
                 (assign (if (eq? vdst vsrc)
                             '()
                             `((,vdst ,vsrc))))
-                (vars-in-current-frame
-                 (filter (lambda (local-x-type)
-                           (<= local-offset (car local-x-type)))
-                         vars))
-                (snapshot (take-snapshot! ip 0 locals local-indices
-                                          vars-in-current-frame))
+                (snapshot (take-snapshot! ip 0 locals vars))
                 (_ (pop-past-frame! past-frame))
                 (body `(let ((_ ,snapshot))
                          ,(if (< 0 local-offset)
@@ -383,7 +368,7 @@
                            (if invert? br-op-size offset))))
              (cond
               ((and (fixnum? ra) (fixnum? rb))
-               `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
+               `(let ((_ ,(take-snapshot! ip dest locals vars)))
                   (let ((_ ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))))
                     ,(convert escape rest))))
               (else
@@ -403,12 +388,12 @@
                (let ((op (if (< ra rb)
                              `(%lt ,va ,vb)
                              `(%ge ,va ,vb))))
-                 `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
+                 `(let ((_ ,(take-snapshot! ip dest locals vars)))
                     (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
                       ,(convert escape rest)))))
 
               ((and (flonum? ra) (flonum? rb))
-               `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
+               `(let ((_ ,(take-snapshot! ip dest locals vars)))
                   (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
                     ,(convert escape rest))))
               (else
@@ -718,29 +703,28 @@
     (define (convert escape trace)
       (match trace
         (((op ip fp ra locals) . ())
+         ;; Last operation is wrapped in a thunk, to assign snapshot ID
+         ;; in last expression after taking snapshots from guards in
+         ;; traced operations.
+         ;;
+         ;; Trace with loop will emit `loop', which is the name of
+         ;; procedure for looping the body of Scheme IR emitted in
+         ;; `make-scm'.
+         ;;
+         ;; Side trace or loop-less root trace are apturing CPS variables
+         ;; with `take-snapshot!' at the end, so that the native code can
+         ;; pass the register information to linked code.
+         ;;
+         ;; XXX: Get vars passed to linked code, replace `vars' with
+         ;; it.
+         ;;
          (let ((last-op
-                ;; Last operation is wrapped in a thunk, to assign snapshot ID
-                ;; in last expression after taking snapshots from guards in
-                ;; traced operations.
-                ;;
-                ;; Trace with loop will emit `loop', which is the name of
-                ;; procedure for looping the body of Scheme IR emitted in
-                ;; `make-scm'.
-                ;;
-                ;; Side trace or loop-less root trace are apturing CPS variables
-                ;; with `take-snapshot!' at the end, so that the native code can
-                ;; pass the register information to linked code.
-                ;;
-                ;; XXX: Get vars passed to linked code, replace `vars' with
-                ;; it.
-                ;;
                 (if loop?
                     (lambda ()
                       `(loop ,@(reverse (map cdr vars))))
                     (lambda ()
                       `(let ((_ ,(take-snapshot! *ip-key-jump-to-linked-code*
-                                                 0 locals local-indices
-                                                 vars)))
+                                                 0 locals vars)))
                          _)))))
            (convert-one escape op ip fp ra locals last-op)))
         (((op ip fp ra locals) . rest)
@@ -749,6 +733,24 @@
          (or (and (procedure? last-op)
                   (last-op))
              (error "ir.scm: last arg was not a procedure" last-op)))))
+
+    (define (make-vars-from-parent vars
+                                   locals-from-parent
+                                   offset-from-parent)
+      (let lp ((vars vars) (acc '()))
+        (match vars
+          (((n . var) . vars)
+           ;; When parent-snapshot-offset is negative, side trace entered from a
+           ;; side exit which is somewhere in the middle of bytecode of lower
+           ;; frame than the beginning of the parent trace.
+           (let ((m (if (< offset-from-parent 0)
+                        (- n offset-from-parent)
+                        n)))
+             (if (assq-ref locals-from-parent m)
+                 (lp vars (cons (cons n var) acc))
+                 (lp vars acc))))
+          (()
+           (reverse! acc)))))
 
     (let* ((vars-from-parent (make-vars-from-parent vars
                                                     parent-snapshot-locals
@@ -834,10 +836,7 @@
         (cond
          (root-trace?
           (let* ((snap (take-snapshot! *ip-key-set-loop-info!*
-                                       0
-                                       initial-locals
-                                       local-indices
-                                       vars))
+                                       0 initial-locals vars))
                  (loop (convert escape trace)))
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
@@ -849,10 +848,7 @@
                entry)))
          (loop?
           (let ((args-from-vars (reverse! (map cdr vars)))
-                (snap (take-snapshot! initial-ip
-                                      0
-                                      initial-locals
-                                      local-indices-from-parent
+                (snap (take-snapshot! initial-ip 0 initial-locals
                                       vars-from-parent)))
             `(letrec ((entry (lambda ,args-from-parent
                                (let ((_ ,snap))
@@ -862,10 +858,7 @@
                               ,(convert escape trace))))
                entry)))
          (else
-          (let ((snap (take-snapshot! initial-ip
-                                      0
-                                      initial-locals
-                                      local-indices-from-parent
+          (let ((snap (take-snapshot! initial-ip 0 initial-locals
                                       vars-from-parent)))
             `(letrec ((patch (lambda ,args-from-parent
                                (let ((_ ,snap))
@@ -892,17 +885,16 @@ to indicate whether the trace contains loop or not."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
-  (call-with-values
-      (lambda () (trace->scm fragment exit-id loop? trace))
-    (lambda (locals vars snapshots scm)
-      (when (tjit-dump-time? (tjit-dump-option))
-        (let ((log (get-tjit-time-log trace-id)))
-          (set-tjit-time-log-ops! log (get-internal-run-time))))
-      (let* ((parent-snapshot (and fragment
-                                   (hashq-ref (fragment-snapshots fragment)
-                                              exit-id)))
-             (initial-snapshot (hashq-ref snapshots 0))
-             (plist (and scm
-                         (anf->primlist parent-snapshot initial-snapshot
-                                        vars scm))))
-        (values locals snapshots scm plist)))))
+  (let-values (((locals vars snapshots scm)
+                (trace->scm fragment exit-id loop? trace)))
+    (when (tjit-dump-time? (tjit-dump-option))
+      (let ((log (get-tjit-time-log trace-id)))
+        (set-tjit-time-log-ops! log (get-internal-run-time))))
+    (let* ((parent-snapshot (and fragment
+                                 (hashq-ref (fragment-snapshots fragment)
+                                            exit-id)))
+           (initial-snapshot (hashq-ref snapshots 0))
+           (plist (and scm
+                       (anf->primlist parent-snapshot initial-snapshot
+                                      vars scm))))
+      (values locals snapshots scm plist))))
