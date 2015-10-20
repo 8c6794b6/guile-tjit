@@ -148,7 +148,7 @@
         (set! snapshot-id (+ snapshot-id 1))
         ret))
 
-    (define (convert-one escape op ip fp ra locals rest)
+    (define (convert-one op ip fp ra locals rest)
       (define-syntax br-op-size
         (identifier-syntax 2))
       (define-syntax-rule (local-ref i)
@@ -198,15 +198,15 @@
                   ;; Adding `%eq' guard to test the procedure value, to bailout when
                   ;; procedure has been redefined.
                   (let ((_ (%eq ,vproc ,rproc-addr)))
-                    ,(convert escape rest)))))))
+                    ,(convert rest)))))))
 
         (('call-label proc nlocals label)
          (push-offset! proc)
-         (convert escape rest))
+         (convert rest))
 
         ;; XXX: tail-call
         (('tail-call nlocals)
-         (convert escape rest))
+         (convert rest))
 
         ;; XXX: tail-call-label
         ;; XXX: tail-call/shuffle
@@ -232,7 +232,7 @@
                    `(let ((,vdl #f))
                       (let ((,vra #f))
                         (let ((,vdst ,vret))
-                          ,(convert escape rest))))))
+                          ,(convert rest))))))
                 (proc-offset (+ proc local-offset)))
            (if (<= 0 local-offset)
                (do-next-convert)
@@ -270,9 +270,9 @@
                 (_ (pop-past-frame! past-frame))
                 (body `(let ((_ ,snapshot))
                          ,(if (< 0 local-offset)
-                              (convert escape rest)
+                              (convert rest)
                               `(let ((_ (%return ,ra)))
-                                 ,(convert escape rest))))))
+                                 ,(convert rest))))))
            (if (eq? vdst vsrc)
                body
                `(let ((,vdst ,vsrc))
@@ -303,7 +303,7 @@
         ;; XXX: reset-frame
 
         (('assert-nargs-ee/locals expected nlocals)
-         (convert escape rest))
+         (convert rest))
 
         ;; XXX: br-if-npos-gt
         ;; XXX: bind-kw-args
@@ -312,7 +312,7 @@
         ;; *** Branching instructions
 
         (('br offset)
-         (convert escape rest))
+         (convert rest))
 
         ;; XXX: br-if-true
         ;; XXX: br-if-null
@@ -337,7 +337,7 @@
               ((and (fixnum? ra) (fixnum? rb))
                `(let ((_ ,(take-snapshot! ip dest)))
                   (let ((_ ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))))
-                    ,(convert escape rest))))
+                    ,(convert rest))))
               (else
                (debug 3 "*** ir:convert = ~a ~a~%" ra rb)
                (escape #f))))))
@@ -357,12 +357,12 @@
                              `(%ge ,va ,vb))))
                  `(let ((_ ,(take-snapshot! ip dest)))
                     (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
-                      ,(convert escape rest)))))
+                      ,(convert rest)))))
 
               ((and (flonum? ra) (flonum? rb))
                `(let ((_ ,(take-snapshot! ip dest)))
                   (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
-                    ,(convert escape rest))))
+                    ,(convert rest))))
               (else
                (debug 3 "ir:convert < ~a ~a~%" ra rb)
                (escape #f))))))
@@ -375,7 +375,7 @@
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src)))
            `(let ((,vdst ,vsrc))
-              ,(convert escape rest))))
+              ,(convert rest))))
 
         ;; XXX: long-mov
         ;; XXX: box
@@ -397,12 +397,12 @@
               ,(cond
                 ((flonum? rsrc)
                  `(let ((,vdst ,(to-double vdst)))
-                    ,(convert escape rest)))
+                    ,(convert rest)))
                 ((fixnum? rsrc)
                  `(let ((,vdst ,(to-fixnum vdst)))
-                    ,(convert escape rest)))
+                    ,(convert rest)))
                 (else
-                 (convert escape rest))))))
+                 (convert rest))))))
 
         (('box-set! dst src)
          (let ((vdst (var-ref dst))
@@ -413,15 +413,15 @@
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
                 (let ((_ (%cset ,vdst 1 ,vsrc)))
-                  ,(convert escape rest))))
+                  ,(convert rest))))
             ((fixnum? rdst)
              `(let ((,vsrc (%lsh ,vsrc 2)))
                 (let ((,vsrc (%add ,vsrc 2)))
                   (let ((_ (%cset ,vdst 1 ,vsrc)))
-                    ,(convert escape rest)))))
+                    ,(convert rest)))))
             (else
              `(let ((_ (%cset ,vdst 1 ,vsrc)))
-                ,(convert escape rest))))))
+                ,(convert rest))))))
 
         ;; XXX: make-closure
         ;; XXX: free-ref
@@ -434,22 +434,22 @@
          ;; integer, e.g: '(). Check type from value of `low-bits' and choose
          ;; the type appropriately.
          `(let ((,(var-ref dst) ,(ash low-bits -2)))
-            ,(convert escape rest)))
+            ,(convert rest)))
 
         (('make-long-immediate dst low-bits)
          `(let ((,(var-ref dst) ,(ash low-bits -2)))
-            ,(convert escape rest)))
+            ,(convert rest)))
 
         (('make-long-long-immediate dst high-bits low-bits)
          `(let ((,(var-ref dst)
                  ,(ash (logior (ash high-bits 32) low-bits) -2)))
-            ,(convert escape rest)))
+            ,(convert rest)))
 
         ;; XXX: make-non-immediate
 
         (('static-ref dst offset)
          `(let ((,(var-ref dst) ,(dereference-scm (+ ip (* 4 offset)))))
-            ,(convert escape rest)))
+            ,(convert rest)))
 
         ;; XXX: static-set!
         ;; XXX: static-patch!
@@ -466,7 +466,7 @@
                      (scm->pointer
                       (dereference-scm (+ ip (* var-offset 4)))))))
            `(let ((,vdst ,src))
-              ,(convert escape rest))))
+              ,(convert rest))))
 
         ;; XXX: module-box
 
@@ -508,10 +508,10 @@
            (cond
             ((and (fixnum? ra) (fixnum? rb))
              `(let ((,vdst (%add ,va ,vb)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             ((and (flonum? ra) (flonum? rb))
              `(let ((,vdst (%fadd ,va ,vb)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             (else
              (debug 3 "ir:convert add ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
@@ -524,7 +524,7 @@
            (cond
             ((fixnum? rsrc)
              `(let ((,vdst (%add ,vsrc 1)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             (else
              (debug 3 "ir:convert add1 ~a ~a" rdst rsrc)
              (escape #f)))))
@@ -539,10 +539,10 @@
            (cond
             ((and (fixnum? ra) (fixnum? rb))
              `(let ((,vdst (%sub ,va ,vb)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             ((and (flonum? ra) (flonum? rb))
              `(let ((,vdst (%fsub ,va ,vb)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             (else
              (debug 3 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
@@ -555,7 +555,7 @@
            (cond
             ((fixnum? rsrc)
              `(let ((,vdst (%sub ,vsrc 1)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             (else
              (debug 3 "ir:convert sub1 ~a ~a~%" rdst rsrc)
              (escape #f)))))
@@ -570,7 +570,7 @@
            (cond
             ((and (flonum? ra) (flonum? rb))
              `(let ((,vdst (%fmul ,va ,vb)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             (else
              (debug 3 "*** ir:convert: NYI mul ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
@@ -589,7 +589,7 @@
            (cond
             ((and (fixnum? ra) (fixnum? rb))
              `(let ((,vdst (%mod ,va ,vb)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             (else
              (debug 3 "*** ir:convert: NYI mod ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
@@ -615,7 +615,7 @@
            (cond
             ((and (vector? rsrc) (fixnum? ridx))
              `(let ((_ (%vector-set! ,vdst ,vsrc ,vidx)))
-                ,(convert escape rest)))
+                ,(convert rest)))
             (else
              (debug 3 "*** ir.scm:convert: NYI vector-set! ~a ~a ~a~%"
                     rdst rsrc ridx)
@@ -667,7 +667,7 @@
          (debug 3 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
 
-    (define (convert escape trace)
+    (define (convert trace)
       (match trace
         (((op ip fp ra locals) . ())
          ;; Last operation is wrapped in a thunk, to assign snapshot ID
@@ -692,15 +692,15 @@
                                   0
                                   locals)))
                          _)))))
-           (convert-one escape op ip fp ra locals last-op)))
+           (convert-one op ip fp ra locals last-op)))
         (((op ip fp ra locals) . rest)
-         (convert-one escape op ip fp ra locals rest))
+         (convert-one op ip fp ra locals rest))
         (last-op
          (or (and (procedure? last-op)
                   (last-op))
              (error "ir.scm: last arg was not a procedure" last-op)))))
 
-    (convert escape trace)))
+    (convert trace)))
 
 ;;;
 ;;; Scheme ANF compiler
