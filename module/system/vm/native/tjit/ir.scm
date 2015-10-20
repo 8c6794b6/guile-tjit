@@ -141,8 +141,6 @@
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
-         (expecting-types (make-hash-table))
-         (known-types (make-hash-table))
          (lowest-offset (min initial-offset 0))
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id snapshots
@@ -161,22 +159,6 @@
         (set! local-offset (- local-offset n))
         (when (< local-offset lowest-offset)
           (set! lowest-offset local-offset))))
-
-    (define-syntax-rule (set-known-type! idx ty)
-      ;; Some bytecode operation fills in local with statically known value:
-      ;; `make-short-immediate', `static-ref', `toplevel-box' ... etc. Filling
-      ;; in known type when those bytecode operations were seen.
-      (let ((i (+ idx local-offset)))
-        (when (not (hashq-ref known-types i))
-          (hashq-set! known-types i ty))))
-
-    (define-syntax-rule (set-expecting-type! idx ty)
-      ;; Some bytecode operations expect particular type: `add', `mul', ... etc.
-      ;; Add type to expect with expecting bytecode operations.
-      (let ((i (+ idx local-offset)))
-        (when (and (not (hashq-ref expecting-types i))
-                   (not (hashq-ref known-types i)))
-          (hashq-set! expecting-types i ty))))
 
     (define-syntax-rule (with-frame-ref proc args var type idx)
       (cond
@@ -222,13 +204,6 @@
       (define-syntax-rule (var-ref i)
         (assq-ref vars (+ i local-offset)))
 
-      ;; (debug 3 ";;; convert-one: ~a ~a ~a ~a~%"
-      ;;        (or (and (number? ip) (number->string ip 16))
-      ;;            #f)
-      ;;        local-offset
-      ;;        op
-      ;;        locals)
-
       (match op
         ;; *** Call and return
 
@@ -248,7 +223,6 @@
                 (rproc (local-ref proc))
                 (rproc-addr (pointer-address (scm->pointer rproc)))
                 (snapshot (take-snapshot! ip 0 locals local-indices vars)))
-           (set-expecting-type! proc &procedure)
            (push-past-frame! past-frame dl ra local-offset locals)
            (push-offset! proc)
 
@@ -409,8 +383,6 @@
                            (if invert? br-op-size offset))))
              (cond
               ((and (fixnum? ra) (fixnum? rb))
-               (set-expecting-type! a &exact-integer)
-               (set-expecting-type! b &exact-integer)
                `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
                   (let ((_ ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))))
                     ,(convert escape rest))))
@@ -428,8 +400,6 @@
                            (if invert? br-op-size offset))))
              (cond
               ((and (fixnum? ra) (fixnum? rb))
-               (set-expecting-type! a &exact-integer)
-               (set-expecting-type! b &exact-integer)
                (let ((op (if (< ra rb)
                              `(%lt ,va ,vb)
                              `(%ge ,va ,vb))))
@@ -438,8 +408,6 @@
                       ,(convert escape rest)))))
 
               ((and (flonum? ra) (flonum? rb))
-               (set-expecting-type! a &flonum)
-               (set-expecting-type! b &flonum)
                `(let ((_ ,(take-snapshot! ip dest locals local-indices vars)))
                   (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
                     ,(convert escape rest))))
@@ -454,13 +422,6 @@
         (('mov dst src)
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src)))
-           (cond
-            ((flonum? (local-ref src))
-             (set-expecting-type! src &flonum)
-             (set-known-type! dst &flonum))
-            ((fixnum? (local-ref src))
-             (set-expecting-type! src &exact-integer)
-             (set-known-type! dst &exact-integer)))
            `(let ((,vdst ,vsrc))
               ,(convert escape rest))))
 
@@ -480,7 +441,6 @@
                (vsrc (var-ref src))
                (rsrc (and (< src (vector-length locals))
                           (variable-ref (vector-ref locals src)))))
-           (set-expecting-type! src &box)
            `(let ((,vdst (%cref ,vsrc 1)))
               ,(cond
                 ((flonum? rsrc)
@@ -497,7 +457,6 @@
                (vsrc (var-ref src))
                (rdst (and (< dst (vector-length locals))
                           (variable-ref (vector-ref locals dst)))))
-           (set-expecting-type! dst &box)
            (cond
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
@@ -522,12 +481,10 @@
          ;; XXX: `make-short-immediate' could be used for other value than small
          ;; integer, e.g: '(). Check type from value of `low-bits' and choose
          ;; the type appropriately.
-         (set-known-type! dst &exact-integer)
          `(let ((,(var-ref dst) ,(ash low-bits -2)))
             ,(convert escape rest)))
 
         (('make-long-immediate dst low-bits)
-         (set-known-type! dst &exact-integer)
          `(let ((,(var-ref dst) ,(ash low-bits -2)))
             ,(convert escape rest)))
 
@@ -552,7 +509,6 @@
         ;; XXX: define!
 
         (('toplevel-box dst var-offset mod-offset sym-offset bound?)
-         (set-known-type! dst &box)
          (let ((vdst (var-ref dst))
                (src (pointer-address
                      (scm->pointer
@@ -599,13 +555,9 @@
                (vb (var-ref b)))
            (cond
             ((and (fixnum? ra) (fixnum? rb))
-             (set-expecting-type! a &exact-integer)
-             (set-expecting-type! b &exact-integer)
              `(let ((,vdst (%add ,va ,vb)))
                 ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
-             (set-expecting-type! a &flonum)
-             (set-expecting-type! b &flonum)
              `(let ((,vdst (%fadd ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -619,7 +571,6 @@
                (vsrc (var-ref src)))
            (cond
             ((fixnum? rsrc)
-             (set-expecting-type! src &exact-integer)
              `(let ((,vdst (%add ,vsrc 1)))
                 ,(convert escape rest)))
             (else
@@ -635,13 +586,9 @@
                (vb (var-ref b)))
            (cond
             ((and (fixnum? ra) (fixnum? rb))
-             (set-expecting-type! a &exact-integer)
-             (set-expecting-type! b &exact-integer)
              `(let ((,vdst (%sub ,va ,vb)))
                 ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
-             (set-expecting-type! a &flonum)
-             (set-expecting-type! b &flonum)
              `(let ((,vdst (%fsub ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -655,7 +602,6 @@
                (vsrc (var-ref src)))
            (cond
             ((fixnum? rsrc)
-             (set-expecting-type! src &exact-integer)
              `(let ((,vdst (%sub ,vsrc 1)))
                 ,(convert escape rest)))
             (else
@@ -671,8 +617,6 @@
                (vb (var-ref b)))
            (cond
             ((and (flonum? ra) (flonum? rb))
-             (set-expecting-type! a &flonum)
-             (set-expecting-type! b &flonum)
              `(let ((,vdst (%fmul ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -692,8 +636,6 @@
                (vb (var-ref b)))
            (cond
             ((and (fixnum? ra) (fixnum? rb))
-             (set-expecting-type! a &exact-integer)
-             (set-expecting-type! b &exact-integer)
              `(let ((,vdst (%mod ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -720,7 +662,6 @@
                (vidx (var-ref idx)))
            (cond
             ((and (vector? rsrc) (fixnum? ridx))
-             (set-expecting-type! dst &vector)
              `(let ((_ (%vector-set! ,vdst ,vsrc ,vidx)))
                 ,(convert escape rest)))
             (else
@@ -815,29 +756,8 @@
            (args-from-parent (reverse (map cdr vars-from-parent)))
            (local-indices-from-parent (map car vars-from-parent)))
 
-      (define (type-of-local n local)
-        ;; Current policy for deciding the type of initial argument loaded from
-        ;; frame:
-        ;;
-        ;; * If local has known type, use the known type.
-        ;; * Else if local has expecting type, use the expecting type.
-        ;; * Else if local is found, load from frame with type of the found
-        ;;   value.
-        ;; * Otherwise, initialize the variable as false, without loading from
-        ;;   frame.
-        (cond
-         ((hashq-ref known-types n)
-          => identity)
-         ((hashq-ref expecting-types n)
-          => identity)
-         ((type-of local)
-          => identity)
-         (else
-          #f)))
-
       (define (add-initial-loads exp-body)
         (debug 3 ";;; add-initial-loads:~%")
-        (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
         (debug 3 ";;;   initial-locals=~a~%" initial-locals)
         (let ((snapshot0 (hashq-ref snapshots 0)))
           (define (type-from-snapshot n)
@@ -892,17 +812,8 @@
                                         (< i (vector-length initial-locals)))
                                    (vector-ref initial-locals i)
                                    (make-variable #f)))
-                        (type (if root-trace?
-                                  (or (hashq-ref expecting-types n)
-                                      ;; XXX: Replace `&box' with a value for type
-                                      ;; to indicate any type.
-                                      &box)
-                                  (type-of-local n local))))
+                        (type (type-of local)))
                    (debug 3 ";;; add-initial-loads: n=~a~%" n)
-                   (debug 3 ";;;   known-type:     ~a~%"
-                          (hashq-ref known-types n))
-                   (debug 3 ";;;   expecting-type: ~a~%"
-                          (hashq-ref expecting-types n))
                    (debug 3 ";;;   local:          ~a~%" local)
                    (debug 3 ";;;   type:           ~a~%" type)
 
@@ -922,8 +833,6 @@
       (define (make-scm escape trace)
         (cond
          (root-trace?
-          ;; Invoking `convert' before generating entry clause so that the
-          ;; `expecting-types' gets filled in.
           (let* ((snap (take-snapshot! *ip-key-set-loop-info!*
                                        0
                                        initial-locals
