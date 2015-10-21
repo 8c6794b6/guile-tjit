@@ -25,6 +25,7 @@
   #:use-module (system vm debug)
   #:use-module (system vm disassembler)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-11)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 match)
   #:export (binding-index
@@ -83,6 +84,49 @@
         (lp (1+ n) (+ pos (vector-ref parsed n)))))
     preds))
 
+(define (compute-frame-sizes code parsed initial-size)
+  (let ((in-sizes (make-vector (vector-length parsed) #f))
+        (out-sizes (make-vector (vector-length parsed) #f)))
+    ;; This only computes all possible valid stack sizes if the bytecode
+    ;; is sorted topologically.  Guiles' compiler does this currently,
+    ;; but if that changes we should do a proper pre-order visit.  Of
+    ;; course the bytecode has to be valid too.
+    (define (find-idx n diff)
+      (let lp ((n n) (diff diff))
+        (cond
+         ((negative? diff)
+          (lp (1- n) (+ diff (vector-ref parsed (1- n)))))
+         ((positive? diff)
+          (lp (1+ n) (- diff (vector-ref parsed n))))
+         (else n))))
+    (vector-set! in-sizes 0 initial-size)
+    (let lp ((n 0) (pos 0))
+      (define (offset->idx target)
+        (call-with-values (lambda ()
+                            (if (>= target pos)
+                                (values n pos)
+                                (values 0 0)))
+          (lambda (n pos)
+            (let lp ((n n) (pos pos))
+              (cond
+               ((= pos target) n)
+               ((< pos target) (lp (1+ n) (+ pos (vector-ref parsed n))))
+               (else (error "bad target" target)))))))
+      (when (< n (vector-length parsed))
+        (let* ((in (vector-ref in-sizes n))
+               (out (instruction-stack-size-after code pos in)))
+          (vector-set! out-sizes n out)
+          (when out
+            (when (instruction-has-fallthrough? code pos)
+              (vector-set! in-sizes (1+ n) out))
+            (for-each (lambda (target)
+                        (let ((idx (find-idx n target)))
+                          (when idx
+                            (vector-set! in-sizes idx out))))
+                      (instruction-relative-jump-targets code pos))))
+        (lp (1+ n) (+ pos (vector-ref parsed n)))))
+    (values in-sizes out-sizes)))
+
 (define (compute-genv parsed defs)
   (let ((genv (make-vector (vector-length parsed) '())))
     (define (add-def! pos var)
@@ -118,8 +162,11 @@
     by-slot))
 
 (define (compute-killv code parsed defs)
-  (let ((defs-by-slot (compute-defs-by-slot defs))
-        (killv (make-vector (vector-length parsed) #f)))
+  (let*-values (((defs-by-slot) (compute-defs-by-slot defs))
+                ((initial-frame-size) (vector-length defs-by-slot))
+                ((in-sizes out-sizes)
+                 (compute-frame-sizes code parsed initial-frame-size))
+                ((killv) (make-vector (vector-length parsed) #f)))
     (define (kill-slot! n slot)
       (bit-set*! (vector-ref killv n) (vector-ref defs-by-slot slot) #t))
     (let lp ((n 0))
@@ -147,7 +194,8 @@
                     (when (< slot (vector-length defs-by-slot))
                       (kill-slot! n slot)))
                   (instruction-slot-clobbers code pos
-                                             (vector-length defs-by-slot)))
+                                             (vector-ref in-sizes n)
+                                             (vector-ref out-sizes n)))
         (lp (1+ n) (+ pos (vector-ref parsed n)))))
     killv))
 

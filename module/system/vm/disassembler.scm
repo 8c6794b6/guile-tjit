@@ -39,6 +39,7 @@
             instruction-length
             instruction-has-fallthrough?
             instruction-relative-jump-targets
+            instruction-stack-size-after
             instruction-slot-clobbers))
 
 (define-syntax-rule (u32-ref buf n)
@@ -536,15 +537,70 @@ address of that offset."
   (let ((opcode (logand (bytevector-u32-native-ref code pos) #xff)))
     ((vector-ref jump-parsers opcode) code pos)))
 
+(define-syntax define-stack-effect-parser
+  (lambda (x)
+    (define (stack-effect-parser name)
+      (case name
+        ((push)
+         #'(lambda (code pos size) (+ size 1)))
+        ((pop)
+         #'(lambda (code pos size) (- size 1)))
+        ((drop)
+         #'(lambda (code pos size)
+             (let ((count (ash (bytevector-u32-native-ref code pos) -8)))
+               (- size count))))
+        ((alloc-frame reset-frame)
+         #'(lambda (code pos size)
+             (let ((nlocals (ash (bytevector-u32-native-ref code pos) -8)))
+               nlocals)))
+        ((receive)
+         #'(lambda (code pos size)
+             (let ((nlocals (ash (bytevector-u32-native-ref code (+ pos 4))
+                                 -8)))
+               nlocals)))
+        ((bind-kwargs)
+         #'(lambda (code pos size)
+             (let ((ntotal (ash (bytevector-u32-native-ref code (+ pos 8)) -8)))
+               ntotal)))
+        ((bind-rest)
+         #'(lambda (code pos size)
+             (let ((dst (ash (bytevector-u32-native-ref code pos) -8)))
+               (+ dst 1))))
+        ((assert-nargs-ee/locals)
+         #'(lambda (code pos size)
+             (let ((nargs (logand (ash (bytevector-u32-native-ref code pos) -8)
+                                  #xfff))
+                   (nlocals (ash (bytevector-u32-native-ref code pos) -20)))
+               (+ nargs nlocals))))
+        ((call call-label)
+         #'(lambda (code pos size) #f))
+        ((tail-call tail-call-label tail-call/shuffle tail-apply)
+         #'(lambda (code pos size) #f))
+        (else
+         #f)))
+    (syntax-case x ()
+      ((_ name opcode kind word0 word* ...)
+       (let ((parser (stack-effect-parser (syntax->datum #'name))))
+         (if parser
+             #`(vector-set! stack-effect-parsers opcode #,parser)
+             #'(begin)))))))
+
+(define stack-effect-parsers (make-vector 256 (lambda (code pos size) size)))
+(visit-opcodes define-stack-effect-parser)
+
+(define (instruction-stack-size-after code pos size)
+  (let ((opcode (logand (bytevector-u32-native-ref code pos) #xff)))
+    ((vector-ref stack-effect-parsers opcode) code pos size)))
+
 (define-syntax define-clobber-parser
   (lambda (x)
     (syntax-case x ()
-      ((_ name opcode kind arg ...)
+      ((_ name opcode kind arg0 arg* ...)
        (case (syntax->datum #'kind)
          ((!)
           (case (syntax->datum #'name)
             ((call call-label)
-             #'(let ((parse (lambda (code pos nslots)
+             #'(let ((parse (lambda (code pos nslots-in nslots-out)
                               (call-with-values
                                   (lambda ()
                                     (disassemble-one code (/ pos 4)))
@@ -552,26 +608,32 @@ address of that offset."
                                   (match elt
                                     ((_ proc . _)
                                      (let lp ((slot (- proc 2)))
-                                       (if (< slot nslots)
+                                       (if (< slot nslots-in)
                                            (cons slot (lp (1+ slot)))
                                            '())))))))))
                  (vector-set! clobber-parsers opcode parse)))
             (else
              #'(begin))))
          ((<-)
-          #'(let ((parse (lambda (code pos nslots)
+          #`(let ((parse (lambda (code pos nslots-in nslots-out)
                            (call-with-values
                                (lambda ()
                                  (disassemble-one code (/ pos 4)))
                              (lambda (len elt)
                                (match elt
-                                 ((_ dst . _) (list dst))))))))
+                                 ((_ dst . _)
+                                  #,(case (syntax->datum #'arg0)
+                                      ((X8_F24 X8_F12_F12)
+                                       #'(list dst))
+                                      (else
+                                       #'(list (- nslots-out 1 dst)))))))))))
               (vector-set! clobber-parsers opcode parse)))
          (else (error "unexpected instruction kind" #'kind)))))))
 
-(define clobber-parsers (make-vector 256 (lambda (code pos nslots) '())))
+(define clobber-parsers
+  (make-vector 256 (lambda (code pos nslots-in nslots-out) '())))
 (visit-opcodes define-clobber-parser)
 
-(define (instruction-slot-clobbers code pos nslots)
+(define (instruction-slot-clobbers code pos nslots-in nslots-out)
   (let ((opcode (logand (bytevector-u32-native-ref code pos) #xff)))
-    ((vector-ref clobber-parsers opcode) code pos nslots)))
+    ((vector-ref clobber-parsers opcode) code pos nslots-in nslots-out)))
