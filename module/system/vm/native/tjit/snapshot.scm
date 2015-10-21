@@ -79,9 +79,7 @@
             false?
             type-of
             addr->source-line
-            pretty-type
-
-            accumulate-locals)
+            pretty-type)
   #:re-export (&exact-integer
                &flonum
                &char
@@ -281,132 +279,6 @@
            (hex-ip (number->string addr 16)))
       (string-append "ra:" (cyan hex-ip))))
    (else type)))
-
-
-;;;
-;;; Locals
-;;;
-
-(define (accumulate-locals local-offset ops)
-  (let* ((ret (make-hash-table))
-         (offset local-offset))
-    (define (nyi st op)
-      (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
-      st)
-    (define (acc-one st op locals)
-      (define-syntax-rule (push-offset! n)
-        (set! offset (+ offset n)))
-      (define-syntax-rule (pop-offset! n)
-        (set! offset (- offset n)))
-      (define-syntax add!
-        (syntax-rules ()
-          ((_ st i j k l)
-           (add! (add! st i j) k l))
-          ((_ st i j k)
-           (add! (add! st i j) k))
-          ((_ st i j)
-           (add! (add! st i) j))
-          ((_ st i)
-           (begin
-             (hashq-set! st (+ i offset) #t)
-             st))))
-      (match op
-        ((op a1)
-         (case op
-           ((return)
-            ;; Store proc, returned value, VM frame dynamic link, and VM frame
-            ;; return address.
-            (add! st a1 1 -1 -2))
-           ((br tail-call)
-            st)
-           (else
-            (nyi st op))))
-        ((op a1 a2)
-         (case op
-           ((call)
-            ;; Store proc, VM frame dynamic link, and VM frame return address.
-            (let ((st (add! st a1 (- a1 1) (- a1 2))))
-              (push-offset! a1)
-              st))
-           ((static-ref
-             make-short-immediate make-long-immediate make-long-long-immediate)
-            (add! st a1))
-           ((mov sub1 add1 box-ref box-set!)
-            (add! st a1 a2))
-           ((assert-nargs-ee/locals)
-            st)
-           (else
-            (nyi st op))))
-        ((op a1 a2 a3)
-         (case op
-           ((add sub mul div quo)
-            (add! st a1 a2 a3))
-           ((call-label)
-            (let ((st (add! st a1)))
-              (push-offset! a1)
-              st))
-           ((receive)
-            ;; Modifying locals since procedure taking snapshot uses frame
-            ;; lowers to recover the values after this `receive' bytecode
-            ;; operation. Making a copy of locals so that later procedure can
-            ;; see the original locals.
-            (let ((locals-copy (vector-copy locals))
-                  (ret-index (+ a2 1)))
-              (pop-offset! a2)
-              ;; XXX: If this test for `when' is removed, "mandelbrot.scm" with
-              ;; `--jit-debug=0' will fail. However, running with `--jit-debug'
-              ;; value greater than 0 will work.
-              (when (and (< ret-index (vector-length locals))
-                         (< a1 (vector-length locals-copy)))
-                (vector-set! locals-copy a1 (vector-ref locals ret-index)))
-              (add! st a1 a2)))
-           ((receive-values)
-            (pop-offset! a1)
-            (add! st a1))
-           (else
-            (nyi st op))))
-        ((op a1 a2 a3 a4)
-         (case op
-           ((br-if-< br-if-= br-if-<=)
-            (add! st a1 a2))
-           (else
-            (nyi st op))))
-        ((op a1 a2 a3 a4 a5)
-         (case op
-           ((toplevel-box)
-            (add! st a1))
-           (else
-            (nyi st op))))
-        ((op)
-         (nyi st op))
-        (_
-         (error (format #f "ir:accumulate-locals: ~a" ops)))))
-    (define (acc st ops)
-      (match ops
-        (((op _ _ _ locals) . rest)
-         (acc (acc-one st op locals) rest))
-        (()
-         st)))
-    (let ((local-indices (sort (hash-fold (lambda (k v acc)
-                                            (cons k acc))
-                                          '()
-                                          (acc ret ops))
-                               >)))
-      (let ((verbosity (lightning-verbosity)))
-        (when (and verbosity (<= 3 verbosity))
-          (format #t ";;; local-indices:~%")
-          (format #t ";;;   ~a~%" local-indices)))
-
-      ;; Make past-frame with locals in lower frames.
-      ;;
-      ;; Lower frame data is saved at the time of accumulation. Otherwise, if
-      ;; one of the guard operation appeared soon after bytecode sequence
-      ;; `return' and `receive', snapshot does not know the value of locals in
-      ;; lower frame. When recorded bytecode contains `return' before `call',
-      ;; snapshot will recover a frame lower than the one used to enter the
-      ;; native call.
-      ;;
-      (make-past-frame '() '() local-offset #() local-indices))))
 
 
 ;;;
