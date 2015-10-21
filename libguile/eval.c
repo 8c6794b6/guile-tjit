@@ -882,7 +882,8 @@ prepare_boot_closure_env_for_eval (SCM proc, unsigned int argc,
       *out_body = BOOT_CLOSURE_BODY (proc);
       *inout_env = new_env;
     }
-  else if (BOOT_CLOSURE_IS_REST (proc) && argc >= nreq)
+  else if (!BOOT_CLOSURE_IS_FIXED (proc) &&
+           BOOT_CLOSURE_IS_REST (proc) && argc >= nreq)
     {
       SCM rest;
       int i;
