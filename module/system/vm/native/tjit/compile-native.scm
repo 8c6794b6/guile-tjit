@@ -42,7 +42,7 @@
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit assembler)
-  #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit compile-ir)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit registers)

@@ -81,7 +81,28 @@
             addr->source-line
             pretty-type
 
-            accumulate-locals))
+            accumulate-locals)
+  #:re-export (&exact-integer
+               &flonum
+               &char
+               &unspecified
+               &unbound
+               &false
+               &true
+               &nil
+               &null
+               &symbol
+               &keyword
+               &procedure
+               &pointer
+               &fluid
+               &vector
+               &box
+               &struct
+               &bytevector
+               &bitvector
+               &array
+               &hash-table))
 
 
 ;;;

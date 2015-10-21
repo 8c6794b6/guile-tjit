@@ -34,7 +34,7 @@
   #:use-module (system foreign)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit compile-ir)
   #:use-module (system vm native tjit snapshot)
   #:export (<fragment>
             make-fragment
