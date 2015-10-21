@@ -1,4 +1,4 @@
-;;;; Compile ANF IR to list of primitive operations
+;;;; Assign resiters to IR
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -22,7 +22,7 @@
 ;;;
 ;;; Assign registers to ANF IR, compile to list of primitive operations.
 ;;; Applying naive strategy to assign registers to locals, does nothing
-;;; sophisticated such as linear-scan, binpacking, or graph coloring.
+;;; sophisticated such as linear-scan, binpacking, graph coloring, etc.
 ;;;
 ;;; Code:
 
@@ -42,7 +42,7 @@
             primlist-entry
             primlist-loop
             primlist-nspills
-            anf->primlist))
+            ir->primlist))
 
 ;;;
 ;;; Record type
@@ -248,10 +248,10 @@
 
 
 ;;;
-;;; ANF to Primitive List
+;;; IR to Primitive List
 ;;;
 
-(define (anf->primlist parent-snapshot initial-snapshot vars term)
+(define (ir->primlist parent-snapshot initial-snapshot vars term)
   (let ((initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
@@ -342,13 +342,13 @@
                       (variable-set! mem-idx (+ n 1))))
                    (_
                     (debug 1
-                           "XXX anf->primlist: var ~a at local ~a, type ~a~%"
+                           "XXX ir->primlist: var ~a at local ~a, type ~a~%"
                            var local type)))
                  (lp vars locals))
                 (_
                  (values)))))
            (_
-            (debug 2 ";;; anf->primlist: perhaps loop-less root trace~%")))
+            (debug 2 ";;; ir->primlist: perhaps loop-less root trace~%")))
          (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
                 (sort-variables-in-env env))
          (let-values (((patch-ops snapshot-idx)
@@ -359,4 +359,4 @@
                   (sort-variables-in-env env))
            (make-primlist patch-ops '() (variable-ref mem-idx))))
         (_
-         (error "anf->primlist: malformed term" term))))))
+         (error "ir->primlist: malformed term" term))))))

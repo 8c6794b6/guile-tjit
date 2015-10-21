@@ -48,8 +48,7 @@
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
-  #:export (compile-native
-            compile-mcode))
+  #:export (compile-mcode))
 
 
 ;;;
@@ -431,7 +430,7 @@ of SRCS, DSTS, TYPES are local index number."
         (error "compile-tjit: snapshot not found in parent trace"
                parent-exit-id)))))
 
-    ;; Assemble the primitives in CPS.
+    ;; Assemble the primitives.
     (compile-primlist primlist #f entry-ip snapshots fp-offset fragment
                       trampoline linked-ip trace-id)))
 

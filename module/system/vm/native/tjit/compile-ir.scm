@@ -20,12 +20,12 @@
 
 ;;; Commentary:
 ;;;
-;;; Compile list of bytecode operations to intermediate representation (IR) via
-;;; Scheme in (almost) ANF.
+;;; Compile list of bytecode operations to intermediate representation (IR) in
+;;; (almost) A-normal form (ANF).
 ;;;
 ;;; One of the main reasons to convert bytecode to ANF is to do floating point
-;;; arithmetic efficiently. VM bytecodes uses integer index to refer locals.
-;;; Those locals does not distinguish floating point values from other. In ANF
+;;; arithmetic efficiently. VM bytecodes uses integer index to refer locals, and
+;;; those locals does not distinguish floating point values from other. In ANF
 ;;; format, it is possible to perform floating point arithmetic directly with
 ;;; unboxed value in floating point register inside loop.
 ;;;
@@ -47,14 +47,14 @@
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit snapshot)
   #:export (trace->primlist
-            trace->scm))
+            compile-ir))
 
 
 ;;;
-;;; Scheme ANF compiler
+;;; Traced bytecode to ANF IR compiler
 ;;;
 
-(define (trace->scm fragment exit-id loop? trace)
+(define (compile-ir fragment exit-id loop? trace)
   (define-syntax root-trace?
     (identifier-syntax (not fragment)))
   (define (get-initial-snapshot-id)
@@ -191,17 +191,17 @@
               (()
                exp-body)))))
 
-      (define (make-scm escape trace)
+      (define (make-ir escape)
         (let ((emit (lambda ()
-                      (compile-ir trace
-                                  escape
-                                  loop?
-                                  snapshot-id
-                                  snapshots
-                                  parent-snapshot
-                                  past-frame
-                                  vars
-                                  initial-offset))))
+                      (trace->ir trace
+                                 escape
+                                 loop?
+                                 snapshot-id
+                                 snapshots
+                                 parent-snapshot
+                                 past-frame
+                                 vars
+                                 initial-offset))))
           (cond
            (root-trace?
             (let* ((snapshot (make-snapshot 0 0 0 initial-nlocals initial-locals
@@ -238,16 +238,14 @@
                                      (emit))))))
                  patch))))))
 
-      (let ((scm (call-with-escape-continuation
-                  (lambda (escape)
-                    (make-scm escape trace)))))
+      (let ((ir (call-with-escape-continuation make-ir)))
         (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
                (sort (hash-fold acons '() snapshots)
                      (lambda (a b) (< (car a) (car b)))))
         (let ((indices (if root-trace?
                            local-indices
                            local-indices-from-parent)))
-          (values indices vars snapshots scm))))))
+          (values indices vars snapshots ir))))))
 
 (define (trace->primlist trace-id fragment exit-id loop? trace)
   "Compiles TRACE to primlist.
@@ -258,8 +256,8 @@ to indicate whether the trace contains loop or not."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
-  (let-values (((locals vars snapshots scm)
-                (trace->scm fragment exit-id loop? trace)))
+  (let-values (((locals vars snapshots ir)
+                (compile-ir fragment exit-id loop? trace)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log trace-id)))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
@@ -267,7 +265,7 @@ to indicate whether the trace contains loop or not."
                                  (hashq-ref (fragment-snapshots fragment)
                                             exit-id)))
            (initial-snapshot (hashq-ref snapshots 0))
-           (plist (and scm
-                       (anf->primlist parent-snapshot initial-snapshot
-                                      vars scm))))
-      (values locals snapshots scm plist))))
+           (plist (and ir
+                       (ir->primlist parent-snapshot initial-snapshot vars
+                                     ir))))
+      (values locals snapshots ir plist))))
