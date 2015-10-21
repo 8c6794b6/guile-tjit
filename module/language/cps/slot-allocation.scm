@@ -537,12 +537,6 @@ are comparable with eqv?.  A tmp slot may be used."
   ;; could be that they are out of the computed live set.  In that case
   ;; they need to be adjoined to the live set, used when choosing a
   ;; temporary slot.
-  ;;
-  ;; Note that although we reserve slots 253-255 for shuffling operands
-  ;; that address less than the full 24-bit range of locals, that
-  ;; reservation doesn't apply here, because this temporary itself is
-  ;; used while doing parallel assignment via "mov", and "mov" does not
-  ;; need shuffling.
   (define (compute-tmp-slot live stack-slots)
     (find-first-zero (fold add-live-slot live stack-slots)))
 
@@ -687,10 +681,9 @@ are comparable with eqv?.  A tmp slot may be used."
                          (match vars
                            (() slots)
                            ((var . vars)
-                            (let ((n (if (<= 253 n 255) 256 n)))
-                              (lp vars
-                                  (intmap-add! slots var n)
-                                  (1+ n)))))))))
+                            (lp vars
+                                (intmap-add! slots var n)
+                                (1+ n))))))))
                    (_ slots)))
                cps empty-intmap))
 
@@ -701,15 +694,9 @@ are comparable with eqv?.  A tmp slot may be used."
   (logand live-slots (lognot (ash 1 slot))))
 
 (define-inlinable (compute-slot live-slots hint)
-  ;; Slots 253-255 are reserved for shuffling; see comments in
-  ;; assembler.scm.
-  (if (and hint (not (logbit? hint live-slots))
-           (or (< hint 253) (> hint 255)))
+  (if (and hint (not (logbit? hint live-slots)))
       hint
-      (let ((slot (find-first-zero live-slots)))
-        (if (or (< slot 253) (> slot 255))
-            slot
-            (+ 256 (find-first-zero (ash live-slots -256)))))))
+      (find-first-zero live-slots)))
 
 (define (allocate-lazy-vars cps slots call-allocs live-in lazy)
   (define (compute-live-slots slots label)

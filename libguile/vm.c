@@ -649,9 +649,9 @@ static const scm_t_uint32 vm_builtin_abort_to_prompt_code[] = {
 static const scm_t_uint32 vm_builtin_call_with_values_code[] = {
   SCM_PACK_OP_24 (assert_nargs_ee, 3),
   SCM_PACK_OP_24 (alloc_frame, 7),
-  SCM_PACK_OP_12_12 (mov, 6, 1),
+  SCM_PACK_OP_12_12 (mov, 0, 5),
   SCM_PACK_OP_24 (call, 6), SCM_PACK_OP_ARG_8_24 (0, 1),
-  SCM_PACK_OP_12_12 (mov, 0, 2),
+  SCM_PACK_OP_24 (long_fmov, 0), SCM_PACK_OP_ARG_8_24 (0, 2),
   SCM_PACK_OP_24 (tail_call_shuffle, 7)
 };
 

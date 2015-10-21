@@ -97,6 +97,7 @@
             emit-br-if-<=
             emit-br-if-logtest
             (emit-mov* . emit-mov)
+            (emit-fmov* . emit-fmov)
             (emit-box* . emit-box)
             (emit-box-ref* . emit-box-ref)
             (emit-box-set!* . emit-box-set!)
@@ -638,166 +639,170 @@ later by the linker."
 
 (eval-when (expand)
 
-  ;; Some operands are encoded using a restricted subset of the full
-  ;; 24-bit local address space, in order to make the bytecode more
-  ;; dense in the usual case that there are few live locals.  Here we
-  ;; define wrapper emitters that shuffle out-of-range operands into and
-  ;; out of the reserved range of locals [233,255].  This range is
-  ;; sufficient because these restricted operands are only present in
-  ;; the first word of an instruction.  Since 8 bits is the smallest
-  ;; slot-addressing operand size, that means we can fit 3 operands in
-  ;; the 24 bits of payload of the first word (the lower 8 bits being
-  ;; taken by the opcode).
+  ;; In Guile's VM, locals are usually addressed via the stack pointer
+  ;; (SP).  There can be up to 2^24 slots for local variables in a
+  ;; frame.  Some instructions encode their operands using a restricted
+  ;; subset of the full 24-bit local address space, in order to make the
+  ;; bytecode more dense in the usual case that a function needs few
+  ;; local slots.  To allow these instructions to be used when there are
+  ;; many local slots, we can temporarily push the values on the stack,
+  ;; operate on them there, and then store back any result as we pop the
+  ;; SP to its original position.
   ;;
-  ;; The result are wrapper emitters with the same arity,
-  ;; e.g. emit-cons* that wraps emit-cons.  We expose these wrappers as
-  ;; the public interface for emitting `cons' instructions.  That way we
-  ;; solve the problem fully and in just one place.  The only manual
-  ;; care that need be taken is in the exports list at the top of the
-  ;; file -- to be sure that we export the wrapper and not the wrapped
-  ;; emitter.
+  ;; We implement this shuffling via wrapper emitters that have the same
+  ;; arity as the emitter they wrap, e.g. emit-cons* that wraps
+  ;; emit-cons.  We expose these wrappers as the public interface for
+  ;; emitting `cons' instructions.  That way we solve the problem fully
+  ;; and in just one place.  The only manual care that need be taken is
+  ;; in the exports list at the top of the file -- to be sure that we
+  ;; export the wrapper and not the wrapped emitter.
 
-  (define (shuffling-assembler name kind word0 word*)
-    (define (analyze-first-word)
-      (define-syntax op-case
-        (syntax-rules ()
-          ((_ type ((%type %kind arg ...) values) clause ...)
-           (if (and (eq? type '%type) (eq? kind '%kind))
-               (with-syntax (((arg ...) (generate-temporaries #'(arg ...))))
-                 #'((arg ...) values))
-               (op-case type clause ...)))
-          ((_ type)
-           #f)))
-      (op-case
-       word0
-       ((X8_S8_I16 <- a imm)
-        (values (if (< a (ash 1 8))  a 253)
-                imm))
-       ((X8_S12_S12 ! a b)
-        (values (if (< a (ash 1 12)) a (begin (emit-mov* asm 253 a) 253))
-                (if (< b (ash 1 12)) b (begin (emit-mov* asm 254 b) 254))))
-       ((X8_S12_S12 <- a b)
-        (values (if (< a (ash 1 12)) a 253)
-                (if (< b (ash 1 12)) b (begin (emit-mov* asm 254 b) 254))))
-       ((X8_S12_C12 <- a b)
-        (values (if (< a (ash 1 12)) a 253)
-                b))
+  (define (shuffling-assembler emit kind word0 word*)
+    (with-syntax ((emit emit))
+      (match (cons* word0 kind word*)
+        (('X8_S12_S12 '!)
+         #'(lambda (asm a b)
+             (cond
+              ((< (logior a b) (ash 1 12))
+               (emit asm a b))
+              (else
+               (emit-push asm a)
+               (emit-push asm (1+ b))
+               (emit asm 1 0)
+               (emit-drop asm 2)))))
+        (('X8_S12_S12 '<-)
+         #'(lambda (asm dst a)
+             (cond
+              ((< (logior dst a) (ash 1 12))
+               (emit asm dst a))
+              (else
+               (emit-push asm a)
+               (emit asm 0 0)
+               (emit-pop asm dst)))))
 
-       ((X8_S8_S8_S8 ! a b c)
-        (values (if (< a (ash 1 8))  a (begin (emit-mov* asm 253 a) 253))
-                (if (< b (ash 1 8))  b (begin (emit-mov* asm 254 b) 254))
-                (if (< c (ash 1 8))  c (begin (emit-mov* asm 255 c) 255))))
-       ((X8_S8_S8_S8 <- a b c)
-        (values (if (< a (ash 1 8))  a 253)
-                (if (< b (ash 1 8))  b (begin (emit-mov* asm 254 b) 254))
-                (if (< c (ash 1 8))  c (begin (emit-mov* asm 255 c) 255))))
+        (('X8_S12_S12 '! 'X8_C24)
+         #'(lambda (asm a b c)
+             (cond
+              ((< (logior a b) (ash 1 12))
+               (emit asm a b c))
+              (else
+               (emit-push asm a)
+               (emit-push asm (1+ b))
+               (emit asm 1 0 c)
+               (emit-drop asm 2)))))
+        (('X8_S12_S12 '<- 'X8_C24)
+         #'(lambda (asm dst a c)
+             (cond
+              ((< (logior dst a) (ash 1 12))
+               (emit asm dst a c))
+              (else
+               (emit-push asm a)
+               (emit asm 0 0 c)
+               (emit-pop asm dst)))))
 
-       ((X8_S8_S8_C8 ! a b c)
-        (values (if (< a (ash 1 8))  a (begin (emit-mov* asm 253 a) 253))
-                (if (< b (ash 1 8))  b (begin (emit-mov* asm 254 b) 254))
-                c))
-       ((X8_S8_S8_C8 <- a b c)
-        (values (if (< a (ash 1 8))  a 253)
-                (if (< b (ash 1 8))  b (begin (emit-mov* asm 254 b) 254))
-                c))
+        (('X8_S12_C12 '<-)
+         #'(lambda (asm dst const)
+             (cond
+              ((< dst (ash 1 12))
+               (emit asm dst const))
+              (else
+               ;; Push garbage value to make space for dst.
+               (emit-push asm dst)
+               (emit asm 0 const)
+               (emit-pop asm dst)))))
 
-       ((X8_S8_C8_S8 ! a b c)
-        (values (if (< a (ash 1 8))  a (begin (emit-mov* asm 253 a) 253))
-                b
-                (if (< c (ash 1 8))  c (begin (emit-mov* asm 255 c) 255))))
-       ((X8_S8_C8_S8 <- a b c)
-        (values (if (< a (ash 1 8))  a 253)
-                b
-                (if (< c (ash 1 8))  c (begin (emit-mov* asm 255 c) 255))))))
+        (('X8_S8_I16 '<-)
+         #'(lambda (asm dst imm)
+             (cond
+              ((< dst (ash 1 8))
+               (emit asm dst imm))
+              (else
+               ;; Push garbage value to make space for dst.
+               (emit-push asm dst)
+               (emit asm 0 imm)
+               (emit-pop asm dst)))))
 
-    (define (tail-formals type)
-      (define-syntax op-case
-        (syntax-rules ()
-          ((op-case type (%type arg ...) clause ...)
-           (if (eq? type '%type)
-               (generate-temporaries #'(arg ...))
-               (op-case type clause ...)))
-          ((op-case type)
-           (error "unmatched type" type))))
-      (op-case type
-               (C32 a)
-               (I32 imm)
-               (A32 imm)
-               (B32)
-               (N32 label)
-               (R32 label)
-               (L32 label)
-               (LO32 label offset)
-               (C8_C24 a b)
-               (B1_C7_L24 a b label)
-               (B1_X7_S24 a b)
-               (B1_X7_F24 a b)
-               (B1_X7_C24 a b)
-               (B1_X7_L24 a label)
-               (B1_X31 a)
-               (X8_S24 a)
-               (X8_F24 a)
-               (X8_C24 a)
-               (X8_L24 label)))
+        (('X8_S8_S8_S8 '!)
+         #'(lambda (asm a b c)
+             (cond
+              ((< (logior a b c) (ash 1 8))
+               (emit asm a b c))
+              (else
+               (emit-push asm a)
+               (emit-push asm (+ b 1))
+               (emit-push asm (+ c 2))
+               (emit asm 2 1 0)
+               (emit-drop asm 3)))))
+        (('X8_S8_S8_S8 '<-)
+         #'(lambda (asm dst a b)
+             (cond
+              ((< (logior dst a b) (ash 1 8))
+               (emit asm dst a b))
+              (else
+               (emit-push asm a)
+               (emit-push asm (1+ b))
+               (emit asm 1 1 0)
+               (emit-drop asm 1)
+               (emit-pop asm dst)))))
 
-    (define (shuffle-up dst)
-      (define-syntax op-case
-        (syntax-rules ()
-          ((_ type ((%type ...) exp) clause ...)
-           (if (memq type '(%type ...))
-               #'exp
-               (op-case type clause ...)))
-          ((_ type)
-           (error "unexpected type" type))))
-      (with-syntax ((dst dst))
-        (op-case
-         word0
-         ((X8_S8_I16 X8_S8_S8_S8 X8_S8_S8_C8 X8_S8_C8_S8)
-          (unless (< dst (ash 1 8))
-            (emit-mov* asm dst 253)))
-         ((X8_S12_S12 X8_S12_C12)
-          (unless (< dst (ash 1 12))
-            (emit-mov* asm dst 253))))))
+        (('X8_S8_S8_C8 '<-)
+         #'(lambda (asm dst a const)
+             (cond
+              ((< (logior dst a) (ash 1 8))
+               (emit asm dst a const))
+              (else
+               (emit-push asm a)
+               (emit asm 0 0 const)
+               (emit-pop asm dst)))))
 
-    (and=>
-     (analyze-first-word)
-     (lambda (formals+shuffle)
-       (with-syntax ((emit-name (id-append name #'emit- name))
-                     (((formal0 ...) shuffle) formals+shuffle)
-                     (((formal* ...) ...) (map tail-formals word*)))
-         (with-syntax (((shuffle-up-dst ...)
-                        (if (eq? kind '<-)
-                            (syntax-case #'(formal0 ...) ()
-                              ((dst . _)
-                               (list (shuffle-up #'dst))))
-                            '())))
-           #'(lambda (asm formal0 ... formal* ... ...)
-               (call-with-values (lambda () shuffle)
-                 (lambda (formal0 ...)
-                   (emit-name asm formal0 ... formal* ... ...)))
-               shuffle-up-dst ...))))))
+        (('X8_S8_C8_S8 '!)
+         #'(lambda (asm a const b)
+             (cond
+              ((< (logior a b) (ash 1 8))
+               (emit asm a const b))
+              (else
+               (emit-push asm a)
+               (emit-push asm (1+ b))
+               (emit asm 1 const 0)
+               (emit-drop asm 2)))))
+        (('X8_S8_C8_S8 '<-)
+         #'(lambda (asm dst const a)
+             (cond
+              ((< (logior dst a) (ash 1 8))
+               (emit asm dst const a))
+              (else
+               (emit-push asm a)
+               (emit asm 0 const 0)
+               (emit-pop asm dst))))))))
 
   (define-syntax define-shuffling-assembler
     (lambda (stx)
+      (define (might-shuffle? word0)
+        (case word0
+          ((X8_S12_S12 X8_S12_C12
+                       X8_S8_I16
+                       X8_S8_S8_S8 X8_S8_S8_C8 X8_S8_C8_S8) #t)
+          (else #f)))
+
       (syntax-case stx ()
         ((_ #:except (except ...) name opcode kind word0 word* ...)
-         (cond
-          ((or-map (lambda (op) (eq? (syntax->datum #'name) op))
-                   (map syntax->datum #'(except ...)))
-           #'(begin))
-          ((shuffling-assembler #'name (syntax->datum #'kind)
-                                (syntax->datum #'word0)
-                                (map syntax->datum #'(word* ...)))
-           => (lambda (proc)
-                (with-syntax ((emit (id-append #'name
-                                               (id-append #'name #'emit- #'name)
-                                               #'*))
-                              (proc proc))
-                  #'(define emit
-                      (let ((emit proc))
-                        (hashq-set! assemblers 'name emit)
-                        emit)))))
-          (else #'(begin))))))))
+         (let ((_except (syntax->datum #'(except ...)))
+               (_name (syntax->datum #'name))
+               (_kind (syntax->datum #'kind))
+               (_word0 (syntax->datum #'word0))
+               (_word* (syntax->datum #'(word* ...)))
+               (emit (id-append #'name #'emit- #'name)))
+           (cond
+            ((and (might-shuffle? _word0) (not (memq _name _except)))
+             (with-syntax
+                 ((emit* (id-append #'name emit #'*))
+                  (proc (shuffling-assembler emit _kind _word0 _word*)))
+               #'(define emit*
+                   (let ((emit* proc))
+                     (hashq-set! assemblers 'name emit*)
+                     emit*))))
+            (else
+             #'(begin)))))))))
 
 (visit-opcodes define-shuffling-assembler #:except (receive mov))
 
@@ -808,6 +813,9 @@ later by the linker."
   (if (and (< dst (ash 1 12)) (< src (ash 1 12)))
       (emit-mov asm dst src)
       (emit-long-mov asm dst src)))
+
+(define (emit-fmov* asm dst src)
+  (emit-long-fmov asm dst src))
 
 (define (emit-receive* asm dst proc nlocals)
   (if (and (< dst (ash 1 12)) (< proc (ash 1 12)))
@@ -1104,19 +1112,6 @@ returned instead."
     (set-arity-definitions! arity (reverse (arity-definitions arity)))
     (set-arity-high-pc! arity (asm-start asm))))
 
-;; As noted above, we reserve locals 253 through 255 for shuffling large
-;; operands.  However the calling convention has all arguments passed in
-;; a contiguous block.  This helper, called after the clause has been
-;; chosen and the keyword/optional/rest arguments have been processed,
-;; shuffles up arguments from slot 253 and higher into their final
-;; allocations.
-;;
-(define (shuffle-up-args asm nargs)
-  (when (> nargs 253)
-    (let ((slot (1- nargs)))
-      (emit-mov asm (+ slot 3) slot)
-      (shuffle-up-args asm (1- nargs)))))
-
 (define-macro-assembler (standard-prelude asm nreq nlocals alternate)
   (cond
    (alternate
@@ -1126,8 +1121,7 @@ returned instead."
     (emit-assert-nargs-ee/locals asm nreq (- nlocals nreq)))
    (else
     (emit-assert-nargs-ee asm nreq)
-    (emit-alloc-frame asm nlocals)))
-  (shuffle-up-args asm nreq))
+    (emit-alloc-frame asm nlocals))))
 
 (define-macro-assembler (opt-prelude asm nreq nopt rest? nlocals alternate)
   (if alternate
@@ -1140,8 +1134,7 @@ returned instead."
     (emit-br-if-nargs-gt asm (+ nreq nopt) alternate))
    (else
     (emit-assert-nargs-le asm (+ nreq nopt))))
-  (emit-alloc-frame asm nlocals)
-  (shuffle-up-args asm (+ nreq nopt (if rest? 1 0))))
+  (emit-alloc-frame asm nlocals))
 
 (define-macro-assembler (kw-prelude asm nreq nopt rest? kw-indices
                                     allow-other-keys? nlocals alternate)
@@ -1162,8 +1155,7 @@ returned instead."
                       (+ nreq nopt)
                       ntotal
                       (intern-constant asm kw-indices))
-    (emit-alloc-frame asm nlocals)
-    (shuffle-up-args asm ntotal)))
+    (emit-alloc-frame asm nlocals)))
 
 (define-macro-assembler (label asm sym)
   (hashq-set! (asm-labels asm) sym (asm-start asm)))

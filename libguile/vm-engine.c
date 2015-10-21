@@ -107,7 +107,7 @@
       {                                                 \
         SYNC_IP ();                                     \
         exp;                                            \
-        CACHE_LOCALS ();                                    \
+        CACHE_SP ();                                    \
       }                                                 \
   } while (0)
 #else
@@ -128,7 +128,7 @@
   RUN_HOOK0 (abort)
 
 #define VM_HANDLE_INTERRUPTS                     \
-  SCM_ASYNC_TICK_WITH_GUARD_CODE (thread, SYNC_IP (), CACHE_LOCALS ())
+  SCM_ASYNC_TICK_WITH_GUARD_CODE (thread, SYNC_IP (), CACHE_SP ())
 
 
 /* Virtual Machine
@@ -136,31 +136,29 @@
    The VM has three state bits: the instruction pointer (IP), the frame
    pointer (FP), and the stack pointer (SP).  We cache the IP in a
    machine register, local to the VM, because it is used extensively by
-   the VM.  We cache the address of local 0 too, for now; when we change
-   to reference variables relative to the SP we'll cache the SP instead.
-   As it is, the SP is used more by code outside the VM than by the VM
-   itself, we don't bother caching it locally.
+   the VM.  We do the same for SP.  The FP is used more by code outside
+   the VM than by the VM itself, we don't bother caching it locally.
 
    Keeping vp->ip in sync with the local IP would be a big lose, as it
    is updated so often.  Instead of updating vp->ip all the time, we
    call SYNC_IP whenever we would need to know the IP of the top frame.
    In practice, we need to SYNC_IP whenever we call out of the VM to a
    function that would like to walk the stack, perhaps as the result of
-   an exception.
+   an exception.  On the other hand, we do always keep vp->sp in sync
+   with the local SP.
 
    One more thing.  We allow the stack to move, when it expands.
    Therefore if you call out to a C procedure that could call Scheme
    code, or otherwise push anything on the stack, you will need to
-   CACHE_LOCALS afterwards to restore the possibly-changed address of
-   local 0. */
+   CACHE_SP afterwards to restore the possibly-changed stack pointer.  */
 
 #define SYNC_IP() vp->ip = (ip)
 
-#define CACHE_LOCALS() locals = (vp->fp - 1)
+#define CACHE_SP() sp = vp->sp
 #define CACHE_REGISTER()                        \
   do {                                          \
     ip = vp->ip;                                \
-    CACHE_LOCALS ();                            \
+    CACHE_SP ();                                \
   } while (0)
 
 
@@ -174,38 +172,36 @@
    FP is valid across an ALLOC_FRAME call.  Be careful!  */
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
-    union scm_vm_stack_element *new_sp = LOCAL_ADDRESS (n - 1);     \
-    if (new_sp < vp->sp_min_since_gc)                               \
+    sp = vp->fp - (n);                                              \
+    if (sp < vp->sp_min_since_gc)                                   \
       {                                                             \
-        if (SCM_UNLIKELY (new_sp < vp->stack_limit))                \
+        if (SCM_UNLIKELY (sp < vp->stack_limit))                    \
           {                                                         \
             SYNC_IP ();                                             \
-            vm_expand_stack (vp, new_sp);                           \
-            CACHE_LOCALS ();                                            \
+            vm_expand_stack (vp, sp);                               \
+            CACHE_SP ();                                            \
           }                                                         \
         else                                                        \
-          vp->sp_min_since_gc = vp->sp = new_sp;                    \
+          vp->sp_min_since_gc = vp->sp = sp;                        \
       }                                                             \
     else                                                            \
-      vp->sp = new_sp;                                              \
+      vp->sp = sp;                                                  \
   } while (0)
 
 /* Reset the current frame to hold N locals.  Used when we know that no
    stack expansion is needed.  */
 #define RESET_FRAME(n)                                              \
   do {                                                              \
-    vp->sp = LOCAL_ADDRESS (n - 1);                                 \
-    if (vp->sp < vp->sp_min_since_gc)                               \
-      vp->sp_min_since_gc = vp->sp;                                 \
+    vp->sp = sp = vp->fp - (n);                                     \
+    if (sp < vp->sp_min_since_gc)                                   \
+      vp->sp_min_since_gc = sp;                                     \
   } while (0)
 
 /* Compute the number of locals in the frame.  At a call, this is equal
    to the number of actual arguments when a function is first called,
    plus one for the function.  */
-#define FRAME_LOCALS_COUNT_FROM(slot)           \
-  (LOCAL_ADDRESS (slot) + 1 - vp->sp)
-#define FRAME_LOCALS_COUNT() \
-  FRAME_LOCALS_COUNT_FROM (0)
+#define FRAME_LOCALS_COUNT() (vp->fp - sp)
+#define FRAME_LOCALS_COUNT_FROM(slot) (FRAME_LOCALS_COUNT () - slot)
 
 /* Restore registers after returning from a frame.  */
 #define RESTORE_FRAME()                                             \
@@ -248,18 +244,12 @@
   case opcode:
 #endif
 
-// This "locals + 1" is actually an optimization, because vp->fp points
-// on before the zeroeth local.  The result is to reference locals[-i].
-// In the future we should change to reference locals relative to the SP
-// and cache the SP instead, which would give direct (non-negated)
-// indexing off the SP, which is more in line with addressing modes
-// supported by common CPUs.
-#define LOCAL_ADDRESS(i)	SCM_FRAME_SLOT (locals + 1, i)
-#define LOCAL_REF(i)		SCM_FRAME_LOCAL (locals + 1, i)
-#define LOCAL_SET(i,o)		SCM_FRAME_LOCAL (locals + 1, i) = o
+#define FP_SLOT(i)	        SCM_FRAME_SLOT (vp->fp, i)
+#define FP_REF(i)		SCM_FRAME_LOCAL (vp->fp, i)
+#define FP_SET(i,o)		SCM_FRAME_LOCAL (vp->fp, i) = o
 
-#define SP_REF(i)		(vp->sp[i].as_scm)
-#define SP_SET(i,o)		(vp->sp[i].as_scm = o)
+#define SP_REF(i)		(sp[i].as_scm)
+#define SP_SET(i,o)		(sp[i].as_scm = o)
 
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
@@ -272,15 +262,13 @@
     VM_HANDLE_INTERRUPTS;                               \
     ALLOC_FRAME (2);					\
     old_fp = vp->fp;                                    \
-    ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);             \
-    vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);           \
-    CACHE_LOCALS ();                                    \
+    ip = SCM_FRAME_RETURN_ADDRESS (old_fp);             \
+    vp->fp = SCM_FRAME_DYNAMIC_LINK (old_fp);           \
     /* Clear frame. */                                  \
     old_fp[0].as_scm = SCM_BOOL_F;                      \
     old_fp[1].as_scm = SCM_BOOL_F;                      \
     /* Leave proc. */                                   \
-    SCM_FRAME_LOCAL (old_fp, 1) = val;                  \
-    vp->sp = SCM_FRAME_SLOT (old_fp, 1);                \
+    SP_SET (0, val);                                    \
     POP_CONTINUATION_HOOK (old_fp);                     \
     NEXT (0);                                           \
   } while (0)
@@ -292,9 +280,9 @@
     SCM vals = vals_;                                   \
     VM_HANDLE_INTERRUPTS;                               \
     ALLOC_FRAME (3);                                    \
-    SCM_FRAME_LOCAL (vp->fp, 0) = vm_builtin_apply;     \
-    SCM_FRAME_LOCAL (vp->fp, 1) = vm_builtin_values;    \
-    SCM_FRAME_LOCAL (vp->fp, 2) = vals;                 \
+    SP_SET (2, vm_builtin_apply);                       \
+    SP_SET (1, vm_builtin_values);                      \
+    SP_SET (0, vals);                                   \
     ip = (scm_t_uint32 *) vm_builtin_apply_code;        \
     goto op_tail_apply;                                 \
   } while (0)
@@ -314,7 +302,7 @@
   scm_t_uint32 test;                            \
   SCM x;                                        \
   UNPACK_24 (op, test);                         \
-  x = LOCAL_REF (test);                         \
+  x = SP_REF (test);                            \
   if ((ip[1] & 0x1) ? !(exp) : (exp))           \
     {                                           \
       scm_t_int32 offset = ip[1];               \
@@ -330,8 +318,8 @@
   SCM x, y;                                     \
   UNPACK_24 (op, a);                            \
   UNPACK_24 (ip[1], b);                         \
-  x = LOCAL_REF (a);                            \
-  y = LOCAL_REF (b);                            \
+  x = SP_REF (a);                               \
+  y = SP_REF (b);                               \
   if ((ip[2] & 0x1) ? !(exp) : (exp))           \
     {                                           \
       scm_t_int32 offset = ip[2];               \
@@ -348,8 +336,8 @@
     SCM x, y;                                                           \
     UNPACK_24 (op, a);                                                  \
     UNPACK_24 (ip[1], b);                                               \
-    x = LOCAL_REF (a);                                                  \
-    y = LOCAL_REF (b);                                                  \
+    x = SP_REF (a);                                                     \
+    y = SP_REF (b);                                                     \
     if (SCM_I_INUMP (x) && SCM_I_INUMP (y))                             \
       {                                                                 \
         scm_t_signed_bits x_bits = SCM_UNPACK (x);                      \
@@ -369,7 +357,7 @@
         SCM res;                                                        \
         SYNC_IP ();                                                     \
         res = srel (x, y);                                              \
-        CACHE_LOCALS ();                                                \
+        CACHE_SP ();                                                \
         if ((ip[2] & 0x1) ? scm_is_false (res) : scm_is_true (res))     \
           {                                                             \
             scm_t_int32 offset = ip[2];                                 \
@@ -386,17 +374,17 @@
   scm_t_uint16 dst, src;                        \
   SCM a1;                                       \
   UNPACK_12_12 (op, dst, src);                  \
-  a1 = LOCAL_REF (src)
+  a1 = SP_REF (src)
 #define ARGS2(a1, a2)                           \
   scm_t_uint8 dst, src1, src2;                  \
   SCM a1, a2;                                   \
   UNPACK_8_8_8 (op, dst, src1, src2);           \
-  a1 = LOCAL_REF (src1);                        \
-  a2 = LOCAL_REF (src2)
+  a1 = SP_REF (src1);                           \
+  a2 = SP_REF (src2)
 #define RETURN(x)                               \
-  do { LOCAL_SET (dst, x); NEXT (1); } while (0)
+  do { SP_SET (dst, x); NEXT (1); } while (0)
 #define RETURN_EXP(exp)                         \
-  do { SCM __x; SYNC_IP (); __x = exp; CACHE_LOCALS (); RETURN (__x); } while (0)
+  do { SCM __x; SYNC_IP (); __x = exp; CACHE_SP (); RETURN (__x); } while (0)
 
 /* The maximum/minimum tagged integers.  */
 #define INUM_MAX  \
@@ -440,10 +428,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
      running.  */
   register scm_t_uint32 *ip IP_REG;
 
-  /* Frame pointer: A pointer into the stack, off of which we index
-     arguments and local variables.  Pushed at function calls, popped on
-     returns.  */
-  register union scm_vm_stack_element *locals FP_REG;
+  /* Stack pointer: A pointer to the hot end of the stack, off of which
+     we index arguments and local variables.  Pushed at function calls,
+     popped on returns.  */
+  register union scm_vm_stack_element *sp FP_REG;
 
   /* Current opcode: A cache of *ip.  */
   register scm_t_uint32 op;
@@ -473,13 +461,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     NEXT (0);
 
  apply:
-  while (!SCM_PROGRAM_P (LOCAL_REF (0)))
+  while (!SCM_PROGRAM_P (FP_REF (0)))
     {
-      SCM proc = LOCAL_REF (0);
+      SCM proc = FP_REF (0);
 
       if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
         {
-          LOCAL_SET (0, SCM_STRUCT_PROCEDURE (proc));
+          FP_SET (0, SCM_STRUCT_PROCEDURE (proc));
           continue;
         }
       if (SCM_HAS_TYP7 (proc, scm_tc7_smob) && SCM_SMOB_APPLICABLE_P (proc))
@@ -490,9 +478,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
              IP and go. ) */
           ALLOC_FRAME (n + 1);
           while (n--)
-            LOCAL_SET (n + 1, LOCAL_REF (n));
+            FP_SET (n + 1, FP_REF (n));
 
-          LOCAL_SET (0, SCM_SMOB_DESCRIPTOR (proc).apply_trampoline);
+          FP_SET (0, SCM_SMOB_DESCRIPTOR (proc).apply_trampoline);
           continue;
         }
 
@@ -501,7 +489,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     }
 
   /* Let's go! */
-  ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+  ip = SCM_PROGRAM_CODE (FP_REF (0));
 
   APPLY_HOOK ();
 
@@ -528,13 +516,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM ret;
 
       if (nvals == 1)
-        ret = LOCAL_REF (4);
+        ret = FP_REF (4);
       else
         {
           scm_t_uint32 n;
           ret = SCM_EOL;
           for (n = nvals; n > 0; n--)
-            ret = scm_inline_cons (thread, LOCAL_REF (4 + n - 1), ret);
+            ret = scm_inline_cons (thread, FP_REF (4 + n - 1), ret);
           ret = scm_values (ret);
         }
 
@@ -572,16 +560,15 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       old_fp = vp->fp;
       vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
-      CACHE_LOCALS ();
       SCM_FRAME_SET_DYNAMIC_LINK (vp->fp, old_fp);
       SCM_FRAME_SET_RETURN_ADDRESS (vp->fp, ip + 2);
 
       RESET_FRAME (nlocals);
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+      ip = SCM_PROGRAM_CODE (FP_REF (0));
 
       APPLY_HOOK ();
 
@@ -614,7 +601,6 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       old_fp = vp->fp;
       vp->fp = SCM_FRAME_SLOT (old_fp, proc - 1);
-      CACHE_LOCALS ();
       SCM_FRAME_SET_DYNAMIC_LINK (vp->fp, old_fp);
       SCM_FRAME_SET_RETURN_ADDRESS (vp->fp, ip + 3);
 
@@ -643,10 +629,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (nlocals);
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+      ip = SCM_PROGRAM_CODE (FP_REF (0));
 
       APPLY_HOOK ();
 
@@ -696,14 +682,14 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       nlocals = FRAME_LOCALS_COUNT ();
 
       for (n = 0; from + n < nlocals; n++)
-        LOCAL_SET (n + 1, LOCAL_REF (from + n));
+        FP_SET (n + 1, FP_REF (from + n));
 
       RESET_FRAME (n + 1);
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+      ip = SCM_PROGRAM_CODE (FP_REF (0));
 
       APPLY_HOOK ();
 
@@ -723,7 +709,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, dst, proc);
       UNPACK_24 (ip[1], nlocals);
       VM_ASSERT (FRAME_LOCALS_COUNT () > proc + 1, vm_error_no_values ());
-      LOCAL_SET (dst, LOCAL_REF (proc + 1));
+      FP_SET (dst, FP_REF (proc + 1));
       RESET_FRAME (nlocals);
       NEXT (2);
     }
@@ -758,7 +744,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_uint32 src;
       UNPACK_24 (op, src);
-      RETURN_ONE_VALUE (LOCAL_REF (src));
+      RETURN_ONE_VALUE (SP_REF (src));
     }
 
   /* return-values _:24
@@ -778,7 +764,6 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       old_fp = vp->fp;
       ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);
       vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);
-      CACHE_LOCALS ();
 
       /* Clear stack frame.  */
       old_fp[0].as_scm = SCM_BOOL_F;
@@ -811,63 +796,64 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_24 (op, ptr_idx);
 
-      pointer = SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), ptr_idx);
+      pointer = SCM_PROGRAM_FREE_VARIABLE_REF (FP_REF (0), ptr_idx);
       subr = SCM_POINTER_VALUE (pointer);
 
       SYNC_IP ();
 
+      // FIXME!!!!
       switch (FRAME_LOCALS_COUNT_FROM (1))
         {
         case 0:
           ret = subr ();
           break;
         case 1:
-          ret = subr (LOCAL_REF (1));
+          ret = subr (FP_REF (1));
           break;
         case 2:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2));
+          ret = subr (FP_REF (1), FP_REF (2));
           break;
         case 3:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3));
           break;
         case 4:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
-                      LOCAL_REF (4));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
+                      FP_REF (4));
           break;
         case 5:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
-                      LOCAL_REF (4), LOCAL_REF (5));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
+                      FP_REF (4), FP_REF (5));
           break;
         case 6:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
-                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
+                      FP_REF (4), FP_REF (5), FP_REF (6));
           break;
         case 7:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
-                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
-                      LOCAL_REF (7));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
+                      FP_REF (4), FP_REF (5), FP_REF (6),
+                      FP_REF (7));
           break;
         case 8:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
-                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
-                      LOCAL_REF (7), LOCAL_REF (8));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
+                      FP_REF (4), FP_REF (5), FP_REF (6),
+                      FP_REF (7), FP_REF (8));
           break;
         case 9:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
-                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
-                      LOCAL_REF (7), LOCAL_REF (8), LOCAL_REF (9));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
+                      FP_REF (4), FP_REF (5), FP_REF (6),
+                      FP_REF (7), FP_REF (8), FP_REF (9));
           break;
         case 10:
-          ret = subr (LOCAL_REF (1), LOCAL_REF (2), LOCAL_REF (3),
-                      LOCAL_REF (4), LOCAL_REF (5), LOCAL_REF (6),
-                      LOCAL_REF (7), LOCAL_REF (8), LOCAL_REF (9),
-                      LOCAL_REF (10));
+          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
+                      FP_REF (4), FP_REF (5), FP_REF (6),
+                      FP_REF (7), FP_REF (8), FP_REF (9),
+                      FP_REF (10));
           break;
         default:
           abort ();
         }
 
-      CACHE_LOCALS ();
+      CACHE_SP ();
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         /* multiple values returned to continuation */
@@ -891,17 +877,16 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_12_12 (op, cif_idx, ptr_idx);
 
-      closure = LOCAL_REF (0);
+      closure = FP_REF (0);
       cif = SCM_PROGRAM_FREE_VARIABLE_REF (closure, cif_idx);
       pointer = SCM_PROGRAM_FREE_VARIABLE_REF (closure, ptr_idx);
 
       SYNC_IP ();
 
       // FIXME: separate args
-      ret = scm_i_foreign_call (scm_inline_cons (thread, cif, pointer),
-                                vp->sp);
+      ret = scm_i_foreign_call (scm_inline_cons (thread, cif, pointer), sp);
 
-      CACHE_LOCALS ();
+      CACHE_SP ();
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         /* multiple values returned to continuation */
@@ -926,14 +911,14 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_24 (op, contregs_idx);
 
       contregs =
-        SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), contregs_idx);
+        SCM_PROGRAM_FREE_VARIABLE_REF (FP_REF (0), contregs_idx);
 
       SYNC_IP ();
       scm_i_check_continuation (contregs);
       vm_return_to_continuation (scm_i_contregs_vp (contregs),
                                  scm_i_contregs_vm_cont (contregs),
                                  FRAME_LOCALS_COUNT_FROM (1),
-                                 vp->sp);
+                                 sp);
       scm_i_reinstate_continuation (contregs);
 
       /* no NEXT */
@@ -954,7 +939,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 cont_idx;
 
       UNPACK_24 (op, cont_idx);
-      vmcont = SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), cont_idx);
+      vmcont = SCM_PROGRAM_FREE_VARIABLE_REF (FP_REF (0), cont_idx);
 
       SYNC_IP ();
       VM_ASSERT (SCM_VM_CONT_REWINDABLE_P (vmcont),
@@ -982,7 +967,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       // At a minimum, there should be apply, f, and the list.
       VM_ASSERT (nlocals >= 3, abort ());
       list_idx = nlocals - 1;
-      list = LOCAL_REF (list_idx);
+      list = FP_REF (list_idx);
       list_len = scm_ilength (list);
 
       VM_ASSERT (list_len >= 0, vm_error_apply_to_non_list (list));
@@ -991,20 +976,20 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       ALLOC_FRAME (nlocals);
 
       for (i = 1; i < list_idx; i++)
-        LOCAL_SET (i - 1, LOCAL_REF (i));
+        FP_SET (i - 1, FP_REF (i));
 
       /* Null out these slots, just in case there are less than 2 elements
          in the list. */
-      LOCAL_SET (list_idx - 1, SCM_UNDEFINED);
-      LOCAL_SET (list_idx, SCM_UNDEFINED);
+      FP_SET (list_idx - 1, SCM_UNDEFINED);
+      FP_SET (list_idx, SCM_UNDEFINED);
 
       for (i = 0; i < list_len; i++, list = SCM_CDR (list))
-        LOCAL_SET (list_idx - 1 + i, SCM_CAR (list));
+        FP_SET (list_idx - 1 + i, SCM_CAR (list));
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+      ip = SCM_PROGRAM_CODE (FP_REF (0));
 
       APPLY_HOOK ();
 
@@ -1042,14 +1027,15 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       if (first)
         {
-          LOCAL_SET (0, LOCAL_REF (1));
-          LOCAL_SET (1, cont);
           RESET_FRAME (2);
 
-          if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
+          SP_SET (1, SP_REF (0));
+          SP_SET (0, cont);
+
+          if (SCM_UNLIKELY (!SCM_PROGRAM_P (SP_REF (1))))
             goto apply;
 
-          ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+          ip = SCM_PROGRAM_CODE (SP_REF (1));
 
           APPLY_HOOK ();
 
@@ -1079,7 +1065,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          it continues with the next instruction.  */
       ip++;
       SYNC_IP ();
-      vm_abort (vp, LOCAL_REF (1), nlocals - 2, registers);
+      vm_abort (vp, FP_REF (1), nlocals - 2, registers);
 
       /* vm_abort should not return */
       abort ();
@@ -1094,7 +1080,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 dst, idx;
 
       UNPACK_12_12 (op, dst, idx);
-      LOCAL_SET (dst, scm_vm_builtin_ref (idx));
+      SP_SET (dst, scm_vm_builtin_ref (idx));
 
       NEXT (1);
     }
@@ -1139,7 +1125,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
-                 vm_error_wrong_num_args (LOCAL_REF (0)));
+                 vm_error_wrong_num_args (FP_REF (0)));
       NEXT (1);
     }
   VM_DEFINE_OP (22, assert_nargs_ge, "assert-nargs-ge", OP1 (X8_C24))
@@ -1147,7 +1133,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () >= expected,
-                 vm_error_wrong_num_args (LOCAL_REF (0)));
+                 vm_error_wrong_num_args (FP_REF (0)));
       NEXT (1);
     }
   VM_DEFINE_OP (23, assert_nargs_le, "assert-nargs-le", OP1 (X8_C24))
@@ -1155,7 +1141,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () <= expected,
-                 vm_error_wrong_num_args (LOCAL_REF (0)));
+                 vm_error_wrong_num_args (FP_REF (0)));
       NEXT (1);
     }
 
@@ -1173,7 +1159,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       nargs = FRAME_LOCALS_COUNT ();
       ALLOC_FRAME (nlocals);
       while (nlocals-- > nargs)
-        LOCAL_SET (nlocals, SCM_UNDEFINED);
+        FP_SET (nlocals, SCM_UNDEFINED);
 
       NEXT (1);
     }
@@ -1219,7 +1205,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_24 (op, dst);
       val = SP_REF (0);
-      vp->sp++;
+      vp->sp = sp = sp + 1;
       SP_SET (dst, val);
       NEXT (1);
     }
@@ -1233,7 +1219,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 count;
 
       UNPACK_24 (op, count);
-      vp->sp += count;
+      vp->sp = sp = sp + count;
       NEXT (1);
     }
 
@@ -1247,10 +1233,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 expected, nlocals;
       UNPACK_12_12 (op, expected, nlocals);
       VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
-                 vm_error_wrong_num_args (LOCAL_REF (0)));
+                 vm_error_wrong_num_args (FP_REF (0)));
       ALLOC_FRAME (expected + nlocals);
       while (nlocals--)
-        LOCAL_SET (expected + nlocals, SCM_UNDEFINED);
+        SP_SET (nlocals, SCM_UNDEFINED);
 
       NEXT (1);
     }
@@ -1278,9 +1264,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
         {
           scm_t_uint32 n;
           for (n = nreq; n < npos; n++)
-            if (scm_is_keyword (LOCAL_REF (n)))
+            if (scm_is_keyword (FP_REF (n)))
               break;
-          if (n == npos && !scm_is_keyword (LOCAL_REF (n)))
+          if (n == npos && !scm_is_keyword (FP_REF (n)))
             {
               scm_t_int32 offset = ip[2];
               offset >>= 8; /* Sign-extending shift. */
@@ -1331,7 +1317,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
              /* and we still have positionals to fill */
              && npositional < nreq_and_opt
              /* and we haven't reached a keyword yet */
-             && !scm_is_keyword (LOCAL_REF (npositional)))
+             && !scm_is_keyword (FP_REF (npositional)))
         /* bind this optional arg (by leaving it in place) */
         npositional++;
       nkw = nargs - npositional;
@@ -1339,44 +1325,44 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       ALLOC_FRAME (ntotal + nkw);
       n = nkw;
       while (n--)
-        LOCAL_SET (ntotal + n, LOCAL_REF (npositional + n));
+        FP_SET (ntotal + n, FP_REF (npositional + n));
       /* and fill optionals & keyword args with SCM_UNDEFINED */
       n = npositional;
       while (n < ntotal)
-        LOCAL_SET (n++, SCM_UNDEFINED);
+        FP_SET (n++, SCM_UNDEFINED);
 
       VM_ASSERT (has_rest || (nkw % 2) == 0,
-                 vm_error_kwargs_length_not_even (LOCAL_REF (0)));
+                 vm_error_kwargs_length_not_even (FP_REF (0)));
 
       /* Now bind keywords, in the order given.  */
       for (n = 0; n < nkw; n++)
-        if (scm_is_keyword (LOCAL_REF (ntotal + n)))
+        if (scm_is_keyword (FP_REF (ntotal + n)))
           {
             SCM walk;
             for (walk = kw; scm_is_pair (walk); walk = SCM_CDR (walk))
-              if (scm_is_eq (SCM_CAAR (walk), LOCAL_REF (ntotal + n)))
+              if (scm_is_eq (SCM_CAAR (walk), FP_REF (ntotal + n)))
                 {
                   SCM si = SCM_CDAR (walk);
-                  LOCAL_SET (SCM_I_INUMP (si) ? SCM_I_INUM (si) : scm_to_uint32 (si),
-                             LOCAL_REF (ntotal + n + 1));
+                  FP_SET (SCM_I_INUMP (si) ? SCM_I_INUM (si) : scm_to_uint32 (si),
+                          FP_REF (ntotal + n + 1));
                   break;
                 }
             VM_ASSERT (scm_is_pair (walk) || allow_other_keys,
-                       vm_error_kwargs_unrecognized_keyword (LOCAL_REF (0),
-                                                             LOCAL_REF (ntotal + n)));
+                       vm_error_kwargs_unrecognized_keyword (FP_REF (0),
+                                                             FP_REF (ntotal + n)));
             n++;
           }
         else
-          VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (LOCAL_REF (0),
-                                                                LOCAL_REF (ntotal + n)));
+          VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (FP_REF (0),
+                                                                FP_REF (ntotal + n)));
 
       if (has_rest)
         {
           SCM rest = SCM_EOL;
           n = nkw;
           while (n--)
-            rest = scm_inline_cons (thread, LOCAL_REF (ntotal + n), rest);
-          LOCAL_SET (nreq_and_opt, rest);
+            rest = scm_inline_cons (thread, FP_REF (ntotal + n), rest);
+          FP_SET (nreq_and_opt, rest);
         }
 
       RESET_FRAME (ntotal);
@@ -1401,20 +1387,20 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
         {
           ALLOC_FRAME (dst + 1);
           while (nargs < dst)
-            LOCAL_SET (nargs++, SCM_UNDEFINED);
+            FP_SET (nargs++, SCM_UNDEFINED);
         }
       else
         {
           while (nargs-- > dst)
             {
-              rest = scm_inline_cons (thread, LOCAL_REF (nargs), rest);
-              LOCAL_SET (nargs, SCM_UNDEFINED);
+              rest = scm_inline_cons (thread, FP_REF (nargs), rest);
+              FP_SET (nargs, SCM_UNDEFINED);
             }
 
           RESET_FRAME (dst + 1);
         }
 
-      LOCAL_SET (dst, rest);
+      FP_SET (dst, rest);
 
       NEXT (1);
     }
@@ -1539,7 +1525,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * If the value in A is equal? to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  // FIXME: Should sync_ip before calling out and cache_locals before coming
+  // FIXME: Should sync_ip before calling out and cache_sp before coming
   // back!  Another reason to remove this opcode!
   VM_DEFINE_OP (43, br_if_equal, "br-if-equal", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
@@ -1610,7 +1596,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 src;
 
       UNPACK_12_12 (op, dst, src);
-      LOCAL_SET (dst, LOCAL_REF (src));
+      SP_SET (dst, SP_REF (src));
 
       NEXT (1);
     }
@@ -1626,7 +1612,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_24 (op, dst);
       UNPACK_24 (ip[1], src);
-      LOCAL_SET (dst, LOCAL_REF (src));
+      SP_SET (dst, SP_REF (src));
 
       NEXT (2);
     }
@@ -1643,7 +1629,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_24 (op, dst);
       UNPACK_24 (ip[1], src);
-      LOCAL_SET (dst, LOCAL_REF (src));
+      FP_SET (dst, FP_REF (src));
 
       NEXT (2);
     }
@@ -1656,8 +1642,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_uint16 dst, src;
       UNPACK_12_12 (op, dst, src);
-      LOCAL_SET (dst, scm_inline_cell (thread, scm_tc7_variable,
-                                       SCM_UNPACK (LOCAL_REF (src))));
+      SP_SET (dst, scm_inline_cell (thread, scm_tc7_variable,
+                                       SCM_UNPACK (SP_REF (src))));
       NEXT (1);
     }
 
@@ -1671,11 +1657,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 dst, src;
       SCM var;
       UNPACK_12_12 (op, dst, src);
-      var = LOCAL_REF (src);
+      var = SP_REF (src);
       VM_ASSERT (SCM_VARIABLEP (var),
                  vm_error_not_a_variable ("variable-ref", var));
       VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (var));
-      LOCAL_SET (dst, VARIABLE_REF (var));
+      SP_SET (dst, VARIABLE_REF (var));
       NEXT (1);
     }
 
@@ -1688,10 +1674,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 dst, src;
       SCM var;
       UNPACK_12_12 (op, dst, src);
-      var = LOCAL_REF (dst);
+      var = SP_REF (dst);
       VM_ASSERT (SCM_VARIABLEP (var),
                  vm_error_not_a_variable ("variable-set!", var));
-      VARIABLE_SET (var, LOCAL_REF (src));
+      VARIABLE_SET (var, SP_REF (src));
       NEXT (1);
     }
 
@@ -1719,7 +1705,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       // FIXME: Elide these initializations?
       for (n = 0; n < nfree; n++)
         SCM_PROGRAM_FREE_VARIABLE_SET (closure, n, SCM_BOOL_F);
-      LOCAL_SET (dst, closure);
+      SP_SET (dst, closure);
       NEXT (3);
     }
 
@@ -1734,7 +1720,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, dst, src);
       UNPACK_24 (ip[1], idx);
       /* CHECK_FREE_VARIABLE (src); */
-      LOCAL_SET (dst, SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (src), idx));
+      SP_SET (dst, SCM_PROGRAM_FREE_VARIABLE_REF (SP_REF (src), idx));
       NEXT (2);
     }
 
@@ -1749,7 +1735,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, dst, src);
       UNPACK_24 (ip[1], idx);
       /* CHECK_FREE_VARIABLE (src); */
-      SCM_PROGRAM_FREE_VARIABLE_SET (LOCAL_REF (dst), idx, LOCAL_REF (src));
+      SCM_PROGRAM_FREE_VARIABLE_SET (SP_REF (dst), idx, SP_REF (src));
       NEXT (2);
     }
 
@@ -1771,7 +1757,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_bits val;
 
       UNPACK_8_16 (op, dst, val);
-      LOCAL_SET (dst, SCM_PACK (val));
+      SP_SET (dst, SCM_PACK (val));
       NEXT (1);
     }
 
@@ -1787,7 +1773,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_24 (op, dst);
       val = ip[1];
-      LOCAL_SET (dst, SCM_PACK (val));
+      SP_SET (dst, SCM_PACK (val));
       NEXT (2);
     }
 
@@ -1809,7 +1795,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       ASSERT (ip[1] == 0);
       val = ip[2];
 #endif
-      LOCAL_SET (dst, SCM_PACK (val));
+      SP_SET (dst, SCM_PACK (val));
       NEXT (3);
     }
 
@@ -1840,7 +1826,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       VM_ASSERT (!(unpacked & 0x7), abort());
 
-      LOCAL_SET (dst, SCM_PACK (unpacked));
+      SP_SET (dst, SCM_PACK (unpacked));
 
       NEXT (2);
     }
@@ -1868,7 +1854,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       loc_bits = (scm_t_uintptr) loc;
       VM_ASSERT (ALIGNED_P (loc, SCM), abort());
 
-      LOCAL_SET (dst, *((SCM *) loc_bits));
+      SP_SET (dst, *((SCM *) loc_bits));
 
       NEXT (2);
     }
@@ -1889,7 +1875,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       loc = ip + offset;
       VM_ASSERT (ALIGNED_P (loc, SCM), abort());
 
-      *((SCM *) loc) = LOCAL_REF (src);
+      *((SCM *) loc) = SP_REF (src);
 
       NEXT (2);
     }
@@ -1965,7 +1951,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_24 (op, dst);
 
       SYNC_IP ();
-      LOCAL_SET (dst, scm_current_module ());
+      SP_SET (dst, scm_current_module ());
 
       NEXT (1);
     }
@@ -1985,11 +1971,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_24 (ip[1], sym);
 
       SYNC_IP ();
-      var = scm_lookup (LOCAL_REF (sym));
-      CACHE_LOCALS ();
+      var = scm_lookup (SP_REF (sym));
+      CACHE_SP ();
       if (ip[1] & 0x1)
-        VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (LOCAL_REF (sym)));
-      LOCAL_SET (dst, var);
+        VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (SP_REF (sym)));
+      SP_SET (dst, var);
 
       NEXT (2);
     }
@@ -2004,8 +1990,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 sym, val;
       UNPACK_12_12 (op, sym, val);
       SYNC_IP ();
-      scm_define (LOCAL_REF (sym), LOCAL_REF (val));
-      CACHE_LOCALS ();
+      scm_define (SP_REF (sym), SP_REF (val));
+      CACHE_SP ();
       NEXT (1);
     }
 
@@ -2065,14 +2051,14 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
             mod = scm_the_root_module ();
 
           var = scm_module_lookup (mod, sym);
-          CACHE_LOCALS ();
+          CACHE_SP ();
           if (ip[4] & 0x1)
             VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (sym));
 
           *var_loc = var;
         }
 
-      LOCAL_SET (dst, var);
+      SP_SET (dst, var);
       NEXT (5);
     }
 
@@ -2126,7 +2112,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           else
             var = scm_private_lookup (SCM_CDR (modname), sym);
 
-          CACHE_LOCALS ();
+          CACHE_SP ();
 
           if (ip[4] & 0x1)
             VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (sym));
@@ -2134,7 +2120,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           *var_loc = var;
         }
 
-      LOCAL_SET (dst, var);
+      SP_SET (dst, var);
       NEXT (5);
     }
 
@@ -2167,9 +2153,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       /* Push the prompt onto the dynamic stack. */
       flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
       scm_dynstack_push_prompt (&thread->dynstack, flags,
-                                LOCAL_REF (tag),
+                                SP_REF (tag),
                                 vp->stack_top - vp->fp,
-                                vp->stack_top - LOCAL_ADDRESS (proc_slot),
+                                vp->stack_top - FP_SLOT (proc_slot),
                                 ip + offset,
                                 registers);
       NEXT (3);
@@ -2188,7 +2174,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 winder, unwinder;
       UNPACK_12_12 (op, winder, unwinder);
       scm_dynstack_push_dynwind (&thread->dynstack,
-                                 LOCAL_REF (winder), LOCAL_REF (unwinder));
+                                 SP_REF (winder), SP_REF (unwinder));
       NEXT (1);
     }
 
@@ -2214,7 +2200,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, fluid, value);
 
       scm_dynstack_push_fluid (&thread->dynstack,
-                               LOCAL_REF (fluid), LOCAL_REF (value),
+                               SP_REF (fluid), SP_REF (value),
                                thread->dynamic_state);
       NEXT (1);
     }
@@ -2243,14 +2229,14 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM fluid, fluids;
 
       UNPACK_12_12 (op, dst, src);
-      fluid = LOCAL_REF (src);
+      fluid = SP_REF (src);
       fluids = SCM_I_DYNAMIC_STATE_FLUIDS (thread->dynamic_state);
       if (SCM_UNLIKELY (!SCM_FLUID_P (fluid))
           || ((num = SCM_I_FLUID_NUM (fluid)) >= SCM_SIMPLE_VECTOR_LENGTH (fluids)))
         {
           /* Punt dynstate expansion and error handling to the C proc. */
           SYNC_IP ();
-          LOCAL_SET (dst, scm_fluid_ref (fluid));
+          SP_SET (dst, scm_fluid_ref (fluid));
         }
       else
         {
@@ -2259,7 +2245,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
             val = SCM_I_FLUID_DEFAULT (fluid);
           VM_ASSERT (!scm_is_eq (val, SCM_UNDEFINED),
                      vm_error_unbound_fluid (fluid));
-          LOCAL_SET (dst, val);
+          SP_SET (dst, val);
         }
 
       NEXT (1);
@@ -2276,17 +2262,17 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM fluid, fluids;
 
       UNPACK_12_12 (op, a, b);
-      fluid = LOCAL_REF (a);
+      fluid = SP_REF (a);
       fluids = SCM_I_DYNAMIC_STATE_FLUIDS (thread->dynamic_state);
       if (SCM_UNLIKELY (!SCM_FLUID_P (fluid))
           || ((num = SCM_I_FLUID_NUM (fluid)) >= SCM_SIMPLE_VECTOR_LENGTH (fluids)))
         {
           /* Punt dynstate expansion and error handling to the C proc. */
           SYNC_IP ();
-          scm_fluid_set_x (fluid, LOCAL_REF (b));
+          scm_fluid_set_x (fluid, SP_REF (b));
         }
       else
-        SCM_SIMPLE_VECTOR_SET (fluids, num, LOCAL_REF (b));
+        SCM_SIMPLE_VECTOR_SET (fluids, num, SP_REF (b));
 
       NEXT (1);
     }
@@ -2347,8 +2333,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_12_12 (op, dst, src);
       SYNC_IP ();
-      LOCAL_SET (dst,
-                 scm_string_to_number (LOCAL_REF (src),
+      SP_SET (dst,
+                 scm_string_to_number (SP_REF (src),
                                        SCM_UNDEFINED /* radix = 10 */));
       NEXT (1);
     }
@@ -2363,7 +2349,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_12_12 (op, dst, src);
       SYNC_IP ();
-      LOCAL_SET (dst, scm_string_to_symbol (LOCAL_REF (src)));
+      SP_SET (dst, scm_string_to_symbol (SP_REF (src)));
       NEXT (1);
     }
 
@@ -2376,7 +2362,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 dst, src;
       UNPACK_12_12 (op, dst, src);
       SYNC_IP ();
-      LOCAL_SET (dst, scm_symbol_to_keyword (LOCAL_REF (src)));
+      SP_SET (dst, scm_symbol_to_keyword (SP_REF (src)));
       NEXT (1);
     }
 
@@ -2427,8 +2413,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 a, b;
       SCM x, y;
       UNPACK_12_12 (op, a, b);
-      x = LOCAL_REF (a);
-      y = LOCAL_REF (b);
+      x = SP_REF (a);
+      y = SP_REF (b);
       VM_VALIDATE_PAIR (x, "set-car!");
       SCM_SETCAR (x, y);
       NEXT (1);
@@ -2443,8 +2429,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 a, b;
       SCM x, y;
       UNPACK_12_12 (op, a, b);
-      x = LOCAL_REF (a);
-      y = LOCAL_REF (b);
+      x = SP_REF (a);
+      y = SP_REF (b);
       VM_VALIDATE_PAIR (x, "set-car!");
       SCM_SETCDR (x, y);
       NEXT (1);
@@ -2659,7 +2645,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, length, init);
 
-      LOCAL_SET (dst, scm_make_vector (LOCAL_REF (length), LOCAL_REF (init)));
+      SP_SET (dst, scm_make_vector (SP_REF (length), SP_REF (init)));
 
       NEXT (1);
     }
@@ -2678,12 +2664,12 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, length, init);
 
-      val = LOCAL_REF (init);
+      val = SP_REF (init);
       vector = scm_inline_words (thread, scm_tc7_vector | (length << 8),
                                  length + 1);
       for (n = 0; n < length; n++)
         SCM_SIMPLE_VECTOR_SET (vector, n, val);
-      LOCAL_SET (dst, vector);
+      SP_SET (dst, vector);
       NEXT (1);
     }
 
@@ -2728,12 +2714,12 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM v;
       
       UNPACK_8_8_8 (op, dst, src, idx);
-      v = LOCAL_REF (src);
+      v = SP_REF (src);
       VM_ASSERT (SCM_I_IS_VECTOR (v),
                  vm_error_not_a_vector ("vector-ref", v));
       VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (v),
                  vm_error_out_of_range ("vector-ref", scm_from_size_t (idx)));
-      LOCAL_SET (dst, SCM_I_VECTOR_ELTS (LOCAL_REF (src))[idx]);
+      SP_SET (dst, SCM_I_VECTOR_ELTS (SP_REF (src))[idx]);
       NEXT (1);
     }
 
@@ -2748,9 +2734,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_signed_bits i = 0;
 
       UNPACK_8_8_8 (op, dst, idx_var, src);
-      vect = LOCAL_REF (dst);
-      idx = LOCAL_REF (idx_var);
-      val = LOCAL_REF (src);
+      vect = SP_REF (dst);
+      idx = SP_REF (idx_var);
+      val = SP_REF (src);
 
       VM_ASSERT (SCM_I_IS_VECTOR (vect),
                  vm_error_not_a_vector ("vector-ref", vect));
@@ -2773,8 +2759,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM vect, val;
 
       UNPACK_8_8_8 (op, dst, idx, src);
-      vect = LOCAL_REF (dst);
-      val = LOCAL_REF (src);
+      vect = SP_REF (dst);
+      val = SP_REF (src);
 
       VM_ASSERT (SCM_I_IS_VECTOR (vect),
                  vm_error_not_a_vector ("vector-ref", vect));
@@ -2816,8 +2802,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_8_8_8 (op, dst, vtable, nfields);
 
       SYNC_IP ();
-      ret = scm_allocate_struct (LOCAL_REF (vtable), LOCAL_REF (nfields));
-      LOCAL_SET (dst, ret);
+      ret = scm_allocate_struct (SP_REF (vtable), SP_REF (nfields));
+      SP_SET (dst, ret);
 
       NEXT (1);
     }
@@ -2835,8 +2821,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, src, idx);
 
-      obj = LOCAL_REF (src);
-      index = LOCAL_REF (idx);
+      obj = SP_REF (src);
+      index = SP_REF (idx);
 
       if (SCM_LIKELY (SCM_STRUCTP (obj)
                       && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
@@ -2863,9 +2849,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, idx, src);
 
-      obj = LOCAL_REF (dst);
-      val = LOCAL_REF (src);
-      index = LOCAL_REF (idx);
+      obj = SP_REF (dst);
+      val = SP_REF (src);
+      index = SP_REF (idx);
 
       if (SCM_LIKELY (SCM_STRUCTP (obj)
                       && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
@@ -2901,8 +2887,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_8_8_8 (op, dst, vtable, nfields);
 
       SYNC_IP ();
-      ret = scm_allocate_struct (LOCAL_REF (vtable), SCM_I_MAKINUM (nfields));
-      LOCAL_SET (dst, ret);
+      ret = scm_allocate_struct (SP_REF (vtable), SCM_I_MAKINUM (nfields));
+      SP_SET (dst, ret);
 
       NEXT (1);
     }
@@ -2919,7 +2905,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, src, idx);
 
-      obj = LOCAL_REF (src);
+      obj = SP_REF (src);
 
       if (SCM_LIKELY (SCM_STRUCTP (obj)
                       && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
@@ -2944,8 +2930,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, idx, src);
 
-      obj = LOCAL_REF (dst);
-      val = LOCAL_REF (src);
+      obj = SP_REF (dst);
+      val = SP_REF (src);
 
       if (SCM_LIKELY (SCM_STRUCTP (obj)
                       && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
@@ -3001,8 +2987,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       offset = ip[3];
       len = ip[4];
       SYNC_IP ();
-      LOCAL_SET (dst, scm_from_contiguous_typed_array (LOCAL_REF (type),
-                                                       LOCAL_REF (shape),
+      SP_SET (dst, scm_from_contiguous_typed_array (SP_REF (type),
+                                                       SP_REF (shape),
                                                        ip + offset, len));
       NEXT (5);
     }
@@ -3019,8 +3005,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_24 (ip[2], fill);
       UNPACK_24 (ip[3], bounds);
       SYNC_IP ();
-      LOCAL_SET (dst, scm_make_typed_array (LOCAL_REF (type), LOCAL_REF (fill),
-                                            LOCAL_REF (bounds)));
+      SP_SET (dst, scm_make_typed_array (SP_REF (type), SP_REF (fill),
+                                            SP_REF (bounds)));
       NEXT (4);
     }
 
@@ -3171,9 +3157,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     scm_t_ ## type *int_ptr;						\
 									\
     UNPACK_8_8_8 (op, dst, idx, src);                                   \
-    bv = LOCAL_REF (dst);                                               \
-    scm_idx = LOCAL_REF (idx);                                          \
-    val = LOCAL_REF (src);                                              \
+    bv = SP_REF (dst);                                               \
+    scm_idx = SP_REF (idx);                                          \
+    val = SP_REF (src);                                              \
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
     i = SCM_I_INUM (scm_idx);                                           \
     int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
@@ -3202,9 +3188,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     scm_t_ ## type *int_ptr;						\
 									\
     UNPACK_8_8_8 (op, dst, idx, src);                                   \
-    bv = LOCAL_REF (dst);                                               \
-    scm_idx = LOCAL_REF (idx);                                          \
-    val = LOCAL_REF (src);                                              \
+    bv = SP_REF (dst);                                               \
+    scm_idx = SP_REF (idx);                                          \
+    val = SP_REF (src);                                              \
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
     i = SCM_I_INUM (scm_idx);                                           \
     int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
@@ -3230,9 +3216,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     type *float_ptr;                                                    \
 									\
     UNPACK_8_8_8 (op, dst, idx, src);                                   \
-    bv = LOCAL_REF (dst);                                               \
-    scm_idx = LOCAL_REF (idx);                                          \
-    val = LOCAL_REF (src);                                              \
+    bv = SP_REF (dst);                                               \
+    scm_idx = SP_REF (idx);                                          \
+    val = SP_REF (src);                                              \
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
     i = SCM_I_INUM (scm_idx);                                           \
     float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);            \
@@ -3440,8 +3426,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 #undef INIT
 #undef INUM_MAX
 #undef INUM_MIN
-#undef LOCAL_REF
-#undef LOCAL_SET
+#undef FP_REF
+#undef FP_SET
+#undef FP_SLOT
+#undef SP_REF
+#undef SP_SET
 #undef NEXT
 #undef NEXT_HOOK
 #undef NEXT_JUMP
