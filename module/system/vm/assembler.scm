@@ -691,13 +691,13 @@ later by the linker."
                (emit asm 1 0 c)
                (emit-drop asm 2)))))
         (('X8_S12_S12 '<- 'X8_C24)
-         #'(lambda (asm dst a c)
+         #'(lambda (asm dst a const)
              (cond
               ((< (logior dst a) (ash 1 12))
-               (emit asm dst a c))
+               (emit asm dst a const))
               (else
                (emit-push asm a)
-               (emit asm 0 0 c)
+               (emit asm 0 0 const)
                (emit-pop asm dst)))))
 
         (('X8_S12_C12 '<-)
