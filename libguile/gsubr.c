@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2001, 2006, 2008-2011, 2013
+/* Copyright (C) 1995-2001, 2006, 2008-2011, 2013, 2015
  *   Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -293,6 +293,47 @@ scm_i_primitive_call_ip (SCM subr)
      instruction, in either the fourth, third, or second word.  Return a
      byte offset from the entry.  */
   return (scm_t_uintptr)(code + (code[3] ? 3 : code[2] ? 2 : 1));
+}
+
+SCM
+scm_apply_subr (union scm_vm_stack_element *sp, scm_t_ptrdiff nslots)
+{
+  SCM (*subr)() = SCM_SUBRF (sp[nslots - 1].as_scm);
+
+#define ARG(i) (sp[i].as_scm)
+  switch (nslots - 1)
+    {
+    case 0:
+      return subr ();
+    case 1:
+      return subr (ARG (0));
+    case 2:
+      return subr (ARG (1), ARG (0));
+    case 3:
+      return subr (ARG (2), ARG (1), ARG (0));
+    case 4:
+      return subr (ARG (3), ARG (2), ARG (1), ARG (0));
+    case 5:
+      return subr (ARG (4), ARG (3), ARG (2), ARG (1), ARG (0));
+    case 6:
+      return subr (ARG (5), ARG (4), ARG (3), ARG (2), ARG (1),
+                   ARG (0));
+    case 7:
+      return subr (ARG (6), ARG (5), ARG (4), ARG (3), ARG (2),
+                   ARG (1), ARG (0));
+    case 8:
+      return subr (ARG (7), ARG (6), ARG (5), ARG (4), ARG (3),
+                   ARG (2), ARG (1), ARG (0));
+    case 9:
+      return subr (ARG (8), ARG (7), ARG (6), ARG (5), ARG (4),
+                   ARG (3), ARG (2), ARG (1), ARG (0));
+    case 10:
+      return subr (ARG (9), ARG (8), ARG (7), ARG (6), ARG (5),
+                   ARG (4), ARG (3), ARG (2), ARG (1), ARG (0));
+    default:
+      abort ();
+    }
+#undef ARG
 }
 
 SCM

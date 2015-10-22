@@ -4,7 +4,7 @@
 #define SCM_GSUBR_H
 
 /* Copyright (C) 1995, 1996, 1998, 2000, 2001, 2006, 2008, 2009,
- *   2010, 2011, 2013 Free Software Foundation, Inc.
+ *   2010, 2011, 2013, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -56,6 +56,10 @@
 
 SCM_INTERNAL int scm_i_primitive_arity (SCM subr, int *req, int *opt, int *rest);
 SCM_INTERNAL scm_t_uintptr scm_i_primitive_call_ip (SCM subr);
+
+union scm_vm_stack_element;
+SCM_INTERNAL SCM scm_apply_subr (union scm_vm_stack_element *sp,
+                                 scm_t_ptrdiff nargs);
 
 SCM_API SCM scm_c_make_gsubr (const char *name,
 			      int req, int opt, int rst, scm_t_subr fcn);

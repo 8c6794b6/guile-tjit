@@ -888,10 +888,9 @@ compiler probably shouldn't emit code with these instructions.  However,
 it's still interesting to know how these things work, so we document
 these trampoline instructions here.
 
-@deftypefn Instruction {} subr-call c24:@var{ptr-idx}
-Call a subr, passing all locals in this frame as arguments.  Fetch the
-foreign pointer from @var{ptr-idx}, a free variable.  Return from the
-calling frame.
+@deftypefn Instruction {} subr-call x24:@var{_}
+Call a subr, passing all locals in this frame as arguments.  Return from
+the calling frame.
 @end deftypefn
 
 @deftypefn Instruction {} foreign-call c12:@var{cif-idx} c12:@var{ptr-idx}
