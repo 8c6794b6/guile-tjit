@@ -98,6 +98,9 @@
 (define *ir-procedures*
   (make-hash-table))
 
+(define *local-accumulator*
+  (make-hash-table))
+
 (define-syntax define-ir-syntax-parameters
   (syntax-rules ()
     ((_ name ...)
@@ -121,16 +124,44 @@
   next
   escape)
 
+(define-syntax define-accum
+  (syntax-rules (local const)
+    "Macro to define local accumulator procedure.
+
+First argument passed to the procedure is a hash-table for accumulating local,
+key is local index and value is #t. Second argument is current offset during the
+accumulation."
+    ((_ st offset)
+     st)
+    ((_ st offset (local arg) . rest)
+     (begin (hashq-set! st (+ arg offset) #t)
+            (define-accum st offset . rest)))
+    ((_ st offset (const arg) . rest)
+     (define-accum st offset . rest))))
+
 (define-syntax define-ir
   (syntax-rules ()
-    ((_ (name . args) . body)
+    "Defines procedure to compile VM operation to IR, and optionally local
+accumulator when arguments in definition are lists. E.g:
+
+  (define-ir (add1 (local dst) (local src))
+    ...)
+
+will define two procedures: one for IR compilation taking two arguments, and
+another procedure for accumulator taking two arguments and saving index
+referenced by dst and src value at runtime."
+    ((_ (name (flag arg) ...) . body)
+     (let ((acc (lambda (st offset arg ...)
+                  (define-accum st offset (flag arg) ...))))
+       (hashq-set! *local-accumulator* 'name acc)
+       (define-ir (name arg ...) . body)))
+    ((_ (name arg ...) . body)
      (let ((proc
             (lambda (%snapshots
                      %snapshot-id %parent-snapshot %past-frame
-                     %locals %vars
-                     %local-offset %lowest-offset
+                     %locals %vars %local-offset %lowest-offset
                      %ip %ra %next %escape
-                     . args)
+                     arg ...)
               (syntax-parameterize
                   ((snapshots (identifier-syntax %snapshots))
                    (snapshot-id (identifier-syntax %snapshot-id))
@@ -324,7 +355,7 @@
 ;; XXX: alloc-frame
 ;; XXX: reset-frame
 
-(define-ir (assert-nargs-ee/locals expected nlocals)
+(define-ir (assert-nargs-ee/locals (const expected) (const nlocals))
   (next))
 
 ;; XXX: br-if-npos-gt
@@ -334,10 +365,10 @@
 
 ;;; *** Branching instructions
 
-(define-ir (br offset)
+(define-ir (br (const offset))
   (next))
 
-(define-ir (br-if-= a b invert? offset)
+(define-ir (br-if-= (local a) (local b) (const invert?) (const offset))
   (let* ((ra (local-ref a))
          (rb (local-ref b))
          (va (var-ref a))
@@ -354,30 +385,30 @@
       (debug 3 "*** ir:convert = ~a ~a~%" ra rb)
       (escape #f)))))
 
-(define-ir (br-if-< a b invert? offset)
-  (let ((ra (local-ref a))
-        (rb (local-ref b))
-        (va (var-ref a))
-        (vb (var-ref b)))
-    (let ((dest (if (< ra rb)
-                    (if invert? offset br-op-size)
-                    (if invert? br-op-size offset))))
-      (cond
-       ((and (fixnum? ra) (fixnum? rb))
-        (let ((op (if (< ra rb)
-                      `(%lt ,va ,vb)
-                      `(%ge ,va ,vb))))
-          `(let ((_ ,(take-snapshot! ip dest)))
-             (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
-               ,(next)))))
-
-       ((and (flonum? ra) (flonum? rb))
+(define-ir (br-if-< (local a) (local b) (const invert?) (const offset))
+  (let* ((ra (local-ref a))
+         (rb (local-ref b))
+         (va (var-ref a))
+         (vb (var-ref b))
+         (dest (if (< ra rb)
+                   (if invert? offset br-op-size)
+                   (if invert? br-op-size offset))))
+    (cond
+     ((and (fixnum? ra) (fixnum? rb))
+      (let ((op (if (< ra rb)
+                    `(%lt ,va ,vb)
+                    `(%ge ,va ,vb))))
         `(let ((_ ,(take-snapshot! ip dest)))
-           (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
-             ,(next))))
-       (else
-        (debug 3 "ir:convert < ~a ~a~%" ra rb)
-        (escape #f))))))
+           (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
+             ,(next)))))
+
+     ((and (flonum? ra) (flonum? rb))
+      `(let ((_ ,(take-snapshot! ip dest)))
+         (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
+           ,(next))))
+     (else
+      (debug 3 "ir:convert < ~a ~a~%" ra rb)
+      (escape #f)))))
 
 ;; XXX: br-if-true
 ;; XXX: br-if-null
@@ -394,7 +425,7 @@
 
 ;;; *** Lexical binding instructions
 
-(define-ir (mov dst src)
+(define-ir (mov (local dst) (local src))
   (let ((vdst (var-ref dst))
         (vsrc (var-ref src)))
     `(let ((,vdst ,vsrc))
@@ -410,7 +441,7 @@
 ;;
 ;; XXX: Add test for nested boxes.
 
-(define-ir (box-ref dst src)
+(define-ir (box-ref (local dst) (local src))
   ;; XXX: Add guard to check type of box contents.
   (let ((vdst (var-ref dst))
         (vsrc (var-ref src))
@@ -427,7 +458,7 @@
          (else
           (next))))))
 
-(define-ir (box-set! dst src)
+(define-ir (box-set! (local dst) (local src))
   (let ((vdst (var-ref dst))
         (vsrc (var-ref src))
         (rdst (and (< dst (vector-length locals))
@@ -450,32 +481,37 @@
 ;; XXX: free-ref
 ;; XXX: free-set!
 
+
 ;;; *** Immediates and statically allocated non-immediates
 
-(define-ir (make-short-immediate dst low-bits)
+(define-ir (make-short-immediate (local dst) (const low-bits))
   ;; XXX: `make-short-immediate' could be used for other value than small
   ;; integer, e.g: '(). Check type from value of `low-bits' and choose
   ;; the type appropriately.
   `(let ((,(var-ref dst) ,(ash low-bits -2)))
      ,(next)))
 
-(define-ir (make-long-immediate dst low-bits)
+(define-ir (make-long-immediate (local dst) (const low-bits))
   `(let ((,(var-ref dst) ,(ash low-bits -2)))
      ,(next)))
 
-(define-ir (make-long-long-immediate dst high-bits low-bits)
+(define-ir (make-long-long-immediate (local dst)
+                                     (const high-bits)
+                                     (const low-bits))
   `(let ((,(var-ref dst)
           ,(ash (logior (ash high-bits 32) low-bits) -2)))
      ,(next)))
 
 ;; XXX: make-non-immediate
 
-(define-ir (static-ref dst offset)
+(define-ir (static-ref (local dst) (const offset))
+  ;; XXX: Needs type check.
   `(let ((,(var-ref dst) ,(dereference-scm (+ ip (* 4 offset)))))
      ,(next)))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!
+
 
 ;;; *** Mutable top-level bindings
 
@@ -483,7 +519,11 @@
 ;; XXX: resolve
 ;; XXX: define!
 
-(define-ir (toplevel-box dst var-offset mod-offset sym-offset bound?)
+(define-ir (toplevel-box (local dst)
+                         (const var-offset)
+                         (const mod-offset)
+                         (const sym-offset)
+                         (const bound?))
   (let ((vdst (var-ref dst))
         (src (pointer-address
               (scm->pointer
@@ -492,6 +532,7 @@
        ,(next))))
 
 ;; XXX: module-box
+
 
 ;;; *** The dynamic environment
 
@@ -512,6 +553,7 @@
 ;; XXX: string->symbol
 ;; XXX: symbol->keyword
 
+
 ;;; *** Pairs
 
 ;; XXX: cons
@@ -520,22 +562,10 @@
 ;; XXX: set-car!
 ;; XXX: set-cdr!
 
+
 ;;; *** Numeric operations
 
-(define-ir (add1 dst src)
-  (let ((rdst (local-ref dst))
-        (rsrc (local-ref src))
-        (vdst (var-ref dst))
-        (vsrc (var-ref src)))
-    (cond
-     ((fixnum? rsrc)
-      `(let ((,vdst (%add ,vsrc 1)))
-         ,(next)))
-     (else
-      (debug 3 "ir:convert add1 ~a ~a" rdst rsrc)
-      (escape #f)))))
-
-(define-ir (add dst a b)
+(define-ir (add (local dst) (local a) (local b))
   (let ((rdst (local-ref dst))
         (ra (local-ref a))
         (rb (local-ref b))
@@ -553,7 +583,20 @@
       (debug 3 "ir:convert add ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
-(define-ir (sub dst a b)
+(define-ir (add1 (local dst) (local src))
+  (let ((rdst (local-ref dst))
+        (rsrc (local-ref src))
+        (vdst (var-ref dst))
+        (vsrc (var-ref src)))
+    (cond
+     ((fixnum? rsrc)
+      `(let ((,vdst (%add ,vsrc 1)))
+         ,(next)))
+     (else
+      (debug 3 "ir:convert add1 ~a ~a" rdst rsrc)
+      (escape #f)))))
+
+(define-ir (sub (local dst) (local a) (local b))
   (let ((rdst (local-ref dst))
         (ra (local-ref a))
         (rb (local-ref b))
@@ -571,7 +614,7 @@
       (debug 3 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
-(define-ir (sub1 dst src)
+(define-ir (sub1 (local dst) (local src))
   (let ((rdst (local-ref dst))
         (rsrc (local-ref src))
         (vdst (var-ref dst))
@@ -584,7 +627,7 @@
       (debug 3 "ir:convert sub1 ~a ~a~%" rdst rsrc)
       (escape #f)))))
 
-(define-ir (mul dst a b)
+(define-ir (mul (local dst) (local a) (local b))
   (let ((rdst (local-ref dst))
         (ra (local-ref a))
         (rb (local-ref b))
@@ -603,7 +646,7 @@
 ;; XXX: quo
 ;; XXX: rem
 
-(define-ir (mod dst a b)
+(define-ir (mod (local dst) (local a) (local b))
   (let ((rdst (local-ref dst))
         (ra (local-ref a))
         (rb (local-ref b))
@@ -647,6 +690,7 @@
 
 ;; XXX: vector-set!/immediate
 
+
 ;;; *** Structs and GOOPS
 
 ;; XXX: struct-vtable
@@ -654,6 +698,7 @@
 ;; XXX: struct-ref/immediate
 ;; XXX: struct-set!/immediate
 ;; XXX: class-of
+
 
 ;;; *** Arrays, packed uniform arrays, and bytevectors
 
@@ -679,6 +724,7 @@
 ;; XXX: bv-s64-set!
 ;; XXX: bv-f32-set!
 ;; XXX: bv-f64-set!
+
 
 ;; *** Move above
 
@@ -780,98 +826,78 @@
   ;; snapshot will recover a frame lower than the one used to enter the
   ;; native call.
   ;;
-  (let* ((ret (make-hash-table)))
-    (define (nyi st op)
-      (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
-      st)
+  (define-syntax-rule (push-offset! n)
+    (set! offset (+ offset n)))
+  (define-syntax-rule (pop-offset! n)
+    (set! offset (- offset n)))
+  (define-syntax add!
+    (syntax-rules ()
+      ((_ st i ...)
+       (begin
+         (hashq-set! st (+ i offset) #t) ...
+         st))))
+  (define (nyi st op)
+    (debug 1 "ir:accumulate-locals: NYI ~a~%" op)
+    st)
+  (let ((ret (make-hash-table)))
     (define (acc-one st op locals)
-      (define-syntax-rule (push-offset! n)
-        (set! offset (+ offset n)))
-      (define-syntax-rule (pop-offset! n)
-        (set! offset (- offset n)))
-      (define-syntax add!
-        (syntax-rules ()
-          ((_ st i j k l)
-           (add! (add! st i j) k l))
-          ((_ st i j k)
-           (add! (add! st i j) k))
-          ((_ st i j)
-           (add! (add! st i) j))
-          ((_ st i)
-           (begin
-             (hashq-set! st (+ i offset) #t)
-             st))))
-      (match op
-        ((op a1)
-         (case op
-           ((return)
-            ;; Store proc, returned value, VM frame dynamic link, and VM frame
-            ;; return address.
-            (add! st a1 1 -1 -2))
-           ((br tail-call)
-            st)
-           (else
-            (nyi st op))))
-        ((op a1 a2)
-         (case op
-           ((call)
-            ;; Store proc, VM frame dynamic link, and VM frame return address.
-            (let ((st (add! st a1 (- a1 1) (- a1 2))))
-              (push-offset! a1)
-              st))
-           ((static-ref
-             make-short-immediate make-long-immediate make-long-long-immediate)
-            (add! st a1))
-           ((mov sub1 add1 box-ref box-set!)
-            (add! st a1 a2))
-           ((assert-nargs-ee/locals)
-            st)
-           (else
-            (nyi st op))))
-        ((op a1 a2 a3)
-         (case op
-           ((add sub mul div quo)
-            (add! st a1 a2 a3))
-           ((call-label)
-            (let ((st (add! st a1)))
-              (push-offset! a1)
-              st))
-           ((receive)
-            ;; Modifying locals since procedure taking snapshot uses frame
-            ;; lowers to recover the values after this `receive' bytecode
-            ;; operation. Making a copy of locals so that later procedure can
-            ;; see the original locals.
-            (let ((locals-copy (vector-copy locals))
-                  (ret-index (+ a2 1)))
-              (pop-offset! a2)
-              ;; XXX: If this test for `when' is removed, "mandelbrot.scm" with
-              ;; `--jit-debug=0' will fail. However, running with `--jit-debug'
-              ;; value greater than 0 will work.
-              (when (and (< ret-index (vector-length locals))
-                         (< a1 (vector-length locals-copy)))
-                (vector-set! locals-copy a1 (vector-ref locals ret-index)))
-              (add! st a1 a2)))
-           ((receive-values)
-            (pop-offset! a1)
-            (add! st a1))
-           (else
-            (nyi st op))))
-        ((op a1 a2 a3 a4)
-         (case op
-           ((br-if-< br-if-= br-if-<=)
-            (add! st a1 a2))
-           (else
-            (nyi st op))))
-        ((op a1 a2 a3 a4 a5)
-         (case op
-           ((toplevel-box)
-            (add! st a1))
-           (else
-            (nyi st op))))
-        ((op)
-         (nyi st op))
-        (_
-         (error (format #f "ir:accumulate-locals: ~a" ops)))))
+      ;; Lookup accumulating procedure stored in *local-accumulator* and apply
+      ;; the procedure when found.
+      ;;
+      ;; VM operations which moves frame pointer are not stored in
+      ;; *local-accumulator* and treated specially.
+      ;;
+      ;; `return' will accumulate indices of proc, returned value, VM frame
+      ;; dynamic link, and VM frame return address.
+      ;;
+      ;; `call' and `call-label' will accumulate indices of proc, VM frame
+      ;; dynamic link, and VM frame return address, then push the local offset.
+      ;;
+      ;; `receive' and `receive-value' will pop the local offset before
+      ;; accumulating index of the local containing the callee procedure.
+      ;;
+      (cond
+       ((hashq-ref *local-accumulator* (car op))
+        => (lambda (proc)
+             (apply proc st offset (cdr op))))
+       (else
+        (match op
+          (('return proc)
+           (add! st proc 1 -1 -2))
+          (('call proc _)
+           (add! st proc (- proc 1) (- proc 2))
+           (push-offset! proc)
+           st)
+          (('call-label proc _ _)
+           (add! st proc (- proc 1) (- proc 2))
+           (push-offset! proc)
+           st)
+          (('receive dst proc _)
+           ;; XXX: Not yet sure which value to use, seems not necessary to copy
+           ;; but keeping as commented out code at the moment. The commented out
+           ;; code modifies the local in vctor since snapshot uses frame lower
+           ;; than the values after this `receive' bytecode operation. Making a
+           ;; copy of locals so that later procedure can see the original
+           ;; locals.
+           ;;
+           ;; XXX: If the test for `when' is removed, "mandelbrot.scm" with
+           ;; `--jit-debug=0' will fail. However, running with `--jit-debug'
+           ;; value greater than 0 will work.
+           ;;
+           ;; (let ((locals-copy (vector-copy locals))
+           ;;       (ret-index (+ proc 1)))
+           ;;   (pop-offset! proc)
+           ;;   (when (and (< ret-index (vector-length locals))
+           ;;              (< dst (vector-length locals-copy)))
+           ;;     (vector-set! locals-copy dst (vector-ref locals ret-index)))
+           ;;   (add! dst proc))
+           (pop-offset! proc)
+           (add! st dst proc))
+          (('receive-values proc _ _)
+           (pop-offset! proc)
+           (add! st proc))
+          (_
+           (nyi st (car op)))))))
     (define (acc st ops)
       (match ops
         (((op _ _ _ locals) . rest)
