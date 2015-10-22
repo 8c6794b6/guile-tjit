@@ -1,4 +1,4 @@
-/* ANSI-C code produced by gperf version 3.0.3 */
+/* ANSI-C code produced by gperf version 3.0.4 */
 /* Command-line: gperf -m 10 ./iconv_open-aix.gperf  */
 /* Computed positions: -k'4,$' */
 
