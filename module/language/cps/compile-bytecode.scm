@@ -34,6 +34,7 @@
   #:use-module (language cps optimize)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps renumber)
+  #:use-module (language cps split-rec)
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:use-module (system vm assembler)
@@ -513,6 +514,11 @@
             env)))
 
 (define (lower-cps exp opts)
+  ;; FIXME: For now the closure conversion pass relies on $rec instances
+  ;; being separated into SCCs.  We should fix this to not be the case,
+  ;; and instead move the split-rec pass back to
+  ;; optimize-higher-order-cps.
+  (set! exp (split-rec exp))
   (set! exp (optimize-higher-order-cps exp opts))
   (set! exp (convert-closures exp))
   (set! exp (optimize-first-order-cps exp opts))

@@ -1,6 +1,6 @@
 ;;; Tree-il optimizer
 
-;; Copyright (C) 2009, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,8 @@
   #:use-module (language tree-il fix-letrec)
   #:use-module (language tree-il debug)
   #:use-module (ice-9 match)
-  #:export (optimize))
+  #:export (optimize
+            tree-il-default-optimization-options))
 
 (define (optimize x env opts)
   (let ((peval (match (memq #:partial-eval? opts)
@@ -37,3 +38,6 @@
      (verify-tree-il
       (peval (expand-primitives (resolve-primitives x env))
              env)))))
+
+(define (tree-il-default-optimization-options)
+  '(#:partial-eval? #t))

@@ -37,11 +37,11 @@
   #:use-module (language cps self-references)
   #:use-module (language cps simplify)
   #:use-module (language cps specialize-primcalls)
-  #:use-module (language cps split-rec)
   #:use-module (language cps type-fold)
   #:use-module (language cps verify)
   #:export (optimize-higher-order-cps
-            optimize-first-order-cps))
+            optimize-first-order-cps
+            cps-default-optimization-options))
 
 (define (kw-arg-ref args kw default)
   (match (memq kw args)
@@ -75,8 +75,7 @@
           (maybe-verify (pass program))
           program))
     ...
-    (verify program)
-    program))
+    (maybe-verify program)))
 
 ;; Passes that are needed:
 ;;
@@ -84,7 +83,11 @@
 ;;    calls, and eliding prompts if possible.
 ;;
 (define-optimizer optimize-higher-order-cps
-  (split-rec #:split-rec? #t)
+  ;; FIXME: split-rec call temporarily moved to compile-bytecode and run
+  ;; unconditionally, because closure conversion requires it.  Move the
+  ;; pass back here when that's fixed.
+  ;;
+  ;; (split-rec #:split-rec? #t)
   (eliminate-dead-code #:eliminate-dead-code? #t)
   (prune-top-level-scopes #:prune-top-level-scopes? #t)
   (simplify #:simplify? #t)
@@ -106,3 +109,19 @@
   (eliminate-dead-code #:eliminate-dead-code? #t)
   (rotate-loops #:rotate-loops? #t)
   (simplify #:simplify? #t))
+
+(define (cps-default-optimization-options)
+  (list ;; #:split-rec? #t
+   #:eliminate-dead-code? #t
+   #:prune-top-level-scopes? #t
+   #:contify? #t
+   #:inline-constructors? #t
+   #:specialize-primcalls? #t
+   #:elide-values? #t
+   #:prune-bailouts? #t
+   #:peel-loops? #t
+   #:cse? #t
+   #:type-fold? #t
+   #:resolve-self-references? #t
+   #:licm? #t
+   #:rotate-loops? #t))
