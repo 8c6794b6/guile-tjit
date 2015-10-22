@@ -801,53 +801,52 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       SYNC_IP ();
 
-      // FIXME!!!!
       switch (FRAME_LOCALS_COUNT_FROM (1))
         {
         case 0:
           ret = subr ();
           break;
         case 1:
-          ret = subr (FP_REF (1));
+          ret = subr (SP_REF (0));
           break;
         case 2:
-          ret = subr (FP_REF (1), FP_REF (2));
+          ret = subr (SP_REF (1), SP_REF (0));
           break;
         case 3:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3));
+          ret = subr (SP_REF (2), SP_REF (1), SP_REF (0));
           break;
         case 4:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
-                      FP_REF (4));
+          ret = subr (SP_REF (3), SP_REF (2), SP_REF (1),
+                      SP_REF (0));
           break;
         case 5:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
-                      FP_REF (4), FP_REF (5));
+          ret = subr (SP_REF (4), SP_REF (3), SP_REF (2),
+                      SP_REF (1), SP_REF (0));
           break;
         case 6:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
-                      FP_REF (4), FP_REF (5), FP_REF (6));
+          ret = subr (SP_REF (5), SP_REF (4), SP_REF (3),
+                      SP_REF (2), SP_REF (1), SP_REF (0));
           break;
         case 7:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
-                      FP_REF (4), FP_REF (5), FP_REF (6),
-                      FP_REF (7));
+          ret = subr (SP_REF (6), SP_REF (5), SP_REF (4),
+                      SP_REF (3), SP_REF (2), SP_REF (1),
+                      SP_REF (0));
           break;
         case 8:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
-                      FP_REF (4), FP_REF (5), FP_REF (6),
-                      FP_REF (7), FP_REF (8));
+          ret = subr (SP_REF (7), SP_REF (6), SP_REF (5),
+                      SP_REF (4), SP_REF (3), SP_REF (2),
+                      SP_REF (1), SP_REF (0));
           break;
         case 9:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
-                      FP_REF (4), FP_REF (5), FP_REF (6),
-                      FP_REF (7), FP_REF (8), FP_REF (9));
+          ret = subr (SP_REF (8), SP_REF (7), SP_REF (6),
+                      SP_REF (5), SP_REF (4), SP_REF (3),
+                      SP_REF (2), SP_REF (1), SP_REF (0));
           break;
         case 10:
-          ret = subr (FP_REF (1), FP_REF (2), FP_REF (3),
-                      FP_REF (4), FP_REF (5), FP_REF (6),
-                      FP_REF (7), FP_REF (8), FP_REF (9),
-                      FP_REF (10));
+          ret = subr (SP_REF (9), SP_REF (8), SP_REF (7),
+                      SP_REF (6), SP_REF (5), SP_REF (4),
+                      SP_REF (3), SP_REF (2), SP_REF (1),
+                      SP_REF (0));
           break;
         default:
           abort ();
