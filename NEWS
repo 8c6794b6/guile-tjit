@@ -132,10 +132,10 @@ Guile's compiler now uses a Continuation-Passing Style (CPS)
 intermediate language, allowing it to reason easily about temporary
 values and control flow.  Examples of optimizations that this permits
 are optimal contification, optimal common subexpression elimination,
-dead code elimination, parallel moves with at most one temporary,
-allocation of stack slots using precise liveness information, and
-closure optimization.  For more, see "Continuation-Passing Style" in the
-manual.
+dead code elimination, loop-invariant code motion, loop peeling, loop
+inversion, parallel moves with at most one temporary, allocation of
+stack slots using precise liveness information, and closure
+optimization.  For more, see "Continuation-Passing Style" in the manual.
 
 ** Faster interpreter
 
