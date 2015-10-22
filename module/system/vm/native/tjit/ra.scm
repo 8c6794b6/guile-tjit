@@ -318,7 +318,7 @@
          ;; Refill variables. Using the locals assigned to snapshot, which are
          ;; determined at the time of exit from parent trace.
          (match parent-snapshot
-           (($ $snapshot id offset nlocals locals variables code ip)
+           (($ $snapshot id sp-offset fp-offset nlocals locals variables code ip)
             (debug 2 ";;; [a->pf] locals from parent:    ~a~%" locals)
             (debug 2 ";;; [a->pf] variables from parent: ~a~%" variables)
             ;; The number of assigned variables might fewer than the number of
@@ -328,9 +328,12 @@
                      (locals (reverse locals)))
               (match (list variables locals)
                 (((var . vars) ((local . type) . locals))
-                 (let ((local-from-parent (if (< offset 0)
-                                              (+ local offset)
-                                              local)))
+                 (let (
+                       ;; (local-from-parent (if (< sp-offset 0)
+                       ;;                        (+ local sp-offset)
+                       ;;                        local))
+                       (local-from-parent local)
+                       )
                    (hashq-set! env (make-var local-from-parent) var))
                  (match var
                    (('gpr . n)

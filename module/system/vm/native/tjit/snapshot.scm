@@ -42,7 +42,8 @@
             %make-snapshot
             snapshot?
             snapshot-id
-            snapshot-offset
+            snapshot-sp-offset
+            snapshot-fp-offset
             snapshot-nlocals
             snapshot-locals
             snapshot-variables
@@ -59,6 +60,10 @@
             make-past-frame
             past-frame-local-indices
             past-frame-local-ref
+            past-frame-sp-offsets
+            past-frame-fp-offsets
+            past-frame-dls
+            past-frame-ras
             pop-past-frame!
             push-past-frame!
 
@@ -124,7 +129,7 @@
 ;; Stores dynamic link, return addresses, and locals of caller procedure when
 ;; inlined procedure exist in trace.
 (define-record-type $past-frame
-  (%make-past-frame dls ras locals local-indices)
+  (%make-past-frame dls ras locals local-indices sp-offsets fp-offsets)
   past-frame?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -137,9 +142,16 @@
   (locals past-frame-locals set-past-frame-locals!)
 
   ;; All local indices found in trace.
-  (local-indices past-frame-local-indices))
+  (local-indices past-frame-local-indices)
 
-(define (make-past-frame dls ras local-offset locals local-indices)
+  ;; Vector containing SP offset per bytecode operation.
+  (sp-offsets past-frame-sp-offsets)
+
+  ;; Vector containing FP offset per bytecode operation.
+  (fp-offsets past-frame-fp-offsets))
+
+(define (make-past-frame dls ras local-offset locals local-indices
+                         sp-offsets fp-offsets)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (let ((table (make-hash-table))
@@ -150,7 +162,7 @@
               (j (+ i local-offset)))
           (hashq-set! table j elem))
         (lp (+ i 1) end)))
-    (%make-past-frame dls ras table local-indices)))
+    (%make-past-frame dls ras table local-indices sp-offsets fp-offsets)))
 
 (define (push-past-frame! past-frame dl ra local-offset locals)
   (set-past-frame-dls! past-frame (cons dl (past-frame-dls past-frame)))
@@ -177,14 +189,17 @@
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
-  (%make-snapshot id offset nlocals locals variables code ip)
+  (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip)
   snapshot?
 
   ;; ID number of this snapshot.
   (id snapshot-id)
 
+  ;; Integer number to shift SP after returning with this snapshot.
+  (sp-offset snapshot-sp-offset)
+
   ;; Integer number to shift vp->fp after returning with this snapshot.
-  (offset snapshot-offset)
+  (fp-offset snapshot-fp-offset)
 
   ;; Number of locals at the time of snapshot.
   (nlocals snapshot-nlocals)
@@ -233,6 +248,7 @@
    ((true? obj) &true)
    ((procedure? obj) &procedure)
    ((pair? obj) &pair)
+   ((null? obj) &null)
    ((variable? obj) &box)
    ((struct? obj) &struct)
    ((bytevector? obj) &bytevector)
@@ -264,11 +280,12 @@
    ((eq? type &false) (green "fals"))
    ((eq? type &true) (green "true"))
    ((eq? type &nil) (green "nil"))
+   ((eq? type &null) (green "null"))
    ((eq? type &symbol) (blue "symb"))
-   ((eq? type &keyword) (blue "kw"))
+   ((eq? type &keyword) (blue "keyw"))
    ((eq? type &procedure) (red "proc"))
    ((eq? type &pair) (yellow "pair"))
-   ((eq? type &vector) (yellow "vec"))
+   ((eq? type &vector) (yellow "vect"))
    ((eq? type &box) (yellow "box"))
    ((eq? type &struct) (yellow "strc"))
    ((dynamic-link? type)
@@ -285,19 +302,21 @@
 ;;; Snapshot
 ;;;
 
-(define (make-snapshot id local-offset lowest-offset nlocals
+(define (make-snapshot id sp-offset fp-offset lowest-offset nlocals
                        locals parent-snapshot indices past-frame ip)
   (define-syntax-rule (local-ref i)
     (vector-ref locals i))
   (define initial-offset
-    (or (and=> parent-snapshot snapshot-offset)))
+    (or (and=> parent-snapshot snapshot-sp-offset)))
   (define parent-locals
     (and=> parent-snapshot snapshot-locals))
   (define (parent-snapshot-local-ref i)
     (and parent-snapshot
-         (assq-ref parent-locals (if (< 0 initial-offset)
-                                     i
-                                     (- i initial-offset)))))
+         (assq-ref parent-locals i)
+         ;; (assq-ref parent-locals (if (< 0 initial-offset)
+         ;;                             i
+         ;;                             (- i initial-offset)))
+         ))
   (define (shift-lowest acc)
     (map (match-lambda
           ((n . local)
@@ -315,21 +334,14 @@
                     val))))
        (define (add-local local)
          (let ((type (type-of local)))
-           (if (and type
-                    (<= lowest-offset i (+ local-offset nlocals)))
-               (begin
-                 (lp is (cons `(,i . ,type) acc)))
-               (lp is acc))))
+           (lp is (cons `(,i . ,type) acc))))
        (define (add-val val)
          (lp is (cons `(,i . ,val) acc)))
        (cond
-
         ;; Inlined local in initial frame in root trace. The frame contents
         ;; should be a scheme value, not dynamic link or return address.
-        ((and (= local-offset 0)
-              (<= 0 i))
-         (add-local (and (< i (vector-length locals))
-                         (local-ref i))))
+        ((< (- sp-offset 1) i (+ sp-offset nlocals))
+         (add-local (local-ref (- i sp-offset))))
 
         ;; Dynamic link and return address might need to be passed from parent
         ;; trace. When side trace of inlined procedure takes bailout code,
@@ -339,8 +351,8 @@
          => add-val)
 
         ;; Local from a vector saved at the tme of recording the trace.
-        ((< -1 (- i local-offset) (vector-length locals))
-         (add-local (local-ref (- i local-offset))))
+        ((< -1 (- i sp-offset) (vector-length locals))
+         (add-local (local-ref (- i sp-offset))))
 
         ;; When side trace contains inlined procedure and the guard taking this
         ;; snapshot is from the caller of the inlined procedure, saving local in
@@ -362,8 +374,15 @@
          (add-local #f))))
       (()
        (let ((acc (reverse! acc)))
-         (%make-snapshot id local-offset (vector-length locals)
-                         (shift-lowest acc) #f #f ip))))))
+         (%make-snapshot id
+                         sp-offset
+                         fp-offset
+                         (vector-length locals)
+                         ;; (shift-lowest acc)
+                         acc
+                         #f
+                         #f
+                         ip))))))
 
 ;;;
 ;;; IP Keys

@@ -7,7 +7,7 @@
 (define (loop1 n acc)
     (let lp ((i n) (acc acc))
       (if (< 0 i)
-          (lp (- i 1) (+ acc 1))
+          (lp (- i 1) (+ acc 2))
           acc)))
 
 (define (loop2 n)

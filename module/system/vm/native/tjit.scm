@@ -140,9 +140,9 @@
              locals)))
   (define (dump-snapshot snapshot)
     (match snapshot
-      (($ $snapshot id offset nlocals locals)
-       (format #t "----     [snap~3,,,' @a] ~a:~a ~a~%"
-               id offset nlocals (pretty-locals locals)))
+      (($ $snapshot id sp-offset fp-offset nlocals locals)
+       (format #t "----     [snap~3,,,' @a] ~a:~a:~a ~a~%"
+               id sp-offset fp-offset nlocals (pretty-locals locals)))
       (_
        (format #t "----     NOT-A-SNAPSHOT~%"))))
   (define (dump-one idx op)
@@ -261,7 +261,7 @@
          (jit-prolog)
          (let-values
              (((trampoline loop-label loop-locals loop-vars fp-offset)
-               (compile-mcode ops entry-ip locals snapshots fragment
+               (compile-native ops entry-ip locals snapshots fragment
                               parent-exit-id linked-ip
                               trace-id)))
            (let ((epilog-label (jit-label)))

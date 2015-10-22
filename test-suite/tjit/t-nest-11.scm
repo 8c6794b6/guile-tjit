@@ -4,21 +4,21 @@
 
 (define (loop1 n acc)
   (let lp ((i n) (acc acc))
-    (if (= 0 i)
-        acc
-        (lp (- i 1) (+ acc 1)))))
+    (if (< 0 i)
+        (lp (- i 1) (+ acc 1))
+        acc)))
 
 (define (loop2 n acc)
   (let lp ((i n) (acc acc))
-    (if (= 0 i)
-        acc
-        (lp (- i 1) (+ acc 2)))))
+    (if (< 0 i)
+        (lp (- i 1) (+ acc 2))
+        acc)))
 
 (define (loop3 n)
   (let lp ((i n) (acc #f))
-    (if (= 0 i)
-        acc
+    (if (< 0 i)
         (lp (- i 1) (+ (loop1 n 0)
-                       (loop2 n 0))))))
+                       (loop2 n 0)))
+        acc)))
 
 (loop3 100)

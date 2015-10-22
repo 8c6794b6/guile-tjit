@@ -251,7 +251,8 @@ increment_compilation_failure (SCM ip)
 }
 
 static inline SCM
-record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
+record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
+        SCM locals, SCM traces)
 {
   SCM trace = SCM_EOL;
   SCM s_fp = scm_from_pointer ((void *) fp, NULL);
@@ -292,8 +293,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
                      &tjit_parent_fragment_id, &tjit_parent_exit_id,    \
                      &nlocals);                                         \
                                                                         \
-        /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
-        /* are using registers, see "libguile/vm-engine.h".          */ \
+        /* Update `sp' and `ip' in C code. */                           \
         CACHE_REGISTER ();                                              \
                                                                         \
         /* Setting vp->sp with number of locals returnd from native  */ \
@@ -340,19 +340,18 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
                                                                         \
         opcode = *ip & 0xff;                                            \
                                                                         \
-        /* Store current bytecode with incrementing bytecode index. */  \
+        /* Store current bytecode. */                                   \
         for (i = 0; i < op_sizes[opcode]; ++i, ++tjit_bc_idx)           \
           tjit_bytecode[tjit_bc_idx] = ip[i];                           \
                                                                         \
-        /* Copying the local contents to vector manually, to get     */ \
-        /* updated information from *fp, not from *vp which may out  */ \
-        /* of sync.                                                  */ \
+        /* Copy local contents to vector. */                            \
         num_locals = FRAME_LOCALS_COUNT ();                             \
         locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);         \
         for (i = 0; i < num_locals; ++i)                                \
-          scm_c_vector_set_x (locals, i, LOCAL_REF (i));                \
+          scm_c_vector_set_x (locals, i, SP_REF (i));                   \
                                                                         \
-        tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
+        tjit_traces =                                                   \
+          record (thread, s_ip, vp->fp, locals, tjit_traces);           \
       }                                                                 \
                                                                         \
     /* Stop recording when IP reached to the end or found a link. */    \
@@ -362,7 +361,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
         tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,                \
                tjit_parent_fragment_id, tjit_parent_exit_id, s_ip,      \
                link_found ? SCM_BOOL_F : SCM_BOOL_T);                   \
-        CACHE_FP ();                                                    \
+        CACHE_SP ();                                                    \
         ++tjit_trace_id;                                                \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
                         &tjit_parent_fragment_id,                       \
@@ -508,49 +507,66 @@ scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp)
 }
 
 static inline void
-scm_i_dump_fp (SCM trace_id, SCM *fp, SCM port)
+scm_i_dump_sp (SCM trace_id, union scm_vm_stack_element *sp, SCM port)
 {
-  SCM *old_fp = SCM_FRAME_DYNAMIC_LINK (fp);
-  scm_t_uint32 *ra = SCM_FRAME_RETURN_ADDRESS (fp);
+  /* union scm_vm_stack_element *old_fp = SCM_FRAME_DYNAMIC_LINK (fp); */
+  /* scm_t_uint32 *ra = SCM_FRAME_RETURN_ADDRESS (fp); */
 
   scm_puts (";;; trace ", port);
   scm_display (trace_id, port);
-  scm_puts (": fp=", port);
-  scm_display (to_hex (SCM_I_MAKINUM (fp)), port);
-  scm_puts (" dl=", port);
-  scm_display (to_hex (SCM_I_MAKINUM (old_fp)), port);
-  scm_puts (" ra=", port);
-  scm_display (to_hex (SCM_I_MAKINUM (ra)), port);
+  scm_puts (": sp=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (sp)), port);
+
+  /* scm_puts (": fp=", port); */
+  /* scm_display (to_hex (SCM_I_MAKINUM (fp.as_uint)), port); */
+  /* scm_puts (" dl=", port); */
+  /* scm_display (to_hex (SCM_I_MAKINUM (old_fp)), port); */
+  /* scm_puts (" ra=", port); */
+  /* scm_display (to_hex (SCM_I_MAKINUM (ra)), port); */
+
   scm_newline (port);
 }
 
 void
-scm_tjit_dump_fp (SCM trace_id, SCM *fp)
-{
-  SCM port = scm_current_output_port ();
-  scm_i_dump_fp (trace_id, fp, port);
-}
-
-void
-scm_tjit_dump_locals (SCM trace_id, int n, SCM *fp)
+scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp)
 {
   int i;
   SCM port = scm_current_output_port ();
 
-  scm_i_dump_fp (trace_id, fp, port);
+  scm_i_dump_sp (trace_id, sp, port);
 
   scm_puts (";;; trace ", port);
   scm_display (trace_id, port);
   scm_puts (": locals", port);
-  for (i = 0; i < n; ++i)
+  for (i = 0; i < n + 2; ++i)
     {
       scm_puts(" [", port);
       scm_display (SCM_I_MAKINUM (i), port);
-      scm_puts("]:", port);
-      scm_display (SCM_PACK (fp[i]), port);
+      scm_puts("]: #x", port);
+      scm_display (to_hex (SCM_I_MAKINUM (sp[i].as_ptr)), port);
     }
   scm_newline (port);
 }
+
+
+/*
+ * Gluing functions
+ */
+
+SCM
+scm_do_inline_from_double (scm_i_thread *thread, double val)
+{
+  SCM z;
+
+  z = SCM_PACK_POINTER
+    (scm_inline_gc_malloc_pointerless (thread, sizeof (scm_t_double)));
+
+  SCM_SET_CELL_TYPE (z, scm_tc16_real);
+  SCM_REAL_VALUE (z) = val;
+
+  return z;
+}
+
 
 /*
  * Initialization

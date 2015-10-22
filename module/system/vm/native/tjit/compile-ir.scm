@@ -60,53 +60,60 @@
   (define (get-initial-snapshot-id)
     ;; For root trace, initial snapshot already added in `make-scm'.
     (if root-trace? 1 0))
-  (define (get-initial-offset parent-snapshot)
+  (define (get-initial-sp-offset parent-snapshot)
     ;; Initial offset of root trace is constantly 0. Initial offset of side
     ;; trace is where parent trace left, using offset value from SNAPSHOT.
     (match parent-snapshot
-      (($ $snapshot _ offset) offset)
+      (($ $snapshot _ sp-offset) sp-offset)
+      (_ 0)))
+  (define (get-initial-fp-offset parent-snapshot)
+    ;; Initial offset of root trace is constantly 0. Initial offset of side
+    ;; trace is where parent trace left, using offset value from SNAPSHOT.
+    (match parent-snapshot
+      (($ $snapshot _ _ fp-offset) fp-offset)
       (_ 0)))
 
   (let* ((parent-snapshot
           (and fragment
                (hashq-ref (fragment-snapshots fragment) exit-id)))
-         (initial-offset (get-initial-offset parent-snapshot))
-         (past-frame (accumulate-locals initial-offset trace))
+         (initial-sp-offset (get-initial-sp-offset parent-snapshot))
+         (initial-fp-offset (get-initial-fp-offset parent-snapshot))
+         (past-frame (accumulate-locals initial-sp-offset
+                                        initial-fp-offset
+                                        trace))
          (local-indices (past-frame-local-indices past-frame))
          (vars (make-vars local-indices))
-         (lowest-offset (min initial-offset 0))
+         (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id)))
 
     (define (take-snapshot! ip dst-offset locals vars)
-      (let-values (((ret snapshot)
-                    (take-snapshot ip
-                                   dst-offset
-                                   locals vars
-                                   snapshot-id
-                                   initial-offset
-                                   lowest-offset
-                                   parent-snapshot
-                                   past-frame)))
+      (let*-values (((ret snapshot)
+                     (take-snapshot ip
+                                    dst-offset
+                                    locals vars
+                                    snapshot-id
+                                    initial-sp-offset
+                                    initial-fp-offset
+                                    lowest-offset
+                                    (get-max-sp-offset initial-sp-offset
+                                                       initial-fp-offset
+                                                       (vector-length locals))
+                                    parent-snapshot
+                                    past-frame)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
 
     (define (make-vars-from-parent vars
                                    locals-from-parent
-                                   offset-from-parent)
+                                   sp-offset-from-parent)
       (let lp ((vars vars) (acc '()))
         (match vars
           (((n . var) . vars)
-           ;; When parent-snapshot-offset is negative, side trace entered from a
-           ;; side exit which is somewhere in the middle of bytecode of lower
-           ;; frame than the beginning of the parent trace.
-           (let ((m (if (< offset-from-parent 0)
-                        (- n offset-from-parent)
-                        n)))
-             (if (assq-ref locals-from-parent m)
-                 (lp vars (cons (cons n var) acc))
-                 (lp vars acc))))
+           (if (assq-ref locals-from-parent n)
+               (lp vars (cons (cons n var) acc))
+               (lp vars acc)))
           (()
            (reverse! acc)))))
 
@@ -115,31 +122,29 @@
            (initial-locals (list-ref (car trace) 4))
            (initial-nlocals (vector-length initial-locals))
            (parent-snapshot-locals (match parent-snapshot
-                                     (($ $snapshot _ _ _ locals) locals)
+                                     (($ $snapshot _ _ _ _ locals) locals)
                                      (_ #f)))
            (vars-from-parent (make-vars-from-parent vars
                                                     parent-snapshot-locals
-                                                    initial-offset))
+                                                    initial-sp-offset))
            (args-from-parent (reverse (map cdr vars-from-parent)))
            (local-indices-from-parent (map car vars-from-parent)))
 
       (define (add-initial-loads exp-body)
         (debug 3 ";;; add-initial-loads:~%")
         (debug 3 ";;;   initial-locals=~a~%" initial-locals)
+        (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
         (let ((snapshot0 (hashq-ref snapshots 0)))
           (define (type-from-snapshot n)
-            (let ((i (- n (snapshot-offset snapshot0))))
-              (and (< -1 i)
-                   (< i (vector-length initial-locals))
+            (let ((i (- n (snapshot-sp-offset snapshot0))))
+              (and (< -1 i (vector-length initial-locals))
                    (type-of (vector-ref initial-locals i)))))
           (define (type-from-parent n)
-            (assq-ref parent-snapshot-locals (if (<= 0 initial-offset)
-                                                 n
-                                                 (- n initial-offset))))
+            (assq-ref parent-snapshot-locals n))
           (let lp ((vars (reverse vars)))
             (match vars
               (((n . var) . vars)
-               (debug 3 ";;;   n:~a~%" n)
+               (debug 3 ";;; add-initial-loads: n=~a~%" n)
                (debug 3 ";;;   var: ~a~%" var)
                (debug 3 ";;;   from parent: ~a~%" (type-from-parent n))
                (debug 3 ";;;   from snapshot: ~a~%" (type-from-snapshot n))
@@ -159,22 +164,22 @@
                 ;;
                 ((let ((parent-type (type-from-parent n))
                        (snapshot-type (type-from-snapshot n)))
-                   (or (and parent-type
-                            snapshot-type
-                            (eq? parent-type snapshot-type))
-                       (and (not snapshot-type)
-                            parent-type)
-                       (and (<= 0 initial-offset)
-                            (< n 0))))
+                   (and (not loop?)
+                        (or (and parent-type
+                                 snapshot-type
+                                 (eq? parent-type snapshot-type))
+                            (and (not snapshot-type)
+                                 parent-type)
+                            (and (<= 0 initial-sp-offset)
+                                 (< n 0)))))
+                 (lp vars))
+                ((let ((i (- n (snapshot-sp-offset snapshot0))))
+                   (not (< -1 i (vector-length initial-locals))))
                  (lp vars))
                 (else
-                 (let* ((i (- n (snapshot-offset snapshot0)))
-                        (local (if (and (< -1 i)
-                                        (< i (vector-length initial-locals)))
-                                   (vector-ref initial-locals i)
-                                   (make-variable #f)))
+                 (let* ((i (- n (snapshot-sp-offset snapshot0)))
+                        (local (vector-ref initial-locals i))
                         (type (type-of local)))
-                   (debug 3 ";;; add-initial-loads: n=~a~%" n)
                    (debug 3 ";;;   local:          ~a~%" local)
                    (debug 3 ";;;   type:           ~a~%" type)
 
@@ -182,9 +187,7 @@
                    ;; offset. Skip loading from frame when shifted index is
                    ;; negative, should be loaded explicitly with `%fref' or
                    ;; `%fref/f'.
-                   (let ((j (if (< initial-offset 0)
-                                (- n initial-offset)
-                                n)))
+                   (let ((j (+ n initial-sp-offset)))
                      (if (< j 0)
                          (lp vars)
                          (with-frame-ref lp vars var type j)))))))
@@ -201,15 +204,28 @@
                                  parent-snapshot
                                  past-frame
                                  vars
-                                 initial-offset))))
+                                 initial-sp-offset
+                                 initial-fp-offset))))
           (cond
            (root-trace?
-            (let* ((snapshot (make-snapshot 0 0 0 initial-nlocals initial-locals
-                                            #f (reverse local-indices)
-                                            past-frame initial-ip))
+            (let* ((arg-indices (filter (lambda (n)
+                                          (<= 0 n))
+                                        (reverse local-indices)))
+                   (snapshot (make-snapshot 0
+                                            0
+                                            0
+                                            0
+                                            initial-nlocals
+                                            initial-locals
+                                            #f
+                                            arg-indices
+                                            past-frame
+                                            initial-ip))
                    (_ (hashq-set! snapshots 0 snapshot))
                    (snap (take-snapshot! *ip-key-set-loop-info!*
-                                         0 initial-locals vars)))
+                                         0
+                                         initial-locals
+                                         vars)))
               `(letrec ((entry (lambda ()
                                  (let ((_ (%snap 0)))
                                    ,(add-initial-loads
@@ -220,7 +236,9 @@
                  entry)))
            (loop?
             (let ((args-from-vars (reverse! (map cdr vars)))
-                  (snap (take-snapshot! initial-ip 0 initial-locals
+                  (snap (take-snapshot! initial-ip
+                                        0
+                                        initial-locals
                                         vars-from-parent)))
               `(letrec ((entry (lambda ,args-from-parent
                                  (let ((_ ,snap))
@@ -230,7 +248,9 @@
                                 ,(emit))))
                  entry)))
            (else
-            (let ((snap (take-snapshot! initial-ip 0 initial-locals
+            (let ((snap (take-snapshot! initial-ip
+                                        0
+                                        initial-locals
                                         vars-from-parent)))
               `(letrec ((patch (lambda ,args-from-parent
                                  (let ((_ ,snap))

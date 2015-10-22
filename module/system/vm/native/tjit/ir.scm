@@ -33,6 +33,7 @@
   #:use-module (system vm native tjit snapshot)
   #:export (make-var
             make-vars
+            get-max-sp-offset
             take-snapshot
             with-frame-ref
             trace->ir
@@ -53,15 +54,23 @@
          (cons n (make-var n)))
        locals))
 
+(define (get-max-sp-offset sp-offset fp-offset nlocals)
+  (max fp-offset
+       (- (+ sp-offset nlocals) 1)
+       (if (< fp-offset)
+           (- (+ (- fp-offset) nlocals) 1)
+           0)))
+
 (define (take-snapshot ip dst-offset locals vars id
-                       local-offset lowest-offset parent-snapshot past-frame)
+                       sp-offset fp-offset min-sp-offset max-sp-offset
+                       parent-snapshot past-frame)
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
          (args-and-indices
           (let lp ((vars vars) (args '()) (indices '()))
             (match vars
               (((n . var) . vars)
-               (if (<= lowest-offset n (+ local-offset nlocals))
+               (if (<= min-sp-offset n max-sp-offset)
                    (lp vars (cons var args) (cons n indices))
                    (lp vars args indices)))
               (()
@@ -69,8 +78,9 @@
          (args (car args-and-indices))
          (indices (cdr args-and-indices))
          (snapshot (make-snapshot id
-                                  local-offset
-                                  lowest-offset
+                                  sp-offset
+                                  fp-offset
+                                  min-sp-offset
                                   nlocals
                                   locals
                                   parent-snapshot
@@ -82,6 +92,7 @@
 (define-syntax-rule (with-frame-ref proc args var type idx)
   (cond
    ((not type)
+    (debug 1 "XXX: with-frame-ref: var=~a type=~a~%" var type)
     `(let ((,var #f))
        ,(proc args)))
    ((= type &flonum)
@@ -117,10 +128,11 @@
   past-frame
   locals
   vars
-  local-offset
-  lowest-offset
+  min-sp-offset
+  max-sp-offset
   ip
   ra
+  bytecode-index
   next
   escape)
 
@@ -131,13 +143,13 @@
 First argument passed to the procedure is a hash-table for accumulating local,
 key is local index and value is #t. Second argument is current offset during the
 accumulation."
-    ((_ st offset)
+    ((_ st sp-offset)
      st)
-    ((_ st offset (local arg) . rest)
-     (begin (hashq-set! st (+ arg offset) #t)
-            (define-accum st offset . rest)))
-    ((_ st offset (const arg) . rest)
-     (define-accum st offset . rest))))
+    ((_ st sp-offset (local arg) . rest)
+     (begin (hashq-set! st (+ arg sp-offset) #t)
+            (define-accum st sp-offset . rest)))
+    ((_ st sp-offset (const arg) . rest)
+     (define-accum st sp-offset . rest))))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -151,16 +163,16 @@ will define two procedures: one for IR compilation taking two arguments, and
 another procedure for accumulator taking two arguments and saving index
 referenced by dst and src value at runtime."
     ((_ (name (flag arg) ...) . body)
-     (let ((acc (lambda (st offset arg ...)
-                  (define-accum st offset (flag arg) ...))))
+     (let ((acc (lambda (st sp-offset arg ...)
+                  (define-accum st sp-offset (flag arg) ...))))
        (hashq-set! *local-accumulator* 'name acc)
        (define-ir (name arg ...) . body)))
     ((_ (name arg ...) . body)
      (let ((proc
             (lambda (%snapshots
                      %snapshot-id %parent-snapshot %past-frame
-                     %locals %vars %local-offset %lowest-offset
-                     %ip %ra %next %escape
+                     %locals %vars %min-sp-offset %max-sp-offset
+                     %ip %ra %bytecode-index %next %escape
                      arg ...)
               (syntax-parameterize
                   ((snapshots (identifier-syntax %snapshots))
@@ -169,10 +181,11 @@ referenced by dst and src value at runtime."
                    (past-frame (identifier-syntax %past-frame))
                    (locals (identifier-syntax %locals))
                    (vars (identifier-syntax %vars))
-                   (local-offset (identifier-syntax %local-offset))
-                   (lowest-offset (identifier-syntax %lowest-offset))
+                   (min-sp-offset (identifier-syntax %min-sp-offset))
+                   (max-sp-offset (identifier-syntax %max-sp-offset))
                    (ip (identifier-syntax %ip))
                    (ra (identifier-syntax %ra))
+                   (bytecode-index (identifier-syntax %bytecode-index))
                    (next (identifier-syntax %next))
                    (escape (identifier-syntax %escape)))
                 . body))))
@@ -188,23 +201,21 @@ referenced by dst and src value at runtime."
   (pointer->scm (dereference-pointer (make-pointer addr))))
 
 (define-syntax br-op-size
-  (identifier-syntax 2))
+  (identifier-syntax 3))
 
 (define-syntax-rule (local-ref n)
   (vector-ref locals n))
 
+(define-syntax-rule (current-sp-offset)
+  (vector-ref (past-frame-sp-offsets past-frame)
+              (variable-ref bytecode-index)))
+
+(define-syntax-rule (current-fp-offset)
+  (vector-ref (past-frame-fp-offsets past-frame)
+              (variable-ref bytecode-index)))
+
 (define-syntax-rule (var-ref n)
-  (assq-ref vars (+ n (variable-ref local-offset))))
-
-(define-syntax-rule (push-offset! n)
-  (variable-set! local-offset (+ (variable-ref local-offset) n)))
-
-(define-syntax-rule (pop-offset! n)
-  (let* ((old-local-offset (variable-ref local-offset))
-         (new-local-offset (- old-local-offset n)))
-    (variable-set! local-offset new-local-offset)
-    (when (< new-local-offset (variable-ref lowest-offset))
-      (variable-set! lowest-offset new-local-offset))))
+  (assq-ref vars (+ n (current-sp-offset))))
 
 (define-syntax-rule (take-snapshot! ip dst-offset)
   (let-values (((ret snapshot)
@@ -213,8 +224,10 @@ referenced by dst and src value at runtime."
                                locals
                                vars
                                (variable-ref snapshot-id)
-                               (variable-ref local-offset)
-                               (variable-ref lowest-offset)
+                               (current-sp-offset)
+                               (current-fp-offset)
+                               (variable-ref min-sp-offset)
+                               (variable-ref max-sp-offset)
                                parent-snapshot
                                past-frame)))
     (hashq-set! snapshots (variable-ref snapshot-id) snapshot)
@@ -235,27 +248,29 @@ referenced by dst and src value at runtime."
   ;; is added to test the procedure value, to bailout when procedure has been
   ;; redefined.
   ;;
-  (let* ((dl (cons (- (+ proc (variable-ref local-offset)) 2)
-                   (make-dynamic-link (variable-ref local-offset))))
-         (ra (cons (- (+ proc (variable-ref local-offset)) 1)
-                   (make-return-address (make-pointer (+ ip (* 2 4))))))
-         (vdl (var-ref (- proc 2)))
-         (vra (var-ref (- proc 1)))
-         (vproc (var-ref proc))
-         (rproc (local-ref proc))
+  (let* ((sp-offset (current-sp-offset))
+         (stack-size (vector-length locals))
+         (fp (- stack-size proc))
+         (rra (cons (+ sp-offset fp)
+                    (make-return-address (make-pointer (+ ip (* 2 4))))))
+         (rdl (cons (+ sp-offset fp 1)
+                    (make-dynamic-link proc)))
+         (vra (var-ref fp))
+         (vdl (var-ref (+ fp 1)))
+         (vproc (var-ref (- fp 1)))
+         (rproc (local-ref (- fp 1)))
          (rproc-addr (pointer-address (scm->pointer rproc)))
          (snapshot (take-snapshot! ip 0)))
-    (push-past-frame! past-frame dl ra (variable-ref local-offset) locals)
-    (push-offset! proc)
-    `(let ((,vdl #f))
-       (let ((,vra ,(+ ip (* 2 4))))
-         (let ((_ ,snapshot))
-           (let ((_ (%eq ,vproc ,rproc-addr)))
-             ,(next)))))))
+    (push-past-frame! past-frame rdl rra sp-offset locals)
+    `(let ((_ ,snapshot))
+       (let ((_ (%eq ,vproc ,rproc-addr)))
+         ,(if (< 0 (current-fp-offset))
+              `(let ((_ (%pcall ,proc)))
+                 ,(next))
+              (next))))))
 
 ;; XXX: call-label
 (define-ir (call-label proc nlocals label)
-  (push-offset! proc)
   (next))
 
 ;; XXX: tail-call
@@ -266,26 +281,24 @@ referenced by dst and src value at runtime."
 ;; XXX: tail-call/shuffle
 
 (define-ir (receive dst proc nlocals)
-  ;; `local-offset' could be modified during `convert' with
-  ;; `push-offset!' and `pop-offset!'. Wrapping next expression as
-  ;; anonymous procedure to prevent overriding variables at this point.
-  ;;
   ;; Two locals below callee procedure in VM frame contain dynamic link and
   ;; return address. VM interpreter refills these two with #f, doing the same
   ;; thing in `emit-next'.
   ;;
-  (pop-offset! proc)
-  (let* ((vdst (var-ref dst))
-         (vdl (var-ref (- proc 2)))
-         (vra (var-ref (- proc 1)))
-         (vret (var-ref (+ proc 1)))
+  (let* ((stack-size (vector-length locals))
+         (vdst (var-ref (- stack-size dst 1)))
+         (vdl (var-ref (- stack-size proc)))
+         (vra (var-ref (+ (- stack-size proc) 1)))
+         (vret (var-ref (- (- stack-size proc) 2)))
          (emit-next (lambda ()
                       `(let ((,vdl #f))
                          (let ((,vra #f))
                            (let ((,vdst ,vret))
                              ,(next))))))
-         (proc-offset (+ proc (variable-ref local-offset))))
-    (if (<= 0 (variable-ref local-offset))
+         (sp-offset (current-sp-offset))
+         (fp-offset (current-fp-offset))
+         (proc-offset (+ proc sp-offset)))
+    (if (<= fp-offset 0)
         (emit-next)
         (begin
           `(let ((_ ,(take-snapshot! ip 0)))
@@ -293,34 +306,32 @@ referenced by dst and src value at runtime."
                 (match vars
                   (((n . var) . vars)
                    (cond
-                    ((<= (variable-ref local-offset) n (+ proc-offset -3))
-                     ;; Loading local from lower frame.
-                     (let* ((i (- n (variable-ref local-offset)))
+                    ((< (+ (- stack-size proc 1) sp-offset 2)
+                        n
+                        (+ stack-size sp-offset))
+                     (let* ((i (- n sp-offset))
                             (val (if (< -1 i (vector-length locals))
                                      (vector-ref locals i)
                                      #f))
-                            (type (type-of val)))
-                       (let ((idx (- n (variable-ref local-offset))))
-                         (with-frame-ref lp vars var type idx))))
+                            (type (type-of val))
+                            (idx n))
+                       (with-frame-ref lp vars var type idx)))
                     (else
                      (lp vars))))
                   (()
                    (emit-next)))))))))
 
 (define-ir (receive-values proc allow-extra? nvalues)
-  (pop-offset! proc)
   (escape #f))
 
 (define-ir (return src)
-  (let* ((vsrc (var-ref src))
-         (vdst (var-ref 1))
-         (assign (if (eq? vdst vsrc)
-                     '()
-                     `((,vdst ,vsrc))))
+  (let* ((stack-size (vector-length locals))
+         (vsrc (var-ref src))
+         (vdst (var-ref (- stack-size 2)))
          (snapshot (take-snapshot! ip 0))
          (_ (pop-past-frame! past-frame))
          (body `(let ((_ ,snapshot))
-                  ,(if (< 0 (variable-ref local-offset))
+                  ,(if (< (current-fp-offset) 0)
                        (next)
                        `(let ((_ (%return ,ra)))
                           ,(next))))))
@@ -355,7 +366,7 @@ referenced by dst and src value at runtime."
 ;; XXX: alloc-frame
 ;; XXX: reset-frame
 
-(define-ir (assert-nargs-ee/locals (const expected) (const nlocals))
+(define-ir (assert-nargs-ee/locals expected nlocals)
   (next))
 
 ;; XXX: br-if-npos-gt
@@ -420,6 +431,7 @@ referenced by dst and src value at runtime."
 ;; XXX: br-if-eq
 ;; XXX: br-if-eqv
 ;; XXX: br-if-equal
+;; XXX: br-if-logtest
 ;; XXX: br-if-<=
 
 
@@ -498,8 +510,7 @@ referenced by dst and src value at runtime."
 (define-ir (make-long-long-immediate (local dst)
                                      (const high-bits)
                                      (const low-bits))
-  `(let ((,(var-ref dst)
-          ,(ash (logior (ash high-bits 32) low-bits) -2)))
+  `(let ((,(var-ref dst) ,(ash (logior (ash high-bits 32) low-bits) -2)))
      ,(next)))
 
 ;; XXX: make-non-immediate
@@ -694,6 +705,9 @@ referenced by dst and src value at runtime."
 ;;; *** Structs and GOOPS
 
 ;; XXX: struct-vtable
+;; XXX: allocate-struct
+;; XXX: struct-ref
+;; XXX: struct-set!
 ;; XXX: allocate-struct/immediate
 ;; XXX: struct-ref/immediate
 ;; XXX: struct-set!/immediate
@@ -726,17 +740,21 @@ referenced by dst and src value at runtime."
 ;; XXX: bv-f64-set!
 
 
-;; *** Move above
-
-;; XXX: br-if-logtest
-;; XXX: allocate-struct
-;; XXX: struct-ref
-;; XXX: struct-set!
-
 (define (trace->ir trace escape loop? initial-snapshot-id snapshots
-                   parent-snapshot past-frame vars initial-offset)
-  (let* ((local-offset (make-variable initial-offset))
-         (lowest-offset (make-variable (min initial-offset 0)))
+                   parent-snapshot past-frame vars
+                   initial-sp-offset initial-fp-offset)
+  (let* ((bytecode-index (make-variable 0))
+         (min-sp-offset (make-variable (min initial-sp-offset 0)))
+         (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0)))
+         (max-sp-offset (make-variable (get-max-sp-offset initial-sp-offset
+                                                          initial-fp-offset
+                                                          initial-nlocals)))
+         (last-sp-offset (let* ((sp-offsets (past-frame-sp-offsets past-frame))
+                                (i (- (vector-length sp-offsets) 1)))
+                           (vector-ref sp-offsets i)))
+         (last-fp-offset (let* ((fp-offsets (past-frame-fp-offsets past-frame))
+                                (i (- (vector-length fp-offsets) 1)))
+                           (vector-ref fp-offsets i)))
          (snapshot-id (make-variable initial-snapshot-id)))
     (define (take-snapshot-with-locals! ip dst-offset locals)
       (let-values (((ret snapshot)
@@ -745,8 +763,10 @@ referenced by dst and src value at runtime."
                                    locals
                                    vars
                                    (variable-ref snapshot-id)
-                                   (variable-ref local-offset)
-                                   (variable-ref lowest-offset)
+                                   last-sp-offset
+                                   last-fp-offset
+                                   (variable-ref min-sp-offset)
+                                   (variable-ref max-sp-offset)
                                    parent-snapshot
                                    past-frame)))
         (let* ((old-snapshot-id (variable-ref snapshot-id))
@@ -758,8 +778,31 @@ referenced by dst and src value at runtime."
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (proc)
-             (let ((next (lambda ()
-                           (convert rest))))
+             (let ((next
+                    (lambda ()
+                      (let* ((old-index (variable-ref bytecode-index))
+                             (sp-offsets (past-frame-sp-offsets past-frame))
+                             (sp-offset (vector-ref sp-offsets old-index))
+                             (fp-offsets (past-frame-fp-offsets past-frame))
+                             (fp-offset (vector-ref fp-offsets old-index))
+                             (nlocals (vector-length locals))
+                             (max-offset (get-max-sp-offset sp-offset
+                                                            fp-offset
+                                                            nlocals)))
+                        (variable-set! bytecode-index (+ 1 old-index))
+                        (when (< sp-offset (variable-ref min-sp-offset))
+                          (variable-set! min-sp-offset sp-offset))
+                        (when (< (variable-ref max-sp-offset) max-offset)
+                          (variable-set! max-sp-offset max-offset)))
+                      (convert rest))))
+               (let* ((index (variable-ref bytecode-index))
+                      (sp-offset (vector-ref (past-frame-sp-offsets past-frame)
+                                             index))
+                      (fp-offset (vector-ref (past-frame-fp-offsets past-frame)
+                                             index)))
+                 (debug 1 ";;; convert-one [sp ~3@a] [fp ~3@a] ~a~%"
+                        sp-offset fp-offset op)
+                 (debug 1 ";;; max-sp-offset: ~a~%" max-sp-offset))
                (apply proc
                       snapshots
                       snapshot-id
@@ -767,10 +810,11 @@ referenced by dst and src value at runtime."
                       past-frame
                       locals
                       vars
-                      local-offset
-                      lowest-offset
+                      min-sp-offset
+                      max-sp-offset
                       ip
                       ra
+                      bytecode-index
                       next
                       escape
                       (cdr op)))))
@@ -816,7 +860,7 @@ referenced by dst and src value at runtime."
 ;;; Local accumulator
 ;;;
 
-(define (accumulate-locals offset ops)
+(define (accumulate-locals sp-offset fp-offset ops)
   ;; Makes past-frame with locals in lower frames.
   ;;
   ;; Lower frame data is saved at the time of accumulation. Otherwise, if
@@ -826,76 +870,104 @@ referenced by dst and src value at runtime."
   ;; snapshot will recover a frame lower than the one used to enter the
   ;; native call.
   ;;
-  (define-syntax-rule (push-offset! n)
-    (set! offset (+ offset n)))
-  (define-syntax-rule (pop-offset! n)
-    (set! offset (- offset n)))
-  (define-syntax add!
-    (syntax-rules ()
-      ((_ st i ...)
-       (begin
-         (hashq-set! st (+ i offset) #t) ...
-         st))))
-  (define (nyi st op)
-    (debug 1 "ir:accumulate-locals: NYI ~a~%" op)
-    st)
-  (let ((ret (make-hash-table)))
+  ;; The stack grows down.
+  ;;
+  (let ((ret (make-hash-table))
+        (sp-offsets '())
+        (fp-offsets '()))
+    (define-syntax-rule (push-sp-offset! n)
+      (set! sp-offset (- sp-offset n)))
+    (define-syntax-rule (pop-sp-offset! n)
+      (set! sp-offset (+ sp-offset n)))
+    (define-syntax-rule (push-fp-offset! n)
+      (set! fp-offset (- fp-offset n)))
+    (define-syntax-rule (pop-fp-offset! n)
+      (set! fp-offset (+ fp-offset n)))
+    (define-syntax-rule (save-sp-offset!)
+      (set! sp-offsets (cons sp-offset sp-offsets)))
+    (define-syntax-rule (save-fp-offset!)
+      (set! fp-offsets (cons fp-offset fp-offsets)))
+    (define-syntax add!
+      (syntax-rules ()
+        ((_ st i ...)
+         (begin
+           (hashq-set! st (+ i sp-offset) #t) ...
+           st))))
+    (define (nyi st op)
+      (debug 1 "ir:accumulate-locals: NYI ~a~%" op)
+      st)
+    ;; Lookup accumulating procedure stored in *local-accumulator* and apply
+    ;; the procedure when found.
+    ;;
+    ;; VM operations which moves frame pointer are not stored in
+    ;; *local-accumulator* and treated specially.
+    ;;
+    ;; `return' will accumulate indices of proc, returned value, VM frame
+    ;; dynamic link, and VM frame return address.
+    ;;
+    ;; `call' and `call-label' will accumulate indices of proc, VM frame
+    ;; dynamic link, and VM frame return address, then push the local sp-offset.
+    ;;
+    ;; `receive' and `receive-value' will pop the local sp-offset before
+    ;; accumulating index of the local containing the callee procedure.
+    ;;
     (define (acc-one st op locals)
-      ;; Lookup accumulating procedure stored in *local-accumulator* and apply
-      ;; the procedure when found.
-      ;;
-      ;; VM operations which moves frame pointer are not stored in
-      ;; *local-accumulator* and treated specially.
-      ;;
-      ;; `return' will accumulate indices of proc, returned value, VM frame
-      ;; dynamic link, and VM frame return address.
-      ;;
-      ;; `call' and `call-label' will accumulate indices of proc, VM frame
-      ;; dynamic link, and VM frame return address, then push the local offset.
-      ;;
-      ;; `receive' and `receive-value' will pop the local offset before
-      ;; accumulating index of the local containing the callee procedure.
-      ;;
       (cond
        ((hashq-ref *local-accumulator* (car op))
         => (lambda (proc)
-             (apply proc st offset (cdr op))))
+             (let ((st (apply proc st sp-offset (cdr op))))
+               (save-sp-offset!)
+               (save-fp-offset!)
+               st)))
        (else
         (match op
+          (('call proc nlocals)
+           (let* ((stack-size (vector-length locals))
+                  (sp-proc (- stack-size proc 1)))
+             (add! st sp-proc (+ sp-proc 1) (+ sp-proc 2))
+             (save-sp-offset!)
+             (save-fp-offset!)
+             (push-fp-offset! proc)
+             (push-sp-offset! (- (+ proc nlocals) stack-size))
+             st))
+          (('call-label proc nlocals _)
+           (let ((stack-size (vector-length locals)))
+             (add! st proc (- proc 1) (- proc 2))
+             (save-sp-offset!)
+             (save-fp-offset!)
+             (push-fp-offset! proc)
+             (push-sp-offset! (- (+ proc nlocals) stack-size))
+             st))
+          (('tail-call nlocals)
+           (let ((stack-size (vector-length locals)))
+             (add! st (- stack-size 1))
+             (save-sp-offset!)
+             (save-fp-offset!)
+             st))
+          (('receive dst proc nlocals)
+           (let* ((stack-size (vector-length locals))
+                  (fp (- stack-size proc)))
+             (add! st (- stack-size dst 1) fp (+ fp 1) (+ fp 2))
+             (save-sp-offset!)
+             (pop-sp-offset! (- stack-size nlocals))
+             (pop-fp-offset! proc)
+             (save-fp-offset!)
+             st))
+          ;; XXX: Multiple value not yet managed.
+          ;; (('receive-values proc _ _)
+          ;;  (add! st proc))
           (('return proc)
-           (add! st proc 1 -1 -2))
-          (('call proc _)
-           (add! st proc (- proc 1) (- proc 2))
-           (push-offset! proc)
+           (let ((stack-size (vector-length locals)))
+             (add! st proc (- stack-size 2))
+             (save-sp-offset!)
+             (pop-sp-offset! (- stack-size 2))
+             (save-fp-offset!)
+             st))
+          (('assert-nargs-ee/locals expected nlocals)
+           (save-sp-offset!)
+           (push-sp-offset! nlocals)
+           (save-fp-offset!)
            st)
-          (('call-label proc _ _)
-           (add! st proc (- proc 1) (- proc 2))
-           (push-offset! proc)
-           st)
-          (('receive dst proc _)
-           ;; XXX: Not yet sure which value to use, seems not necessary to copy
-           ;; but keeping as commented out code at the moment. The commented out
-           ;; code modifies the local in vctor since snapshot uses frame lower
-           ;; than the values after this `receive' bytecode operation. Making a
-           ;; copy of locals so that later procedure can see the original
-           ;; locals.
-           ;;
-           ;; XXX: If the test for `when' is removed, "mandelbrot.scm" with
-           ;; `--jit-debug=0' will fail. However, running with `--jit-debug'
-           ;; value greater than 0 will work.
-           ;;
-           ;; (let ((locals-copy (vector-copy locals))
-           ;;       (ret-index (+ proc 1)))
-           ;;   (pop-offset! proc)
-           ;;   (when (and (< ret-index (vector-length locals))
-           ;;              (< dst (vector-length locals-copy)))
-           ;;     (vector-set! locals-copy dst (vector-ref locals ret-index)))
-           ;;   (add! dst proc))
-           (pop-offset! proc)
-           (add! st dst proc))
-          (('receive-values proc _ _)
-           (pop-offset! proc)
-           (add! st proc))
           (_
            (nyi st (car op)))))))
     (define (acc st ops)
@@ -908,10 +980,14 @@ referenced by dst and src value at runtime."
                                             (cons k acc))
                                           '()
                                           (acc ret ops))
-                               >)))
-      (let ((verbosity (lightning-verbosity)))
-        (when (and verbosity (<= 3 verbosity))
-          (format #t ";;; local-indices:~%")
-          (format #t ";;;   ~a~%" local-indices)))
-
-      (make-past-frame '() '() offset #() local-indices))))
+                               >))
+          (sp-offsets/vec (list->vector (reverse! sp-offsets)))
+          (fp-offsets/vec (list->vector (reverse! fp-offsets))))
+      (debug 1 ";;; local-indices: ~a~%" local-indices)
+      (make-past-frame '()
+                       '()
+                       sp-offset
+                       #()
+                       local-indices
+                       sp-offsets/vec
+                       fp-offsets/vec))))

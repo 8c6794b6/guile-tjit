@@ -1,7 +1,5 @@
 ;;; More inlined procedures in nested loop. Calling loop3 which calls
 ;;; loop2 which calls loop1.
-;;;
-;;; XXX: Getting correct result, but traces made more than necessary.
 
 (define (loop1 n acc)
   (let lp ((i n) (acc acc))

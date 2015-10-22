@@ -33,9 +33,8 @@ enum {
 
 #define SCM_VM_REGULAR_ENGINE 0
 #define SCM_VM_DEBUG_ENGINE 1
-#define SCM_VM_MJIT_ENGINE 2
-#define SCM_VM_TJIT_ENGINE 3
-#define SCM_VM_NUM_ENGINES 4
+#define SCM_VM_TJIT_ENGINE 2
+#define SCM_VM_NUM_ENGINES 3
 
 struct scm_vm {
   scm_t_uint32 *ip;		/* instruction pointer */

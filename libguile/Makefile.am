@@ -328,6 +328,7 @@ DOT_X_FILES =					\
 	vectors.x				\
 	version.x				\
 	vm.x					\
+	vm-tjit.x 				\
 	vports.x				\
 	weak-set.x				\
 	weak-table.x				\
@@ -510,7 +511,7 @@ noinst_HEADERS = conv-integer.i.c conv-uinteger.i.c		\
 		 private-options.h ports-internal.h
 
 # vm instructions
-noinst_HEADERS += vm-engine.c vm-mjit.c vm-tjit.c
+noinst_HEADERS += vm-engine.c vm-tjit.c
 
 libguile_@GUILE_EFFECTIVE_VERSION@_la_DEPENDENCIES = @LIBLOBJS@
 

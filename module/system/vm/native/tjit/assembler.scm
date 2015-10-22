@@ -43,6 +43,7 @@
             *scm-true*
             *scm-undefined*
             *scm-unspecified*
+            *scm-null*
             make-asm
             asm-fp-offset
             asm-out-code
@@ -54,8 +55,8 @@
             move
             jump
             jumpi
-            frame-ref
-            frame-set!
+            sp-ref
+            sp-set!
             return-to-interpreter
             scm-from-double
             scm-frame-dynamic-link
@@ -64,11 +65,12 @@
             scm-frame-set-return-address!
             scm-real-value
             vp-offset
-            vp->fp-offset
+            vp->sp-offset
             registers-offset
-            vm-cache-fp
-            vm-sync-fp
-            vm-sync-ip))
+            vm-cache-sp
+            vm-sync-ip
+            vm-sync-sp
+            vm-sync-fp))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -146,6 +148,9 @@
 (define *scm-undefined*
   (make-pointer #x904))
 
+(define *scm-null*
+  (scm->pointer '()))
+
 
 ;;;
 ;;; SCM macros
@@ -180,22 +185,22 @@
     (jit-calli %scm-from-double)
     (jit-retval dst)))
 
-(define-syntax-rule (scm-frame-return-address dst src)
-  (jit-ldxi dst src (make-negative-pointer (- %word-size))))
+(define-syntax-rule (scm-frame-return-address dst vp->fp)
+  (jit-ldr dst vp->fp))
 
-(define-syntax-rule (scm-frame-set-return-address! dst src)
-  (jit-stxi (make-negative-pointer (- %word-size)) dst src))
+(define-syntax-rule (scm-frame-set-return-address! vp->fp src)
+  (jit-str vp->fp src))
 
-(define-syntax-rule (scm-frame-dynamic-link dst src)
-  (jit-ldxi dst src (make-negative-pointer (* -2 %word-size))))
+(define-syntax-rule (scm-frame-dynamic-link dst vp->fp)
+  (jit-ldxi dst vp->fp (imm %word-size)))
 
-(define-syntax-rule (scm-frame-set-dynamic-link! dst src)
-  (jit-stxi (make-negative-pointer (* -2 %word-size)) dst src))
+(define-syntax-rule (scm-frame-set-dynamic-link! vp->fp src)
+  (jit-stxi (imm %word-size) vp->fp src))
 
 (define vp-offset
   (make-negative-pointer (- %word-size)))
 
-(define vp->fp-offset
+(define vp->sp-offset
   (make-negative-pointer (* -2 %word-size)))
 
 (define registers-offset
@@ -204,42 +209,39 @@
 (define *ra-offset*
   (make-negative-pointer (* -4 %word-size)))
 
-(define-syntax-rule (vm-cache-fp vp)
-  (let ((vp->fp (if (eq? vp r0) r1 r0)))
-    (jit-ldxi vp->fp vp (make-pointer (* 2 %word-size)))
-    (jit-stxi vp->fp-offset fp vp->fp)))
+(define-syntax-rule (vm-cache-sp vp)
+  (let ((vp->sp (if (eq? vp r0) r1 r0)))
+    (jit-ldxi vp->sp vp (make-pointer %word-size))
+    (jit-stxi vp->sp-offset fp vp->sp)))
 
-(define-syntax-rule (vm-sync-fp vp->fp)
-  (let ((vp (if (eq? vp->fp r0) r1 r0)))
+(define-syntax-rule (vm-sync-ip src)
+  (let ((vp (if (eq? src r0) r1 r0)))
     (jit-ldxi vp fp vp-offset)
-    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+    (jit-str vp src)))
 
-(define-syntax-rule (vm-sync-ip ip)
-  (let ((vp (if (eq? ip r0) r1 r0)))
+(define-syntax-rule (vm-sync-sp src)
+  (let ((vp (if (eq? src r0) r1 r0)))
     (jit-ldxi vp fp vp-offset)
-    (jit-str vp ip)))
+    (jit-stxi (imm %word-size) vp src)))
 
-(define-syntax-rule (frame-ref dst n)
-  (let ((vp->fp (if (eq? dst r0) r1 r0)))
-    (jit-ldxi vp->fp fp vp->fp-offset)
-    (cond
-     ((= 0 n)
-      (jit-ldr dst vp->fp))
-     ((< 0 n)
-      (jit-ldxi dst vp->fp (imm (* n %word-size))))
-     (else
-      (debug 3 ";;; frame-ref: skipping negative local ~a~%" n)))))
+(define-syntax-rule (vm-sync-fp src)
+  (let ((vp (if (eq? src r0) r1 r0)))
+    (jit-ldxi vp fp vp-offset)
+    (jit-stxi (imm (* %word-size 2)) vp src)))
 
-(define-syntax-rule (frame-set! n src)
-  (let ((vp->fp (if (eq? src r0) r1 r0)))
-    (jit-ldxi vp->fp fp vp->fp-offset)
-    (cond
-     ((= 0 n)
-      (jit-str vp->fp src))
-     ((< 0 n)
-      (jit-stxi (imm (* n %word-size)) vp->fp src))
-     (else
-      (debug 3 ";;; frame-set!: negative local ~a~%" n)))))
+(define-syntax-rule (sp-ref dst n)
+  (let ((vp->sp (if (eq? dst r0) r1 r0)))
+    (jit-ldxi vp->sp fp vp->sp-offset)
+    (if (= 0 n)
+        (jit-ldr dst vp->sp)
+        (jit-ldxi dst vp->sp (make-signed-pointer (* n %word-size))))))
+
+(define-syntax-rule (sp-set! n src)
+  (let ((vp->sp (if (eq? src r0) r1 r0)))
+    (jit-ldxi vp->sp fp vp->sp-offset)
+    (if (= 0 n)
+        (jit-str vp->sp src)
+        (jit-stxi (make-signed-pointer (* n %word-size)) vp->sp src))))
 
 
 ;;;
@@ -505,28 +507,38 @@ both arguments were register or memory."
     (emit-side-exit)
     (jit-link next)))
 
+;;; Scheme procedure call.
+(define-prim (%pcall (void proc))
+  (let* ((vp r0)
+         (vp->fp r1)
+         (tmp r2)
+         (old-vp->fp tmp))
+    (jit-ldxi vp fp vp-offset)
+    (jit-ldxi old-vp->fp vp (imm (* 2 %word-size)))
+    (jit-subi vp->fp old-vp->fp (imm (* (ref-value proc) %word-size)))
+    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+
 ;;; Return from procedure call. Shift current FP to the one from dynamic
-;;; link. Guard with return address, check whether it matches with IP used at
+;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
-(define-prim (%return (int ip))
+(define-prim (%return (void ip))
   (let ((next (jit-forward))
-        (old-vp->fp r0)
-        (new-vp->fp r1)
-        (ra r1))
+        (vp r0)
+        (vp->fp r1)
+        (tmp r2))
     (when (not (constant? ip))
-      (error "%return" ip))
-    (jit-ldxi old-vp->fp fp vp->fp-offset)
-    (scm-frame-return-address ra old-vp->fp)
-    (jump (jit-beqi ra (constant ip)) next)
+      (error "%return: got non-constant ip"))
+    (jit-ldxi vp fp vp-offset)
+    (jit-ldxi vp->fp vp (imm (* 2 %word-size)))
+    (scm-frame-return-address tmp vp->fp)
+    (jump (jit-beqi tmp (constant ip)) next)
     (emit-side-exit)
 
     (jit-link next)
-    (scm-frame-dynamic-link new-vp->fp old-vp->fp)
-
-    ;; Store new vp->fp to memory, so that the new vp->fp could be referred from
-    ;; other native codes than the one currently compiling. Note that the new
-    ;; vp->fp is not yet synced with fp field in vp at this point.
-    (jit-stxi vp->fp-offset fp new-vp->fp)))
+    (scm-frame-dynamic-link tmp vp->fp)
+    (jit-muli tmp tmp (imm %word-size))
+    (jit-addr vp->fp vp->fp tmp)
+    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
 
 
 ;;;
@@ -780,7 +792,7 @@ both arguments were register or memory."
               (not (constant? type)))
       (error "%fref" dst n type))
 
-    (frame-ref r0 (ref-value n))
+    (sp-ref r0 (ref-value n))
 
     (let ((type (ref-value type)))
       (cond
@@ -800,6 +812,8 @@ both arguments were register or memory."
         (load-constant *scm-unspecified*))
        ((eq? type &unbound)
         (load-constant *scm-undefined*))
+       ((eq? type &null)
+        (load-constant *scm-null*))
        ((memq type (list &box &procedure &pair))
         ;; XXX: Guard each type.
         (cond
@@ -808,7 +822,7 @@ both arguments were register or memory."
          ((memory? dst)
           (memory-set! dst r0))))
        (else
-        (error "frame-ref" dst n type))))
+        (error "%fref" dst n type))))
     (jump next)
     (jit-link exit)
     (emit-side-exit)
@@ -821,7 +835,7 @@ both arguments were register or memory."
         (next (jit-forward)))
     (when (not (constant? n))
       (error "%fref/f" dst n))
-    (frame-ref r0 (ref-value n))
+    (sp-ref r0 (ref-value n))
     (jump (scm-imp r0) exit)
     (scm-cell-type r1 r0)
     (scm-typ16 r1 r1)

@@ -47,8 +47,8 @@ SCM_API SCM scm_tjit_make_retval (scm_i_thread *thread,
                                   scm_t_bits nlocals);
 
 SCM_API void scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp);
-SCM_API void scm_tjit_dump_fp (SCM trace_id, SCM *fp);
-SCM_API void scm_tjit_dump_locals (SCM trace_id, int n, SCM *fp);
+SCM_API void scm_tjit_dump_locals (SCM trace_id, int n,
+                                   union scm_vm_stack_element *fp);
 
 /* Fields in record-type `fragment', from:
    "module/system/vm/native/tjit/parameters.scm". */
@@ -63,6 +63,8 @@ SCM_API void scm_tjit_dump_locals (SCM trace_id, int n, SCM *fp);
 #define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
 #define SCM_TJIT_RETVAL_FRAGMENT_ID(R) SCM_CELL_OBJECT (R, 1)
 #define SCM_TJIT_RETVAL_NLOCALS(R) SCM_I_INUM (SCM_CELL_OBJECT (R, 2))
+
+SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);

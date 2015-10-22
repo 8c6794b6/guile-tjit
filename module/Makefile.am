@@ -42,6 +42,13 @@ ice-9/psyntax-pp.go: ice-9/psyntax.scm ice-9/psyntax-pp.scm
 	  -L "$(abs_top_srcdir)/guile-readline"				\
 	  -o "ice-9/psyntax-pp.go" "$(srcdir)/ice-9/psyntax.scm"
 
+system/vm/native/jit-code-t.scm: system/vm/native/gen-code-t.scm
+	$(top_builddir_absolute)/meta/guile --no-auto-compile \
+          -s $(srcdir)/system/vm/native/gen-code-t.scm @LIGHTNING_CFLAGS@ \
+          > $(srcdir)/system/vm/native/jit-code-t.scm
+
+system/vm/native/lightning.go: system/vm/native/jit-code-t.scm
+
 SOURCES =					\
   ice-9/and-let-star.scm			\
   ice-9/binary-ports.scm			\
@@ -336,7 +343,6 @@ SOURCES =					\
   system/vm/native/lightning.scm		\
   system/vm/native/debug.scm			\
   system/vm/native/cfg.scm			\
-  system/vm/native/mjit.scm			\
   system/vm/native/tjit.scm			\
   system/vm/native/tjit/assembler.scm		\
   system/vm/native/tjit/compile-ir.scm		\
