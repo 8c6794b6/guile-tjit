@@ -27,7 +27,12 @@ GUILE_OPTIMIZATIONS = -O1
 nobase_noinst_DATA = $(GOBJECTS) ice-9/eval.go
 CLEANFILES = $(GOBJECTS) ice-9/eval.go
 
-$(GOBJECTS): ice-9/eval.go
+# We must build the evaluator first, so that we can be sure to control
+# the stack.  Then we really need to build the expander before other
+# things, otherwise the compile time for everything else is dominated by
+# the expander.
+ice-9/psyntax-pp.go: ice-9/eval.go
+$(GOBJECTS): ice-9/psyntax-pp.go
 
 VM_TARGETS := system/vm/assembler.go system/vm/disassembler.go
 $(VM_TARGETS): $(top_builddir)/libguile/vm-operations.h
@@ -45,7 +50,7 @@ SUFFIXES = .scm .go
 	$(top_builddir)/meta/uninstalled-env			\
 	guild compile --target="$(host)"                        \
           $(GUILE_WARNINGS) $(GUILE_OPTIMIZATIONS)              \
-	  -L "$(abs_srcdir)" -L "$(abs_builddir)"		\
+	  -L "$(abs_top_srcdir)/module"                         \
 	  -L "$(abs_top_srcdir)/guile-readline"			\
 	  -o "$@" "$<"
 
@@ -120,7 +125,6 @@ SOURCES =					\
   system/base/types.scm				\
   system/base/ck.scm				\
 						\
-  ice-9/psyntax-pp.scm				\
   ice-9/boot-9.scm				\
   ice-9/r5rs.scm				\
   ice-9/deprecated.scm				\
