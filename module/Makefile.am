@@ -25,74 +25,13 @@ include $(top_srcdir)/am/guilec
 # We're at the root of the module hierarchy.
 modpath =
 
-# Build eval.go first.  Then build psyntax-pp.go, as the expander has to
-# run on every loaded scheme file.  It doesn't pay off at compile-time
-# to interpret the expander in parallel.
-BOOT_SOURCES = ice-9/psyntax-pp.scm
-BOOT_GOBJECTS = $(BOOT_SOURCES:%.scm=%.go)
-$(BOOT_GOBJECTS): ice-9/eval.go
-$(GOBJECTS): $(BOOT_GOBJECTS)
-CLEANFILES += ice-9/eval.go $(BOOT_GOBJECTS)
-nobase_mod_DATA += ice-9/eval.scm $(BOOT_SOURCES)
-nobase_ccache_DATA += ice-9/eval.go $(BOOT_GOBJECTS)
-EXTRA_DIST += ice-9/eval.scm $(BOOT_SOURCES)
-ETAGS_ARGS += ice-9/eval.scm $(BOOT_SOURCES)
-
 VM_TARGETS := system/vm/assembler.go system/vm/disassembler.go
 $(VM_TARGETS): $(top_builddir)/libguile/vm-operations.h
 
 ice-9/boot-9.go: ice-9/boot-9.scm ice-9/quasisyntax.scm ice-9/r6rs-libraries.scm
 ice-9/match.go: ice-9/match.scm ice-9/match.upstream.scm
-
-# We can compile these in any order, but it's fastest if we compile
-# boot-9 first, then the compiler itself, then the rest of the code.
-SOURCES =					\
-  ice-9/boot-9.scm				\
-  language/cps/intmap.scm			\
-  language/cps/intset.scm			\
-  language/tree-il/peval.scm                    \
-  system/vm/elf.scm				\
-  ice-9/vlist.scm                               \
-  srfi/srfi-1.scm                               \
-  system/vm/linker.scm				\
-  system/vm/dwarf.scm				\
-  system/vm/assembler.scm			\
-						\
-  language/tree-il.scm				\
-  $(TREE_IL_LANG_SOURCES)			\
-  $(CPS_LANG_SOURCES)				\
-  $(BYTECODE_LANG_SOURCES)			\
-  $(VALUE_LANG_SOURCES)				\
-  $(SCHEME_LANG_SOURCES)			\
-  $(SYSTEM_BASE_SOURCES)			\
-						\
-  $(ICE_9_SOURCES)				\
-  $(SYSTEM_SOURCES)				\
-  $(SRFI_SOURCES)				\
-  $(RNRS_SOURCES)				\
-  $(OOP_SOURCES)				\
-  $(SCRIPTS_SOURCES)				\
-  $(ECMASCRIPT_LANG_SOURCES)			\
-  $(ELISP_LANG_SOURCES)				\
-  $(BRAINFUCK_LANG_SOURCES)			\
-  $(LIB_SOURCES)				\
-  $(WEB_SOURCES)
-
-## test.scm is not currently installed.
-EXTRA_DIST +=					\
-  ice-9/test.scm				\
-  ice-9/compile-psyntax.scm			\
-  ice-9/ChangeLog-2008
-ETAGS_ARGS +=					\
-  ice-9/test.scm				\
-  ice-9/compile-psyntax.scm			\
-  ice-9/ChangeLog-2008
-
-ice-9/psyntax-pp.scm.gen:
-	$(top_builddir_absolute)/meta/guile --no-auto-compile -s $(srcdir)/ice-9/compile-psyntax.scm \
-		$(srcdir)/ice-9/psyntax.scm $(srcdir)/ice-9/psyntax-pp.scm
-
-.PHONY: ice-9/psyntax-pp.scm.gen
+srfi/srfi-64.go: srfi/srfi-64.scm srfi/srfi-64/testing.scm
+$(nobase_ccache_DATA): ../bootstrap/ice-9/eval.go
 
 # Keep this rule in sync with that in `am/guilec'.
 ice-9/psyntax-pp.go: ice-9/psyntax.scm ice-9/psyntax-pp.scm
@@ -103,62 +42,121 @@ ice-9/psyntax-pp.go: ice-9/psyntax.scm ice-9/psyntax-pp.scm
 	  -L "$(abs_top_srcdir)/guile-readline"				\
 	  -o "ice-9/psyntax-pp.go" "$(srcdir)/ice-9/psyntax.scm"
 
-SCHEME_LANG_SOURCES =						\
-  language/scheme/spec.scm					\
-  language/scheme/compile-tree-il.scm				\
-  language/scheme/decompile-tree-il.scm
-
-TREE_IL_LANG_SOURCES =						\
-  language/tree-il/primitives.scm				\
-  language/tree-il/effects.scm                                 	\
-  language/tree-il/fix-letrec.scm                               \
-  language/tree-il/optimize.scm                                 \
-  language/tree-il/canonicalize.scm                             \
-  language/tree-il/analyze.scm					\
-  language/tree-il/compile-cps.scm 				\
-  language/tree-il/debug.scm 					\
-  language/tree-il/spec.scm
-
-CPS_LANG_SOURCES =						\
-  language/cps.scm						\
-  language/cps/closure-conversion.scm				\
-  language/cps/compile-bytecode.scm				\
-  language/cps/constructors.scm					\
-  language/cps/contification.scm				\
-  language/cps/cse.scm						\
-  language/cps/dce.scm						\
-  language/cps/effects-analysis.scm				\
-  language/cps/elide-values.scm					\
-  language/cps/licm.scm						\
-  language/cps/peel-loops.scm					\
-  language/cps/primitives.scm					\
-  language/cps/prune-bailouts.scm				\
-  language/cps/prune-top-level-scopes.scm			\
-  language/cps/reify-primitives.scm				\
-  language/cps/renumber.scm					\
-  language/cps/rotate-loops.scm					\
-  language/cps/optimize.scm					\
-  language/cps/simplify.scm					\
-  language/cps/self-references.scm				\
-  language/cps/slot-allocation.scm				\
-  language/cps/spec.scm						\
-  language/cps/specialize-primcalls.scm				\
-  language/cps/split-rec.scm					\
-  language/cps/type-checks.scm					\
-  language/cps/type-fold.scm					\
-  language/cps/types.scm					\
-  language/cps/utils.scm					\
-  language/cps/verify.scm					\
-  language/cps/with-cps.scm
-
-BYTECODE_LANG_SOURCES =						\
-  language/bytecode.scm						\
-  language/bytecode/spec.scm
-
-VALUE_LANG_SOURCES =				\
-  language/value/spec.scm
-
-ECMASCRIPT_LANG_SOURCES =			\
+SOURCES =					\
+  ice-9/and-let-star.scm			\
+  ice-9/binary-ports.scm			\
+  ice-9/boot-9.scm				\
+  ice-9/buffered-input.scm			\
+  ice-9/calling.scm				\
+  ice-9/channel.scm				\
+  ice-9/command-line.scm			\
+  ice-9/common-list.scm				\
+  ice-9/control.scm				\
+  ice-9/curried-definitions.scm			\
+  ice-9/debug.scm				\
+  ice-9/deprecated.scm				\
+  ice-9/documentation.scm			\
+  ice-9/eval-string.scm				\
+  ice-9/eval.scm				\
+  ice-9/expect.scm				\
+  ice-9/format.scm				\
+  ice-9/ftw.scm					\
+  ice-9/futures.scm				\
+  ice-9/gap-buffer.scm				\
+  ice-9/getopt-long.scm				\
+  ice-9/hash-table.scm				\
+  ice-9/hcons.scm				\
+  ice-9/history.scm				\
+  ice-9/i18n.scm				\
+  ice-9/iconv.scm				\
+  ice-9/lineio.scm				\
+  ice-9/list.scm				\
+  ice-9/local-eval.scm				\
+  ice-9/ls.scm					\
+  ice-9/mapping.scm				\
+  ice-9/match.scm				\
+  ice-9/networking.scm				\
+  ice-9/null.scm				\
+  ice-9/occam-channel.scm			\
+  ice-9/optargs.scm				\
+  ice-9/peg.scm					\
+  ice-9/peg/cache.scm				\
+  ice-9/peg/codegen.scm				\
+  ice-9/peg/simplify-tree.scm			\
+  ice-9/peg/string-peg.scm			\
+  ice-9/peg/using-parsers.scm			\
+  ice-9/poe.scm					\
+  ice-9/poll.scm				\
+  ice-9/popen.scm				\
+  ice-9/posix.scm				\
+  ice-9/pretty-print.scm			\
+  ice-9/psyntax-pp.scm				\
+  ice-9/q.scm					\
+  ice-9/r5rs.scm				\
+  ice-9/rdelim.scm				\
+  ice-9/receive.scm				\
+  ice-9/regex.scm				\
+  ice-9/runq.scm				\
+  ice-9/rw.scm					\
+  ice-9/safe-r5rs.scm				\
+  ice-9/safe.scm				\
+  ice-9/save-stack.scm				\
+  ice-9/scm-style-repl.scm			\
+  ice-9/serialize.scm				\
+  ice-9/session.scm				\
+  ice-9/slib.scm				\
+  ice-9/stack-catch.scm				\
+  ice-9/streams.scm				\
+  ice-9/string-fun.scm				\
+  ice-9/syncase.scm				\
+  ice-9/threads.scm				\
+  ice-9/time.scm				\
+  ice-9/top-repl.scm				\
+  ice-9/unicode.scm				\
+  ice-9/vlist.scm				\
+  ice-9/weak-vector.scm				\
+						\
+  language/brainfuck/parse.scm			\
+  language/brainfuck/compile-scheme.scm		\
+  language/brainfuck/compile-tree-il.scm	\
+  language/brainfuck/spec.scm			\
+						\
+  language/bytecode.scm				\
+  language/bytecode/spec.scm			\
+						\
+  language/cps.scm				\
+  language/cps/closure-conversion.scm		\
+  language/cps/compile-bytecode.scm		\
+  language/cps/constructors.scm			\
+  language/cps/contification.scm		\
+  language/cps/cse.scm				\
+  language/cps/dce.scm				\
+  language/cps/effects-analysis.scm		\
+  language/cps/elide-values.scm			\
+  language/cps/intmap.scm			\
+  language/cps/intset.scm			\
+  language/cps/licm.scm				\
+  language/cps/optimize.scm			\
+  language/cps/peel-loops.scm			\
+  language/cps/primitives.scm			\
+  language/cps/prune-bailouts.scm		\
+  language/cps/prune-top-level-scopes.scm	\
+  language/cps/reify-primitives.scm		\
+  language/cps/renumber.scm			\
+  language/cps/rotate-loops.scm			\
+  language/cps/self-references.scm		\
+  language/cps/simplify.scm			\
+  language/cps/slot-allocation.scm		\
+  language/cps/spec.scm				\
+  language/cps/specialize-primcalls.scm		\
+  language/cps/split-rec.scm			\
+  language/cps/type-checks.scm			\
+  language/cps/type-fold.scm			\
+  language/cps/types.scm			\
+  language/cps/utils.scm			\
+  language/cps/verify.scm			\
+  language/cps/with-cps.scm			\
+						\
   language/ecmascript/tokenize.scm		\
   language/ecmascript/parse.scm			\
   language/ecmascript/impl.scm			\
@@ -166,9 +164,8 @@ ECMASCRIPT_LANG_SOURCES =			\
   language/ecmascript/function.scm		\
   language/ecmascript/array.scm			\
   language/ecmascript/compile-tree-il.scm	\
-  language/ecmascript/spec.scm
-
-ELISP_LANG_SOURCES =				\
+  language/ecmascript/spec.scm			\
+						\
   language/elisp/falias.scm			\
   language/elisp/lexer.scm			\
   language/elisp/parser.scm			\
@@ -177,157 +174,26 @@ ELISP_LANG_SOURCES =				\
   language/elisp/runtime.scm			\
   language/elisp/runtime/function-slot.scm	\
   language/elisp/runtime/value-slot.scm		\
-  language/elisp/spec.scm
-
-BRAINFUCK_LANG_SOURCES =			\
-  language/brainfuck/parse.scm			\
-  language/brainfuck/compile-scheme.scm		\
-  language/brainfuck/compile-tree-il.scm	\
-  language/brainfuck/spec.scm
-
-SCRIPTS_SOURCES =				\
-  scripts/compile.scm				\
-  scripts/disassemble.scm			\
-  scripts/display-commentary.scm		\
-  scripts/doc-snarf.scm				\
-  scripts/frisk.scm				\
-  scripts/generate-autoload.scm			\
-  scripts/help.scm				\
-  scripts/lint.scm				\
-  scripts/list.scm				\
-  scripts/punify.scm				\
-  scripts/read-scheme-source.scm		\
-  scripts/read-text-outline.scm			\
-  scripts/use2dot.scm				\
-  scripts/snarf-check-and-output-texi.scm	\
-  scripts/summarize-guile-TODO.scm		\
-  scripts/api-diff.scm				\
-  scripts/read-rfc822.scm			\
-  scripts/snarf-guile-m4-docs.scm		\
-  scripts/autofrisk.scm				\
-  scripts/scan-api.scm
-
-SYSTEM_BASE_SOURCES =				\
-  system/base/pmatch.scm			\
-  system/base/syntax.scm			\
-  system/base/compile.scm			\
-  system/base/language.scm			\
-  system/base/lalr.scm				\
-  system/base/message.scm			\
-  system/base/target.scm			\
-  system/base/types.scm				\
-  system/base/ck.scm
-
-ICE_9_SOURCES = \
-  ice-9/r5rs.scm \
-  ice-9/deprecated.scm \
-  ice-9/and-let-star.scm \
-  ice-9/binary-ports.scm \
-  ice-9/calling.scm \
-  ice-9/command-line.scm \
-  ice-9/common-list.scm \
-  ice-9/control.scm \
-  ice-9/curried-definitions.scm \
-  ice-9/debug.scm \
-  ice-9/documentation.scm \
-  ice-9/eval-string.scm \
-  ice-9/expect.scm \
-  ice-9/format.scm \
-  ice-9/futures.scm \
-  ice-9/getopt-long.scm \
-  ice-9/hash-table.scm \
-  ice-9/hcons.scm \
-  ice-9/i18n.scm \
-  ice-9/iconv.scm \
-  ice-9/lineio.scm \
-  ice-9/ls.scm \
-  ice-9/mapping.scm \
-  ice-9/match.scm \
-  ice-9/networking.scm \
-  ice-9/null.scm \
-  ice-9/occam-channel.scm \
-  ice-9/optargs.scm \
-  ice-9/peg/simplify-tree.scm \
-  ice-9/peg/codegen.scm \
-  ice-9/peg/cache.scm \
-  ice-9/peg/using-parsers.scm \
-  ice-9/peg/string-peg.scm \
-  ice-9/peg.scm \
-  ice-9/poe.scm \
-  ice-9/poll.scm \
-  ice-9/popen.scm \
-  ice-9/posix.scm \
-  ice-9/q.scm \
-  ice-9/rdelim.scm \
-  ice-9/receive.scm \
-  ice-9/regex.scm \
-  ice-9/runq.scm \
-  ice-9/rw.scm \
-  ice-9/safe-r5rs.scm \
-  ice-9/safe.scm \
-  ice-9/save-stack.scm \
-  ice-9/scm-style-repl.scm \
-  ice-9/session.scm \
-  ice-9/slib.scm \
-  ice-9/stack-catch.scm \
-  ice-9/streams.scm \
-  ice-9/string-fun.scm \
-  ice-9/syncase.scm \
-  ice-9/threads.scm \
-  ice-9/top-repl.scm \
-  ice-9/buffered-input.scm \
-  ice-9/time.scm \
-  ice-9/history.scm \
-  ice-9/channel.scm \
-  ice-9/pretty-print.scm \
-  ice-9/ftw.scm \
-  ice-9/gap-buffer.scm \
-  ice-9/weak-vector.scm \
-  ice-9/list.scm \
-  ice-9/serialize.scm \
-  ice-9/local-eval.scm \
-  ice-9/unicode.scm
-
-srfi/srfi-64.go: srfi/srfi-64.scm srfi/srfi-64/testing.scm
-
-SRFI_SOURCES = \
-  srfi/srfi-2.scm \
-  srfi/srfi-4.scm \
-  srfi/srfi-4/gnu.scm \
-  srfi/srfi-6.scm \
-  srfi/srfi-8.scm \
-  srfi/srfi-9.scm \
-  srfi/srfi-9/gnu.scm \
-  srfi/srfi-10.scm \
-  srfi/srfi-11.scm \
-  srfi/srfi-13.scm \
-  srfi/srfi-14.scm \
-  srfi/srfi-16.scm \
-  srfi/srfi-17.scm \
-  srfi/srfi-18.scm \
-  srfi/srfi-19.scm \
-  srfi/srfi-26.scm \
-  srfi/srfi-27.scm \
-  srfi/srfi-28.scm \
-  srfi/srfi-31.scm \
-  srfi/srfi-34.scm \
-  srfi/srfi-35.scm \
-  srfi/srfi-37.scm \
-  srfi/srfi-38.scm \
-  srfi/srfi-41.scm \
-  srfi/srfi-42.scm \
-  srfi/srfi-43.scm \
-  srfi/srfi-39.scm \
-  srfi/srfi-45.scm \
-  srfi/srfi-60.scm \
-  srfi/srfi-64.scm \
-  srfi/srfi-67.scm \
-  srfi/srfi-69.scm \
-  srfi/srfi-88.scm \
-  srfi/srfi-98.scm \
-  srfi/srfi-111.scm
-
-RNRS_SOURCES =					\
+  language/elisp/spec.scm			\
+						\
+  language/scheme/compile-tree-il.scm		\
+  language/scheme/decompile-tree-il.scm		\
+  language/scheme/spec.scm			\
+						\
+  language/tree-il.scm				\
+  language/tree-il/analyze.scm			\
+  language/tree-il/canonicalize.scm		\
+  language/tree-il/compile-cps.scm		\
+  language/tree-il/debug.scm			\
+  language/tree-il/effects.scm			\
+  language/tree-il/fix-letrec.scm		\
+  language/tree-il/optimize.scm			\
+  language/tree-il/peval.scm			\
+  language/tree-il/primitives.scm		\
+  language/tree-il/spec.scm			\
+						\
+  language/value/spec.scm			\
+						\
   rnrs/base.scm					\
   rnrs/conditions.scm				\
   rnrs/control.scm				\
@@ -353,47 +219,118 @@ RNRS_SOURCES =					\
   rnrs/records/inspection.scm			\
   rnrs/records/procedural.scm			\
   rnrs/records/syntactic.scm			\
-  rnrs.scm
-
-EXTRA_DIST += scripts/ChangeLog-2008
-EXTRA_DIST += scripts/README
-
-OOP_SOURCES = \
-  oop/goops.scm \
-  oop/goops/active-slot.scm \
-  oop/goops/composite-slot.scm \
-  oop/goops/describe.scm \
-  oop/goops/internal.scm \
-  oop/goops/save.scm \
-  oop/goops/stklos.scm \
-  oop/goops/accessors.scm \
-  oop/goops/simple.scm
-
-SYSTEM_SOURCES =				\
-  system/vm/inspect.scm				\
-  system/vm/coverage.scm			\
-  system/vm/frame.scm				\
-  system/vm/loader.scm				\
-  system/vm/program.scm				\
-  system/vm/trace.scm				\
-  system/vm/traps.scm				\
-  system/vm/trap-state.scm			\
-  system/vm/debug.scm				\
-  system/vm/disassembler.scm			\
-  system/vm/vm.scm				\
+  rnrs.scm					\
+						\
+  oop/goops.scm					\
+  oop/goops/active-slot.scm			\
+  oop/goops/composite-slot.scm			\
+  oop/goops/describe.scm			\
+  oop/goops/internal.scm			\
+  oop/goops/save.scm				\
+  oop/goops/stklos.scm				\
+  oop/goops/accessors.scm			\
+  oop/goops/simple.scm				\
+						\
+  scripts/compile.scm				\
+  scripts/disassemble.scm			\
+  scripts/display-commentary.scm		\
+  scripts/doc-snarf.scm				\
+  scripts/frisk.scm				\
+  scripts/generate-autoload.scm			\
+  scripts/help.scm				\
+  scripts/lint.scm				\
+  scripts/list.scm				\
+  scripts/punify.scm				\
+  scripts/read-scheme-source.scm		\
+  scripts/read-text-outline.scm			\
+  scripts/use2dot.scm				\
+  scripts/snarf-check-and-output-texi.scm	\
+  scripts/summarize-guile-TODO.scm		\
+  scripts/api-diff.scm				\
+  scripts/read-rfc822.scm			\
+  scripts/snarf-guile-m4-docs.scm		\
+  scripts/autofrisk.scm				\
+  scripts/scan-api.scm				\
+						\
+  srfi/srfi-1.scm				\
+  srfi/srfi-2.scm				\
+  srfi/srfi-4.scm				\
+  srfi/srfi-4/gnu.scm				\
+  srfi/srfi-6.scm				\
+  srfi/srfi-8.scm				\
+  srfi/srfi-9.scm				\
+  srfi/srfi-9/gnu.scm				\
+  srfi/srfi-10.scm				\
+  srfi/srfi-11.scm				\
+  srfi/srfi-13.scm				\
+  srfi/srfi-14.scm				\
+  srfi/srfi-16.scm				\
+  srfi/srfi-17.scm				\
+  srfi/srfi-18.scm				\
+  srfi/srfi-19.scm				\
+  srfi/srfi-26.scm				\
+  srfi/srfi-27.scm				\
+  srfi/srfi-28.scm				\
+  srfi/srfi-31.scm				\
+  srfi/srfi-34.scm				\
+  srfi/srfi-35.scm				\
+  srfi/srfi-37.scm				\
+  srfi/srfi-38.scm				\
+  srfi/srfi-41.scm				\
+  srfi/srfi-42.scm				\
+  srfi/srfi-43.scm				\
+  srfi/srfi-39.scm				\
+  srfi/srfi-45.scm				\
+  srfi/srfi-60.scm				\
+  srfi/srfi-64.scm				\
+  srfi/srfi-67.scm				\
+  srfi/srfi-69.scm				\
+  srfi/srfi-88.scm				\
+  srfi/srfi-98.scm				\
+  srfi/srfi-111.scm				\
+						\
+  statprof.scm					\
+						\
+  system/base/pmatch.scm			\
+  system/base/syntax.scm			\
+  system/base/compile.scm			\
+  system/base/language.scm			\
+  system/base/lalr.scm				\
+  system/base/message.scm			\
+  system/base/target.scm			\
+  system/base/types.scm				\
+  system/base/ck.scm				\
+						\
   system/foreign.scm				\
+						\
   system/foreign-object.scm			\
-  system/xref.scm				\
+						\
   system/repl/debug.scm				\
   system/repl/error-handling.scm		\
   system/repl/common.scm			\
   system/repl/command.scm			\
   system/repl/repl.scm				\
   system/repl/server.scm			\
-  system/repl/coop-server.scm
-
-LIB_SOURCES =					\
-  statprof.scm					\
+  system/repl/coop-server.scm			\
+						\
+  system/vm/assembler.scm			\
+  system/vm/coverage.scm			\
+  system/vm/debug.scm				\
+  system/vm/disassembler.scm			\
+  system/vm/dwarf.scm				\
+  system/vm/elf.scm				\
+  system/vm/frame.scm				\
+  system/vm/inspect.scm				\
+  system/vm/linker.scm				\
+  system/vm/loader.scm				\
+  system/vm/program.scm				\
+  system/vm/trace.scm				\
+  system/vm/trap-state.scm			\
+  system/vm/traps.scm				\
+  system/vm/vm.scm				\
+						\
+  system/xref.scm				\
+						\
   sxml/apply-templates.scm			\
   sxml/fold.scm					\
   sxml/match.scm				\
@@ -402,6 +339,7 @@ LIB_SOURCES =					\
   sxml/ssax.scm					\
   sxml/transform.scm				\
   sxml/xpath.scm				\
+						\
   texinfo.scm					\
   texinfo/docbook.scm				\
   texinfo/html.scm				\
@@ -409,9 +347,8 @@ LIB_SOURCES =					\
   texinfo/string-utils.scm			\
   texinfo/plain-text.scm			\
   texinfo/reflection.scm			\
-  texinfo/serialize.scm
-
-WEB_SOURCES =					\
+  texinfo/serialize.scm				\
+						\
   web/client.scm				\
   web/http.scm					\
   web/request.scm				\
@@ -420,10 +357,8 @@ WEB_SOURCES =					\
   web/server/http.scm				\
   web/uri.scm
 
-EXTRA_DIST += oop/ChangeLog-2008
-
 ELISP_SOURCES =					\
-    language/elisp/boot.el
+  language/elisp/boot.el
 
 NOCOMP_SOURCES =				\
   ice-9/match.upstream.scm			\
@@ -441,3 +376,21 @@ NOCOMP_SOURCES =				\
   sxml/upstream/SXPath-old.scm			\
   sxml/upstream/assert.scm			\
   sxml/upstream/input-parse.scm
+
+## ice-9/test.scm is not currently installed.
+EXTRA_DIST +=					\
+  ice-9/test.scm				\
+  ice-9/compile-psyntax.scm			\
+  ice-9/ChangeLog-2008				\
+  scripts/ChangeLog-2008			\
+  scripts/README				\
+  oop/ChangeLog-2008
+
+ETAGS_ARGS +=					\
+  ice-9/test.scm				\
+  ice-9/compile-psyntax.scm
+
+ice-9/psyntax-pp.scm.gen:
+	$(top_builddir_absolute)/meta/guile --no-auto-compile -s $(srcdir)/ice-9/compile-psyntax.scm \
+		$(srcdir)/ice-9/psyntax.scm $(srcdir)/ice-9/psyntax-pp.scm
+.PHONY: ice-9/psyntax-pp.scm.gen

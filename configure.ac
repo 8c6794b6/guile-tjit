@@ -1643,6 +1643,7 @@ AC_CONFIG_FILES([
   test-suite/standalone/Makefile
   test-suite/vm/Makefile
   meta/Makefile
+  bootstrap/Makefile
   module/Makefile
 ])
 
