@@ -694,7 +694,7 @@ EXTRA_DIST = ChangeLog-scm ChangeLog-threads				\
     cpp-E.syms cpp-E.c cpp-SIG.syms cpp-SIG.c				\
     c-tokenize.lex							\
     scmconfig.h.top libgettext.h unidata_to_charset.pl libguile.map	\
-    libguile-2.2-gdb.scm
+    vm-operations.h libguile-2.2-gdb.scm
 #    $(DOT_DOC_FILES) $(EXTRA_DOT_DOC_FILES) \
 #    guile-procedures.txt guile.texi
 

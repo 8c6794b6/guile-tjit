@@ -25,7 +25,7 @@ GOBJECTS = $(SOURCES:%.scm=%.go)
 GUILE_WARNINGS = -Wunbound-variable -Warity-mismatch -Wformat
 GUILE_OPTIMIZATIONS = -O1
 nobase_noinst_DATA = $(GOBJECTS) ice-9/eval.go
-CLEANFILES = $(GOBJECTS) ice-9/eval.go
+CLEANFILES = $(GOBJECTS) ice-9/eval.go ice-9/psyntax-pp.go
 
 # We must build the evaluator first, so that we can be sure to control
 # the stack.  Then we really need to build the expander before other
