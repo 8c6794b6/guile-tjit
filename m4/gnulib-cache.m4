@@ -1,4 +1,4 @@
-# Copyright (C) 2002-2015 Free Software Foundation, Inc.
+# Copyright (C) 2002-2014 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -76,6 +76,7 @@ gl_MODULES([
   isfinite
   isinf
   isnan
+  largefile
   ldexp
   lib-symbol-versions
   lib-symbol-visibility
@@ -126,7 +127,7 @@ gl_MODULES([
   warnings
   wchar
 ])
-gl_AVOID([ lock])
+gl_AVOID([lock])
 gl_SOURCE_BASE([lib])
 gl_M4_BASE([m4])
 gl_PO_BASE([])

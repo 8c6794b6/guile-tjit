@@ -4,15 +4,15 @@ Remove when integrated in Gnulib.
 
 --- a/build-aux/git-version-gen
 +++ b/build-aux/git-version-gen
-@@ -86,6 +86,7 @@
+@@ -86,6 +86,7 @@ Print a version string.
  Options:
  
-    --prefix PREFIX    prefix of git tags (default 'v')
+    --prefix           prefix of git tags (default 'v')
 +   --match            pattern for git tags to match (default: '\$prefix*')
-    --fallback VERSION
-                       fallback version to use if \"git --version\" fails
+    --fallback         fallback version to use if \"git --version\" fails
  
-@@ -97,11 +98,15 @@
+    --help             display this help and exit
+@@ -96,11 +97,15 @@ Running without arguments will suffice in most cases."
  prefix=v
  fallback=
  
@@ -28,7 +28,7 @@ Remove when integrated in Gnulib.
      --fallback) shift; fallback="$1";;
      -*)
        echo "$0: Unknown option '$1'." >&2
-@@ -125,6 +130,7 @@
+@@ -124,6 +129,7 @@ if test "x$tarball_version_file" = x; then
      exit 1
  fi
  
@@ -36,7 +36,7 @@ Remove when integrated in Gnulib.
  tag_sed_script="${tag_sed_script:-s/x/x/}"
  
  nl='
-@@ -155,7 +161,7 @@
+@@ -154,7 +160,7 @@ then
  # directory, and "git describe" output looks sensible, use that to
  # derive a version string.
  elif test "`git log -1 --pretty=format:x . 2>&1`" = x \

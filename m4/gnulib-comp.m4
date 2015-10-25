@@ -1,5 +1,5 @@
 # DO NOT EDIT! GENERATED AUTOMATICALLY!
-# Copyright (C) 2002-2015 Free Software Foundation, Inc.
+# Copyright (C) 2002-2014 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -37,11 +37,7 @@ AC_DEFUN([gl_EARLY],
   m4_pattern_allow([^gl_ES$])dnl a valid locale name
   m4_pattern_allow([^gl_LIBOBJS$])dnl a variable
   m4_pattern_allow([^gl_LTLIBOBJS$])dnl a variable
-
-  # Pre-early section.
-  AC_REQUIRE([gl_USE_SYSTEM_EXTENSIONS])
   AC_REQUIRE([gl_PROG_AR_RANLIB])
-
   AC_REQUIRE([AM_PROG_CC_C_O])
   # Code from module absolute-header:
   # Code from module accept:
@@ -50,7 +46,6 @@ AC_DEFUN([gl_EARLY],
   # Code from module alloca-opt:
   # Code from module announce-gen:
   # Code from module arpa_inet:
-  # Code from module assure:
   # Code from module autobuild:
   AB_INIT
   # Code from module binary-io:
@@ -78,10 +73,10 @@ AC_DEFUN([gl_EARLY],
   # Code from module environ:
   # Code from module errno:
   # Code from module extensions:
+  AC_REQUIRE([gl_USE_SYSTEM_EXTENSIONS])
   # Code from module extern-inline:
   # Code from module fcntl-h:
   # Code from module fd-hook:
-  # Code from module flexmember:
   # Code from module float:
   # Code from module flock:
   # Code from module floor:
@@ -152,8 +147,6 @@ AC_DEFUN([gl_EARLY],
   # Code from module memchr:
   # Code from module mkdir:
   # Code from module mkstemp:
-  # Code from module mktime:
-  # Code from module mktime-internal:
   # Code from module msvc-inval:
   # Code from module msvc-nothrow:
   # Code from module multiarch:
@@ -227,8 +220,6 @@ AC_DEFUN([gl_EARLY],
   # Code from module tempname:
   # Code from module time:
   # Code from module time_r:
-  # Code from module time_rz:
-  # Code from module timegm:
   # Code from module times:
   # Code from module trunc:
   # Code from module unistd:
@@ -239,7 +230,6 @@ AC_DEFUN([gl_EARLY],
   # Code from module unistr/u8-prev:
   # Code from module unistr/u8-uctomb:
   # Code from module unitypes:
-  # Code from module unsetenv:
   # Code from module useless-if-before-free:
   # Code from module vasnprintf:
   # Code from module vc-list-files:
@@ -347,7 +337,6 @@ AC_SUBST([LTALLOCA])
   gl_HEADER_ERRNO_H
   AC_REQUIRE([gl_EXTERN_INLINE])
   gl_FCNTL_H
-  AC_C_FLEXIBLE_ARRAY_MEMBER
   gl_FLOAT_H
   if test $REPLACE_FLOAT_LDBL = 1; then
     AC_LIBOBJ([float])
@@ -602,17 +591,6 @@ AC_SUBST([LTALLOCA])
     gl_PREREQ_MKSTEMP
   fi
   gl_STDLIB_MODULE_INDICATOR([mkstemp])
-  gl_FUNC_MKTIME
-  if test $REPLACE_MKTIME = 1; then
-    AC_LIBOBJ([mktime])
-    gl_PREREQ_MKTIME
-  fi
-  gl_TIME_MODULE_INDICATOR([mktime])
-  gl_FUNC_MKTIME_INTERNAL
-  if test $REPLACE_MKTIME = 1; then
-    AC_LIBOBJ([mktime])
-    gl_PREREQ_MKTIME
-  fi
   gl_MSVC_INVAL
   if test $HAVE_MSVC_INVALID_PARAMETER_HANDLER = 1; then
     AC_LIBOBJ([msvc-inval])
@@ -771,8 +749,8 @@ AC_SUBST([LTALLOCA])
     SYS_IOCTL_H_HAVE_WINSOCK2_H_AND_USE_SOCKETS=1
   fi
   gl_SYS_SOCKET_MODULE_INDICATOR([socket])
-  AC_REQUIRE([gl_SOCKETLIB])
-  AC_REQUIRE([gl_SOCKETS])
+  gl_SOCKETLIB
+  gl_SOCKETS
   gl_TYPE_SOCKLEN_T
   gt_TYPE_SSIZE_T
   gl_FUNC_STAT
@@ -805,7 +783,7 @@ AC_SUBST([LTALLOCA])
   AC_PROG_MKDIR_P
   gl_HEADER_SYS_SELECT
   AC_PROG_MKDIR_P
-  AC_REQUIRE([gl_HEADER_SYS_SOCKET])
+  gl_HEADER_SYS_SOCKET
   AC_PROG_MKDIR_P
   gl_HEADER_SYS_STAT_H
   AC_PROG_MKDIR_P
@@ -825,17 +803,6 @@ AC_SUBST([LTALLOCA])
     gl_PREREQ_TIME_R
   fi
   gl_TIME_MODULE_INDICATOR([time_r])
-  gl_TIME_RZ
-  if test "$HAVE_TIMEZONE_T" = 0; then
-    AC_LIBOBJ([time_rz])
-  fi
-  gl_TIME_MODULE_INDICATOR([time_rz])
-  gl_FUNC_TIMEGM
-  if test $HAVE_TIMEGM = 0 || test $REPLACE_TIMEGM = 1; then
-    AC_LIBOBJ([timegm])
-    gl_PREREQ_TIMEGM
-  fi
-  gl_TIME_MODULE_INDICATOR([timegm])
   gl_FUNC_TIMES
   if test $HAVE_TIMES = 0; then
     AC_LIBOBJ([times])
@@ -847,7 +814,7 @@ AC_SUBST([LTALLOCA])
   fi
   gl_MATH_MODULE_INDICATOR([trunc])
   gl_UNISTD_H
-  gl_LIBUNISTRING_LIBHEADER([0.9.4], [unistr.h])
+  gl_LIBUNISTRING_LIBHEADER([0.9.2], [unistr.h])
   gl_MODULE_INDICATOR([unistr/u8-mbtouc])
   gl_LIBUNISTRING_MODULE([0.9.4], [unistr/u8-mbtouc])
   gl_MODULE_INDICATOR([unistr/u8-mbtouc-unsafe])
@@ -857,13 +824,7 @@ AC_SUBST([LTALLOCA])
   gl_LIBUNISTRING_MODULE([0.9], [unistr/u8-prev])
   gl_MODULE_INDICATOR([unistr/u8-uctomb])
   gl_LIBUNISTRING_MODULE([0.9], [unistr/u8-uctomb])
-  gl_LIBUNISTRING_LIBHEADER([0.9.4], [unitypes.h])
-  gl_FUNC_UNSETENV
-  if test $HAVE_UNSETENV = 0 || test $REPLACE_UNSETENV = 1; then
-    AC_LIBOBJ([unsetenv])
-    gl_PREREQ_UNSETENV
-  fi
-  gl_STDLIB_MODULE_INDICATOR([unsetenv])
+  gl_LIBUNISTRING_LIBHEADER([0.9], [unitypes.h])
   gl_FUNC_VASNPRINTF
   gl_FUNC_VSNPRINTF
   gl_STDIO_MODULE_INDICATOR([vsnprintf])
@@ -1033,14 +994,12 @@ AC_DEFUN([gl_FILE_LIST], [
   build-aux/useless-if-before-free
   build-aux/vc-list-files
   doc/gendocs_template
-  doc/gendocs_template_min
   lib/accept.c
   lib/alignof.h
   lib/alloca.c
   lib/alloca.in.h
   lib/arpa_inet.in.h
   lib/asnprintf.c
-  lib/assure.h
   lib/basename-lgpl.c
   lib/binary-io.c
   lib/binary-io.h
@@ -1137,8 +1096,6 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/memchr.valgrind
   lib/mkdir.c
   lib/mkstemp.c
-  lib/mktime-internal.h
-  lib/mktime.c
   lib/msvc-inval.c
   lib/msvc-inval.h
   lib/msvc-nothrow.c
@@ -1224,11 +1181,8 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/sys_uio.in.h
   lib/tempname.c
   lib/tempname.h
-  lib/time-internal.h
   lib/time.in.h
   lib/time_r.c
-  lib/time_rz.c
-  lib/timegm.c
   lib/times.c
   lib/trunc.c
   lib/unistd.c
@@ -1243,7 +1197,6 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/unistr/u8-uctomb-aux.c
   lib/unistr/u8-uctomb.c
   lib/unitypes.in.h
-  lib/unsetenv.c
   lib/vasnprintf.c
   lib/vasnprintf.h
   lib/verify.h
@@ -1287,7 +1240,6 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/extern-inline.m4
   m4/fcntl-o.m4
   m4/fcntl_h.m4
-  m4/flexmember.m4
   m4/float_h.m4
   m4/flock.m4
   m4/floor.m4
@@ -1349,7 +1301,6 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/memchr.m4
   m4/mkdir.m4
   m4/mkstemp.m4
-  m4/mktime.m4
   m4/mmap-anon.m4
   m4/mode_t.m4
   m4/msvc-inval.m4
@@ -1414,8 +1365,6 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/tempname.m4
   m4/time_h.m4
   m4/time_r.m4
-  m4/time_rz.m4
-  m4/timegm.m4
   m4/times.m4
   m4/tm_gmtoff.m4
   m4/trunc.m4

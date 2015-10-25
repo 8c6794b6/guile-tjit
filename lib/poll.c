@@ -1,7 +1,7 @@
 /* Emulation for poll(2)
    Contributed by Paolo Bonzini.
 
-   Copyright 2001-2003, 2006-2015 Free Software Foundation, Inc.
+   Copyright 2001-2003, 2006-2014 Free Software Foundation, Inc.
 
    This file is part of gnulib.
 
@@ -33,6 +33,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <assert.h>
 
 #if (defined _WIN32 || defined __WIN32__) && ! defined __CYGWIN__
 # define WINDOWS_NATIVE
@@ -44,11 +45,10 @@
 # include "msvc-nothrow.h"
 #else
 # include <sys/time.h>
+# include <sys/socket.h>
+# include <sys/select.h>
 # include <unistd.h>
 #endif
-
-#include <sys/select.h>
-#include <sys/socket.h>
 
 #ifdef HAVE_SYS_IOCTL_H
 # include <sys/ioctl.h>
@@ -58,8 +58,6 @@
 #endif
 
 #include <time.h>
-
-#include "assure.h"
 
 #ifndef INFTIM
 # define INFTIM (-1)
@@ -72,11 +70,9 @@
 
 #ifdef WINDOWS_NATIVE
 
-static BOOL IsConsoleHandle (HANDLE h)
-{
-  DWORD mode;
-  return GetConsoleMode (h, &mode) != 0;
-}
+/* Optimized test whether a HANDLE refers to a console.
+   See <http://lists.gnu.org/archive/html/bug-gnulib/2009-08/msg00065.html>.  */
+#define IsConsoleHandle(h) (((intptr_t) (h) & 3) == 3)
 
 static BOOL
 IsSocketHandle (HANDLE h)
@@ -335,15 +331,26 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
   int maxfd, rc;
   nfds_t i;
 
-  if (nfd < 0)
+# ifdef _SC_OPEN_MAX
+  static int sc_open_max = -1;
+
+  if (nfd < 0
+      || (nfd > sc_open_max
+          && (sc_open_max != -1
+              || nfd > (sc_open_max = sysconf (_SC_OPEN_MAX)))))
     {
       errno = EINVAL;
       return -1;
     }
-  /* Don't check directly for NFD too large.  Any practical use of a
-     too-large NFD is caught by one of the other checks below, and
-     checking directly for getdtablesize is too much of a portability
-     and/or performance and/or correctness hassle.  */
+# else /* !_SC_OPEN_MAX */
+#  ifdef OPEN_MAX
+  if (nfd < 0 || nfd > OPEN_MAX)
+    {
+      errno = EINVAL;
+      return -1;
+    }
+#  endif /* OPEN_MAX -- else, no check is needed */
+# endif /* !_SC_OPEN_MAX */
 
   /* EFAULT is not necessary to implement, but let's do it in the
      simplest case. */
@@ -384,17 +391,10 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
     {
       if (pfd[i].fd < 0)
         continue;
-      if (maxfd < pfd[i].fd)
-        {
-          maxfd = pfd[i].fd;
-          if (FD_SETSIZE <= maxfd)
-            {
-              errno = EINVAL;
-              return -1;
-            }
-        }
+
       if (pfd[i].events & (POLLIN | POLLRDNORM))
         FD_SET (pfd[i].fd, &rfds);
+
       /* see select(2): "the only exceptional condition detectable
          is out-of-band data received on a socket", hence we push
          POLLWRBAND events onto wfds instead of efds. */
@@ -402,6 +402,18 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
         FD_SET (pfd[i].fd, &wfds);
       if (pfd[i].events & (POLLPRI | POLLRDBAND))
         FD_SET (pfd[i].fd, &efds);
+      if (pfd[i].fd >= maxfd
+          && (pfd[i].events & (POLLIN | POLLOUT | POLLPRI
+                               | POLLRDNORM | POLLRDBAND
+                               | POLLWRNORM | POLLWRBAND)))
+        {
+          maxfd = pfd[i].fd;
+          if (maxfd > FD_SETSIZE)
+            {
+              errno = EOVERFLOW;
+              return -1;
+            }
+        }
     }
 
   /* examine fd sets */
@@ -412,13 +424,18 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
   /* establish results */
   rc = 0;
   for (i = 0; i < nfd; i++)
-    {
-      pfd[i].revents = (pfd[i].fd < 0
-                        ? 0
-                        : compute_revents (pfd[i].fd, pfd[i].events,
-                                           &rfds, &wfds, &efds));
-      rc += pfd[i].revents != 0;
-    }
+    if (pfd[i].fd < 0)
+      pfd[i].revents = 0;
+    else
+      {
+        int happened = compute_revents (pfd[i].fd, pfd[i].events,
+                                        &rfds, &wfds, &efds);
+        if (happened)
+          {
+            pfd[i].revents = happened;
+            rc++;
+          }
+      }
 
   return rc;
 #else
@@ -461,7 +478,7 @@ restart:
         continue;
 
       h = (HANDLE) _get_osfhandle (pfd[i].fd);
-      assure (h != NULL);
+      assert (h != NULL);
       if (IsSocketHandle (h))
         {
           int requested = FD_CLOSE;

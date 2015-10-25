@@ -1,7 +1,7 @@
 #ifndef SCM_GLTHREADS_H
 #define SCM_GLTHREADS_H
 
-/* Copyright (C) 2014, 2015 Free Software Foundation, Inc.
+/* Copyright (C) 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
