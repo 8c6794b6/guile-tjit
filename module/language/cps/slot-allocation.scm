@@ -660,6 +660,9 @@ are comparable with eqv?.  A tmp slot may be used."
                     (call-size label (1+ (length args)) size))
                    (($ $values args)
                     (shuffle-size (get-shuffles label) size))
+                   (($ $primcall 'return (arg))
+                    ;; Return will shuffle arg into fp-relative slot 1.
+                    (max size 2))
                    (_ size)))))
       (($ $kreceive)
        (values frame-sizes clause
