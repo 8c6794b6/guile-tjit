@@ -736,15 +736,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (2);
     }
 
-  /* return src:24
-   *
-   * Return a value.
-   */
-  VM_DEFINE_OP (8, return, "return", OP1 (X8_S24))
+  VM_DEFINE_OP (8, unused_8, NULL, NOP)
     {
-      scm_t_uint32 src;
-      UNPACK_24 (op, src);
-      RETURN_ONE_VALUE (SP_REF (src));
+      vm_error_bad_instruction (op);
+      abort (); /* never reached */
     }
 
   /* return-values nlocals:24
