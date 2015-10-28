@@ -122,16 +122,6 @@
                     ((src . dst) (emit-mov asm (from-sp dst) (from-sp src))))
                    (lookup-parallel-moves label allocation))
          (emit-tail-call-label asm (1+ (length args)) k))
-        (($ $values ())
-         (emit-return-values asm 1))
-        (($ $values (arg))
-         (if (maybe-slot arg)
-             (emit-return asm (from-sp (slot arg)))
-             (begin
-               (when (< frame-size 2)
-                 (emit-alloc-frame asm 2))
-               (emit-load-constant asm (from-sp 1) (constant arg))
-               (emit-return asm (from-sp 1)))))
         (($ $values args)
          (for-each (match-lambda
                     ((src . dst) (emit-mov asm (from-sp dst) (from-sp src))))

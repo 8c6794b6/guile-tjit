@@ -1243,8 +1243,8 @@ a procedure to do that and return its label.  Otherwise return
                       `((begin-program ,label ())
                         (assert-nargs-ee/locals 1 1)
                         ,@(reverse inits)
-                        (load-constant 1 ,*unspecified*)
-                        (return 1)
+                        (load-constant 0 ,*unspecified*)
+                        (return-values 2)
                         (end-program)))
            label))))
 
