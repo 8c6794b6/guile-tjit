@@ -262,7 +262,7 @@ SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 3, 0, 0,
           case STACK_ITEM_SCM:
             return item->as_scm;
           case STACK_ITEM_F64:
-            /* return item->as_f64; */
+            return scm_from_double (item->as_f64);
           default:
             abort();
         }
@@ -298,7 +298,8 @@ SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 4, 0, 0,
             item->as_scm = val;
             break;
           case STACK_ITEM_F64:
-            /* item->as_f64 = scm_to_double (val); */
+            item->as_f64 = scm_to_double (val);
+            break;
           default:
             abort();
         }
