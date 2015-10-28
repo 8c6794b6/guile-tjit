@@ -514,7 +514,7 @@ address of that offset."
   (define non-fallthrough-set
     (static-opcode-set halt
                        tail-call tail-call-label tail-call/shuffle
-                       return return-values
+                       return-values
                        subr-call foreign-call continuation-call
                        tail-apply
                        br))
