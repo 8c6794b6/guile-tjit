@@ -105,7 +105,7 @@
 
 (define-optimizer optimize-first-order-cps
   (hoist-loop-invariant-code #:licm? #t)
-  ;; FIXME: CSE here to eliminate duplicate free-ref terms.
+  (eliminate-common-subexpressions #:cse? #t)
   (eliminate-dead-code #:eliminate-dead-code? #t)
   (rotate-loops #:rotate-loops? #t)
   (simplify #:simplify? #t))
