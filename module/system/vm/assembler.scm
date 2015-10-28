@@ -326,7 +326,7 @@
             constants inits
             shstrtab next-section-number
             meta sources
-            dead-slot-maps)
+            slot-maps)
   asm?
 
   ;; We write bytecode into what is logically a growable vector,
@@ -404,12 +404,11 @@
   ;;
   (sources asm-sources set-asm-sources!)
 
-  ;; A list of (pos . dead-slot-map) pairs, indicating dead slot maps.
-  ;; POS is relative to the beginning of the text section.
-  ;; DEAD-SLOT-MAP is a bitfield of slots that are dead at call sites,
-  ;; as an integer.
+  ;; A list of (pos . slot-map) pairs, indicating slot maps.  POS is
+  ;; relative to the beginning of the text section.  SLOT-MAP is a
+  ;; bitfield describing the stack at call sites, as an integer.
   ;;
-  (dead-slot-maps asm-dead-slot-maps set-asm-dead-slot-maps!))
+  (slot-maps asm-slot-maps set-asm-slot-maps!))
 
 (define-inline (fresh-block)
   (make-u32vector *block-size*))
@@ -1187,12 +1186,11 @@ returned instead."
          (cell-label (intern-cache-cell asm key sym)))
     (emit-module-box asm dst cell-label mod-name-label sym-label bound?)))
 
-(define-macro-assembler (dead-slot-map asm proc-slot dead-slot-map)
-  (unless (zero? dead-slot-map)
-    (set-asm-dead-slot-maps! asm
-                             (cons
-                              (cons* (asm-start asm) proc-slot dead-slot-map)
-                              (asm-dead-slot-maps asm)))))
+(define-macro-assembler (slot-map asm proc-slot slot-map)
+  (unless (zero? slot-map)
+    (set-asm-slot-maps! asm (cons
+                             (cons* (asm-start asm) proc-slot slot-map)
+                             (asm-slot-maps asm)))))
 
 
 
@@ -1605,7 +1603,7 @@ needed."
 
 (define (link-frame-maps asm)
   (define (map-byte-length proc-slot)
-    (ceiling-quotient (- proc-slot 2) 8))
+    (ceiling-quotient (* 2 (- proc-slot 2)) 8))
   (define (make-frame-maps maps count map-len)
     (let* ((endianness (asm-endianness asm))
            (header-pos frame-maps-prefix-len)
@@ -1630,7 +1628,7 @@ needed."
                    (bytevector-u8-set! bv map-pos (logand map #xff))
                    (write-bytes (1+ map-pos) (ash map -8)
                                 (1- byte-length))))))))))
-  (match (asm-dead-slot-maps asm)
+  (match (asm-slot-maps asm)
     (() #f)
     (in
      (let lp ((in in) (out '()) (count 0) (map-len 0))

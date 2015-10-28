@@ -427,6 +427,10 @@ A table mapping addresses in the @code{.rtl-text} to procedure names.
 @itemx .guile.docstrs
 @itemx .guile.docstrs.strtab
 Side tables of procedure properties, arities, and docstrings.
+@item .guile.docstrs.strtab
+Side table of frame maps, describing the set of live slots for ever
+return point in the program text, and whether those slots are pointers
+are not.  Used by the garbage collector.
 @item .debug_info
 @itemx .debug_abbrev
 @itemx .debug_str

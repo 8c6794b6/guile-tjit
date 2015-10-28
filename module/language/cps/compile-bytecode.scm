@@ -379,8 +379,7 @@
                      ((src . dst) (emit-mov asm (from-sp dst) (from-sp src))))
                     (lookup-parallel-moves label allocation))
           (emit-call asm proc-slot nargs)
-          (emit-dead-slot-map asm proc-slot
-                              (lookup-dead-slot-map label allocation))
+          (emit-slot-map asm proc-slot (lookup-slot-map label allocation))
           (cond
            ((and (= 1 nreq) (and rest-var) (not (maybe-slot rest-var))
                  (match (lookup-parallel-moves k allocation)

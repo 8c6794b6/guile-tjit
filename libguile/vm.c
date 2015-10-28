@@ -895,31 +895,31 @@ return_unused_stack_to_os (struct scm_vm *vp)
 #endif
 }
 
-#define DEAD_SLOT_MAP_CACHE_SIZE 32U
-struct dead_slot_map_cache_entry
+#define SLOT_MAP_CACHE_SIZE 32U
+struct slot_map_cache_entry
 {
   scm_t_uint32 *ip;
   const scm_t_uint8 *map;
 };
 
-struct dead_slot_map_cache
+struct slot_map_cache
 {
-  struct dead_slot_map_cache_entry entries[DEAD_SLOT_MAP_CACHE_SIZE];
+  struct slot_map_cache_entry entries[SLOT_MAP_CACHE_SIZE];
 };
 
 static const scm_t_uint8 *
-find_dead_slot_map (scm_t_uint32 *ip, struct dead_slot_map_cache *cache)
+find_slot_map (scm_t_uint32 *ip, struct slot_map_cache *cache)
 {
   /* The lower two bits should be zero.  FIXME: Use a better hash
      function; we don't expose scm_raw_hashq currently.  */
-  size_t slot = (((scm_t_uintptr) ip) >> 2) % DEAD_SLOT_MAP_CACHE_SIZE;
+  size_t slot = (((scm_t_uintptr) ip) >> 2) % SLOT_MAP_CACHE_SIZE;
   const scm_t_uint8 *map;
 
   if (cache->entries[slot].ip == ip)
     map = cache->entries[slot].map;
   else
     {
-      map = scm_find_dead_slot_map_unlocked (ip);
+      map = scm_find_slot_map_unlocked (ip);
       cache->entries[slot].ip = ip;
       cache->entries[slot].map = map;
     }
@@ -927,21 +927,29 @@ find_dead_slot_map (scm_t_uint32 *ip, struct dead_slot_map_cache *cache)
   return map;
 }
 
+enum slot_desc
+  {
+    SLOT_DESC_DEAD = 0,
+    SLOT_DESC_LIVE_RAW = 1,
+    SLOT_DESC_LIVE_SCM = 2,
+    SLOT_DESC_UNUSED = 3
+  };
+
 /* Mark the active VM stack region.  */
 struct GC_ms_entry *
 scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
                      struct GC_ms_entry *mark_stack_limit)
 {
   union scm_vm_stack_element *sp, *fp;
-  /* The first frame will be marked conservatively (without a dead
-     slot map).  This is because GC can happen at any point within the
-     hottest activation, due to multiple threads or per-instruction
-     hooks, and providing dead slot maps for all points in a program
-     would take a prohibitive amount of space.  */
-  const scm_t_uint8 *dead_slots = NULL;
+  /* The first frame will be marked conservatively (without a slot map).
+     This is because GC can happen at any point within the hottest
+     activation, due to multiple threads or per-instruction hooks, and
+     providing slot maps for all points in a program would take a
+     prohibitive amount of space.  */
+  const scm_t_uint8 *slot_map = NULL;
   void *upper = (void *) GC_greatest_plausible_heap_addr;
   void *lower = (void *) GC_least_plausible_heap_addr;
-  struct dead_slot_map_cache cache;
+  struct slot_map_cache cache;
 
   memset (&cache, 0, sizeof (cache));
 
@@ -953,24 +961,29 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
       size_t slot = nlocals - 1;
       for (slot = nlocals - 1; sp < fp; sp++, slot--)
         {
-          if (SCM_NIMP (sp->as_scm) &&
-              sp->as_ptr >= lower && sp->as_ptr <= upper)
-            {
-              if (dead_slots)
-                {
-                  if (dead_slots[slot / 8U] & (1U << (slot % 8U)))
-                    {
-                      /* This value may become dead as a result of GC,
-                         so we can't just leave it on the stack.  */
-                      sp->as_scm = SCM_UNSPECIFIED;
-                      continue;
-                    }
-                }
+          enum slot_desc desc = SLOT_DESC_LIVE_SCM;
 
-              mark_stack_ptr = GC_mark_and_push (sp->as_ptr,
-                                                 mark_stack_ptr,
-                                                 mark_stack_limit,
-                                                 NULL);
+          if (slot_map)
+            desc = (slot_map[slot / 4U] >> ((slot % 4U) * 2)) & 3U;
+
+          switch (desc)
+            {
+            case SLOT_DESC_LIVE_RAW:
+              break;
+            case SLOT_DESC_UNUSED:
+            case SLOT_DESC_LIVE_SCM:
+              if (SCM_NIMP (sp->as_scm) &&
+                  sp->as_ptr >= lower && sp->as_ptr <= upper)
+                mark_stack_ptr = GC_mark_and_push (sp->as_ptr,
+                                                   mark_stack_ptr,
+                                                   mark_stack_limit,
+                                                   NULL);
+              break;
+            case SLOT_DESC_DEAD:
+              /* This value may become dead as a result of GC,
+                 so we can't just leave it on the stack.  */
+              sp->as_scm = SCM_UNSPECIFIED;
+              break;
             }
         }
       sp = SCM_FRAME_PREVIOUS_SP (fp);
@@ -978,7 +991,7 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
          Note that there may be other reasons to not have a dead slots
          map, e.g. if all of the frame's slots below the callee frame
          are live.  */
-      dead_slots = find_dead_slot_map (SCM_FRAME_RETURN_ADDRESS (fp), &cache);
+      slot_map = find_slot_map (SCM_FRAME_RETURN_ADDRESS (fp), &cache);
     }
 
   return_unused_stack_to_os (vp);

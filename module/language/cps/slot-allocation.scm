@@ -40,7 +40,7 @@
             lookup-nlocals
             lookup-call-proc-slot
             lookup-parallel-moves
-            lookup-dead-slot-map))
+            lookup-slot-map))
 
 (define-record-type $allocation
   (make-allocation slots constant-values call-allocs shuffles frame-sizes)
@@ -84,10 +84,10 @@
   (frame-sizes allocation-frame-sizes))
 
 (define-record-type $call-alloc
-  (make-call-alloc proc-slot dead-slot-map)
+  (make-call-alloc proc-slot slot-map)
   call-alloc?
   (proc-slot call-alloc-proc-slot)
-  (dead-slot-map call-alloc-dead-slot-map))
+  (slot-map call-alloc-slot-map))
 
 (define (lookup-maybe-slot var allocation)
   (intmap-ref (allocation-slots allocation) var (lambda (_) #f)))
@@ -121,9 +121,9 @@
 (define (lookup-parallel-moves k allocation)
   (intmap-ref (allocation-shuffles allocation) k))
 
-(define (lookup-dead-slot-map k allocation)
-  (or (call-alloc-dead-slot-map (lookup-call-alloc k allocation))
-      (error "Call has no dead slot map" k)))
+(define (lookup-slot-map k allocation)
+  (or (call-alloc-slot-map (lookup-call-alloc k allocation))
+      (error "Call has no slot map" k)))
 
 (define (lookup-nlocals k allocation)
   (intmap-ref (allocation-frame-sizes allocation) k))
@@ -764,8 +764,52 @@ are comparable with eqv?.  A tmp slot may be used."
   (persistent-intmap
    (intmap-fold-right allocate-lazy cps slots)))
 
+(define (compute-var-representations cps)
+  (define (get-defs k)
+    (match (intmap-ref cps k)
+      (($ $kargs names vars) vars)
+      (_ '())))
+  (intmap-fold
+   (lambda (label cont representations)
+     (match cont
+       (($ $kargs _ _ ($ $continue k _ exp))
+        (match (get-defs k)
+          (() representations)
+          ((var)
+           (match exp
+             (($ $values (arg))
+              (intmap-add representations var
+                          (intmap-ref representations arg)))
+             ;; FIXME: Placeholder for as-yet-unwritten primitive
+             ;; operations that define unboxed f64 values.
+             (($ $primcall 'scm->f64)
+              (intmap-add representations var 'f64))
+             (_
+              (intmap-add representations var 'scm))))
+          (vars
+           (match exp
+             (($ $values args)
+              (fold (lambda (arg var representations)
+                      (intmap-add representations var
+                                  (intmap-ref representations arg)))
+                    representations args vars))))))
+       (($ $kfun src meta self)
+        (intmap-add representations self 'scm))
+       (($ $kclause arity body alt)
+        (fold1 (lambda (var representations)
+                 (intmap-add representations var 'scm))
+               (get-defs body) representations))
+       (($ $kreceive arity kargs)
+        (fold1 (lambda (var representations)
+                 (intmap-add representations var 'scm))
+               (get-defs kargs) representations))
+       (($ $ktail) representations)))
+   cps
+   empty-intmap))
+
 (define (allocate-slots cps)
   (let*-values (((defs uses) (compute-defs-and-uses cps))
+                ((representations) (compute-var-representations cps))
                 ((live-in live-out) (compute-live-variables cps defs uses))
                 ((constants) (compute-constant-values cps))
                 ((needs-slot) (compute-needs-slot cps defs uses))
@@ -808,6 +852,23 @@ are comparable with eqv?.  A tmp slot may be used."
 
     (define (compute-live-out-slots slots label)
       (compute-live-slots* slots label live-out))
+
+    (define slot-desc-dead 0)
+    (define slot-desc-live-raw 1)
+    (define slot-desc-live-scm 2)
+    (define slot-desc-unused 3)
+
+    (define (compute-slot-map slots live-vars nslots)
+      (intset-fold
+       (lambda (var slot-map)
+         (match (get-slot slots var)
+           (#f slot-map)
+           (slot
+            (let ((desc (match (intmap-ref representations var)
+                          ('f64 slot-desc-live-raw)
+                          ('scm slot-desc-live-scm))))
+              (logior slot-map (ash desc (* 2 slot)))))))
+       live-vars 0))
 
     (define (allocate var hint slots live)
       (cond
@@ -874,9 +935,9 @@ are comparable with eqv?.  A tmp slot may be used."
                   (let ((result-slots (integers (+ proc-slot 2)
                                                 (length results))))
                     (allocate* results result-slots slots post-live)))))
-              ((dead-slot-map) (logand (1- (ash 1 (- proc-slot 2)))
-                                       (lognot post-live)))
-              ((call) (make-call-alloc proc-slot dead-slot-map)))
+              ((slot-map) (compute-slot-map slots (intmap-ref live-out label)
+                                            (- proc-slot 2)))
+              ((call) (make-call-alloc proc-slot slot-map)))
            (values slots
                    (intmap-add! call-allocs label call))))))
     
@@ -909,8 +970,8 @@ are comparable with eqv?.  A tmp slot may be used."
          (let*-values
              (((handler-live) (compute-live-in-slots slots handler))
               ((proc-slot) (compute-prompt-handler-proc-slot handler-live))
-              ((dead-slot-map) (logand (1- (ash 1 (- proc-slot 2)))
-                                       (lognot handler-live)))
+              ((slot-map)  (compute-slot-map slots (intmap-ref live-in handler)
+                                             (- proc-slot 2)))
               ((result-vars) (match (get-cont kargs)
                                (($ $kargs names vars) vars)))
               ((value-slots) (integers (1+ proc-slot) (length result-vars)))
@@ -918,7 +979,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                               slots handler-live)))
            (values slots
                    (intmap-add! call-allocs label
-                                (make-call-alloc proc-slot dead-slot-map)))))))
+                                (make-call-alloc proc-slot slot-map)))))))
 
     (define (allocate-cont label cont slots call-allocs)
       (match cont

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -25,7 +25,7 @@ SCM_API SCM scm_load_thunk_from_file (SCM filename);
 SCM_API SCM scm_load_thunk_from_memory (SCM bv);
 
 SCM_INTERNAL const scm_t_uint8 *
-scm_find_dead_slot_map_unlocked (const scm_t_uint32 *ip);
+scm_find_slot_map_unlocked (const scm_t_uint32 *ip);
 
 SCM_INTERNAL void scm_bootstrap_loader (void);
 SCM_INTERNAL void scm_init_loader (void);
