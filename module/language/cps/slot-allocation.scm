@@ -376,6 +376,10 @@ is an active call."
                     (($ $kargs _ _ ($ $continue _ _ ($ $callk _ proc args)))
                      (intset-subtract (intset-add (list->intset args) proc)
                                       (intmap-ref live-out label)))
+                    (($ $kargs _ _ ($ $continue k _($ $values args)))
+                     (match (intmap-ref cps k)
+                       (($ $ktail) (list->intset args))
+                       (_ #f)))
                     (_ #f)))
                 cps))
          (kills (intmap-map
