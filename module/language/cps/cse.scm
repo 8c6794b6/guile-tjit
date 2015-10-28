@@ -299,6 +299,14 @@ false.  It could be that both true and false proofs are available."
              (add-def! `(primcall struct-ref ,struct ,n) val))
             (('primcall 'struct-set!/immediate struct n val)
              (add-def! `(primcall struct-ref/immediate ,struct ,n) val))
+            (('primcall 'scm->f64 scm)
+             (match defs
+               ((f64)
+                (add-def! `(primcall f64->scm ,f64) scm))))
+            (('primcall 'f64->scm f64)
+             (match defs
+               ((scm)
+                (add-def! `(primcall scm->f64 ,scm) f64))))
             (_ #t))))
 
       (define (visit-label label equiv-labels var-substs)
