@@ -249,7 +249,7 @@
         (with-cps cps
           (let$ body (with-cps-constants ((unspecified *unspecified*))
                        (build-term
-                         ($continue k src ($primcall 'return (unspecified))))))
+                         ($continue k src ($values (unspecified))))))
           (letk kvoid ($kargs () () ,body))
           kvoid))
        (($ $kreceive arity kargs)
@@ -287,7 +287,7 @@
         (with-cps cps
           (letv val)
           (letk kval ($kargs ('val) (val)
-                       ($continue k src ($primcall 'return (val)))))
+                       ($continue k src ($values (val)))))
           kval))
        (($ $kreceive arity kargs)
         (match arity

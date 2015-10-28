@@ -415,12 +415,9 @@ function set."
               ,(match (intmap-ref conts k*)
                  (($ $kreceive)
                   (match exp
-                    (($ $primcall 'return (val))
-                     (build-exp ($primcall 'values (val))))
                     (($ $call) exp)
-                    ;; Except for 'return, a primcall that can continue
-                    ;; to $ktail can also continue to $kreceive.  TODO:
-                    ;; replace 'return with 'values, for consistency.
+                    ;; A primcall that can continue to $ktail can also
+                    ;; continue to $kreceive.
                     (($ $primcall) exp)
                     (($ $values vals)
                      (build-exp ($primcall 'values vals)))))

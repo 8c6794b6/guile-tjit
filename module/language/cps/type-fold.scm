@@ -276,7 +276,7 @@
            (with-cps cps
              (letv bool)
              (letk kbool ($kargs (#f) (bool)
-                           ($continue k src ($primcall 'return (bool)))))
+                           ($continue k src ($values (bool)))))
              ($ (convert-to-logtest kbool)))))
         (with-cps cps #f))))
 

@@ -136,9 +136,7 @@
          (for-each (match-lambda
                     ((src . dst) (emit-mov asm (from-sp dst) (from-sp src))))
                    (lookup-parallel-moves label allocation))
-         (emit-return-values asm (1+ (length args))))
-        (($ $primcall 'return (arg))
-         (emit-return asm (from-sp (slot arg))))))
+         (emit-return-values asm (1+ (length args))))))
 
     (define (compile-value label exp dst)
       (match exp
