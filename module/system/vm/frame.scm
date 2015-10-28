@@ -1,6 +1,6 @@
 ;;; Guile VM frame functions
 
-;;; Copyright (C) 2001, 2005, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2005, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -31,6 +31,7 @@
   #:export (binding-index
             binding-name
             binding-slot
+            binding-representation
 
             frame-bindings
             frame-lookup-binding
@@ -40,11 +41,12 @@
             frame-object-binding frame-object-name))
 
 (define-record-type <binding>
-  (make-binding idx name slot)
+  (make-binding idx name slot representation)
   binding?
   (idx binding-index)
   (name binding-name)
-  (slot binding-slot))
+  (slot binding-slot)
+  (representation binding-representation))
 
 (define (parse-code code)
   (let ((len (bytevector-length code)))
@@ -134,7 +136,7 @@
     (let lp ((var 0) (pos 0) (pc-offset 0))
       (when (< var (vector-length defs))
         (match (vector-ref defs var)
-          (#(name offset slot)
+          (#(name offset slot representation)
            (when (< offset pc-offset)
              (error "mismatch between def offsets and parsed code"))
            (cond
@@ -147,7 +149,7 @@
 
 (define (compute-defs-by-slot defs)
   (let* ((nslots (match defs
-                   (#(#(_ _ slot) ...) (1+ (apply max slot)))))
+                   (#(#(_ _ slot _) ...) (1+ (apply max slot)))))
          (by-slot (make-vector nslots #f)))
     (let lp ((n 0))
       (when (< n nslots)
@@ -156,7 +158,7 @@
     (let lp ((n 0))
       (when (< n (vector-length defs))
         (match (vector-ref defs n)
-          (#(_ _ slot)
+          (#(_ _ slot _)
            (bitvector-set! (vector-ref by-slot slot) n #t)
            (lp (1+ n))))))
     by-slot))
@@ -179,7 +181,7 @@
     (let lp ((var 0) (pos 0) (pc-offset 0))
       (when (< var (vector-length defs))
         (match (vector-ref defs var)
-          (#(name offset slot)
+          (#(name offset slot representation)
            (when (< offset pc-offset)
              (error "mismatch between def offsets and parsed code"))
            (cond
@@ -274,10 +276,10 @@
               (let ((n (bit-position #t live n)))
                 (if n
                     (match (vector-ref defs n)
-                      (#(name def-offset slot)
+                      (#(name def-offset slot representation)
                        ;; Binding 0 is the closure, and is not present
                        ;; in arity-definitions.
-                       (cons (make-binding (1+ n) name slot)
+                       (cons (make-binding (1+ n) name slot representation)
                              (lp (1+ n)))))
                     '()))))
           (lp (1+ n) (- offset (vector-ref parsed n)))))))
@@ -300,17 +302,16 @@
            (lp (cdr bindings))))))
 
 (define (frame-binding-set! frame var val)
-  (frame-local-set! frame
-                    (binding-slot
-                     (or (frame-lookup-binding frame var)
-                         (error "variable not bound in frame" var frame)))
-                    val))
+  (let ((binding (or (frame-lookup-binding frame var)
+                     (error "variable not bound in frame" var frame))))
+    (frame-local-set! frame (binding-slot binding) val
+                      (binding-representation binding))))
 
 (define (frame-binding-ref frame var)
-  (frame-local-ref frame
-                   (binding-slot
-                    (or (frame-lookup-binding frame var)
-                        (error "variable not bound in frame" var frame)))))
+  (let ((binding (or (frame-lookup-binding frame var)
+                     (error "variable not bound in frame" var frame))))
+    (frame-local-ref frame (binding-slot binding)
+                     (binding-representation binding))))
 
 
 ;; This function is always called to get some sort of representation of the
@@ -347,16 +348,21 @@
          (closure (frame-procedure frame)))
     (define (find-slot i bindings)
       (match bindings
-        (#f (and (< i nlocals) i))
         (() #f)
-        ((($ <binding> idx name slot) . bindings)
+        (((and binding ($ <binding> idx name slot)) . bindings)
          (if (< idx i)
              (find-slot i bindings)
-             (and (= idx i) slot)))))
+             (and (= idx i) binding)))))
     (define (local-ref i bindings)
       (cond
+       ((not bindings)
+        ;; This case is only hit for primitives and application
+        ;; arguments.
+        (frame-local-ref frame i 'scm))
        ((find-slot i bindings)
-        => (lambda (slot) (frame-local-ref frame slot)))
+        => (lambda (binding)
+             (frame-local-ref frame (binding-slot binding)
+                              (binding-representation binding))))
        (else
         '_)))
     (define (application-arguments)

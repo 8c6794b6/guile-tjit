@@ -220,45 +220,88 @@ SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 2, 0, 0,
-	    (SCM frame, SCM index),
+enum stack_item_representation
+  {
+    STACK_ITEM_SCM = 0,
+    STACK_ITEM_F64 = 1
+  };
+
+static enum stack_item_representation
+scm_to_stack_item_representation (SCM x, const char *subr, int pos)
+{
+  if (scm_is_eq (x, scm_from_latin1_symbol ("scm")))
+    return STACK_ITEM_SCM;
+  if (scm_is_eq (x, scm_from_latin1_symbol ("f64")))
+    return STACK_ITEM_F64;
+
+  scm_wrong_type_arg (subr, pos, x);
+  return 0;  /* Not reached.  */
+}
+
+SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 3, 0, 0,
+	    (SCM frame, SCM index, SCM representation),
 	    "")
 #define FUNC_NAME s_scm_frame_local_ref
 {
   union scm_vm_stack_element *fp, *sp;
   unsigned int i;
+  enum stack_item_representation repr;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
   SCM_VALIDATE_UINT_COPY (2, index, i);
-
-  fp = SCM_VM_FRAME_FP (frame);
-  sp = SCM_VM_FRAME_SP (frame);
-
-  if (i < SCM_FRAME_NUM_LOCALS (fp, sp))
-    return SCM_FRAME_LOCAL (fp, i);
-
-  SCM_OUT_OF_RANGE (SCM_ARG2, index);
-}
-#undef FUNC_NAME
-
-/* Need same not-yet-active frame logic here as in frame-num-locals */
-SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 3, 0, 0,
-	    (SCM frame, SCM index, SCM val),
-	    "")
-#define FUNC_NAME s_scm_frame_local_set_x
-{
-  union scm_vm_stack_element *fp, *sp;
-  unsigned int i;
-
-  SCM_VALIDATE_VM_FRAME (1, frame);
-  SCM_VALIDATE_UINT_COPY (2, index, i);
+  repr = scm_to_stack_item_representation (representation, FUNC_NAME, SCM_ARG3);
 
   fp = SCM_VM_FRAME_FP (frame);
   sp = SCM_VM_FRAME_SP (frame);
 
   if (i < SCM_FRAME_NUM_LOCALS (fp, sp))
     {
-      SCM_FRAME_LOCAL (fp, i) = val;
+      union scm_vm_stack_element *item = SCM_FRAME_SLOT (fp, i);
+      switch (repr)
+        {
+          case STACK_ITEM_SCM:
+            return item->as_scm;
+          case STACK_ITEM_F64:
+            /* return item->as_f64; */
+          default:
+            abort();
+        }
+    }
+
+  SCM_OUT_OF_RANGE (SCM_ARG2, index);
+}
+#undef FUNC_NAME
+
+/* Need same not-yet-active frame logic here as in frame-num-locals */
+SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 4, 0, 0,
+	    (SCM frame, SCM index, SCM val, SCM representation),
+	    "")
+#define FUNC_NAME s_scm_frame_local_set_x
+{
+  union scm_vm_stack_element *fp, *sp;
+  unsigned int i;
+  enum stack_item_representation repr;
+
+  SCM_VALIDATE_VM_FRAME (1, frame);
+  SCM_VALIDATE_UINT_COPY (2, index, i);
+  repr = scm_to_stack_item_representation (representation, FUNC_NAME, SCM_ARG3);
+
+  fp = SCM_VM_FRAME_FP (frame);
+  sp = SCM_VM_FRAME_SP (frame);
+
+  if (i < SCM_FRAME_NUM_LOCALS (fp, sp))
+    {
+      union scm_vm_stack_element *item = SCM_FRAME_SLOT (fp, i);
+      switch (repr)
+        {
+          case STACK_ITEM_SCM:
+            item->as_scm = val;
+            break;
+          case STACK_ITEM_F64:
+            /* item->as_f64 = scm_to_double (val); */
+          default:
+            abort();
+        }
       return SCM_UNSPECIFIED;
     }
 

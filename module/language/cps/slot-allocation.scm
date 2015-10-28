@@ -35,6 +35,7 @@
   #:export (allocate-slots
             lookup-slot
             lookup-maybe-slot
+            lookup-representation
             lookup-constant-value
             lookup-maybe-constant-value
             lookup-nlocals
@@ -43,13 +44,19 @@
             lookup-slot-map))
 
 (define-record-type $allocation
-  (make-allocation slots constant-values call-allocs shuffles frame-sizes)
+  (make-allocation slots representations constant-values call-allocs
+                   shuffles frame-sizes)
   allocation?
 
   ;; A map of VAR to slot allocation.  A slot allocation is an integer,
   ;; if the variable has been assigned a slot.
   ;;
   (slots allocation-slots)
+
+  ;; A map of VAR to representation.  A representation is either 'scm or
+  ;; 'f64.
+  ;;
+  (representations allocation-representations)
 
   ;; A map of VAR to constant value, for variables with constant values.
   ;;
@@ -94,6 +101,9 @@
 
 (define (lookup-slot var allocation)
   (intmap-ref (allocation-slots allocation) var))
+
+(define (lookup-representation var allocation)
+  (intmap-ref (allocation-representations allocation) var))
 
 (define *absent* (list 'absent))
 
@@ -1006,4 +1016,5 @@ are comparable with eqv?.  A tmp slot may be used."
         (let* ((slots (allocate-lazy-vars cps slots calls live-in lazy))
                (shuffles (compute-shuffles cps slots calls live-in))
                (frame-sizes (compute-frame-sizes cps slots calls shuffles)))
-          (make-allocation slots constants calls shuffles frame-sizes))))))
+          (make-allocation slots representations constants calls
+                           shuffles frame-sizes))))))

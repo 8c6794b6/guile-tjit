@@ -475,7 +475,8 @@
          (for-each (lambda (name var)
                      (let ((slot (maybe-slot var)))
                        (when slot
-                         (emit-definition asm name slot))))
+                         (let ((repr (lookup-representation var allocation)))
+                           (emit-definition asm name slot repr)))))
                    names vars)
          (when src
            (emit-source asm src))

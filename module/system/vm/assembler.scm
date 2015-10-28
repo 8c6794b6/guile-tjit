@@ -1162,10 +1162,9 @@ returned instead."
 (define-macro-assembler (source asm source)
   (set-asm-sources! asm (acons (asm-start asm) source (asm-sources asm))))
 
-(define-macro-assembler (definition asm name slot)
+(define-macro-assembler (definition asm name slot representation)
   (let* ((arity (car (meta-arities (car (asm-meta asm)))))
-         (def (vector name
-                      slot
+         (def (vector name slot representation
                       (* (- (asm-start asm) (arity-low-pc arity)) 4))))
     (set-arity-definitions! arity (cons def (arity-definitions arity)))))
 
@@ -1876,7 +1875,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
       (let lp ((definitions (arity-definitions arity)))
         (match definitions
           (() relocs)
-          ((#(name slot def) . definitions)
+          ((#(name slot representation def) . definitions)
            (let ((sym (if (symbol? name)
                           (string-table-intern! strtab (symbol->string name))
                           0)))
@@ -1886,9 +1885,13 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
       (let lp ((definitions (arity-definitions arity)))
         (match definitions
           (() relocs)
-          ((#(name slot def) . definitions)
+          ((#(name slot representation def) . definitions)
            (put-uleb128 names-port def)
-           (put-uleb128 names-port slot)
+           (let ((tag (case representation
+                        ((scm) 0)
+                        ((f64) 1)
+                        (else (error "what!" representation)))))
+             (put-uleb128 names-port (logior (ash slot 2) tag)))
            (lp definitions))))))
   (let lp ((metas metas) (pos arities-prefix-len) (relocs '()))
     (match metas
