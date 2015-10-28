@@ -747,19 +747,25 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       RETURN_ONE_VALUE (SP_REF (src));
     }
 
-  /* return-values _:24
+  /* return-values nlocals:24
    *
    * Return a number of values from a call frame.  This opcode
    * corresponds to an application of `values' in tail position.  As
    * with tail calls, we expect that the values have already been
    * shuffled down to a contiguous array starting at slot 1.
-   * We also expect the frame has already been reset.
+   * If NLOCALS is not zero, we also reset the frame to hold NLOCALS
+   * values.
    */
-  VM_DEFINE_OP (9, return_values, "return-values", OP1 (X32))
+  VM_DEFINE_OP (9, return_values, "return-values", OP1 (X8_C24))
     {
       union scm_vm_stack_element *old_fp;
+      scm_t_uint32 nlocals;
 
       VM_HANDLE_INTERRUPTS;
+
+      UNPACK_24 (op, nlocals);
+      if (nlocals)
+        RESET_FRAME (nlocals);
 
       old_fp = vp->fp;
       ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);

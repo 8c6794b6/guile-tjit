@@ -763,12 +763,13 @@ has run, the values can be copied down via @code{mov}, or used in place.
 Return a value.
 @end deftypefn
 
-@deftypefn Instruction {} return-values x24:@var{_}
+@deftypefn Instruction {} return-values c24:@var{nlocals}
 Return a number of values from a call frame.  This opcode corresponds to
 an application of @code{values} in tail position.  As with tail calls,
 we expect that the values have already been shuffled down to a
-contiguous array starting at slot 1.  We also expect the frame has
-already been reset.
+contiguous array starting at slot 1.  If @var{nlocals} is nonzero, reset
+the frame to hold that number of locals.  Note that a frame reset to 1
+local returns 0 values.
 @end deftypefn
 
 @deftypefn Instruction {} call/cc x24:@var{_}

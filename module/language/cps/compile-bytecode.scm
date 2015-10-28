@@ -124,7 +124,7 @@
          (emit-tail-call-label asm (1+ (length args)) k))
         (($ $values ())
          (emit-reset-frame asm 1)
-         (emit-return-values asm))
+         (emit-return-values asm 1))
         (($ $values (arg))
          (if (maybe-slot arg)
              (emit-return asm (from-sp (slot arg)))
@@ -138,7 +138,7 @@
                     ((src . dst) (emit-mov asm (from-sp dst) (from-sp src))))
                    (lookup-parallel-moves label allocation))
          (emit-reset-frame asm (1+ (length args)))
-         (emit-return-values asm))
+         (emit-return-values asm (1+ (length args))))
         (($ $primcall 'return (arg))
          (emit-return asm (from-sp (slot arg))))))
 
