@@ -251,6 +251,9 @@
 #define SP_REF(i)		(sp[i].as_scm)
 #define SP_SET(i,o)		(sp[i].as_scm = o)
 
+#define SP_REF_F64(i)		(sp[i].as_f64)
+#define SP_SET_F64(i,o)		(sp[i].as_f64 = o)
+
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
 #define VARIABLE_BOUNDP(v)      (!scm_is_eq (VARIABLE_REF (v), SCM_UNDEFINED))
@@ -3216,8 +3219,35 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (135, bv_f64_set, "bv-f64-set!", OP1 (X8_S8_S8_S8))
     BV_FLOAT_SET (f64, ieee_double, double, 8);
 
-  VM_DEFINE_OP (136, unused_136, NULL, NOP)
-  VM_DEFINE_OP (137, unused_137, NULL, NOP)
+  /* scm->f64 dst:12 src:12
+   *
+   * Unpack a raw double-precision floating-point value from SRC and
+   * place it in DST.  Note that SRC can be any value on which
+   * scm_to_double can operate.
+   */
+  VM_DEFINE_OP (136, scm_to_f64, "scm->f64", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
+      SP_SET_F64 (dst, scm_to_double (SP_REF (src)));
+      NEXT (1);
+    }
+
+  /* f64->scm dst:12 src:12
+   *
+   * Pack a raw double-precision floating point value into an inexact
+   * number allocated on the heap.
+   */
+  VM_DEFINE_OP (137, f64_to_scm, "f64->scm", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
+      SP_SET (dst, scm_from_double (SP_REF_F64 (src)));
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (138, unused_138, NULL, NOP)
   VM_DEFINE_OP (139, unused_139, NULL, NOP)
   VM_DEFINE_OP (140, unused_140, NULL, NOP)
