@@ -37,6 +37,7 @@
   #:use-module (language cps self-references)
   #:use-module (language cps simplify)
   #:use-module (language cps specialize-primcalls)
+  #:use-module (language cps specialize-numbers)
   #:use-module (language cps type-fold)
   #:use-module (language cps verify)
   #:export (optimize-higher-order-cps
@@ -104,6 +105,7 @@
   (simplify #:simplify? #t))
 
 (define-optimizer optimize-first-order-cps
+  (specialize-numbers #:specialize-numbers? #t)
   (hoist-loop-invariant-code #:licm? #t)
   (eliminate-common-subexpressions #:cse? #t)
   (eliminate-dead-code #:eliminate-dead-code? #t)
@@ -123,5 +125,6 @@
    #:cse? #t
    #:type-fold? #t
    #:resolve-self-references? #t
+   #:specialize-numbers? #t
    #:licm? #t
    #:rotate-loops? #t))
