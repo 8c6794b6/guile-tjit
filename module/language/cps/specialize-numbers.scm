@@ -178,14 +178,20 @@
           (match exp
             (($ $primcall 'scm->f64 (var))
              (intset-add f64-uses var))
-            (($ $values (var))
+            (($ $values vars)
              (match (intmap-ref cps k)
-               (($ $kargs (_) (def))
-                (if (intset-ref f64-defs def)
-                    (intset-add f64-uses var)
-                    f64-uses))
-               ;; Could be $ktail.
-               (_ f64-uses)))
+               (($ $kargs _ defs)
+                (fold (lambda (var def f64-uses)
+                        (if (intset-ref f64-defs def)
+                            (intset-add f64-uses var)
+                            f64-uses))
+                      f64-uses vars defs))
+               (($ $ktail)
+                ;; Assume return is rare and that any f64-valued def can
+                ;; be reboxed when leaving the procedure.
+                (fold (lambda (var f64-uses)
+                        (intset-add f64-uses var))
+                      f64-uses vars))))
             (_ f64-uses)))
          (_ f64-uses)))
      body empty-intset))
