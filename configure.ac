@@ -1125,7 +1125,7 @@ if test "$enable_regex" = yes; then
    AC_DEFINE([ENABLE_REGEX], 1, [Define when regex support is enabled.])
 fi
 
-AC_REPLACE_FUNCS([strerror memmove mkstemp])
+AC_REPLACE_FUNCS([strerror memmove])
 
 # Reasons for testing:
 #   asinh, acosh, atanh, trunc - C99 standard, generally not available on
