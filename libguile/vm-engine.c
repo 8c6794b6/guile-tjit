@@ -3258,10 +3258,58 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (138, unused_138, NULL, NOP)
-  VM_DEFINE_OP (139, unused_139, NULL, NOP)
-  VM_DEFINE_OP (140, unused_140, NULL, NOP)
-  VM_DEFINE_OP (141, unused_141, NULL, NOP)
+  /* fadd dst:8 a:8 b:8
+   *
+   * Add A to B, and place the result in DST.  The operands and the
+   * result are unboxed double-precision floating-point numbers.
+   */
+  VM_DEFINE_OP (138, fadd, "fadd", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+      UNPACK_8_8_8 (op, dst, a, b);
+      SP_SET_F64 (dst, SP_REF_F64 (a) + SP_REF_F64 (b));
+      NEXT (1);
+    }
+
+  /* fsub dst:8 a:8 b:8
+   *
+   * Subtract B from A, and place the result in DST.  The operands and
+   * the result are unboxed double-precision floating-point numbers.
+   */
+  VM_DEFINE_OP (139, fsub, "fsub", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+      UNPACK_8_8_8 (op, dst, a, b);
+      SP_SET_F64 (dst, SP_REF_F64 (a) - SP_REF_F64 (b));
+      NEXT (1);
+    }
+
+  /* fmul dst:8 a:8 b:8
+   *
+   * Multiply A and B, and place the result in DST.  The operands and
+   * the result are unboxed double-precision floating-point numbers.
+   */
+  VM_DEFINE_OP (140, fmul, "fmul", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+      UNPACK_8_8_8 (op, dst, a, b);
+      SP_SET_F64 (dst, SP_REF_F64 (a) * SP_REF_F64 (b));
+      NEXT (1);
+    }
+
+  /* fdiv dst:8 a:8 b:8
+   *
+   * Divide A by B, and place the result in DST.  The operands and the
+   * result are unboxed double-precision floating-point numbers.
+   */
+  VM_DEFINE_OP (141, fdiv, "fdiv", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+      UNPACK_8_8_8 (op, dst, a, b);
+      SP_SET_F64 (dst, SP_REF_F64 (a) / SP_REF_F64 (b));
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (142, unused_142, NULL, NOP)
   VM_DEFINE_OP (143, unused_143, NULL, NOP)
   VM_DEFINE_OP (144, unused_144, NULL, NOP)

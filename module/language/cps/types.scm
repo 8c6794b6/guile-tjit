@@ -842,18 +842,48 @@ minimum, and maximum."
                  min* max*))))))
 
 (define-simple-type-checker (add &number &number))
+(define-type-checker (fadd a b) #t)
 (define-type-inferrer (add a b result)
   (define-binary-result! a b result #t
                          (+ (&min a) (&min b))
                          (+ (&max a) (&max b))))
+(define-type-inferrer (fadd a b result)
+  (define! result &f64
+    (+ (&min a) (&min b))
+    (+ (&max a) (&max b))))
 
 (define-simple-type-checker (sub &number &number))
+(define-type-checker (fsub a b) #t)
 (define-type-inferrer (sub a b result)
   (define-binary-result! a b result #t
                          (- (&min a) (&max b))
                          (- (&max a) (&min b))))
+(define-type-inferrer (fsub a b result)
+  (define! result &f64
+    (- (&min a) (&max b))
+    (- (&max a) (&min b))))
 
 (define-simple-type-checker (mul &number &number))
+(define-type-checker (fmul a b) #t)
+(define (mul-result-range same? nan-impossible? min-a max-a min-b max-b)
+  (define (nan* a b)
+    (if (and (or (and (inf? a) (zero? b))
+                 (and (zero? a) (inf? b)))
+             nan-impossible?)
+        0 
+        (* a b)))
+  (let ((-- (nan* min-a min-b))
+        (-+ (nan* min-a max-b))
+        (++ (nan* max-a max-b))
+        (+- (nan* max-a min-b)))
+    (let ((has-nan? (or (nan? --) (nan? -+) (nan? ++) (nan? +-))))
+      (values (cond
+               (same? 0)
+               (has-nan? -inf.0)
+               (else (min -- -+ ++ +-)))
+              (if has-nan?
+                  +inf.0
+                  (max -- -+ ++ +-))))))
 (define-type-inferrer (mul a b result)
   (let ((min-a (&min a)) (max-a (&max a))
         (min-b (&min b)) (max-b (&max b))
@@ -863,25 +893,20 @@ minimum, and maximum."
         ;; range inference time is 0 and not +nan.0.
         (nan-impossible? (not (logtest (logior (&type a) (&type b))
                                        (logior &flonum &complex)))))
-    (define (nan* a b)
-      (if (and (or (and (inf? a) (zero? b))
-                   (and (zero? a) (inf? b)))
-               nan-impossible?)
-          0 
-          (* a b)))
-    (let ((-- (nan* min-a min-b))
-          (-+ (nan* min-a max-b))
-          (++ (nan* max-a max-b))
-          (+- (nan* max-a min-b)))
-      (let ((has-nan? (or (nan? --) (nan? -+) (nan? ++) (nan? +-))))
-        (define-binary-result! a b result #t
-                               (cond
-                                ((eqv? a b) 0)
-                                (has-nan? -inf.0)
-                                (else (min -- -+ ++ +-)))
-                               (if has-nan?
-                                   +inf.0
-                                   (max -- -+ ++ +-)))))))
+    (call-with-values (lambda ()
+                        (mul-result-range (eqv? a b) nan-impossible?
+                                          min-a max-a min-b max-b))
+      (lambda (min max)
+        (define-binary-result! a b result #t min max)))))
+(define-type-inferrer (fmul a b result)
+  (let ((min-a (&min a)) (max-a (&max a))
+        (min-b (&min b)) (max-b (&max b))
+        (nan-impossible? #f))
+    (call-with-values (lambda ()
+                        (mul-result-range (eqv? a b) nan-impossible?
+                                          min-a max-a min-b max-b))
+      (lambda (min max)
+        (define! result &f64 min max)))))
 
 (define-type-checker (div a b)
   (and (check-type a &number -inf.0 +inf.0)
@@ -889,31 +914,40 @@ minimum, and maximum."
        ;; We only know that there will not be an exception if b is not
        ;; zero.
        (not (<= (&min b) 0 (&max b)))))
+(define-type-checker (fdiv a b) #t)
+(define (div-result-range min-a max-a min-b max-b)
+  (if (<= min-b 0 max-b)
+      ;; If the range of the divisor crosses 0, the result spans
+      ;; the whole range.
+      (values -inf.0 +inf.0)
+      ;; Otherwise min-b and max-b have the same sign, and cannot both
+      ;; be infinity.
+      (let ((--- (if (inf? min-b) 0 (floor/ min-a min-b)))
+            (-+- (if (inf? max-b) 0 (floor/ min-a max-b)))
+            (++- (if (inf? max-b) 0 (floor/ max-a max-b)))
+            (+-- (if (inf? min-b) 0 (floor/ max-a min-b)))
+            (--+ (if (inf? min-b) 0 (ceiling/ min-a min-b)))
+            (-++ (if (inf? max-b) 0 (ceiling/ min-a max-b)))
+            (+++ (if (inf? max-b) 0 (ceiling/ max-a max-b)))
+            (+-+ (if (inf? min-b) 0 (ceiling/ max-a min-b))))
+        (values (min (min --- -+- ++- +--)
+                     (min --+ -++ +++ +-+))
+                (max (max --- -+- ++- +--)
+                     (max --+ -++ +++ +-+))))))
 (define-type-inferrer (div a b result)
   (let ((min-a (&min a)) (max-a (&max a))
         (min-b (&min b)) (max-b (&max b)))
-    (call-with-values
-        (lambda ()
-          (if (<= min-b 0 max-b)
-              ;; If the range of the divisor crosses 0, the result spans
-              ;; the whole range.
-              (values -inf.0 +inf.0)
-              ;; Otherwise min-b and max-b have the same sign, and cannot both
-              ;; be infinity.
-              (let ((--- (if (inf? min-b) 0 (floor/ min-a min-b)))
-                    (-+- (if (inf? max-b) 0 (floor/ min-a max-b)))
-                    (++- (if (inf? max-b) 0 (floor/ max-a max-b)))
-                    (+-- (if (inf? min-b) 0 (floor/ max-a min-b)))
-                    (--+ (if (inf? min-b) 0 (ceiling/ min-a min-b)))
-                    (-++ (if (inf? max-b) 0 (ceiling/ min-a max-b)))
-                    (+++ (if (inf? max-b) 0 (ceiling/ max-a max-b)))
-                    (+-+ (if (inf? min-b) 0 (ceiling/ max-a min-b))))
-                (values (min (min --- -+- ++- +--)
-                             (min --+ -++ +++ +-+))
-                        (max (max --- -+- ++- +--)
-                             (max --+ -++ +++ +-+))))))
+    (call-with-values (lambda ()
+                        (div-result-range min-a max-a min-b max-b))
       (lambda (min max)
         (define-binary-result! a b result #f min max)))))
+(define-type-inferrer (fdiv a b result)
+  (let ((min-a (&min a)) (max-a (&max a))
+        (min-b (&min b)) (max-b (&max b)))
+    (call-with-values (lambda ()
+                        (div-result-range min-a max-a min-b max-b))
+      (lambda (min max)
+        (define! result &f64 min max)))))
 
 (define-simple-type-checker (add1 &number))
 (define-type-inferrer (add1 a result)
