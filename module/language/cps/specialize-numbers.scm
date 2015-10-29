@@ -324,7 +324,6 @@
               (setk label ($kargs names bound-vars ,box-term)))))))
      (compute-box-labels)
      cps))
-  (pk 'specializing phis)
   (box-results (unbox-operands)))
 
 (define (specialize-f64-phis cps)
