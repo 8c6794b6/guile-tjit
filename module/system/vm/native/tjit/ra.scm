@@ -205,6 +205,7 @@
        ((boolean? x) #t)
        ((char? x) #t)
        ((number? x) #t)
+       ((null? x) #t)
        (else #f)))
     (define (compile-term term acc)
       (match term

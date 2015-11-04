@@ -406,12 +406,9 @@ referenced by dst and src value at runtime."
                    (if invert? br-op-size offset))))
     (cond
      ((and (fixnum? ra) (fixnum? rb))
-      (let ((op (if (< ra rb)
-                    `(%lt ,va ,vb)
-                    `(%ge ,va ,vb))))
-        `(let ((_ ,(take-snapshot! ip dest)))
-           (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
-             ,(next)))))
+      `(let ((_ ,(take-snapshot! ip dest)))
+         (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
+           ,(next))))
 
      ((and (flonum? ra) (flonum? rb))
       `(let ((_ ,(take-snapshot! ip dest)))
@@ -422,7 +419,20 @@ referenced by dst and src value at runtime."
       (escape #f)))))
 
 ;; XXX: br-if-true
-;; XXX: br-if-null
+
+(define-ir (br-if-null (local test) (const invert) (const offset))
+  (let* ((rtest (local-ref test))
+         (vtest (var-ref test))
+         (dest (if (null? rtest)
+                   (if invert offset 2)
+                   (if invert 2 offset)))
+         (op (if (null? rtest)
+                 `(%eq ,vtest ())
+                 `(%ne ,vtest ()))))
+    `(let ((_ ,(take-snapshot! ip dest)))
+       (let ((_ ,op))
+         ,(next)))))
+
 ;; XXX: br-if-nil
 ;; XXX: br-if-pair
 ;; XXX: br-if-struct
@@ -568,8 +578,44 @@ referenced by dst and src value at runtime."
 ;;; *** Pairs
 
 ;; XXX: cons
-;; XXX: car
-;; XXX: cdr
+
+(define-ir (car (local dst) (local src))
+  (let ((rdst (local-ref dst))
+        (rsrc (local-ref src))
+        (vdst (var-ref dst))
+        (vsrc (var-ref src)))
+    (when (not (pair? rsrc))
+      (debug 1 "XXX: car ~a ~a~%" rdst rsrc)
+      (escape #f))
+    `(let ((,vdst (%cref ,vsrc 0)))
+       ;; XXX: Add guards.
+       ,(cond
+         ((fixnum? (car rsrc))
+          `(let ((,vdst ,(to-fixnum vdst)))
+             ,(next)))
+         (else
+          (debug 1 "XXX: car ~a ~a~%" rdst rsrc)
+          (escape #f))))))
+
+(define-ir (cdr (local dst) (local src))
+  (let ((rdst (local-ref dst))
+        (rsrc (local-ref src))
+        (vdst (var-ref dst))
+        (vsrc (var-ref src)))
+    (when (not (pair? rsrc))
+      (debug 1 "XXX: cdr ~a ~a~%" rdst rsrc)
+      (escape #f))
+    `(let ((,vdst (%cref ,vsrc 1)))
+       ;; XXX: Add guards.
+       ,(cond
+         ((pair? (cdr rsrc))
+          (next))
+         ((null? (cdr rsrc))
+          (next))
+         (else
+          (debug 1 "XXX: cdr ~a ~a~%" rdst rsrc)
+          (escape #f))))))
+
 ;; XXX: set-car!
 ;; XXX: set-cdr!
 
