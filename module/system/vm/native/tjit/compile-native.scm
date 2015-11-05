@@ -360,15 +360,15 @@ of SRCS, DSTS, TYPES are local index number."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
-  (let* ((trampoline (make-trampoline (hash-fold (lambda (k v acc) (+ acc 1))
-                                                 1 snapshots)))
+  (let* ((trampoline (make-trampoline (hash-count (const #t) snapshots)))
          (fp-offset
-          ;; Root trace allocates spaces for spilled variables, three words to
-          ;; store `vp', `vp->sp', and `registers', and one more word for return
-          ;; address used by side exits. Side trace cannot allocate additional
-          ;; memory, because side trace uses `jit-tramp'. Native code will not
-          ;; work if number of spilled variables exceeds the number returned
-          ;; from parameter `(tjit-max-spills)'.
+          ;; Root trace allocates spaces for spilled variables, 4 words to store
+          ;; reserved values: `vp', `vp->sp', and `registers', and return
+          ;; address used by side exits, and space to save volatile
+          ;; registers. Side trace cannot allocate additional memory, because
+          ;; side trace uses `jit-tramp'. Native code will not work if number of
+          ;; spilled variables exceeds the number returned from parameter
+          ;; `(tjit-max-spills)'.
           (if (not fragment)
               (let ((max-spills (tjit-max-spills))
                     (nspills (primlist-nspills primlist)))
@@ -376,7 +376,8 @@ of SRCS, DSTS, TYPES are local index number."
                   ;; XXX: Escape from this procedure, increment compilation
                   ;; failure for this entry-ip.
                   (error "Too many spilled variables" nspills))
-                (jit-allocai (imm (* (+ max-spills 4) %word-size))))
+                (jit-allocai (imm (* (+ max-spills 4 *num-volatiles*)
+                                     %word-size))))
               (fragment-fp-offset fragment)))
          (moffs (lambda (mem)
                   (let ((offset (* (ref-value mem) %word-size)))
@@ -417,10 +418,10 @@ of SRCS, DSTS, TYPES are local index number."
                parent-exit-id)))))
 
     ;; Assemble the primitives.
-    (compile-primlist primlist #f entry-ip snapshots fp-offset fragment
+    (compile-primlist primlist entry-ip snapshots fp-offset fragment
                       trampoline linked-ip trace-id)))
 
-(define (compile-primlist primlist env entry-ip snapshots fp-offset fragment
+(define (compile-primlist primlist entry-ip snapshots fp-offset fragment
                           trampoline linked-ip trace-id)
   (define (compile-ops asm ops)
     (let lp ((ops ops) (loop-locals #f) (loop-vars #f))
@@ -461,20 +462,25 @@ of SRCS, DSTS, TYPES are local index number."
         (()
          (values loop-locals loop-vars)))))
   (match primlist
-    (($ $primlist entry loop mem-idx)
+    (($ $primlist entry loop mem-idx env)
      (let*-values (((end-address) (or (and=> fragment
                                              fragment-end-address)
                                       (and=> (get-root-trace linked-ip)
                                              fragment-end-address)))
                    ((asm) (make-asm env fp-offset #f end-address))
                    ((loop-locals loop-vars) (compile-ops asm entry))
-                   ((loop-label) (if (null? loop)
-                                     #f
-                                     (let ((loop-label (jit-label)))
-                                       (jit-note "loop" 0)
-                                       (compile-ops asm loop)
-                                       (jump loop-label)
-                                       loop-label))))
+                   ((loop-label)
+                    (if (null? loop)
+                        #f
+                        (let ((loop-label (jit-label)))
+                          (jit-note "loop" 0)
+                          ;; XXX: Checking interrupts for every loop seems too
+                          ;; much. Might omit when heap objects were not used in
+                          ;; compiled native code.
+                          (vm-handle-interrupts asm)
+                          (compile-ops asm loop)
+                          (jump loop-label)
+                          loop-label))))
        (values trampoline loop-label loop-locals loop-vars fp-offset)))
     (_
      (error "compile-primlist: not a $primlist" primlist))))

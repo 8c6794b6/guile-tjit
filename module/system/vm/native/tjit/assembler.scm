@@ -49,6 +49,7 @@
             asm-out-code
             set-asm-out-code!
             asm-end-address
+            asm-volatiles
             make-negative-pointer
             make-signed-pointer
             constant-word
@@ -70,7 +71,8 @@
             vm-cache-sp
             vm-sync-ip
             vm-sync-sp
-            vm-sync-fp))
+            vm-sync-fp
+            vm-handle-interrupts))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -188,6 +190,9 @@
 (define %scm-inline-cons
   (dynamic-pointer "scm_do_inline_cons" (dynamic-link)))
 
+(define %scm-async-tick
+  (dynamic-pointer "scm_async_tick" (dynamic-link)))
+
 (define-syntax-rule (scm-frame-return-address dst vp->fp)
   (jit-ldr dst vp->fp))
 
@@ -246,6 +251,32 @@
         (jit-str vp->sp src)
         (jit-stxi (make-signed-pointer (* n %word-size)) vp->sp src))))
 
+(define-syntax-rule (vm-thread-pending-asyncs dst)
+  (jit-ldxi dst reg-thread (imm #x104)))
+
+(define-syntax-rule (vm-handle-interrupts asm-arg)
+  (let ((next (jit-forward)))
+    (vm-thread-pending-asyncs r0)
+    (jump (jit-bmci r0 (imm 1)) next)
+    (for-each store-volatile (asm-volatiles asm-arg))
+    (jit-prepare)
+    (jit-pushargr r0)
+    (jit-calli %scm-async-tick)
+    (jit-ldxi r0 fp vp-offset)
+    (vm-cache-sp r0)
+    (for-each load-volatile (asm-volatiles asm-arg))
+    (jit-link next)))
+
+(define (volatile-offset reg)
+  (let ((n (- (ref-value reg) *num-non-volatiles*)))
+    (make-negative-pointer (* (- (- n) 5) %word-size))))
+
+(define (store-volatile src)
+  (jit-stxi (volatile-offset src) fp (gpr src)))
+
+(define (load-volatile dst)
+  (jit-ldxi (gpr dst) fp (volatile-offset dst)))
+
 
 ;;;
 ;;; Predicates
@@ -272,12 +303,11 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm env fp-offset out-code end-address)
+  (%make-asm volatiles fp-offset out-code end-address)
   asm?
 
-  ;; Vector containing CPS variables. Index of vector is CPS variable ID, value
-  ;; is reference to logical register or memory.
-  (env asm-env)
+  ;; Volatile registers in use.
+  (volatiles asm-volatiles)
 
   ;; Offset for fp register. This is the offset allocated with `jit-allocai'.
   (fp-offset asm-fp-offset)
@@ -289,7 +319,19 @@
   (end-address asm-end-address))
 
 (define (make-asm env fp-offset out-code end-address)
-  (%make-asm env fp-offset out-code end-address))
+  (define (volatile-regs-in-use env)
+    (hash-fold (lambda (_ reg acc)
+                 (cond
+                  ((and (gpr? reg)
+                        (<= *num-non-volatiles* (ref-value reg)))
+                   (cons reg acc))
+                  (else
+                   acc)))
+               '()
+               env))
+  (let ((volatiles (volatile-regs-in-use env)))
+    (debug 1 ";;; make-asm: volatiles=~a~%" volatiles)
+    (%make-asm volatiles fp-offset out-code end-address)))
 
 (define-syntax jump
   (syntax-rules ()
@@ -960,12 +1002,18 @@ both arguments were register or memory."
 
 (define-prim (%cons (int dst) (int x) (int y))
   (begin
-    ;; XXX: Save volatile registers in use, if any.
+    ;; Save add load volatile registers except for `dst'.
+    (for-each (lambda (reg)
+                (when (not (equal? reg dst))
+                  (store-volatile reg)))
+              (asm-volatiles asm))
     (jit-prepare)
     (jit-pushargr reg-thread)
     (push-gpr-or-mem x)
     (push-gpr-or-mem y)
     (jit-calli %scm-inline-cons)
     (retval-to-gpr-or-mem dst)
-    ;; XXX: If volatile registers were saved, restore them.
-    ))
+    (for-each (lambda (reg)
+                (when (not (equal? reg dst))
+                  (load-volatile reg)))
+              (asm-volatiles asm))))

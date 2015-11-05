@@ -50,7 +50,7 @@
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primlist
-  (make-primlist entry loop nspills)
+  (make-primlist entry loop nspills env)
   primlist?
   ;; List of primitives for entry clause.
   (entry primlist-entry)
@@ -59,7 +59,10 @@
   (loop primlist-loop)
 
   ;; Number of spilled variables.
-  (nspills primlist-nspills))
+  (nspills primlist-nspills)
+
+  ;; Hash-table containing variable information.
+  (env primlist-env))
 
 
 ;;;
@@ -291,8 +294,7 @@
         (string->symbol (string-append "v" (number->string n))))
       (define (sort-variables-in-env t)
         (define (var-index sym)
-          (string->number
-           (substring (symbol->string sym) 1)))
+          (string->number (substring (symbol->string sym) 1)))
         (sort (hash-map->list (lambda (k v)
                                 (list k v)) t)
               (lambda (a b)
@@ -306,6 +308,8 @@
                    (loop (lambda ,loop-args
                            ,loop-body)))
             entry)
+         (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
+                (sort-variables-in-env env))
          (let*-values (((_)
                         (set-initial-args! entry-args initial-local-x-types))
                        ((entry-ops snapshot-idx)
@@ -316,7 +320,9 @@
                         (compile-primlist loop-body
                                           env free-gprs free-fprs mem-idx
                                           snapshot-idx)))
-           (make-primlist entry-ops loop-ops (variable-ref mem-idx))))
+           (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
+                  (sort-variables-in-env env))
+           (make-primlist entry-ops loop-ops (variable-ref mem-idx) env)))
 
         ;; ANF without loop.
         (`(letrec ((patch (lambda ,patch-args
@@ -336,13 +342,7 @@
                      (locals (reverse locals)))
               (match (list variables locals)
                 (((var . vars) ((local . type) . locals))
-                 (let (
-                       ;; (local-from-parent (if (< sp-offset 0)
-                       ;;                        (+ local sp-offset)
-                       ;;                        local))
-                       (local-from-parent local)
-                       )
-                   (hashq-set! env (make-var local-from-parent) var))
+                 (hashq-set! env (make-var local) var)
                  (match var
                    (('gpr . n)
                     (vector-set! free-gprs n #f))
@@ -368,6 +368,6 @@
                                          0)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
-           (make-primlist patch-ops '() (variable-ref mem-idx))))
+           (make-primlist patch-ops '() (variable-ref mem-idx) env)))
         (_
          (error "ir->primlist: malformed term" term))))))

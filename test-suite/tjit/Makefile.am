@@ -72,6 +72,8 @@ TESTS = \
 	t-pairs-02.scm \
 	t-pairs-03.scm \
 	t-pairs-04.scm \
+	t-pairs-05.scm \
+	t-pairs-06.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \

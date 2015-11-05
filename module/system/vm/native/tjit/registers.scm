@@ -31,6 +31,8 @@
   #:use-module (system vm native lightning)
   #:export (*num-gpr*
             *num-fpr*
+            *num-volatiles*
+            *num-non-volatiles*
             gpr-ref
             fpr-ref
             fp
@@ -80,6 +82,12 @@
 
 (define *num-fpr*
   (vector-length *fprs*))
+
+(define *num-volatiles*
+  (vector-length *volatile-registers*))
+
+(define *num-non-volatiles*
+  (vector-length *non-volatile-registers*))
 
 ;; Using negative number to refer scratch registers.
 
