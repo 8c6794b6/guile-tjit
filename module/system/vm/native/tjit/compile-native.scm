@@ -423,39 +423,29 @@ of SRCS, DSTS, TYPES are local index number."
 (define (compile-primlist primlist env entry-ip snapshots fp-offset fragment
                           trampoline linked-ip trace-id)
   (define (compile-ops asm ops)
-    (let lp ((ops ops) (loop-locals #f) (loop-vars #f) (shifted 0))
+    (let lp ((ops ops) (loop-locals #f) (loop-vars #f))
       (match ops
         ((('%snap snapshot-id . args) . ops)
          (cond
           ((hashq-ref snapshots snapshot-id)
            => (lambda (snapshot)
-                (let* ((this-offset (snapshot-sp-offset snapshot))
-                       ;; Keeping track of shifted amount of FP. This amount
-                       ;; should matches with the amount shifted by `%return'.
-                       (shifted (if (and (< this-offset 0)
-                                         (< this-offset shifted))
-                                    this-offset
-                                    shifted)))
-                  (cond
-                   ((snapshot-set-loop-info? snapshot)
-                    (match snapshot
-                      (($ $snapshot _ _ _ _ local-x-types)
-                       (lp ops local-x-types args shifted))
-                      (else
-                       (error "snapshot loop info not found"))))
-                   ((snapshot-jump-to-linked-code? snapshot)
-                    (compile-link args snapshot asm linked-ip fragment shifted)
-                    (lp ops loop-locals loop-vars shifted))
-                   (else
-                    (let ((ptr (compile-bailout asm trace-id snapshot args))
-                          (out-code (trampoline-ref trampoline snapshot-id)))
-                      (trampoline-set! trampoline snapshot-id ptr)
-                      (set-asm-out-code! asm out-code)
-                      (lp ops loop-locals loop-vars shifted)))))))
+                (cond
+                 ((snapshot-set-loop-info? snapshot)
+                  (match snapshot
+                    (($ $snapshot _ _ _ _ local-x-types)
+                     (lp ops local-x-types args))
+                    (else
+                     (error "snapshot loop info not found"))))
+                 ((snapshot-jump-to-linked-code? snapshot)
+                  (compile-link args snapshot asm linked-ip fragment)
+                  (lp ops loop-locals loop-vars))
+                 (else
+                  (let ((ptr (compile-bailout asm trace-id snapshot args))
+                        (out-code (trampoline-ref trampoline snapshot-id)))
+                    (trampoline-set! trampoline snapshot-id ptr)
+                    (set-asm-out-code! asm out-code)
+                    (lp ops loop-locals loop-vars))))))
           (else
-           (hash-for-each (lambda (k v)
-                            (format #t ";;; key:~a => val:~a~%" k v))
-                          snapshots)
            (error "compile-ops: no snapshot with id" snapshot-id))))
         (((op-name . args) . ops)
          (cond
@@ -465,7 +455,7 @@ of SRCS, DSTS, TYPES are local index number."
                   (when (<= 4 verbosity)
                     (jit-note (format #f "~a" (cons op-name args)) 0)))
                 (apply proc asm args)
-                (lp ops loop-locals loop-vars shifted)))
+                (lp ops loop-locals loop-vars)))
           (else
            (error "op not found" op-name))))
         (()
@@ -577,7 +567,7 @@ of SRCS, DSTS, TYPES are local index number."
          (set-snapshot-code! snapshot code)
          ptr)))))
 
-(define (compile-link args snapshot asm linked-ip fragment fp-shifted)
+(define (compile-link args snapshot asm linked-ip fragment)
   (let* ((linked-fragment (get-root-trace linked-ip))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (define (moffs mem)
