@@ -567,6 +567,12 @@ scm_do_inline_from_double (scm_i_thread *thread, double val)
   return z;
 }
 
+SCM
+scm_do_inline_cons (scm_i_thread *thread, SCM x, SCM y)
+{
+  return scm_inline_cons (thread, x, y);
+}
+
 
 /*
  * Initialization

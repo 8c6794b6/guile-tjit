@@ -70,6 +70,8 @@ TESTS = \
 	t-nest-17.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \
+	t-pairs-03.scm \
+	t-pairs-04.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \

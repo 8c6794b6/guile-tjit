@@ -185,6 +185,9 @@
     (jit-calli %scm-from-double)
     (jit-retval dst)))
 
+(define %scm-inline-cons
+  (dynamic-pointer "scm_do_inline_cons" (dynamic-link)))
+
 (define-syntax-rule (scm-frame-return-address dst vp->fp)
   (jit-ldr dst vp->fp))
 
@@ -697,7 +700,7 @@ both arguments were register or memory."
     (scm-from-double r0 f0)
     (jit-stxi (moffs dst) f0 r0))
    (else
-    (error "*** %scm-from-double: ~a ~a~%" dst src))))
+    (error "XXX: %scm-from-double" dst src))))
 
 (define-prim (%fadd (double dst) (double a) (double b))
   (cond
@@ -930,3 +933,39 @@ both arguments were register or memory."
                  (make-signed-pointer (+ (asm-fp-offset asm)
                                          (* (ref-value x) %word-size))))))
     (move moffs dst src)))
+
+;;;
+;;; Heap objects
+;;;
+
+(define-syntax-rule (push-gpr-or-mem arg)
+  (cond
+   ((gpr? arg)
+    (jit-pushargr (gpr arg)))
+   ((memory? arg)
+    (memory-ref r0 arg)
+    (jit-pushargr r0))
+   (else
+    (error "push-gpr-or-mem: unknown arg" arg))))
+
+(define-syntax-rule (retval-to-gpr-or-mem dst)
+  (cond
+   ((gpr? dst)
+    (jit-retval (gpr dst)))
+   ((memory? dst)
+    (jit-retval r0)
+    (memory-set! dst r0))
+   (else
+    (error "retval-to-gpr-or-mem: unknown dst" dst))))
+
+(define-prim (%cons (int dst) (int x) (int y))
+  (begin
+    ;; XXX: Save volatile registers in use, if any.
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (push-gpr-or-mem x)
+    (push-gpr-or-mem y)
+    (jit-calli %scm-inline-cons)
+    (retval-to-gpr-or-mem dst)
+    ;; XXX: If volatile registers were saved, restore them.
+    ))

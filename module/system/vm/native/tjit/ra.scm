@@ -258,6 +258,13 @@
         (initial-mem-idx (make-variable 0))
         (initial-env (make-hash-table))
         (initial-local-x-types (snapshot-locals initial-snapshot)))
+
+    ;; Set relations between reserved symbols for tmporary variables to scratch
+    ;; registers.
+    (hashq-set! initial-env (make-tmpvar 0) (make-gpr -1))
+    (hashq-set! initial-env (make-tmpvar 1) (make-gpr -2))
+    (hashq-set! initial-env (make-tmpvar 2) (make-gpr -3))
+
     (syntax-parameterize
         ((free-gprs (identifier-syntax initial-free-gprs))
          (free-fprs (identifier-syntax initial-free-fprs))

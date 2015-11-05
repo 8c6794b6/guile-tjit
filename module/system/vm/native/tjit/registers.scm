@@ -59,9 +59,6 @@
 (define *volatile-registers*
   `#(,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))
 
-;; (define *gprs*
-;;   `#())
-
 (define *gprs*
   (list->vector (append (vector->list *non-volatile-registers*)
                         (vector->list *volatile-registers*))))

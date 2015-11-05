@@ -33,7 +33,8 @@
             register?
             make-gpr gpr? gpr
             make-fpr fpr? fpr
-            make-memory memory?))
+            make-memory memory?
+            make-tmpvar))
 
 ;;;
 ;;; Variable
@@ -89,3 +90,14 @@
 
 (define (memory? x)
   (eq? 'mem (ref-type x)))
+
+
+;;;
+;;; Temporary variables
+;;;
+
+(define *tmpvars*
+  #(r0 r1 r2))
+
+(define (make-tmpvar n)
+  (vector-ref *tmpvars* n))

@@ -31,6 +31,7 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit variables)
   #:export (make-var
             make-vars
             get-max-sp-offset
@@ -101,6 +102,7 @@
    (else
     `(let ((,var (%fref ,idx ,type)))
        ,(proc args)))))
+
 
 ;;;
 ;;; Auxiliary, internal
@@ -577,7 +579,38 @@ referenced by dst and src value at runtime."
 
 ;;; *** Pairs
 
-;; XXX: cons
+;; Using dedicated IR for `cons'. Uses C function `scm_inline_cons', which
+;; expects current thread as first argument. The value of current thread is not
+;; stored in frame but in non-volatile register, and currently there is no way
+;; to tell the register value as a variable from IR to assembler.
+(define-ir (cons (local dst) (local x) (local y))
+  ;; XXX: Tag the arguments appropriately.
+  (let* ((vdst (var-ref dst))
+         (lx (local-ref x))
+         (ly (local-ref y))
+         (vx (var-ref x))
+         (vy (var-ref y))
+         (r0 (make-tmpvar 0))
+         (emit-next (lambda ()
+                      `(let ((,vdst (%cons ,r0 ,vy)))
+                         ,(next))))
+         (emit-y (lambda ()
+                   (cond
+                    ((pair? ly)
+                     (emit-next))
+                    (else
+                     (debug 1 "XXX: unknown `y': cons ~a ~a~%" lx ly)
+                     (escape #f)))))
+         (emit-x (lambda ()
+                   (cond
+                    ((fixnum? lx)
+                     `(let ((,r0 (%lsh ,vx 2)))
+                        (let ((,r0 (%add r0 2)))
+                          ,(emit-y))))
+                    (else
+                     (debug 1 "XXX: unknown `x': cons ~a ~a~%" lx ly)
+                     (escape #f))))))
+    (emit-x)))
 
 (define-ir (car (local dst) (local src))
   (let ((rdst (local-ref dst))
