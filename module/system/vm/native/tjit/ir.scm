@@ -90,18 +90,18 @@
                                   dst-ip)))
     (values `(%snap ,id ,@args) snapshot)))
 
-(define-syntax-rule (with-frame-ref proc args var type idx)
+(define-syntax-rule (with-frame-ref next args var type idx)
   (cond
    ((not type)
     (debug 1 "XXX: with-frame-ref: var=~a type=~a~%" var type)
     `(let ((,var #f))
-       ,(proc args)))
+       ,(next args)))
    ((= type &flonum)
     `(let ((,var (%fref/f ,idx)))
-       ,(proc args)))
+       ,(next args)))
    (else
     `(let ((,var (%fref ,idx ,type)))
-       ,(proc args)))))
+       ,(next args)))))
 
 
 ;;;
@@ -579,37 +579,39 @@ referenced by dst and src value at runtime."
 
 ;;; *** Pairs
 
+;; XXX: Tag more types.
+(define-syntax-rule (with-boxing next rt var tmp)
+  (cond
+   ((fixnum? rt)
+    `(let ((,tmp (%lsh ,var 2)))
+       (let ((,tmp (%add ,tmp 2)))
+         ,(next tmp))))
+   ((pair? rt)
+    (next var))
+   (else
+    (debug 1 ";;; with-boxing: ~a ~a ~a~%" rt var tmp)
+    (escape #f))))
+
 ;; Using dedicated IR for `cons'. Uses C function `scm_inline_cons', which
 ;; expects current thread as first argument. The value of current thread is not
 ;; stored in frame but in non-volatile register, and currently there is no way
 ;; to tell the register value as a variable from IR to assembler.
 (define-ir (cons (local dst) (local x) (local y))
-  ;; XXX: Tag the arguments appropriately.
   (let* ((vdst (var-ref dst))
-         (lx (local-ref x))
-         (ly (local-ref y))
          (vx (var-ref x))
          (vy (var-ref y))
          (r0 (make-tmpvar 0))
-         (emit-next (lambda ()
-                      `(let ((,vdst (%cons ,r0 ,vy)))
-                         ,(next))))
-         (emit-y (lambda ()
-                   (cond
-                    ((pair? ly)
-                     (emit-next))
-                    (else
-                     (debug 1 "XXX: unknown `y': cons ~a ~a~%" lx ly)
-                     (escape #f)))))
+         (r1 (make-tmpvar 1))
+         (lx (local-ref x))
+         (ly (local-ref y))
+         (emit-cons (lambda (a)
+                      (lambda (b)
+                        `(let ((,vdst (%cons ,a ,b)))
+                           ,(next)))))
+         (emit-y (lambda (a)
+                   (with-boxing (emit-cons a) ly vy r1)))
          (emit-x (lambda ()
-                   (cond
-                    ((fixnum? lx)
-                     `(let ((,r0 (%lsh ,vx 2)))
-                        (let ((,r0 (%add r0 2)))
-                          ,(emit-y))))
-                    (else
-                     (debug 1 "XXX: unknown `x': cons ~a ~a~%" lx ly)
-                     (escape #f))))))
+                   (with-boxing emit-y lx vx r0))))
     (emit-x)))
 
 (define-ir (car (local dst) (local src))
