@@ -462,7 +462,7 @@ of SRCS, DSTS, TYPES are local index number."
         (()
          (values loop-locals loop-vars)))))
   (match primlist
-    (($ $primlist entry loop mem-idx env)
+    (($ $primlist entry loop mem-idx env handle-interrupts?)
      (let*-values (((end-address) (or (and=> fragment
                                              fragment-end-address)
                                       (and=> (get-root-trace linked-ip)
@@ -474,11 +474,10 @@ of SRCS, DSTS, TYPES are local index number."
                         #f
                         (let ((loop-label (jit-label)))
                           (jit-note "loop" 0)
-                          ;; XXX: Checking interrupts for every loop seems too
-                          ;; much. Might omit when heap objects were not used in
-                          ;; compiled native code. Might save `vp' to
-                          ;; non-volatile register.
-                          (vm-handle-interrupts asm)
+                          ;; Call scm_async_tick when heap objects were used in
+                          ;; compiled native code.
+                          (when handle-interrupts?
+                            (vm-handle-interrupts asm))
                           (compile-ops asm loop)
                           (jump loop-label)
                           loop-label))))

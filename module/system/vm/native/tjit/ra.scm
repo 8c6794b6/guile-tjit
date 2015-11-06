@@ -50,7 +50,7 @@
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primlist
-  (make-primlist entry loop nspills env)
+  (make-primlist entry loop nspills env handle-interrupts?)
   primlist?
   ;; List of primitives for entry clause.
   (entry primlist-entry)
@@ -62,7 +62,10 @@
   (nspills primlist-nspills)
 
   ;; Hash-table containing variable information.
-  (env primlist-env))
+  (env primlist-env)
+
+  ;; Flag for whether to call async tick.
+  (handle-interrupts? primlist-handle-interrupts?))
 
 
 ;;;
@@ -255,7 +258,8 @@
 ;;; IR to Primitive List
 ;;;
 
-(define (ir->primlist parent-snapshot initial-snapshot vars term)
+(define (ir->primlist parent-snapshot initial-snapshot vars handle-interrupts?
+                      term)
   (let ((initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
@@ -322,7 +326,11 @@
                                           snapshot-idx)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
-           (make-primlist entry-ops loop-ops (variable-ref mem-idx) env)))
+           (make-primlist entry-ops
+                          loop-ops
+                          (variable-ref mem-idx)
+                          env
+                          handle-interrupts?)))
 
         ;; ANF without loop.
         (`(letrec ((patch (lambda ,patch-args
@@ -368,6 +376,10 @@
                                          0)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
-           (make-primlist patch-ops '() (variable-ref mem-idx) env)))
+           (make-primlist patch-ops
+                          '()
+                          (variable-ref mem-idx)
+                          env
+                          handle-interrupts?)))
         (_
          (error "ir->primlist: malformed term" term))))))

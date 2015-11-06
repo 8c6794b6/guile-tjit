@@ -128,7 +128,8 @@
                                                     parent-snapshot-locals
                                                     initial-sp-offset))
            (args-from-parent (reverse (map cdr vars-from-parent)))
-           (local-indices-from-parent (map car vars-from-parent)))
+           (local-indices-from-parent (map car vars-from-parent))
+           (handle-interrupts? (make-variable #f)))
 
       (define (add-initial-loads exp-body)
         (debug 3 ";;; add-initial-loads:~%")
@@ -205,7 +206,8 @@
                                  past-frame
                                  vars
                                  initial-sp-offset
-                                 initial-fp-offset))))
+                                 initial-fp-offset
+                                 handle-interrupts?))))
           (cond
            (root-trace?
             (let* ((arg-indices (filter (lambda (n)
@@ -265,7 +267,8 @@
         (let ((indices (if root-trace?
                            local-indices
                            local-indices-from-parent)))
-          (values indices vars snapshots ir))))))
+          (values indices vars snapshots ir
+                  (variable-ref handle-interrupts?)))))))
 
 (define (trace->primlist trace-id fragment exit-id loop? trace)
   "Compiles TRACE to primlist.
@@ -276,7 +279,7 @@ to indicate whether the trace contains loop or not."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
-  (let-values (((locals vars snapshots ir)
+  (let-values (((locals vars snapshots ir handle-interrupts?)
                 (compile-ir fragment exit-id loop? trace)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log trace-id)))
@@ -286,6 +289,9 @@ to indicate whether the trace contains loop or not."
                                             exit-id)))
            (initial-snapshot (hashq-ref snapshots 0))
            (plist (and ir
-                       (ir->primlist parent-snapshot initial-snapshot vars
+                       (ir->primlist parent-snapshot
+                                     initial-snapshot
+                                     vars
+                                     handle-interrupts?
                                      ir))))
       (values locals snapshots ir plist))))

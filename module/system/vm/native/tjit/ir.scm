@@ -134,6 +134,7 @@
   max-sp-offset
   ip
   ra
+  handle-interrupts?
   bytecode-index
   next
   escape)
@@ -174,7 +175,7 @@ referenced by dst and src value at runtime."
             (lambda (%snapshots
                      %snapshot-id %parent-snapshot %past-frame
                      %locals %vars %min-sp-offset %max-sp-offset
-                     %ip %ra %bytecode-index %next %escape
+                     %ip %ra %handle-interrupts? %bytecode-index %next %escape
                      arg ...)
               (syntax-parameterize
                   ((snapshots (identifier-syntax %snapshots))
@@ -188,6 +189,7 @@ referenced by dst and src value at runtime."
                    (ip (identifier-syntax %ip))
                    (ra (identifier-syntax %ra))
                    (bytecode-index (identifier-syntax %bytecode-index))
+                   (handle-interrupts? (identifier-syntax %handle-interrupts?))
                    (next (identifier-syntax %next))
                    (escape (identifier-syntax %escape)))
                 . body))))
@@ -235,6 +237,15 @@ referenced by dst and src value at runtime."
     (hashq-set! snapshots (variable-ref snapshot-id) snapshot)
     (variable-set! snapshot-id (+ (variable-ref snapshot-id) 1))
     ret))
+
+(define-syntax define-interrupt-ir
+  (syntax-rules ()
+    ((_ names-and-args . body)
+     (define-ir names-and-args
+       (begin
+         (variable-set! handle-interrupts? #t)
+         . body)))))
+
 
 ;;; *** Call and return
 
@@ -597,7 +608,7 @@ referenced by dst and src value at runtime."
 ;; expects current thread as first argument. The value of current thread is not
 ;; stored in frame but in non-volatile register, and currently there is no way
 ;; to tell the register value as a variable from IR to assembler.
-(define-ir (cons (local dst) (local x) (local y))
+(define-interrupt-ir (cons (local dst) (local x) (local y))
   (let* ((vdst (var-ref dst))
          (vx (var-ref x))
          (vy (var-ref y))
@@ -824,7 +835,7 @@ referenced by dst and src value at runtime."
 
 (define (trace->ir trace escape loop? initial-snapshot-id snapshots
                    parent-snapshot past-frame vars
-                   initial-sp-offset initial-fp-offset)
+                   initial-sp-offset initial-fp-offset handle-interrupts?)
   (let* ((bytecode-index (make-variable 0))
          (min-sp-offset (make-variable (min initial-sp-offset 0)))
          (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0)))
@@ -896,6 +907,7 @@ referenced by dst and src value at runtime."
                       max-sp-offset
                       ip
                       ra
+                      handle-interrupts?
                       bytecode-index
                       next
                       escape
