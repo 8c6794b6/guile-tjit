@@ -94,7 +94,8 @@
   (cond
    ((not type)
     (debug 1 "XXX: with-frame-ref: var=~a type=~a~%" var type)
-    (escape #f))
+    `(let ((,var #f))
+       ,(next args)))
    ((= type &flonum)
     `(let ((,var (%fref/f ,idx)))
        ,(next args)))

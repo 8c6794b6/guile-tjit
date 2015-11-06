@@ -34,7 +34,6 @@
   #:use-module (system foreign)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit compile-ir)
   #:use-module (system vm native tjit snapshot)
   #:export (<fragment>
             make-fragment
@@ -201,17 +200,6 @@
 
 (define make-fragment %make-fragment)
 
-(define-syntax-rule (snapshot-fmt)
-  (let ((fields '("id=~a"
-                  "sp-offset=~a"
-                  "fp-offset=~a"
-                  "nlocals=~a"
-                  "locals=~a"
-                  "variales=~a"
-                  "code=~a"
-                  "ip=~a")))
-    (string-append "~13@a:" (string-join fields " ") "~%")))
-
 (define (dump-fragment fragment)
   (format #t "~20@a~a~%" "*****" " fragment *****")
   (format #t "~19@a: ~a~%" 'id (fragment-id fragment))
@@ -229,10 +217,10 @@
   (for-each
    (match-lambda
     ((i . ($ $snapshot id sp-offset fp-offset nlocals locals variables code ip))
-     (format #t (snapshot-fmt)
-             i id sp-offset fp-offset nlocals locals variables
-             (and (bytevector? code) (bytevector->pointer code))
-             ip)))
+     (format #t "~13@a: id=~a sp-offset=~a fp-offset=~a nlocals=~a locals=~a"
+             i id sp-offset fp-offset nlocals locals)
+     (format #t " variables=~a code=~a ip=~a~%"
+             variables (and (bytevector? code) (bytevector->pointer code)) ip)))
    (sort (hash-fold acons '() (fragment-snapshots fragment))
          (lambda (a b)
            (< (car a) (car b)))))
