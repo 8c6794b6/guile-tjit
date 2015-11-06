@@ -83,7 +83,6 @@
             true?
             false?
             type-of
-            addr->source-line
             pretty-type)
   #:re-export (&exact-integer
                &flonum
@@ -256,18 +255,6 @@
    (else
     (debug 3 "*** Type not determined: ~a~%" obj)
     #f)))
-
-(define-syntax-rule (addr->source-line addr)
-  (cond
-   ((find-source-for-addr addr)
-    => (lambda (source)
-         (format #f "~a:~d"
-                 (let ((file (source-file source)))
-                   (or (and (string? file) (basename file))
-                       "(unknown file)"))
-                 (source-line-for-user source))))
-   (else
-    "(invalid IP)")))
 
 (define (pretty-type type)
   "Show string representation of TYPE."

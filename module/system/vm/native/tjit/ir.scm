@@ -94,8 +94,7 @@
   (cond
    ((not type)
     (debug 1 "XXX: with-frame-ref: var=~a type=~a~%" var type)
-    `(let ((,var #f))
-       ,(next args)))
+    (escape #f))
    ((= type &flonum)
     `(let ((,var (%fref/f ,idx)))
        ,(next args)))
@@ -422,17 +421,18 @@ referenced by dst and src value at runtime."
 
 ;; XXX: br-if-true
 
+;; XXX: If `br-if-null' was commented out, the workaround in "tjit.scm" for
+;; avoiding the compilation of traces in "system/vm/linker.scm" could be
+;; removed. So this IR should relate to the cause of segfault in linker.scm
+;; somehow.
 (define-ir (br-if-null (local test) (const invert) (const offset))
   (let* ((rtest (local-ref test))
          (vtest (var-ref test))
          (dest (if (null? rtest)
                    (if invert offset 2)
-                   (if invert 2 offset)))
-         (op (if (null? rtest)
-                 `(%eq ,vtest ())
-                 `(%ne ,vtest ()))))
+                   (if invert 2 offset))))
     `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((_ ,op))
+       (let ((_ ,(if (null? rtest) `(%eq ,vtest ()) `(%ne ,vtest ()))))
          ,(next)))))
 
 ;; XXX: br-if-nil

@@ -476,7 +476,8 @@ of SRCS, DSTS, TYPES are local index number."
                           (jit-note "loop" 0)
                           ;; XXX: Checking interrupts for every loop seems too
                           ;; much. Might omit when heap objects were not used in
-                          ;; compiled native code.
+                          ;; compiled native code. Might save `vp' to
+                          ;; non-volatile register.
                           (vm-handle-interrupts asm)
                           (compile-ops asm loop)
                           (jump loop-label)

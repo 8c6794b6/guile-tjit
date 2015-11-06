@@ -30,6 +30,7 @@
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 regex)
   #:use-module (language cps)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-11)
@@ -54,6 +55,18 @@
 ;;;
 ;;; Debug procedures
 ;;;
+
+(define-syntax-rule (addr->source-line addr)
+  (cond
+   ((find-source-for-addr addr)
+    => (lambda (source)
+         (format #f "~a:~d"
+                 (let ((file (source-file source)))
+                   (or (and (string? file) (basename file))
+                       "(unknown file)"))
+                 (source-line-for-user source))))
+   (else
+    "(invalid IP)")))
 
 (define (dump-bytecode trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
@@ -222,8 +235,8 @@
       (format #t ";;; trace ~a: ~a~a~a~%" trace-id sline exit-pair linked-id)))
 
   (when (tjit-dump-time? (tjit-dump-option))
-    (put-tjit-time-log! trace-id
-                        (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
+    (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
+      (put-tjit-time-log! trace-id log)))
 
   (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
          (entry-ip (cadr (car ip-x-ops)))
@@ -231,6 +244,7 @@
          (fragment (get-fragment parent-ip))
          (sline (addr->source-line (cadr (car ip-x-ops))))
          (dump-option (tjit-dump-option)))
+
     (when (and verbosity (<= 3 verbosity))
       (format #t ":;; entry-ip:       ~x~%" entry-ip)
       (format #t ";;; parent-ip:      ~x~%" parent-ip)
@@ -238,79 +252,98 @@
       (format #t ";;; parent-exit-id: ~a~%" parent-exit-id)
       (format #t ";;; loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
-    (let-values (((locals snapshots scm ops)
-                  (trace->primlist trace-id fragment parent-exit-id loop?
-                                   ip-x-ops)))
-      (when (and (tjit-dump-jitc? dump-option)
-                 (or ops (tjit-dump-abort? dump-option)))
-        (show-one-line sline fragment))
-      (when (and (tjit-dump-bytecode? dump-option)
-                 (or ops (tjit-dump-abort? dump-option)))
-        (dump-bytecode trace-id ip-x-ops))
-      (when (and (tjit-dump-scm? dump-option)
-                 (or ops (tjit-dump-abort? dump-option)))
-        (dump-scm trace-id scm))
-      (cond
-       ((not ops)
-        (debug 1 ";;; trace ~a: aborted~%" trace-id)
-        (increment-compilation-failure entry-ip))
-       (else
-        (when (tjit-dump-ops? dump-option)
-          (dump-primlist trace-id ops snapshots))
-        (with-jit-state
-         (jit-prolog)
-         (let-values
-             (((trampoline loop-label loop-locals loop-vars fp-offset)
-               (compile-native ops entry-ip locals snapshots fragment
-                              parent-exit-id linked-ip
-                              trace-id)))
-           (let ((epilog-label (jit-label)))
-             (jit-patch epilog-label)
-             (jit-retr reg-retval)
-             (jit-epilog)
-             (jit-realize)
-             (let* ((estimated-size (jit-code-size))
-                    (code (make-bytevector estimated-size)))
-               (jit-set-code (bytevector->pointer code) (imm estimated-size))
-               (let* ((ptr (jit-emit))
-                      (exit-counts (make-hash-table))
-                      (loop-address (and loop-label (jit-address loop-label)))
-                      (end-address (or (and fragment
-                                            (fragment-end-address fragment))
-                                       (jit-address epilog-label)))
-                      (parent-id (or (and fragment (fragment-id fragment))
-                                     0)))
-                 (make-bytevector-executable! code)
 
-                 ;; Same entry-ip could be used when side exit 0 was
-                 ;; taken for multiple times. Using trace-id as hash
-                 ;; table key.
-                 (put-fragment! trace-id (make-fragment trace-id
-                                                        code
-                                                        exit-counts
-                                                        entry-ip
-                                                        parent-id
-                                                        parent-exit-id
-                                                        loop-address
-                                                        loop-locals
-                                                        loop-vars
-                                                        snapshots
-                                                        trampoline
-                                                        fp-offset
-                                                        end-address))
-                 (when (and verbosity (<= 4 verbosity))
-                   (dump-native-code trace-id ip-x-ops code (jit-code-size)))
-                 ;; When this trace is a side trace, replace the native code
-                 ;; of trampoline in parent fragment.
-                 (when fragment
-                   (let ((trampoline (fragment-trampoline fragment))
-                         (snapshot (hashq-ref (fragment-snapshots fragment)
-                                              parent-exit-id)))
-                     (trampoline-set! trampoline parent-exit-id ptr)
-                     (set-snapshot-code! snapshot code))))))))))
-      (when (tjit-dump-time? dump-option)
-        (let ((log (get-tjit-time-log trace-id)))
-          (set-tjit-time-log-end! log (get-internal-run-time)))))))
+    ;; XXX: Workaround for segfault happening with fresh compile,
+    ;; Suppressing traces in file path matching to
+    ;; "system/vm/linker.scm" to avoid traces in (system vm linker).
+    (if (string-match "system/vm/linker.scm"
+                      (or (let ((src (find-source-for-addr
+                                      (cadr (car ip-x-ops)))))
+                            (and src (source-file src)))
+                          ""))
+        (begin
+          (debug 1 ";;; trace ~a: linker.scm matched, aborted ~%" trace-id)
+          (increment-compilation-failure entry-ip))
+        (let-values (((locals snapshots scm ops)
+                      (trace->primlist trace-id fragment parent-exit-id loop?
+                                       ip-x-ops)))
+          (when (and (tjit-dump-jitc? dump-option)
+                     (or ops (tjit-dump-abort? dump-option)))
+            (show-one-line sline fragment))
+          (when (and (tjit-dump-bytecode? dump-option)
+                     (or ops (tjit-dump-abort? dump-option)))
+            (dump-bytecode trace-id ip-x-ops))
+          (when (and (tjit-dump-scm? dump-option)
+                     (or ops (tjit-dump-abort? dump-option)))
+            (dump-scm trace-id scm))
+          (cond
+           ((not ops)
+            (debug 1 ";;; trace ~a: aborted~%" trace-id)
+            (increment-compilation-failure entry-ip))
+           (else
+            (when (tjit-dump-ops? dump-option)
+              (dump-primlist trace-id ops snapshots))
+            (with-jit-state
+             (jit-prolog)
+             (let-values
+                 (((trampoline loop-label loop-locals loop-vars fp-offset)
+                   (compile-native ops entry-ip locals snapshots fragment
+                                   parent-exit-id linked-ip
+                                   trace-id)))
+               (let ((epilog-label (jit-label)))
+                 (jit-patch epilog-label)
+                 (jit-retr reg-retval)
+                 (jit-epilog)
+                 (jit-realize)
+                 (let* ((estimated-size (jit-code-size))
+                        (code (make-bytevector estimated-size)))
+                   (jit-set-code (bytevector->pointer code)
+                                 (imm estimated-size))
+                   (let* ((ptr (jit-emit))
+                          (exit-counts (make-hash-table))
+                          (loop-address
+                           (and loop-label (jit-address loop-label)))
+                          (end-address
+                           (or (and fragment
+                                    (fragment-end-address fragment))
+                               (jit-address epilog-label)))
+                          (parent-id
+                           (or (and fragment (fragment-id fragment))
+                               0)))
+                     (make-bytevector-executable! code)
+
+                     ;; Same entry-ip could be used when side exit 0 was
+                     ;; taken for multiple times. Using trace-id as hash
+                     ;; table key.
+                     (put-fragment! trace-id (make-fragment trace-id
+                                                            code
+                                                            exit-counts
+                                                            entry-ip
+                                                            parent-id
+                                                            parent-exit-id
+                                                            loop-address
+                                                            loop-locals
+                                                            loop-vars
+                                                            snapshots
+                                                            trampoline
+                                                            fp-offset
+                                                            end-address))
+                     (when (and verbosity (<= 4 verbosity))
+                       (dump-native-code trace-id
+                                         ip-x-ops
+                                         code
+                                         (jit-code-size)))
+                     ;; When this trace is a side trace, replace the native code
+                     ;; of trampoline in parent fragment.
+                     (when fragment
+                       (let ((trampoline (fragment-trampoline fragment))
+                             (snapshot (hashq-ref (fragment-snapshots fragment)
+                                                  parent-exit-id)))
+                         (trampoline-set! trampoline parent-exit-id ptr)
+                         (set-snapshot-code! snapshot code))))))))))
+          (when (tjit-dump-time? dump-option)
+            (let ((log (get-tjit-time-log trace-id)))
+              (set-tjit-time-log-end! log (get-internal-run-time))))))))
 
 
 ;;;
