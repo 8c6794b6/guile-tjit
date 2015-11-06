@@ -68,6 +68,12 @@
             vp-offset
             vp->sp-offset
             registers-offset
+            load-vp
+            store-vp
+            load-vp->fp
+            store-vp->fp
+            load-vp->sp
+            store-vp->sp
             vm-cache-sp
             vm-sync-ip
             vm-sync-sp
@@ -217,6 +223,28 @@
 (define *ra-offset*
   (make-negative-pointer (* -4 %word-size)))
 
+(define (volatile-offset reg)
+  (let ((n (- (ref-value reg) *num-non-volatiles*)))
+    (make-negative-pointer (* (- (- n) 5) %word-size))))
+
+(define-syntax-rule (load-vp dst)
+  (jit-ldxi dst fp vp-offset))
+
+(define-syntax-rule (store-vp src)
+  (jit-stxi vp-offset fp src))
+
+(define-syntax-rule (load-vp->fp dst vp)
+  (jit-ldxi dst vp (imm (* 2 %word-size))))
+
+(define-syntax-rule (store-vp->fp vp src)
+  (jit-stxi (imm (* 2 %word-size)) vp src))
+
+(define-syntax-rule (load-vp->sp dst)
+  (jit-ldxi dst fp vp->sp-offset))
+
+(define-syntax-rule (store-vp->sp src)
+  (jit-stxi vp->sp-offset fp src))
+
 (define-syntax-rule (vm-cache-sp vp)
   (let ((vp->sp (if (eq? vp r0) r1 r0)))
     (jit-ldxi vp->sp vp (make-pointer %word-size))
@@ -224,18 +252,18 @@
 
 (define-syntax-rule (vm-sync-ip src)
   (let ((vp (if (eq? src r0) r1 r0)))
-    (jit-ldxi vp fp vp-offset)
+    (load-vp vp)
     (jit-str vp src)))
 
 (define-syntax-rule (vm-sync-sp src)
   (let ((vp (if (eq? src r0) r1 r0)))
-    (jit-ldxi vp fp vp-offset)
+    (load-vp vp)
     (jit-stxi (imm %word-size) vp src)))
 
 (define-syntax-rule (vm-sync-fp src)
   (let ((vp (if (eq? src r0) r1 r0)))
-    (jit-ldxi vp fp vp-offset)
-    (jit-stxi (imm (* %word-size 2)) vp src)))
+    (load-vp vp)
+    (store-vp->fp vp src)))
 
 (define-syntax-rule (sp-ref dst n)
   (let ((vp->sp (if (eq? dst r0) r1 r0)))
@@ -262,14 +290,10 @@
     (jit-prepare)
     (jit-pushargr r0)
     (jit-calli %scm-async-tick)
-    (jit-ldxi r0 fp vp-offset)
+    (load-vp r0)
     (vm-cache-sp r0)
     (for-each load-volatile (asm-volatiles asm-arg))
     (jit-link next)))
-
-(define (volatile-offset reg)
-  (let ((n (- (ref-value reg) *num-non-volatiles*)))
-    (make-negative-pointer (* (- (- n) 5) %word-size))))
 
 (define (store-volatile src)
   (jit-stxi (volatile-offset src) fp (gpr src)))
@@ -558,10 +582,10 @@ both arguments were register or memory."
          (vp->fp r1)
          (tmp r2)
          (old-vp->fp tmp))
-    (jit-ldxi vp fp vp-offset)
-    (jit-ldxi old-vp->fp vp (imm (* 2 %word-size)))
+    (load-vp vp)
+    (load-vp->fp old-vp->fp vp)
     (jit-subi vp->fp old-vp->fp (imm (* (ref-value proc) %word-size)))
-    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+    (store-vp->fp vp vp->fp)))
 
 ;;; Return from procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
@@ -573,8 +597,8 @@ both arguments were register or memory."
         (tmp r2))
     (when (not (constant? ip))
       (error "%return: got non-constant ip"))
-    (jit-ldxi vp fp vp-offset)
-    (jit-ldxi vp->fp vp (imm (* 2 %word-size)))
+    (load-vp vp)
+    (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
     (jump (jit-beqi tmp (constant ip)) next)
     (emit-side-exit)
@@ -583,7 +607,7 @@ both arguments were register or memory."
     (scm-frame-dynamic-link tmp vp->fp)
     (jit-muli tmp tmp (imm %word-size))
     (jit-addr vp->fp vp->fp tmp)
-    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+    (store-vp->fp vp vp->fp)))
 
 
 ;;;
@@ -967,16 +991,6 @@ both arguments were register or memory."
 
 
 ;;;
-;;; Move
-;;;
-
-(define-prim (%move (int dst) (int src))
-  (let ((moffs (lambda (x)
-                 (make-signed-pointer (+ (asm-fp-offset asm)
-                                         (* (ref-value x) %word-size))))))
-    (move moffs dst src)))
-
-;;;
 ;;; Heap objects
 ;;;
 
@@ -1017,3 +1031,13 @@ both arguments were register or memory."
                 (when (not (equal? reg dst))
                   (load-volatile reg)))
               (asm-volatiles asm))))
+
+;;;
+;;; Move
+;;;
+
+(define-prim (%move (int dst) (int src))
+  (let ((moffs (lambda (x)
+                 (make-signed-pointer (+ (asm-fp-offset asm)
+                                         (* (ref-value x) %word-size))))))
+    (move moffs dst src)))

@@ -250,19 +250,19 @@ SHIFT."
                 jit-subi))
         (vp r0)
         (vp->fp r1))
-    (jit-ldxi vp fp vp-offset)
-    (jit-ldxi vp->fp vp (imm (* 2 %word-size)))
+    (load-vp vp)
+    (load-vp->fp vp->fp vp)
     (op vp->fp vp->fp (imm (* (abs fp-offset) %word-size)))
-    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+    (store-vp->fp vp vp->fp)))
 
 (define (shift-sp sp-offset)
   (let ((vp->sp r0)
         (op (if (< 0 sp-offset)
                 jit-addi
                 jit-subi)))
-    (jit-ldxi vp->sp fp vp->sp-offset)
+    (load-vp->sp vp->sp)
     (op vp->sp vp->sp (imm (* (abs sp-offset) %word-size)))
-    (jit-stxi vp->sp-offset fp vp->sp)
+    (store-vp->sp vp->sp)
     (vm-sync-sp vp->sp)))
 
 (define (move-or-load-carefully dsts srcs types moffs)
@@ -394,7 +394,7 @@ of SRCS, DSTS, TYPES are local index number."
         (jit-getarg registers (jit-arg))  ; registers, for prompt
 
         ;; Store `vp', `vp->sp', and `registers'.
-        (jit-stxi vp-offset fp vp)
+        (store-vp vp)
         (vm-cache-sp vp)
         (jit-stxi registers-offset fp registers)))
 
@@ -544,7 +544,7 @@ of SRCS, DSTS, TYPES are local index number."
             (jit-movr reg-thread reg-retval)
             (jit-prepare)
             (jit-pushargr reg-retval)
-            (jit-ldxi reg-retval fp vp-offset)
+            (load-vp reg-retval)
             (jit-pushargr reg-retval)
             (jit-calli %scm-tjit-dump-retval)
             (jit-movr reg-retval reg-thread)
