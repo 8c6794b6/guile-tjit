@@ -994,8 +994,11 @@ both arguments were register or memory."
 ;;; Heap objects
 ;;;
 
-(define-syntax-rule (push-gpr-or-mem arg)
+(define-syntax-rule (push-gpr-or-mem arg overwritten?)
   (cond
+   (overwritten?
+    (jit-ldxi r0 fp (volatile-offset arg))
+    (jit-pushargr r0))
    ((gpr? arg)
     (jit-pushargr (gpr arg)))
    ((memory? arg)
@@ -1014,17 +1017,22 @@ both arguments were register or memory."
    (else
     (error "retval-to-gpr-or-mem: unknown dst" dst))))
 
+;; Call C function `scm_do_inline_cons'. Save volatile registers before calling,
+;; restore after getting returned value.
 (define-prim (%cons (int dst) (int x) (int y))
-  (begin
-    ;; Save add load volatile registers except for `dst'.
+  (let ((x-overwritten? (equal? x (argr 1)))
+        (y-overwritten? (or (equal? y (argr 1))
+                            (equal? y (argr 2)))))
     (for-each (lambda (reg)
-                (when (not (equal? reg dst))
+                (when (or (and x-overwritten? (equal? reg x))
+                          (and y-overwritten? (equal? reg y))
+                          (not (equal? reg dst)))
                   (store-volatile reg)))
               (asm-volatiles asm))
     (jit-prepare)
     (jit-pushargr reg-thread)
-    (push-gpr-or-mem x)
-    (push-gpr-or-mem y)
+    (push-gpr-or-mem x x-overwritten?)
+    (push-gpr-or-mem y y-overwritten?)
     (jit-calli %scm-inline-cons)
     (retval-to-gpr-or-mem dst)
     (for-each (lambda (reg)

@@ -34,7 +34,8 @@
             make-gpr gpr? gpr
             make-fpr fpr? fpr
             make-memory memory?
-            make-tmpvar))
+            make-tmpvar
+            argr fargr))
 
 ;;;
 ;;; Variable
@@ -101,3 +102,13 @@
 
 (define (make-tmpvar n)
   (vector-ref *tmpvars* n))
+
+(define (argr n)
+  (if (< *num-arg-gprs* n)
+      #f
+      (make-gpr (- *num-gpr* n))))
+
+(define (fargr n)
+  (if (< *num-arg-fprs* n)
+      #f
+      (make-fpr (- *num-fpr* n))))

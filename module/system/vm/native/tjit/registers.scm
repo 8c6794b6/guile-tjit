@@ -33,11 +33,38 @@
             *num-fpr*
             *num-volatiles*
             *num-non-volatiles*
+            *num-arg-gprs*
+            *num-arg-fprs*
             gpr-ref
             fpr-ref
             fp
             reg-thread
             reg-retval))
+
+;;;
+;;; Internal aliases
+;;;
+
+(define r8 (jit-r 8))
+(define r9 (jit-r 9))
+(define rcx (jit-r 10))
+(define rdx (jit-r 11))
+(define rsi (jit-r 12))
+(define rdi (jit-r 13))
+
+(define xmm7 (jit-f 8))
+(define xmm6 (jit-f 9))
+(define xmm5 (jit-f 10))
+(define xmm4 (jit-f 11))
+(define xmm3 (jit-f 12))
+(define xmm2 (jit-f 13))
+(define xmm1 (jit-f 14))
+(define xmm0 (jit-f 15))
+
+
+;;;
+;;; Exported
+;;;
 
 ;; Non-volatile register to refer FP in native code.
 (define fp (jit-fp))
@@ -48,31 +75,19 @@
 ;; Volatile register to hold return value from native code to VM.
 (define-syntax reg-retval (identifier-syntax r0))
 
-(define r8 (jit-r 8))
-(define r9 (jit-r 9))
-(define rcx (jit-r 10))
-(define rdx (jit-r 11))
-(define rsi (jit-r 12))
-(define rdi (jit-r 13))
-
 (define *non-volatile-registers*
   `#(,v1 ,v2 ,v3 ,r3))
 
+;; Ordering is mandatory. The last element in the vector is ARG1 register, next
+;; to the last vector element is ARG2 register, and so on. Non-argument volatile
+;; registers need to be placed at the beginning of the vector. R0, R1, and R2
+;; are used as scratch register.
 (define *volatile-registers*
-  `#(,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))
+  `#(,r9 ,r8 ,rcx ,rdx ,rsi ,rdi))
 
 (define *gprs*
   (list->vector (append (vector->list *non-volatile-registers*)
                         (vector->list *volatile-registers*))))
-
-(define xmm7 (jit-f 8))
-(define xmm6 (jit-f 9))
-(define xmm5 (jit-f 10))
-(define xmm4 (jit-f 11))
-(define xmm3 (jit-f 12))
-(define xmm2 (jit-f 13))
-(define xmm1 (jit-f 14))
-(define xmm0 (jit-f 15))
 
 (define *fprs*
   `#(,f3 ,f4 ,f5 ,f6 ,f7 ,xmm7 ,xmm6 ,xmm5 ,xmm4 ,xmm3 ,xmm2 ,xmm1 ,xmm0))
@@ -88,6 +103,12 @@
 
 (define *num-non-volatiles*
   (vector-length *non-volatile-registers*))
+
+(define *num-arg-gprs*
+  6)
+
+(define *num-arg-fprs*
+  8)
 
 ;; Using negative number to refer scratch registers.
 
