@@ -343,15 +343,16 @@ referenced by dst and src value at runtime."
          (vdst (var-ref (- stack-size 2)))
          (snapshot (take-snapshot! ip 0))
          (_ (pop-past-frame! past-frame))
-         (body `(let ((_ ,snapshot))
-                  ,(if (< (current-fp-offset) 0)
-                       (next)
-                       `(let ((_ (%return ,ra)))
-                          ,(next))))))
+         (emit-next (lambda ()
+                      `(let ((_ ,snapshot))
+                         ,(if (< (current-fp-offset) 0)
+                              (next)
+                              `(let ((_ (%return ,ra)))
+                                 ,(next)))))))
     (if (eq? vdst vsrc)
-        body
+        (emit-next)
         `(let ((,vdst ,vsrc))
-           ,body))))
+           ,(emit-next)))))
 
 ;; XXX: return-values
 
@@ -380,7 +381,13 @@ referenced by dst and src value at runtime."
 ;; XXX: reset-frame
 
 (define-ir (assert-nargs-ee/locals expected nlocals)
-  (next))
+  (let* ((stack-size (vector-length locals))
+         (undefined (pointer->scm (make-pointer #x904))))
+    (let lp ((n nlocals))
+      (if (< 0 n)
+          `(let ((,(var-ref (- n 1)) ,undefined))
+             ,(lp (- n 1)))
+          (next)))))
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args
@@ -1058,8 +1065,12 @@ referenced by dst and src value at runtime."
              (save-fp-offset!)
              st))
           (('assert-nargs-ee/locals expected nlocals)
-           (save-sp-offset!)
            (push-sp-offset! nlocals)
+           (let lp ((n nlocals))
+             (when (< 0 n)
+               (add! st (- n 1))
+               (lp (- n 1))))
+           (save-sp-offset!)
            (save-fp-offset!)
            st)
           (_

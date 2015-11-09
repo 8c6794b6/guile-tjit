@@ -119,7 +119,7 @@
      ((memory? dst)
       (jit-movi r0 *scm-unspecified*)
       (jit-stxi-d (moffs dst) fp r0))))
-   ((eq? type &unbound)
+   ((eq? type &undefined)
     (cond
      ((gpr? dst)
       (jit-movi (gpr dst) *scm-undefined*))
@@ -204,7 +204,7 @@
    ((eq? type &true)
     (jit-movi r0 *scm-true*)
     (sp-set! local r0))
-   ((eq? type &unbound)
+   ((eq? type &undefined)
     (jit-movi r0 *scm-undefined*)
     (sp-set! local r0))
    ((eq? type &unspecified)

@@ -509,21 +509,10 @@ scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp)
 static inline void
 scm_i_dump_sp (SCM trace_id, union scm_vm_stack_element *sp, SCM port)
 {
-  /* union scm_vm_stack_element *old_fp = SCM_FRAME_DYNAMIC_LINK (fp); */
-  /* scm_t_uint32 *ra = SCM_FRAME_RETURN_ADDRESS (fp); */
-
   scm_puts (";;; trace ", port);
   scm_display (trace_id, port);
   scm_puts (": sp=", port);
   scm_display (to_hex (SCM_I_MAKINUM (sp)), port);
-
-  /* scm_puts (": fp=", port); */
-  /* scm_display (to_hex (SCM_I_MAKINUM (fp.as_uint)), port); */
-  /* scm_puts (" dl=", port); */
-  /* scm_display (to_hex (SCM_I_MAKINUM (old_fp)), port); */
-  /* scm_puts (" ra=", port); */
-  /* scm_display (to_hex (SCM_I_MAKINUM (ra)), port); */
-
   scm_newline (port);
 }
 

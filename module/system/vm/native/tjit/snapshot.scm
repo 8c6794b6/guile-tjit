@@ -82,10 +82,16 @@
             unbound?
             true?
             false?
+            undefined?
+            eof?
+            unbound?
             type-of
-            pretty-type)
+            pretty-type
+            &undefined)
   #:re-export (&exact-integer
                &flonum
+               &complex
+               &fraction
                &char
                &unspecified
                &unbound
@@ -227,8 +233,14 @@
 (define (flonum? val)
   (and (real? val) (inexact? val)))
 
-(define (unbound? x)
+(define (undefined? x)
   (= (pointer-address (scm->pointer x)) #x904))
+
+(define (eof? x)
+  (= (pointer-address (scm->pointer x)) #xa04))
+
+(define (unbound? x)
+  (= (pointer-address (scm->pointer x)) #xb04))
 
 (define (false? x)
   (not x))
@@ -236,13 +248,18 @@
 (define (true? x)
   (eq? x #t))
 
+;; Extra type
+
+(define &undefined
+  (ash &hash-table 2))
+
 (define (type-of obj)
   (cond
    ((fixnum? obj) &exact-integer)
    ((flonum? obj) &flonum)
    ((char? obj) &char)
    ((unspecified? obj) &unspecified)
-   ((unbound? obj) &unbound)
+   ((undefined? obj) &undefined)
    ((false? obj) &false)
    ((true? obj) &true)
    ((procedure? obj) &procedure)
@@ -253,7 +270,7 @@
    ((bytevector? obj) &bytevector)
    ((bitvector? obj) &bitvector)
    (else
-    (debug 3 "*** Type not determined: ~a~%" obj)
+    (debug 1 "XXX: Type not determined: ~s~%" obj)
     #f)))
 
 (define (pretty-type type)
@@ -264,6 +281,7 @@
    ((eq? type &char) (blue "char"))
    ((eq? type &unspecified) (green "uspc"))
    ((eq? type &unbound) (green "ubnd"))
+   ((eq? type &undefined) (green "udef"))
    ((eq? type &false) (green "fals"))
    ((eq? type &true) (green "true"))
    ((eq? type &nil) (green "nil"))
@@ -298,12 +316,7 @@
   (define parent-locals
     (and=> parent-snapshot snapshot-locals))
   (define (parent-snapshot-local-ref i)
-    (and parent-snapshot
-         (assq-ref parent-locals i)
-         ;; (assq-ref parent-locals (if (< 0 initial-offset)
-         ;;                             i
-         ;;                             (- i initial-offset)))
-         ))
+    (and parent-snapshot (assq-ref parent-locals i)))
   (define (shift-lowest acc)
     (map (match-lambda
           ((n . local)
@@ -365,7 +378,6 @@
                          sp-offset
                          fp-offset
                          (vector-length locals)
-                         ;; (shift-lowest acc)
                          acc
                          #f
                          #f

@@ -879,12 +879,12 @@ both arguments were register or memory."
         (load-constant *scm-true*))
        ((eq? type &unspecified)
         (load-constant *scm-unspecified*))
-       ((eq? type &unbound)
+       ((eq? type &undefined)
         (load-constant *scm-undefined*))
        ((eq? type &null)
         (load-constant *scm-null*))
        ((memq type (list &box &procedure &pair))
-        ;; XXX: Guard each type.
+        ;; XXX: Add guard for each type.
         (cond
          ((gpr? dst)
           (jit-movr (gpr dst) r0))
