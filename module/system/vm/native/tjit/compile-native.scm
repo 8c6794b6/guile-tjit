@@ -72,6 +72,8 @@
 ;;;
 
 (define (load-frame moffs local type dst)
+  (debug 3 ";;; load-frame: local:~a type:~a dst:~a~%"
+         local (pretty-type type) dst)
   (cond
    ((eq? type &exact-integer)
     (cond
@@ -579,6 +581,7 @@ of SRCS, DSTS, TYPES are local index number."
     (define (moffs mem)
       (let ((offset (* (ref-value mem) %word-size)))
         (make-signed-pointer (+ (asm-fp-offset asm) offset))))
+    (debug 3 ";;; compile-link: args=~s~%" args)
     (match snapshot
       (($ $snapshot sid sp-offset fp-offset _ local-x-types)
        ;; Store unpassed variables, and move variables to linked trace.

@@ -506,34 +506,33 @@ scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp)
   scm_newline (port);
 }
 
-static inline void
-scm_i_dump_sp (SCM trace_id, union scm_vm_stack_element *sp, SCM port)
-{
-  scm_puts (";;; trace ", port);
-  scm_display (trace_id, port);
-  scm_puts (": sp=", port);
-  scm_display (to_hex (SCM_I_MAKINUM (sp)), port);
-  scm_newline (port);
-}
-
 void
 scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp)
 {
   int i;
   SCM port = scm_current_output_port ();
 
-  scm_i_dump_sp (trace_id, sp, port);
+  scm_puts (";;; trace ", port);
+  scm_display (trace_id, port);
+  scm_puts (": sp=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (sp)), port);
+  scm_puts (" ra=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (sp[n].as_ptr)), port);
+  scm_puts (" dl=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (sp[n + 1].as_ptr)), port);
+  scm_newline (port);
 
   scm_puts (";;; trace ", port);
   scm_display (trace_id, port);
   scm_puts (": locals", port);
-  for (i = 0; i < n + 2; ++i)
+  for (i = 0; i < n; ++i)
     {
       scm_puts(" [", port);
       scm_display (SCM_I_MAKINUM (i), port);
-      scm_puts("]: #x", port);
-      scm_display (to_hex (SCM_I_MAKINUM (sp[i].as_ptr)), port);
+      scm_puts ("]:", port);
+      scm_display (sp[i].as_scm, port);
     }
+
   scm_newline (port);
 }
 

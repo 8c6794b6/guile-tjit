@@ -429,7 +429,6 @@ referenced by dst and src value at runtime."
       `(let ((_ ,(take-snapshot! ip dest)))
          (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
            ,(next))))
-
      ((and (flonum? ra) (flonum? rb))
       `(let ((_ ,(take-snapshot! ip dest)))
          (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
@@ -445,7 +444,15 @@ referenced by dst and src value at runtime."
 ;; removed. So this IR should relate to the cause of segfault in linker.scm
 ;; somehow.
 (define-ir (br-if-null (local test) (const invert) (const offset))
-  (let* ((rtest (local-ref test))
+  (let* ((rtest
+          ;; XXX: Workaround for out-of-range error from `vector-ref' when
+          ;; invoking REPL with `--tjit-dump=j' option.
+          (catch #t
+            (lambda ()
+              (local-ref test))
+            (lambda msgs
+              (debug 0 "XXX: br-if-null: ~a~%" msgs)
+              (escape #f))))
          (vtest (var-ref test))
          (dest (if (null? rtest)
                    (if invert offset 2)
