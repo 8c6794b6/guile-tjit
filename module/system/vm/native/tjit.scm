@@ -30,7 +30,9 @@
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 popen)
   #:use-module (ice-9 regex)
+  #:use-module (ice-9 rdelim)
   #:use-module (language cps)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-11)
@@ -186,15 +188,25 @@
      (format #t ";;; primops: ~a~%" plist))))
 
 (define (dump-native-code trace-id ip-x-ops code code-size)
-  (jit-print)
   (let ((path (format #f "/tmp/trace-~a-~x.o"
                       trace-id (cadr (car ip-x-ops)))))
-    (format #t ";;; Writing native code to ~a~%" path)
     (call-with-output-file path
       (lambda (port)
         (let ((code-copy (make-bytevector code-size)))
           (bytevector-copy! code 0 code-copy 0 code-size)
-          (put-bytevector port code-copy))))))
+          (put-bytevector port code-copy))))
+    path))
+
+(define (dump-disassemble id offset file)
+  (let* ((command ((tjit-disassembler) offset file))
+         (pipe (open-input-pipe command)))
+    (format #t ";;; trace ~a: disassembly~%" id)
+    (let lp ((line (read-line pipe)) (n 0))
+      (when (not (eof-object? line))
+        (display line)
+        (newline)
+        (lp (read-line pipe) (+ n 1))))
+    (close-pipe pipe)))
 
 
 ;;;
@@ -329,10 +341,14 @@
                                                             fp-offset
                                                             end-address))
                      (when (and verbosity (<= 4 verbosity))
-                       (dump-native-code trace-id
-                                         ip-x-ops
-                                         code
-                                         (jit-code-size)))
+                       (jit-print))
+                     (when (tjit-dump-disassemble? dump-option)
+                       (let ((path (dump-native-code trace-id
+                                                     ip-x-ops
+                                                     code
+                                                     (jit-code-size)))
+                             (addr (pointer-address ptr)))
+                         (dump-disassemble trace-id addr path)))
                      ;; When this trace is a side trace, replace the native code
                      ;; of trampoline in parent fragment.
                      (when fragment

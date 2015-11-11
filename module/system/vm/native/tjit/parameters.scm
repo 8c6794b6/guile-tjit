@@ -44,9 +44,9 @@
             tjit-max-retries
             set-tjit-max-retries!
 
-            tjit-dump-option
             tjit-dump-abort?
             tjit-dump-bytecode?
+            tjit-dump-disassemble?
             tjit-dump-ops?
             tjit-dump-locals?
             tjit-dump-jitc?
@@ -56,7 +56,6 @@
             parse-tjit-dump-flags
             set-tjit-dump-option!
 
-            tjit-max-spills
 
             make-tjit-time-log
             set-tjit-time-log-start!
@@ -71,17 +70,26 @@
             fold-tjit-time-logs
 
             tjit-stats
-            dump-tjit-stats))
+            dump-tjit-stats
+
+            tjit-max-spills
+            tjit-dump-option
+            tjit-disassembler))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
 
+;;;
+;;; Dump options
+;;;
+
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode ops jitc locals scm time exit)
+  (make-tjit-dump abort bytecode disassemble ops jitc locals scm time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
+  (disassemble tjit-dump-disassemble? set-tjit-dump-disassemble!)
   (ops tjit-dump-ops? set-tjit-dump-ops!)
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-locals? set-tjit-dump-locals!)
@@ -91,11 +99,7 @@
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f #f #f #f #f #f #f))
-
-(define tjit-dump-option
-  ;; Parameter to control dump setting during compilation of traces.
-  (make-parameter (make-empty-tjit-dump-option)))
+  (make-tjit-dump #f #f #f #f #f #f #f #f #f))
 
 (define (parse-tjit-dump-flags str)
   "Parse dump flags in string STR and return <tjit-dump> data.
@@ -105,6 +109,8 @@ Flags are:
 - 'a': Dump abort, without this flag true, aborted traces are not shown.
 
 - 'b': Dump recorded bytecode.
+
+- 'd': Dump disassembled code.
 
 - 'j': Dump brief info when starting JIT compilation.
 
@@ -138,6 +144,7 @@ fields to @code{#f}."
                                      (lp cs)))))))))
         (flags (#\a set-tjit-dump-abort!)
                (#\b set-tjit-dump-bytecode!)
+               (#\d set-tjit-dump-disassemble!)
                (#\j set-tjit-dump-jitc!)
                (#\l set-tjit-dump-locals!)
                (#\o set-tjit-dump-ops!)
@@ -149,10 +156,10 @@ fields to @code{#f}."
   "Set @code{tjit-dump-option} parameter with flags in STR."
   (tjit-dump-option (parse-tjit-dump-flags str)))
 
-(define tjit-max-spills
-  ;; Maximum number of spilled variables.
-  (make-parameter 256))
 
+;;;
+;;; Time log
+;;;
 
 ;; Record type to hold internal run time at each stage of compilation.
 (define-record-type <tjit-time-log>
@@ -249,3 +256,30 @@ option was set to true."
          (format #t "~14@a: ~a~%" (car kv) (cdr kv)))
        (tjit-stats))
       (display "not running with `vm-tjit' engine.\n")))
+
+
+;;;
+;;; Scheme Parameters
+;;;
+
+;; Parameter to control dump setting during compilation of traces.
+(define tjit-dump-option
+  (make-parameter (make-empty-tjit-dump-option)))
+
+;; Maximum number of spilled variables.
+(define tjit-max-spills
+  (make-parameter 256))
+
+;; Paramter for disassembling compiled native code.
+;;
+;; Value of the parameter is a procedure taking two arguments, offset address
+;; and file path of compiled code. Default value is for x86-64 architecture,
+;; assumes `objdump' executable already installed.
+;;
+(define tjit-disassembler
+  (make-parameter
+   (lambda (offset file)
+     (format #f
+             "objdump -D -b binary -mi386 -Mintel,x86-64 \\
+--prefix-addresses --dwarf-start=1 --adjust-vma=~a ~a"
+             offset file))))

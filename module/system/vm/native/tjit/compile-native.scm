@@ -1,4 +1,4 @@
-;;;; CPS to native code compiler for vm-tjit
+;;;; IR to native code compiler for vm-tjit
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -20,7 +20,7 @@
 
 ;;; Commentary:
 ;;;
-;;; Compile CPS to native code.
+;;; Compile IR to native code.
 ;;;
 ;;; Code:
 
