@@ -587,12 +587,12 @@ bound to @var{var}, and continue to @var{k}."
                   (letk k ($kargs () () ,body))
                   ($ (convert-arg v
                        (lambda (cps v)
-                         (with-cps cps
-                           ($ (with-cps-constants ((idx idx))
-                                (let ((op (cond
-                                           ((not known?) 'free-set!)
-                                           ((<= idx #xff) 'vector-set!/immediate)
-                                           (else 'vector-set!))))
+                         (let ((op (cond
+                                    ((not known?) 'free-set!)
+                                    ((<= idx #xff) 'vector-set!/immediate)
+                                    (else 'vector-set!))))
+                           (with-cps cps
+                             ($ (with-cps-constants ((idx idx))
                                   (build-term
                                     ($continue k src
                                       ($primcall op (var idx v))))))))))))))))))
