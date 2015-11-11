@@ -740,8 +740,8 @@ minimum, and maximum."
 (define-bytevector-accessors bv-s32-ref bv-s32-set! &exact-integer 4 -inf.0 +inf.0)
 (define-bytevector-accessors bv-u64-ref bv-u64-set! &exact-integer 8 0 +inf.0)
 (define-bytevector-accessors bv-s64-ref bv-s64-set! &exact-integer 8 -inf.0 +inf.0)
-(define-bytevector-accessors bv-f32-ref bv-f32-set! &real 4 -inf.0 +inf.0)
-(define-bytevector-accessors bv-f64-ref bv-f64-set! &real 8 -inf.0 +inf.0)
+(define-bytevector-accessors bv-f32-ref bv-f32-set! &f64 4 -inf.0 +inf.0)
+(define-bytevector-accessors bv-f64-ref bv-f64-set! &f64 8 -inf.0 +inf.0)
 
 
 

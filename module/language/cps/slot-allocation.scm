@@ -790,9 +790,7 @@ are comparable with eqv?.  A tmp slot may be used."
              (($ $values (arg))
               (intmap-add representations var
                           (intmap-ref representations arg)))
-             ;; FIXME: Placeholder for as-yet-unwritten primitive
-             ;; operations that define unboxed f64 values.
-             (($ $primcall 'scm->f64)
+             (($ $primcall (or 'scm->f64 'bv-f32-ref 'bv-f64-ref))
               (intmap-add representations var 'f64))
              (_
               (intmap-add representations var 'scm))))

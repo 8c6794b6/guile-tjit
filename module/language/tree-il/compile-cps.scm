@@ -555,6 +555,33 @@
                       ($ (lp args ktail)))))))))))
       ((prim-instruction name)
        => (lambda (instruction)
+            (define (box+adapt-arity cps k src out)
+              (case instruction
+                ((bv-f32-ref bv-f64-ref)
+                 (with-cps cps
+                   (letv f64)
+                   (let$ k (adapt-arity k src out))
+                   (letk kbox ($kargs ('f64) (f64)
+                                ($continue k src ($primcall 'f64->scm (f64)))))
+                   kbox))
+                (else
+                 (adapt-arity cps k src out))))
+            (define (unbox-arg cps arg have-arg)
+              (with-cps cps
+                (letv f64)
+                (let$ body (have-arg f64))
+                (letk kunboxed ($kargs ('f64) (f64) ,body))
+                (build-term
+                  ($continue kunboxed src ($primcall 'scm->f64 (arg))))))
+            (define (unbox-args cps args have-args)
+              (case instruction
+                ((bv-f32-set! bv-f64-set!)
+                 (match args
+                   ((bv idx val)
+                    (unbox-arg cps val
+                               (lambda (cps val)
+                                 (have-args cps (list bv idx val)))))))
+                (else (have-args cps args))))
             (convert-args cps args
               (lambda (cps args)
                 ;; Tree-IL primcalls are sloppy, in that it could be
@@ -566,10 +593,14 @@
                   ((out . in)
                    (if (= in (length args))
                        (with-cps cps
-                         (let$ k (adapt-arity k src out))
-                         (build-term
-                           ($continue k src
-                             ($primcall instruction args))))
+                         (let$ k (box+adapt-arity k src out))
+                         ($ (unbox-args
+                             args
+                             (lambda (cps args)
+                               (with-cps cps
+                                 (build-term
+                                   ($continue k src
+                                     ($primcall instruction args))))))))
                        (with-cps cps
                          (letv prim)
                          (letk kprim ($kargs ('prim) (prim)
