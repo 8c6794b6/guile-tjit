@@ -117,6 +117,9 @@
             ;; Union types.
             &number &real
 
+            ;; Untagged types.
+            &f64
+
             infer-types
             lookup-pre-type
             lookup-post-type
@@ -164,7 +167,9 @@
   &bytevector
   &bitvector
   &array
-  &hash-table)
+  &hash-table
+
+  &f64)
 
 (define-syntax &no-type (identifier-syntax 0))
 
@@ -668,6 +673,24 @@ minimum, and maximum."
 (define-simple-type (number->string &number) (&string 0 +inf.0))
 (define-simple-type (string->number (&string 0 +inf.0))
   ((logior &number &false) -inf.0 +inf.0))
+
+
+
+
+;;;
+;;; Unboxed double-precision floating-point numbers.
+;;;
+
+(define-type-checker (scm->f64 scm)
+  (check-type scm &real -inf.0 +inf.0))
+(define-type-inferrer (scm->f64 scm result)
+  (restrict! scm &real -inf.0 +inf.0)
+  (define! result &f64 (&min scm) (&max scm)))
+
+(define-type-checker (f64->scm f64)
+  #t)
+(define-type-inferrer (f64->scm f64 result)
+  (define! result &flonum (&min f64) (&max f64)))
 
 
 
