@@ -75,8 +75,12 @@
 ;; Volatile register to hold return value from native code to VM.
 (define-syntax reg-retval (identifier-syntax r0))
 
+;; Non-volatile registers. `r3' from Lightning is R12, which is non-volatile in
+;; Linux's calling convention sense, but Lightning sometimes internally uses
+;; `r3', e.g: when branching instruction `jit-beqi' which takes immediate
+;; values, were called and r0, r1, r2 were already in use.
 (define *non-volatile-registers*
-  `#(,v1 ,v2 ,v3 ,r3))
+  `#(,v1 ,v2 ,v3))
 
 ;; Ordering is mandatory. The last element in the vector is ARG1 register, next
 ;; to the last vector element is ARG2 register, and so on. Non-argument volatile

@@ -310,10 +310,10 @@
   (jit-bmsi obj (imm 6)))
 
 (define-syntax-rule (scm-inump obj)
-  (jit-bmsi obj (imm 2)))
+  (jit-bmsi obj (imm (@@ (system base types) %tc2-int))))
 
 (define-syntax-rule (scm-not-inump obj)
-  (jit-bmci obj (imm 2)))
+  (jit-bmci obj (imm (@@ (system base types) %tc2-int))))
 
 (define-syntax-rule (scm-realp tag)
   (jit-beqi tag (imm (@@ (system base types) %tc16-real))))
@@ -579,12 +579,10 @@ both arguments were register or memory."
 ;;; Scheme procedure call.
 (define-prim (%pcall (void proc))
   (let* ((vp r0)
-         (vp->fp r1)
-         (tmp r2)
-         (old-vp->fp tmp))
+         (vp->fp r1))
     (load-vp vp)
-    (load-vp->fp old-vp->fp vp)
-    (jit-subi vp->fp old-vp->fp (imm (* (ref-value proc) %word-size)))
+    (load-vp->fp vp->fp vp)
+    (jit-subi vp->fp vp->fp (imm (* (ref-value proc) %word-size)))
     (store-vp->fp vp vp->fp)))
 
 ;;; Return from procedure call. Shift current FP to the one from dynamic
@@ -675,9 +673,9 @@ both arguments were register or memory."
              (reg-reg-op r0 r0 (gpr b))
              (memory-set! dst r0))
             ((and (memory? dst) (memory? a) (memory? b))
-             (memory-ref r1 a)
-             (memory-ref r2 b)
-             (reg-reg-op r0 r1 r2)
+             (memory-ref r0 a)
+             (memory-ref r1 b)
+             (reg-reg-op r0 r0 r1)
              (memory-set! dst r0))
 
             (else
@@ -714,6 +712,9 @@ both arguments were register or memory."
     (jit-lshi (gpr dst) (gpr a) (constant b)))
    ((and (gpr? dst) (gpr? a) (gpr? b))
     (jit-lshr (gpr dst) (gpr a) (gpr b)))
+   ((and (gpr? dst) (memory? a) (constant? b))
+    (memory-ref r0 a)
+    (jit-lshi (gpr dst) r0 (constant b)))
 
    ((and (memory? dst) (constant? a) (constant? b))
     (jit-movi r0 (imm (ash (ref-value a) (ref-value b))))
