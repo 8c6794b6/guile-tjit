@@ -119,8 +119,11 @@
         (proc arg ...))))
 
   (define (compile-lexical-ref depth width)
-    (lambda (env)
-      (env-ref env depth width)))
+    (case depth
+      ((0) (lambda (env) (env-ref env 0 width)))
+      ((1) (lambda (env) (env-ref env 1 width)))
+      ((2) (lambda (env) (env-ref env 2 width)))
+      (else (lambda (env) (env-ref env depth width)))))
 
   (define (primitive=? name loc module var)
     "Return true if VAR is the same as the primitive bound to NAME."
