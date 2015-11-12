@@ -307,6 +307,14 @@ false.  It could be that both true and false proofs are available."
              (match defs
                ((scm)
                 (add-def! `(primcall scm->f64 ,scm) f64))))
+            (('primcall 'scm->u64 scm)
+             (match defs
+               ((u64)
+                (add-def! `(primcall u64->scm ,u64) scm))))
+            (('primcall 'u64->scm u64)
+             (match defs
+               ((scm)
+                (add-def! `(primcall scm->u64 ,scm) u64))))
             (_ #t))))
 
       (define (visit-label label equiv-labels var-substs)

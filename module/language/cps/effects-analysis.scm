@@ -351,10 +351,12 @@ is or might be a read or a write to the same location as A."
   ((string->number _)              (&read-object &string)      &type-check)
   ((string-length s)                                           &type-check))
 
-;; Unboxed floats.
+;; Unboxed floats and integers.
 (define-primitive-effects
   ((scm->f64 _)                                                &type-check)
-  ((f64->scm _)))
+  ((f64->scm _))
+  ((scm->u64 _)                                                &type-check)
+  ((u64->scm _)))
 
 ;; Bytevectors.
 (define-primitive-effects

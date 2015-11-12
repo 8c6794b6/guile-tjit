@@ -119,6 +119,7 @@
 
             ;; Untagged types.
             &f64
+            &u64
 
             infer-types
             lookup-pre-type
@@ -169,7 +170,8 @@
   &array
   &hash-table
 
-  &f64)
+  &f64
+  &u64)
 
 (define-syntax &no-type (identifier-syntax 0))
 
@@ -678,7 +680,7 @@ minimum, and maximum."
 
 
 ;;;
-;;; Unboxed double-precision floating-point numbers.
+;;; Unboxed numbers.
 ;;;
 
 (define-type-checker (scm->f64 scm)
@@ -691,6 +693,17 @@ minimum, and maximum."
   #t)
 (define-type-inferrer (f64->scm f64 result)
   (define! result &flonum (&min f64) (&max f64)))
+
+(define-type-checker (scm->u64 scm)
+  (check-type scm &exact-integer 0 +inf.0))
+(define-type-inferrer (scm->u64 scm result)
+  (restrict! scm &exact-integer 0 +inf.0)
+  (define! result &u64 (&min scm) (&max scm)))
+
+(define-type-checker (u64->scm u64)
+  #t)
+(define-type-inferrer (u64->scm u64 result)
+  (define! result &exact-integer (&min u64) (&max u64)))
 
 
 

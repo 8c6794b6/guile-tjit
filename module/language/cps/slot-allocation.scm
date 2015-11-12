@@ -53,8 +53,8 @@
   ;;
   (slots allocation-slots)
 
-  ;; A map of VAR to representation.  A representation is either 'scm or
-  ;; 'f64.
+  ;; A map of VAR to representation.  A representation is 'scm, 'f64, or
+  ;; 'u64.
   ;;
   (representations allocation-representations)
 
@@ -793,6 +793,8 @@ are comparable with eqv?.  A tmp slot may be used."
              (($ $primcall (or 'scm->f64 'bv-f32-ref 'bv-f64-ref
                                'fadd 'fsub 'fmul 'fdiv))
               (intmap-add representations var 'f64))
+             (($ $primcall (or 'scm->u64))
+              (intmap-add representations var 'u64))
              (_
               (intmap-add representations var 'scm))))
           (vars
@@ -874,7 +876,7 @@ are comparable with eqv?.  A tmp slot may be used."
            (#f slot-map)
            (slot
             (let ((desc (match (intmap-ref representations var)
-                          ('f64 slot-desc-live-raw)
+                          ((or 'u64 'f64) slot-desc-live-raw)
                           ('scm slot-desc-live-scm))))
               (logior slot-map (ash desc (* 2 slot)))))))
        live-vars 0))

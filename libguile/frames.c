@@ -241,7 +241,8 @@ SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
 enum stack_item_representation
   {
     STACK_ITEM_SCM = 0,
-    STACK_ITEM_F64 = 1
+    STACK_ITEM_F64 = 1,
+    STACK_ITEM_U64 = 2
   };
 
 static enum stack_item_representation
@@ -251,6 +252,8 @@ scm_to_stack_item_representation (SCM x, const char *subr, int pos)
     return STACK_ITEM_SCM;
   if (scm_is_eq (x, scm_from_latin1_symbol ("f64")))
     return STACK_ITEM_F64;
+  if (scm_is_eq (x, scm_from_latin1_symbol ("u64")))
+    return STACK_ITEM_U64;
 
   scm_wrong_type_arg (subr, pos, x);
   return 0;  /* Not reached.  */
@@ -281,6 +284,8 @@ SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 3, 0, 0,
             return item->as_scm;
           case STACK_ITEM_F64:
             return scm_from_double (item->as_f64);
+          case STACK_ITEM_U64:
+            return scm_from_uint64 (item->as_u64);
           default:
             abort();
         }
@@ -317,6 +322,9 @@ SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 4, 0, 0,
             break;
           case STACK_ITEM_F64:
             item->as_f64 = scm_to_double (val);
+            break;
+          case STACK_ITEM_U64:
+            item->as_u64 = scm_to_uint64 (val);
             break;
           default:
             abort();

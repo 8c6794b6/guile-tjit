@@ -254,6 +254,9 @@
 #define SP_REF_F64(i)		(sp[i].as_f64)
 #define SP_SET_F64(i,o)		(sp[i].as_f64 = o)
 
+#define SP_REF_U64(i)		(sp[i].as_u64)
+#define SP_SET_U64(i,o)		(sp[i].as_u64 = o)
+
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
 #define VARIABLE_BOUNDP(v)      (!scm_is_eq (VARIABLE_REF (v), SCM_UNDEFINED))
@@ -3312,8 +3315,32 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (0);
     }
 
-  VM_DEFINE_OP (143, unused_143, NULL, NOP)
-  VM_DEFINE_OP (144, unused_144, NULL, NOP)
+  /* scm->u64 dst:12 src:12
+   *
+   * Unpack an unsigned 64-bit integer from SRC and place it in DST.
+   */
+  VM_DEFINE_OP (143, scm_to_u64, "scm->u64", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
+      SP_SET_U64 (dst, scm_to_uint64 (SP_REF (src)));
+      NEXT (1);
+    }
+
+  /* u64->scm dst:12 src:12
+   *
+   * Pack an unsigned 64-bit integer into a SCM value.
+   */
+  VM_DEFINE_OP (144, u64_to_scm, "u64->scm", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
+      SP_SET (dst, scm_from_uint64 (SP_REF_U64 (src)));
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (145, unused_145, NULL, NOP)
   VM_DEFINE_OP (146, unused_146, NULL, NOP)
   VM_DEFINE_OP (147, unused_147, NULL, NOP)

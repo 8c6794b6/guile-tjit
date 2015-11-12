@@ -1895,6 +1895,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
            (let ((tag (case representation
                         ((scm) 0)
                         ((f64) 1)
+                        ((u64) 2)
                         (else (error "what!" representation)))))
              (put-uleb128 names-port (logior (ash slot 2) tag)))
            (lp definitions))))))

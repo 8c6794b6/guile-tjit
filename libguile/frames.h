@@ -92,6 +92,7 @@ union scm_vm_stack_element
   scm_t_uint32 *as_ip;
   SCM as_scm;
   double as_f64;
+  scm_t_uint64 as_u64;
 
   /* For GC purposes.  */
   void *as_ptr;
