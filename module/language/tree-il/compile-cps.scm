@@ -506,6 +506,18 @@
 
     (($ <primcall> src name args)
      (cond
+      ((eq? name 'equal?)
+       (convert-args cps args
+         (lambda (cps args)
+           (with-cps cps
+             (let$ k* (adapt-arity k src 1))
+             (letk kt ($kargs () () ($continue k* src ($const #t))))
+             (letk kf* ($kargs () ()
+                         ;; Here we continue to the original $kreceive
+                         ;; or $ktail, as equal? doesn't have a VM op.
+                         ($continue k src ($primcall 'equal? args))))
+             (build-term ($continue kf* src
+                           ($branch kt ($primcall 'eqv? args))))))))
       ((branching-primitive? name)
        (convert-args cps args
          (lambda (cps args)

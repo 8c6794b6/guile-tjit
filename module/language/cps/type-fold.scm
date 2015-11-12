@@ -91,7 +91,6 @@
    (else
     (values #f #f))))
 (define-branch-folder-alias eqv? eq?)
-(define-branch-folder-alias equal? eq?)
 
 (define (compare-ranges type0 min0 max0 type1 min1 max1)
   (and (zero? (logand (logior type0 type1) (lognot &real)))

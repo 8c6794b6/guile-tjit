@@ -483,7 +483,7 @@ minimum, and maximum."
           (max (min (&max a) (&max b))))
       (restrict! a type min max)
       (restrict! b type min max))))
-(define-type-inferrer-aliases eq? eqv? equal?)
+(define-type-inferrer-aliases eq? eqv?)
 
 (define-syntax-rule (define-simple-predicate-inferrer predicate type)
   (define-predicate-inferrer (predicate val true?)

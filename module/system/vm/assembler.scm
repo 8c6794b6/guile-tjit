@@ -91,7 +91,6 @@
             emit-br-if-tc7
             emit-br-if-eq
             emit-br-if-eqv
-            emit-br-if-equal
             emit-br-if-=
             emit-br-if-<
             emit-br-if-<=

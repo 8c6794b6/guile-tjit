@@ -366,7 +366,6 @@
         ;; the set of macro-instructions in assembly.scm.
         (($ $primcall 'eq? (a b)) (binary emit-br-if-eq a b))
         (($ $primcall 'eqv? (a b)) (binary emit-br-if-eqv a b))
-        (($ $primcall 'equal? (a b)) (binary emit-br-if-equal a b))
         (($ $primcall '< (a b)) (binary emit-br-if-< a b))
         (($ $primcall '<= (a b)) (binary emit-br-if-<= a b))
         (($ $primcall '= (a b)) (binary emit-br-if-= a b))
