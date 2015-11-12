@@ -1464,20 +1464,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
                      && scm_is_true (scm_eqv_p (x, y))));
     }
 
-  // FIXME: remove, have compiler inline eqv test instead
-  /* br-if-equal a:12 b:12 invert:1 _:7 offset:24
-   *
-   * If the value in A is equal? to the value in B, add OFFSET, a signed
-   * 24-bit number, to the current instruction pointer.
-   */
-  // FIXME: Should sync_ip before calling out and cache_sp before coming
-  // back!  Another reason to remove this opcode!
-  VM_DEFINE_OP (43, br_if_equal, "br-if-equal", OP3 (X8_S24, X8_S24, B1_X7_L24))
+  VM_DEFINE_OP (43, unused_43, NULL, NOP)
     {
-      BR_BINARY (x, y,
-                 scm_is_eq (x, y)
-                 || (SCM_NIMP (x) && SCM_NIMP (y)
-                     && scm_is_true (scm_equal_p (x, y))));
+      abort ();
     }
 
   /* br-if-logtest a:24 _:8 b:24 invert:1 _:7 offset:24
