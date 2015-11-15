@@ -300,61 +300,61 @@ referenced by dst and src value at runtime."
   ;;
   (let* ((stack-size (vector-length locals))
          (vdst (var-ref (- stack-size dst 1)))
+         (vsrc (var-ref (- (- stack-size proc) 2)))
          (vdl (var-ref (- stack-size proc)))
          (vra (var-ref (+ (- stack-size proc) 1)))
-         (vret (var-ref (- (- stack-size proc) 2)))
-         (emit-next (lambda ()
-                      `(let ((,vdl #f))
-                         (let ((,vra #f))
-                           (let ((,vdst ,vret))
-                             ,(next))))))
          (sp-offset (current-sp-offset))
-         (fp-offset (current-fp-offset))
-         (proc-offset (+ proc sp-offset)))
-    (if (<= fp-offset 0)
-        (emit-next)
-        (begin
-          `(let ((_ ,(take-snapshot! ip 0)))
-             ,(let lp ((vars (reverse vars)))
-                (match vars
-                  (((n . var) . vars)
-                   (cond
-                    ((< (+ (- stack-size proc 1) sp-offset 2)
-                        n
-                        (+ stack-size sp-offset))
-                     (let* ((i (- n sp-offset))
-                            (val (if (< -1 i (vector-length locals))
-                                     (vector-ref locals i)
-                                     #f))
-                            (type (type-of val))
-                            (idx n))
-                       (with-frame-ref lp vars var type idx)))
-                    (else
-                     (lp vars))))
-                  (()
-                   (emit-next)))))))))
+         (min-local-index (+ (- stack-size proc 1) sp-offset 2))
+         (max-local-index (+ stack-size sp-offset))
+         (load-from-previous-frame
+          (lambda ()
+            (let lp ((vars (reverse vars)))
+              (match vars
+                (((n . var) . vars)
+                 (cond
+                  ((eq? var vdst)
+                   (lp vars))
+                  ((< min-local-index n max-local-index)
+                   (let* ((i (- n sp-offset))
+                          (val (if (< -1 i (vector-length locals))
+                                   (vector-ref locals i)
+                                   (escape #f)))
+                          (type (type-of val))
+                          (idx n))
+                     ;; Ignoring `unspecified' values when loading from previous
+                     ;; frame. Those values might came from dead slots in stack
+                     ;; which were overwritten by gc. See `scm_i_vm_mark_stack'
+                     ;; in "libguile/vm.c".
+                     ;;
+                     ;; XXX: Add tests to check that this strategy works with
+                     ;; explicitly given `unspecified' values.
+                     ;;
+                     (if (eq? type &unspecified)
+                         (lp vars)
+                         (with-frame-ref lp vars var type idx))))
+                  (else
+                   (lp vars))))
+                (()
+                 (next)))))))
+    `(let ((,vdl #f))
+       (let ((,vra #f))
+         (let ((,vdst ,vsrc))
+           ,(if (<= (current-fp-offset) 0)
+                (next)
+                `(let ((_ ,(take-snapshot! ip 0)))
+                   ,(load-from-previous-frame))))))))
 
 (define-ir (receive-values proc allow-extra? nvalues)
   (escape #f))
 
-(define-ir (return src)
-  (let* ((stack-size (vector-length locals))
-         (vsrc (var-ref src))
-         (vdst (var-ref (- stack-size 2)))
-         (snapshot (take-snapshot! ip 0))
-         (_ (pop-past-frame! past-frame))
-         (emit-next (lambda ()
-                      (if (eq? vdst vsrc)
-                          (next)
-                          `(let ((,vdst ,vsrc))
-                             ,(next))))))
+(define-interrupt-ir (return-values nlocals)
+  (let ((snapshot (take-snapshot! ip 0)))
+    (pop-past-frame! past-frame)
     `(let ((_ ,snapshot))
        ,(if (< (current-fp-offset) 0)
-            (emit-next)
+            (next)
             `(let ((_ (%return ,ra)))
-               ,(emit-next))))))
-
-;; XXX: return-values
+               ,(next))))))
 
 
 ;;; *** Specialized call stubs
@@ -846,6 +846,12 @@ referenced by dst and src value at runtime."
 ;; XXX: bv-f32-set!
 ;; XXX: bv-f64-set!
 
+;; XXX: scm->f64
+;; XXX: f64->scm
+;; XXX: fadd
+;; XXX: fsub
+;; XXX: fmul
+;; XXX: fdiv
 
 (define (trace->ir trace escape loop? initial-snapshot-id snapshots
                    parent-snapshot past-frame vars
@@ -1061,14 +1067,17 @@ referenced by dst and src value at runtime."
              (pop-fp-offset! proc)
              (save-fp-offset!)
              st))
-          ;; XXX: Multiple value not yet managed.
+          ;; XXX: NYI receive-values
           ;; (('receive-values proc _ _)
           ;;  (add! st proc))
-          (('return proc)
+          (('return-values nlocals)
            (let ((stack-size (vector-length locals)))
-             (add! st proc (- stack-size 2))
+             (let lp ((n nlocals))
+               (when (<= 2 n)
+                 (add! st (- stack-size n))
+                 (lp (- n 1))))
              (save-sp-offset!)
-             (pop-sp-offset! (- stack-size 2))
+             (pop-sp-offset! (- stack-size nlocals))
              (save-fp-offset!)
              st))
           (('assert-nargs-ee/locals expected nlocals)
