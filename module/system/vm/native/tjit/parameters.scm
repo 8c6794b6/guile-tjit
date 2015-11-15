@@ -28,8 +28,12 @@
 ;;; Code:
 
 (define-module (system vm native tjit parameters)
+  #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 popen)
+  #:use-module (ice-9 rdelim)
+  #:use-module (rnrs bytevectors)
   #:use-module (system vm vm)
   #:use-module (srfi srfi-9)
   #:export (tjit-ip-counter
@@ -257,6 +261,31 @@ option was set to true."
        (tjit-stats))
       (display "not running with `vm-tjit' engine.\n")))
 
+(define (default-disassembler trace-id entry-ip code code-size addr)
+  "Disassemble CODE with size CODE-SIZE, using ADDR as offset address.
+
+TRACE-ID is the trace-id of given code, ENTRY-IP is the starting IP of the trace
+which the code was compiled from. Default value is for x86-64 architecture,
+assumes `objdump' executable already installed."
+  (let ((path (format #f "/tmp/trace-~a-~x" trace-id entry-ip)))
+    (call-with-output-file path
+      (lambda (port)
+        (let ((code-copy (make-bytevector code-size)))
+          (bytevector-copy! code 0 code-copy 0 code-size)
+          (put-bytevector port code-copy))))
+    (let* ((fmt "objdump -D -b binary -mi386 -Mintel,x86-64 \\
+--prefix-address --dwarf-start=1 --adjust-vma=~a ~a")
+           (objdump (format #f fmt addr path))
+           (pipe (open-input-pipe objdump)))
+      (let lp ((line (read-line pipe)) (n 0))
+        (when (not (eof-object? line))
+          (when (<= 2 n)
+            (display line)
+            (newline))
+          (lp (read-line pipe) (+ n 1))))
+      (close-pipe pipe)
+      (delete-file path))))
+
 
 ;;;
 ;;; Scheme Parameters
@@ -272,14 +301,8 @@ option was set to true."
 
 ;; Paramter for disassembling compiled native code.
 ;;
-;; Value of the parameter is a procedure taking two arguments, offset address
-;; and file path of compiled code. Default value is for x86-64 architecture,
-;; assumes `objdump' executable already installed.
+;; See `default-disassembler' for the use of the arguments passed to procedure
+;; in the parameter.
 ;;
 (define tjit-disassembler
-  (make-parameter
-   (lambda (offset file)
-     (format #f
-             "objdump -D -b binary -mi386 -Mintel,x86-64 \\
---prefix-addresses --dwarf-start=1 --adjust-vma=~a ~a"
-             offset file))))
+  (make-parameter default-disassembler))
