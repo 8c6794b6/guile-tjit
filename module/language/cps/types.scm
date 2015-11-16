@@ -36,11 +36,11 @@
 ;;; a minimum and a maximum.  The precise meaning of a range depends on
 ;;; the type.  For real numbers, the range indicates an inclusive lower
 ;;; and upper bound on the integer value of a type.  For vectors, the
-;;; range indicates the length of the vector.  The range is limited to a
-;;; signed 32-bit value, with the smallest and largest values indicating
-;;; -inf.0 and +inf.0, respectively.  For some types, like pairs, the
-;;; concept of "range" makes no sense.  In these cases we consider the
-;;; range to be -inf.0 to +inf.0.
+;;; range indicates the length of the vector.  The range is the union of
+;;; the signed and unsigned 64-bit ranges.  Additionally, the minimum
+;;; bound of a range may be -inf.0, and the maximum bound may be +inf.0.
+;;; For some types, like pairs, the concept of "range" makes no sense.
+;;; In these cases we consider the range to be -inf.0 to +inf.0.
 ;;;
 ;;; Types are represented as a bitfield.  Fewer bits means a more precise
 ;;; type.  Although normally only values that have a single type will
@@ -57,7 +57,7 @@
 ;;; determined to be the exact integer 0.  The second time, it is an
 ;;; exact integer in the range [0, 1]; the third, [0, 2]; and so on.
 ;;; This analysis will terminate, but only after the positive half of
-;;; the 32-bit range has been fully explored and we decide that the
+;;; the 64-bit range has been fully explored and we decide that the
 ;;; range of N is [0, +inf.0].  At the same time, we want to do range
 ;;; analysis and type analysis at the same time, as there are
 ;;; interactions between them, notably in the case of `sqrt' which
@@ -180,9 +180,6 @@
 (define-syntax &real
   (identifier-syntax (logior &exact-integer &flonum &fraction)))
 
-(define-syntax *max-s32* (identifier-syntax (- (ash 1 31) 1)))
-(define-syntax *min-s32* (identifier-syntax (- 0 (ash 1 31))))
-
 ;; Versions of min and max that do not coerce exact numbers to become
 ;; inexact.
 (define min
@@ -206,32 +203,36 @@
          (var (identifier? #'var)
               (datum->syntax #'var val)))))))
 
-(define-compile-time-value min-fixnum most-negative-fixnum)
-(define-compile-time-value max-fixnum most-positive-fixnum)
+(define-compile-time-value &range-min (- #x8000000000000000))
+(define-compile-time-value &range-max    #xffffFFFFffffFFFF)
 
 (define-inlinable (make-unclamped-type-entry type min max)
   (vector type min max))
 (define-inlinable (type-entry-type tentry)
   (vector-ref tentry 0))
-(define-inlinable (type-entry-clamped-min tentry)
+(define-inlinable (type-entry-min tentry)
   (vector-ref tentry 1))
-(define-inlinable (type-entry-clamped-max tentry)
+(define-inlinable (type-entry-max tentry)
   (vector-ref tentry 2))
 
-(define-syntax-rule (clamp-range val)
+(define-inlinable (clamp-min val)
   (cond
-   ((< val min-fixnum) min-fixnum)
-   ((< max-fixnum val) max-fixnum)
+   ;; Fast path to avoid comparisons with bignums.
+   ((<= most-negative-fixnum val most-positive-fixnum) val)
+   ((< val &range-min) -inf.0)
+   ((< &range-max val) &range-max)
+   (else val)))
+
+(define-inlinable (clamp-max val)
+  (cond
+   ;; Fast path to avoid comparisons with bignums.
+   ((<= most-negative-fixnum val most-positive-fixnum) val)
+   ((< &range-max val) +inf.0)
+   ((< val &range-min) &range-min)
    (else val)))
 
 (define-inlinable (make-type-entry type min max)
-  (vector type (clamp-range min) (clamp-range max)))
-(define-inlinable (type-entry-min tentry)
-  (let ((min (type-entry-clamped-min tentry)))
-    (if (eq? min min-fixnum) -inf.0 min)))
-(define-inlinable (type-entry-max tentry)
-  (let ((max (type-entry-clamped-max tentry)))
-    (if (eq? max max-fixnum) +inf.0 max)))
+  (vector type (clamp-min min) (clamp-max max)))
 
 (define all-types-entry (make-type-entry &all-types -inf.0 +inf.0))
 
@@ -259,8 +260,8 @@
    ((type-entry<=? a b) b)
    (else (make-type-entry
           (logior (type-entry-type a) (type-entry-type b))
-          (min (type-entry-clamped-min a) (type-entry-clamped-min b))
-          (max (type-entry-clamped-max a) (type-entry-clamped-max b))))))
+          (min (type-entry-min a) (type-entry-min b))
+          (max (type-entry-max a) (type-entry-max b))))))
 
 (define (type-entry-saturating-union a b)
   (cond
@@ -268,12 +269,12 @@
    (else
     (make-type-entry
      (logior (type-entry-type a) (type-entry-type b))
-     (let ((a-min (type-entry-clamped-min a))
-           (b-min (type-entry-clamped-min b)))
-       (if (< b-min a-min) min-fixnum a-min))
-     (let ((a-max (type-entry-clamped-max a))
-           (b-max (type-entry-clamped-max b)))
-       (if (> b-max a-max) max-fixnum a-max))))))
+     (let ((a-min (type-entry-min a))
+           (b-min (type-entry-min b)))
+       (if (< b-min a-min) -inf.0 a-min))
+     (let ((a-max (type-entry-max a))
+           (b-max (type-entry-max b)))
+       (if (> b-max a-max) +inf.0 a-max))))))
 
 (define (type-entry-intersection a b)
   (cond
@@ -281,8 +282,8 @@
    ((type-entry<=? b a) b)
    (else (make-type-entry
           (logand (type-entry-type a) (type-entry-type b))
-          (max (type-entry-clamped-min a) (type-entry-clamped-min b))
-          (min (type-entry-clamped-max a) (type-entry-clamped-max b))))))
+          (max (type-entry-min a) (type-entry-min b))
+          (min (type-entry-max a) (type-entry-max b))))))
 
 (define (adjoin-var typeset var entry)
   (intmap-add typeset var entry type-entry-union))
@@ -747,12 +748,14 @@ minimum, and maximum."
 (define-short-bytevector-accessors bv-u16-ref bv-u16-set! 2 #f)
 (define-short-bytevector-accessors bv-s16-ref bv-s16-set! 2 #t)
 
-;; The range analysis only works on signed 32-bit values, so some limits
-;; are out of range.
-(define-bytevector-accessors bv-u32-ref bv-u32-set! &exact-integer 4 0 +inf.0)
-(define-bytevector-accessors bv-s32-ref bv-s32-set! &exact-integer 4 -inf.0 +inf.0)
-(define-bytevector-accessors bv-u64-ref bv-u64-set! &exact-integer 8 0 +inf.0)
-(define-bytevector-accessors bv-s64-ref bv-s64-set! &exact-integer 8 -inf.0 +inf.0)
+(define-bytevector-accessors bv-u32-ref bv-u32-set!
+  &exact-integer 4  #x00000000 #xffffFFFF)
+(define-bytevector-accessors bv-s32-ref bv-s32-set!
+  &exact-integer 4 (- #x80000000) #x7fffFFFF)
+(define-bytevector-accessors bv-u64-ref bv-u64-set!
+  &exact-integer 8  #x0000000000000000 #xffffFFFFffffFFFF)
+(define-bytevector-accessors bv-s64-ref bv-s64-set!
+  &exact-integer 8 (- #x8000000000000000) #x7fffFFFFffffFFFF)
 (define-bytevector-accessors bv-f32-ref bv-f32-set! &f64 4 -inf.0 +inf.0)
 (define-bytevector-accessors bv-f64-ref bv-f64-set! &f64 8 -inf.0 +inf.0)
 
@@ -1071,11 +1074,11 @@ minimum, and maximum."
 (define-simple-type-checker (ash &exact-integer &exact-integer))
 (define-type-inferrer (ash val count result)
   (define (ash* val count)
-    ;; As we can only represent a 32-bit range, don't bother inferring
+    ;; As we only precisely represent a 64-bit range, don't bother inferring
     ;; shifts that might exceed that range.
     (cond
      ((inf? val) val) ; Preserves sign.
-     ((< -32 count 32) (ash val count))
+     ((< -64 count 64) (ash val count))
      ((zero? val) 0)
      ((positive? val) +inf.0)
      (else -inf.0)))
@@ -1272,7 +1275,7 @@ minimum, and maximum."
 entries.
 
 A type entry is a vector that describes the types of the values that
-flow into and out of a labelled expressoin.  The first slot in the type
+flow into and out of a labelled expression.  The first slot in the type
 entry vector corresponds to the types that flow in, and the rest of the
 slots correspond to the types that flow out.  Each element of the type
 entry vector is an intmap mapping variable name to the variable's
