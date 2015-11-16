@@ -20,14 +20,15 @@
 
 ;;; Commentary:
 ;;;
-;;; Module containing register related codes. Currently works under x86-64 only,
-;;; using architecture dependent registers.  Lightning has it's own register
-;;; management policy, not sure how it works under other architecture than
-;;; x86-64 linux.
+;;; Module containing register related codes. Currently works under x86-64 Linux
+;;; only, using architecture dependent registers. Lightning has it's own
+;;; register management policy, not sure how it works under other architecture
+;;; than x86-64 Linux.
 ;;;
 ;;; Code:
 
 (define-module (system vm native tjit registers)
+  #:use-module (ice-9 format)
   #:use-module (system vm native lightning)
   #:export (*num-gpr*
             *num-fpr*
@@ -39,14 +40,15 @@
             fpr-ref
             fp
             reg-thread
-            reg-retval))
+            reg-retval
+            physical-name))
 
 ;;;
 ;;; Internal aliases
 ;;;
 
-(define r8 (jit-r 8))
-(define r9 (jit-r 9))
+(define r9 (jit-r 8))
+(define r8 (jit-r 9))
 (define rcx (jit-r 10))
 (define rdx (jit-r 11))
 (define rsi (jit-r 12))
@@ -108,25 +110,52 @@
 (define *num-non-volatiles*
   (vector-length *non-volatile-registers*))
 
+;; Number of GPRs used for argument passing.
 (define *num-arg-gprs*
   6)
 
+;; Number of FPRs used for argument passing.
 (define *num-arg-fprs*
   8)
 
-;; Using negative number to refer scratch registers.
-
+;; Using negative numbers to refer scratch GPRs.
 (define (gpr-ref i)
-  (cond
-   ((= i -1) r0)
-   ((= i -2) r1)
-   ((= i -3) r2)
-   (else (vector-ref *gprs* i))))
+  (if (< i 0)
+      (cond
+       ((= i -1) r0)
+       ((= i -2) r1)
+       ((= i -3) r2)
+       (else (error "gpr-ref" i)))
+      (vector-ref *gprs* i)))
 
+;; Using negative numbers to refer scratch FPRs.
 (define (fpr-ref i)
-  (cond
-   ((= i -1) f0)
-   ((= i -2) f1)
-   ((= i -3) f2)
-   (else
-    (vector-ref *fprs* i))))
+  (if (< i 0)
+      (cond
+       ((= i -1) f0)
+       ((= i -2) f1)
+       ((= i -3) f2)
+       (else (error "fpr-ref" i)))
+      (vector-ref *fprs* i)))
+
+(define (physical-name r)
+  (let ((gpr-names
+         ;; RBX is for thread, R12 is used by Lightning.
+         #(r11 r10 rax r13 r14 r15 r9 r8 rcx rdx rsi rdi))
+        (fpr-names
+         #(xmm8 xmm9 xmm10 xmm11 xmm12 xmm13 xmm14 xmm15
+                xmm7 xmm6 xmm5 xmm4 xmm3 xmm2 xmm1 xmm0)))
+    (when (not (pair? r))
+      (error "reg-name: unknown argument" r))
+    (let ((t (car r))
+          (n (cdr r)))
+      (when (not (integer? n))
+        (error "reg-name: cdr not an integer" r))
+      (cond
+       ((eq? t 'gpr)
+        (vector-ref gpr-names (+ 3 n)))
+       ((eq? t 'fpr)
+        (vector-ref fpr-names (+ 3 n)))
+       ((eq? t 'mem)
+        (let* ((addr (* n (@@ (system base types) %word-size))))
+          (format #f "[@ 0x~x]" addr)))))))

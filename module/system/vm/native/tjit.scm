@@ -145,17 +145,44 @@
        "  >")
       (else
        "   ")))
-  (define (pretty-locals locals)
+  (define (pretty-locals locals variables)
     (if (null? locals)
         "--"
         (map (match-lambda ((n . t)
                             (list n (pretty-type t))))
              locals)))
+  (define (pretty-constant arg)
+    (if (and (pair? arg)
+             (eq? 'const (car arg)))
+        (let ((x (cdr arg)))
+          (cond
+           ((exact-integer? x)
+            (blue (if (<= 0 x)
+                      (string-append "+" (number->string x))
+                      (number->string x))))
+           ((false? x)
+            (green "#f"))
+           ((undefined? x)
+            (green "#<undefined>"))
+           ((unspecified? x)
+            (green "#<unspecified>"))
+           (else
+            arg)))
+        arg))
+  (define (pretty-register arg)
+    (cond
+     ((or (gpr? arg) (fpr? arg) (memory? arg))
+      (physical-name arg))
+     ((constant? arg)
+      (pretty-constant arg))
+     (else
+      arg)))
   (define (dump-snapshot snapshot)
     (match snapshot
-      (($ $snapshot id sp-offset fp-offset nlocals locals)
+      (($ $snapshot id sp-offset fp-offset nlocals locals variables)
        (format #t "----     [snap~3,,,' @a] ~a:~a:~a ~a~%"
-               id sp-offset fp-offset nlocals (pretty-locals locals)))
+               id sp-offset fp-offset nlocals
+               (pretty-locals locals variables)))
       (_
        (format #t "----     NOT-A-SNAPSHOT~%"))))
   (define (dump-one idx op)
@@ -164,8 +191,17 @@
        (dump-snapshot (hashq-ref snapshots id)))
       (_
        (let ((mark (mark-op op)))
-         (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
-                 (car op) (cdr op))))))
+         (match op
+           (('%fref dst n type)
+            (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
+                    '%fref
+                    (pretty-register dst)
+                    (pretty-constant n)
+                    (pretty-type (cdr type))))
+           (_
+            (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
+                    (car op)
+                    (map pretty-register (cdr op)))))))))
   (define (dump-list idx ops)
     (let lp ((ops ops) (idx idx))
       (match ops
