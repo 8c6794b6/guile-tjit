@@ -52,6 +52,7 @@
             asm-volatiles
             make-negative-pointer
             make-signed-pointer
+            spilled-offset
             constant-word
             move
             jump
@@ -213,6 +214,10 @@
 (define-syntax-rule (scm-frame-set-dynamic-link! vp->fp src)
   (jit-stxi (imm %word-size) vp->fp src))
 
+(define-syntax-rule (moffs mem)
+  (let ((n (+ (ref-value mem) *num-volatiles*)))
+    (make-negative-pointer (* (- -5 n) %word-size))))
+
 (define vp->sp-offset
   (make-negative-pointer (* -1 %word-size)))
 
@@ -225,6 +230,9 @@
 (define (volatile-offset reg)
   (let ((n (- (ref-value reg) *num-non-volatiles*)))
     (make-negative-pointer (* (- -4 n) %word-size))))
+
+(define (spilled-offset mem)
+  (moffs mem))
 
 (define-syntax-rule (load-vp dst)
   (jit-ldr dst fp))
@@ -368,10 +376,6 @@
     ((_ address)
      (jit-patch-abs (jit-jmpi) address))))
 
-(define-syntax-rule (moffs r)
-  (make-signed-pointer (+ (asm-fp-offset asm)
-                          (* (ref-value r) %word-size))))
-
 (define-syntax-rule (memory-ref dst src)
   (cond
    ((not (memory? src))
@@ -431,14 +435,14 @@ epilog part. Native code of side trace does not reset %rsp, since the use of
       (debug 3 ";;; emit-side-exit: returning `reg-retval'~%")
       (jit-retr reg-retval)))))
 
-(define (move moffs dst src)
+(define (move dst src)
   (cond
    ((and (gpr? dst) (constant? src))
     (jit-movi (gpr dst) (constant src)))
    ((and (gpr? dst) (gpr? src))
     (jit-movr (gpr dst) (gpr src)))
    ((and (gpr? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs src))
+    (memory-ref r0 src)
     (jit-movr (gpr dst) r0))
 
    ((and (fpr? dst) (constant? src))
@@ -454,7 +458,7 @@ epilog part. Native code of side trace does not reset %rsp, since the use of
    ((and (fpr? dst) (fpr? src))
     (jit-movr-d (fpr dst) (fpr src)))
    ((and (fpr? dst) (memory? src))
-    (jit-ldxi-d f0 fp (moffs src))
+    (memory-ref/fpr f0 src)
     (jit-movr-d (fpr dst) f0))
 
    ((and (memory? dst) (constant? src))
@@ -462,17 +466,17 @@ epilog part. Native code of side trace does not reset %rsp, since the use of
       (cond
        ((fixnum? val)
         (jit-movi r0 (constant src))
-        (jit-stxi (moffs dst) fp r0))
+        (memory-set! dst r0))
        ((flonum? val)
         (jit-movi-d f0 (constant src))
-        (jit-stxi-d (moffs dst) fp f0)))))
+        (jit-stxi-d (spilled-offset dst) fp f0)))))
    ((and (memory? dst) (gpr? src))
-    (jit-stxi (moffs dst) fp (gpr src)))
+    (memory-set! dst (gpr src)))
    ((and (memory? dst) (fpr? src))
-    (jit-stxi-d (moffs dst) fp (fpr src)))
+    (memory-set!/fpr dst (fpr src)))
    ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs src))
-    (jit-stxi (moffs dst) fp r0))
+    (memory-ref r0 src)
+    (memory-set! dst r0))
 
    (else
     (debug 1 "XXX move: ~a ~a~%" dst src))))
@@ -1044,7 +1048,4 @@ both arguments were register or memory."
 ;;;
 
 (define-prim (%move (int dst) (int src))
-  (let ((moffs (lambda (x)
-                 (make-signed-pointer (+ (asm-fp-offset asm)
-                                         (* (ref-value x) %word-size))))))
-    (move moffs dst src)))
+  (move dst src))

@@ -71,7 +71,7 @@
 ;;; Code generation
 ;;;
 
-(define (load-frame moffs local type dst)
+(define (load-frame local type dst)
   (debug 3 ";;; load-frame: local:~a type:~a dst:~a~%"
          local (pretty-type type) dst)
   (cond
@@ -83,7 +83,7 @@
      ((memory? dst)
       (sp-ref r0 local)
       (jit-rshi r0 r0 (imm 2))
-      (jit-stxi (moffs dst) fp r0))))
+      (jit-stxi (spilled-offset dst) fp r0))))
    ((eq? type &flonum)
     (cond
      ((fpr? dst)
@@ -92,56 +92,56 @@
      ((memory? dst)
       (sp-ref r0 local)
       (scm-real-value f0 r0)
-      (jit-stxi-d (moffs dst) fp f0))))
+      (jit-stxi-d (spilled-offset dst) fp f0))))
    ((memq type (list &box &procedure &pair))
     (cond
      ((gpr? dst)
       (sp-ref (gpr dst) local))
      ((memory? dst)
       (sp-ref r0 local)
-      (jit-stxi (moffs dst) fp r0))))
+      (jit-stxi (spilled-offset dst) fp r0))))
    ((eq? type &false)
     (cond
      ((gpr? dst)
       (jit-movi (gpr dst) *scm-false*))
      ((memory? dst)
       (jit-movi r0 *scm-false*)
-      (jit-stxi-d (moffs dst) fp r0))))
+      (jit-stxi-d (spilled-offset dst) fp r0))))
    ((eq? type &true)
     (cond
      ((gpr? dst)
       (jit-movi (gpr dst) *scm-true*))
      ((memory? dst)
       (jit-movi r0 *scm-true*)
-      (jit-stxi-d (moffs dst) fp r0))))
+      (jit-stxi-d (spilled-offset dst) fp r0))))
    ((eq? type &unspecified)
     (cond
      ((gpr? dst)
       (jit-movi (gpr dst) *scm-unspecified*))
      ((memory? dst)
       (jit-movi r0 *scm-unspecified*)
-      (jit-stxi-d (moffs dst) fp r0))))
+      (jit-stxi-d (spilled-offset dst) fp r0))))
    ((eq? type &undefined)
     (cond
      ((gpr? dst)
       (jit-movi (gpr dst) *scm-undefined*))
      ((memory? dst)
       (jit-movi r0 *scm-undefined*)
-      (jit-stxi-d (moffs dst) fp r0))))
+      (jit-stxi-d (spilled-offset dst) fp r0))))
    ((eq? type &null)
     (cond
      ((gpr? dst)
       (jit-movi (gpr dst) *scm-null*))
      ((memory? dst)
       (jit-movi r0 *scm-null*)
-      (jit-stxi-d (moffs dst) fp r0))))
+      (jit-stxi-d (spilled-offset dst) fp r0))))
    ((or (return-address? type)
         (dynamic-link? type))
     (values))
    (else
     (error "load-frame" local type dst))))
 
-(define (store-frame moffs local type src)
+(define (store-frame local type src)
   (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
          local (pretty-type type) src)
   (cond
@@ -173,7 +173,7 @@
       (jit-addi r0 r0 (imm 2))
       (sp-set! local r0))
      ((memory? src)
-      (jit-ldxi r0 fp (moffs src))
+      (jit-ldxi r0 fp (spilled-offset src))
       (jit-lshi r0 r0 (imm 2))
       (jit-addi r0 r0 (imm 2))
       (sp-set! local r0))))
@@ -187,7 +187,7 @@
       (scm-from-double r0 (fpr src))
       (sp-set! local r0))
      ((memory? src)
-      (jit-ldxi-d f0 fp (moffs src))
+      (jit-ldxi-d f0 fp (spilled-offset src))
       (scm-from-double r0 f0)
       (sp-set! local r0))))
    ((memq type (list &box &procedure &pair))
@@ -198,7 +198,7 @@
      ((gpr? src)
       (sp-set! local (gpr src)))
      ((memory? src)
-      (jit-ldxi r0 fp (moffs src))
+      (jit-ldxi r0 fp (spilled-offset src))
       (sp-set! local r0))))
    ((eq? type &false)
     (jit-movi r0 *scm-false*)
@@ -218,13 +218,12 @@
    (else
     (error "store-frame" local type src))))
 
-(define (maybe-store moffs local-x-types srcs src-unwrapper references shift)
+(define (maybe-store local-x-types srcs src-unwrapper references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES.
 
-Locals are loaded with MOFFS to refer memory offset. Returns a hash-table
-containing src with SRC-UNWRAPPER applied. Key of the returned hash-table is
-local index in LOCAL-X-TYPES. Locals in returned hash-table is shifted for
-SHIFT."
+Returns a hash-table containing src with SRC-UNWRAPPER applied. Key of the
+returned hash-table is local index in LOCAL-X-TYPES. Locals in returned
+hash-table is shifted for SHIFT."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
   (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
@@ -240,7 +239,7 @@ SHIFT."
          (when (or (dynamic-link? type)
                    (return-address? type)
                    (not (assq local references)))
-           (store-frame moffs local type unwrapped-src))
+           (store-frame local type unwrapped-src))
          (hashq-set! acc (- local shift) unwrapped-src)
          (lp local-x-types srcs acc)))
       (_
@@ -267,13 +266,13 @@ SHIFT."
     (store-vp->sp vp->sp)
     (vm-sync-sp vp->sp)))
 
-(define (move-or-load-carefully dsts srcs types moffs)
-  "Move SRCS to DSTS or load with TYPES and MOFFS, carefully.
+(define (move-or-load-carefully dsts srcs types)
+  "Move SRCS to DSTS or load with TYPES without overwriting.
 
 Avoids overwriting source in hash-table SRCS while updating destinations in
 hash-table DSTS.  If source is not found, load value from frame with using type
-from hash-table TYPES and procedure MOFFS to get memory offset.  Hash-table key
-of SRCS, DSTS, TYPES are local index number."
+from hash-table TYPES to get memory offset.  Hash-table key of SRCS, DSTS, TYPES
+are local index number."
 
   (define (dst-is-full? as bs)
     (let lp ((as as))
@@ -321,7 +320,7 @@ of SRCS, DSTS, TYPES are local index number."
                                      (make-gpr -2)))
                             (src-local (find-src-local src-var)))
                         (dump-move local tmp src-var)
-                        (move moffs tmp src-var)
+                        (move tmp src-var)
                         (hashq-set! srcs src-local tmp)
                         (lp dsts)))
                      (else
@@ -331,7 +330,7 @@ of SRCS, DSTS, TYPES are local index number."
            => (lambda (src-var)
                 (when (not (equal? src-var dst-var))
                   (dump-move local dst-var src-var)
-                  (move moffs dst-var src-var))
+                  (move dst-var src-var))
                 (hashq-remove! srcs local)
                 (lp rest)))
           (else
@@ -339,7 +338,7 @@ of SRCS, DSTS, TYPES are local index number."
            (let ((type (hashq-ref types local)))
              ;; XXX: Add test to check the case ignoring `load-frame'.
              (when type
-               (load-frame moffs local type dst-var)))
+               (load-frame local type dst-var)))
            (lp rest))))
         (() (values))))))
 
@@ -380,10 +379,7 @@ of SRCS, DSTS, TYPES are local index number."
                   (error "Too many spilled variables" nspills))
                 (jit-allocai (imm (* (+ max-spills 4 *num-volatiles*)
                                      %word-size))))
-              (fragment-fp-offset fragment)))
-         (moffs (lambda (mem)
-                  (let ((offset (* (ref-value mem) %word-size)))
-                    (make-signed-pointer (+ fp-offset offset))))))
+              (fragment-fp-offset fragment))))
     (cond
      ;; Root trace.
      ((not fragment)
@@ -413,7 +409,7 @@ of SRCS, DSTS, TYPES are local index number."
             (($ $snapshot _ sp-offset fp-offset _ local-x-types exit-variables)
              (let ((locals (snapshot-locals (hashq-ref snapshots 0))))
                (debug 3 ";;; side-trace: locals: ~a~%" locals)
-               (maybe-store moffs local-x-types exit-variables identity
+               (maybe-store local-x-types exit-variables identity
                             locals 0)))))
        (else
         (error "compile-native: snapshot not found in parent trace"
@@ -506,15 +502,11 @@ of SRCS, DSTS, TYPES are local index number."
         ;; fragment, to avoid garbage collection.
         (when (not (null? local-x-types))
           (let lp ((local-x-types local-x-types)
-                   (args args)
-                   (moffs (lambda (x)
-                            (make-signed-pointer
-                             (+ (asm-fp-offset asm)
-                                (* (ref-value x) %word-size))))))
+                   (args args))
             (match (list local-x-types args)
               ((((local . type) . local-x-types) (arg . args))
-               (store-frame moffs local type arg)
-               (lp local-x-types args moffs))
+               (store-frame local type arg)
+               (lp local-x-types args))
               (_
                (values)))))
 
@@ -578,9 +570,6 @@ of SRCS, DSTS, TYPES are local index number."
 (define (compile-link args snapshot asm linked-ip fragment)
   (let* ((linked-fragment (get-root-trace linked-ip))
          (loop-locals (fragment-loop-locals linked-fragment)))
-    (define (moffs mem)
-      (let ((offset (* (ref-value mem) %word-size)))
-        (make-signed-pointer (+ (asm-fp-offset asm) offset))))
     (debug 3 ";;; compile-link: args=~s~%" args)
     (match snapshot
       (($ $snapshot sid sp-offset fp-offset _ local-x-types)
@@ -588,8 +577,8 @@ of SRCS, DSTS, TYPES are local index number."
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
        (let* ((src-shift-amount sp-offset)
-              (src-table (maybe-store moffs local-x-types args identity
-                                      loop-locals sp-offset))
+              (src-table (maybe-store local-x-types args identity loop-locals
+                                      sp-offset))
               (type-table (make-hash-table))
               (dst-table (make-hash-table)))
          (let lp ((locals loop-locals)
@@ -601,7 +590,7 @@ of SRCS, DSTS, TYPES are local index number."
               (lp locals dsts))
              (_
               (values))))
-         (move-or-load-carefully dst-table src-table type-table moffs))
+         (move-or-load-carefully dst-table src-table type-table))
 
        ;; Shift SP.
        (when (not (= sp-offset 0))

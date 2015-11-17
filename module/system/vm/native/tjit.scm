@@ -173,8 +173,13 @@
         arg))
   (define (pretty-register arg)
     (cond
-     ((or (gpr? arg) (fpr? arg) (memory? arg))
+     ((or (gpr? arg) (fpr? arg))
       (physical-name arg))
+     ((memory? arg)
+      (format #f "[@ 0x~x]"
+              (+ (- #xffffffffffffffff
+                    (pointer-address (spilled-offset arg)))
+                 1)))
      ((constant? arg)
       (pretty-constant arg))
      (else

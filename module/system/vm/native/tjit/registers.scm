@@ -156,6 +156,5 @@
         (vector-ref gpr-names (+ 3 n)))
        ((eq? t 'fpr)
         (vector-ref fpr-names (+ 3 n)))
-       ((eq? t 'mem)
-        (let* ((addr (* n (@@ (system base types) %word-size))))
-          (format #f "[@ 0x~x]" addr)))))))
+       (else
+        (error "physical-name: not a register" r))))))
