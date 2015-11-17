@@ -65,7 +65,6 @@
             scm-frame-return-address
             scm-frame-set-return-address!
             scm-real-value
-            vp-offset
             vp->sp-offset
             registers-offset
             load-vp
@@ -93,6 +92,9 @@
 
 (define-syntax-rule (constant-word i)
   (imm (* (ref-value i) %word-size)))
+
+(define %word-size-in-bits
+  (inexact->exact (/ (log %word-size) (log 2))))
 
 
 ;;;
@@ -211,27 +213,24 @@
 (define-syntax-rule (scm-frame-set-dynamic-link! vp->fp src)
   (jit-stxi (imm %word-size) vp->fp src))
 
-(define vp-offset
-  (make-negative-pointer (- %word-size)))
-
 (define vp->sp-offset
-  (make-negative-pointer (* -2 %word-size)))
+  (make-negative-pointer (* -1 %word-size)))
 
 (define registers-offset
-  (make-negative-pointer (* -3 %word-size)))
+  (make-negative-pointer (* -2 %word-size)))
 
 (define *ra-offset*
-  (make-negative-pointer (* -4 %word-size)))
+  (make-negative-pointer (* -3 %word-size)))
 
 (define (volatile-offset reg)
   (let ((n (- (ref-value reg) *num-non-volatiles*)))
-    (make-negative-pointer (* (- (- n) 5) %word-size))))
+    (make-negative-pointer (* (- -4 n) %word-size))))
 
 (define-syntax-rule (load-vp dst)
-  (jit-ldxi dst fp vp-offset))
+  (jit-ldr dst fp))
 
 (define-syntax-rule (store-vp src)
-  (jit-stxi vp-offset fp src))
+  (jit-str fp src))
 
 (define-syntax-rule (load-vp->fp dst vp)
   (jit-ldxi dst vp (imm (* 2 %word-size))))
@@ -248,7 +247,7 @@
 (define-syntax-rule (vm-cache-sp vp)
   (let ((vp->sp (if (eq? vp r0) r1 r0)))
     (jit-ldxi vp->sp vp (make-pointer %word-size))
-    (jit-stxi vp->sp-offset fp vp->sp)))
+    (store-vp->sp vp->sp)))
 
 (define-syntax-rule (vm-sync-ip src)
   (let ((vp (if (eq? src r0) r1 r0)))
@@ -267,7 +266,7 @@
 
 (define-syntax-rule (sp-ref dst n)
   (let ((vp->sp (if (eq? dst r0) r1 r0)))
-    (jit-ldxi vp->sp fp vp->sp-offset)
+    (load-vp->sp vp->sp)
     (if (= 0 n)
         (jit-ldr dst vp->sp)
         (jit-ldxi dst vp->sp (make-signed-pointer (* n %word-size))))))
@@ -603,7 +602,7 @@ both arguments were register or memory."
 
     (jit-link next)
     (scm-frame-dynamic-link tmp vp->fp)
-    (jit-muli tmp tmp (imm %word-size))
+    (jit-lshi tmp tmp (imm %word-size-in-bits))
     (jit-addr vp->fp vp->fp tmp)
     (store-vp->fp vp vp->fp)))
 
@@ -665,8 +664,7 @@ both arguments were register or memory."
              (memory-set! dst r0))
             ((and (memory? dst) (memory? a) (constant? b))
              (memory-ref r0 a)
-             (jit-movi r1 (constant b))
-             (reg-reg-op r0 r0 r1)
+             (reg-const-op r0 r0 (constant b))
              (memory-set! dst r0))
             ((and (memory? dst) (memory? a) (gpr? b))
              (memory-ref r0 a)
