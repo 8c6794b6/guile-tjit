@@ -48,6 +48,7 @@
             asm-fp-offset
             asm-out-code
             set-asm-out-code!
+            set-asm-exit!
             asm-end-address
             asm-volatiles
             make-negative-pointer
@@ -330,14 +331,14 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm volatiles fp-offset out-code end-address)
+  (%make-asm volatiles exit out-code end-address)
   asm?
 
   ;; Volatile registers in use.
   (volatiles asm-volatiles)
 
-  ;; Offset for fp register. This is the offset allocated with `jit-allocai'.
-  (fp-offset asm-fp-offset)
+  ;; Current exit to jump.
+  (exit asm-exit set-asm-exit!)
 
   ;; Pointer of native code for current side exit.
   (out-code asm-out-code set-asm-out-code!)
@@ -345,7 +346,7 @@
   ;; Pointer of native code at the end of parent trace.
   (end-address asm-end-address))
 
-(define (make-asm env fp-offset out-code end-address)
+(define (make-asm env end-address)
   (define (volatile-regs-in-use env)
     (hash-fold (lambda (_ reg acc)
                  (cond
@@ -358,7 +359,7 @@
                env))
   (let ((volatiles (volatile-regs-in-use env)))
     (debug 1 ";;; make-asm: volatiles=~a~%" volatiles)
-    (%make-asm volatiles fp-offset out-code end-address)))
+    (%make-asm volatiles #f #f end-address)))
 
 (define-syntax jump
   (syntax-rules ()
@@ -410,6 +411,9 @@ Side trace reuses native code which does %rsp shifting from parent trace's
 epilog part. Native code of side trace does not reset %rsp, since it uses
 `jit-tramp'."
   (jumpi (asm-out-code asm)))
+
+(define-syntax-rule (current-exit)
+  (asm-exit asm))
 
 (define (move dst src)
   (cond
@@ -466,7 +470,7 @@ epilog part. Native code of side trace does not reset %rsp, since it uses
   (lambda (x)
     "Macro for defining guard primitive which takes two int arguments.
 
-(define-binary-int-guard NAME CONST-CONST-OP REG-CONST-OP REG-REG-OP) will
+`define-binary-int-guard NAME CONST-CONST-OP REG-CONST-OP REG-REG-OP' will
 define a primitive named NAME. Uses CONST-CONST-OP when both arguments matched
 `constant?' predicate. Uses REG-CONST-OP when the first argument matched `gpr?'
 or `memory?' predicate while the second was constant. And, uses REG-REG-OP when
@@ -474,50 +478,47 @@ both arguments were register or memory."
     (syntax-case x ()
       ((_ name const-const-op reg-const-op reg-reg-op)
        #`(define-prim (name (int a) (int b))
-           (let ((next (jit-forward)))
-             (cond
-              ((and (constant? a) (constant? b))
-               (when (const-const-op (ref-value a) (ref-value b))
-                 (jump next)))
-              ((and (constant? a) (gpr? b))
-               (jit-movi r0 (constant a))
-               (jump (reg-reg-op r0 (gpr b)) next))
-              ((and (constant? a) (memory? b))
-               (jit-movi r0 (constant a))
-               (memory-ref r1 b)
-               (jump (reg-reg-op r0 r1) next))
+           (cond
+            ((and (constant? a) (constant? b))
+             (when (const-const-op (ref-value a) (ref-value b))
+               (jump (current-exit))))
+            ((and (constant? a) (gpr? b))
+             (jit-movi r0 (constant a))
+             (jump (reg-reg-op r0 (gpr b)) (current-exit)))
+            ((and (constant? a) (memory? b))
+             (jit-movi r0 (constant a))
+             (memory-ref r1 b)
+             (jump (reg-reg-op r0 r1) (current-exit)))
 
-              ((and (gpr? a) (constant? b))
-               (jump (reg-const-op (gpr a) (constant b)) next))
-              ((and (gpr? a) (gpr? b))
-               (jump (reg-reg-op (gpr a) (gpr b)) next))
-              ((and (gpr? a) (memory? b))
-               (memory-ref r0 b)
-               (jump (reg-reg-op (gpr a) r0) next))
+            ((and (gpr? a) (constant? b))
+             (jump (reg-const-op (gpr a) (constant b)) (current-exit)))
+            ((and (gpr? a) (gpr? b))
+             (jump (reg-reg-op (gpr a) (gpr b)) (current-exit)))
+            ((and (gpr? a) (memory? b))
+             (memory-ref r0 b)
+             (jump (reg-reg-op (gpr a) r0) (current-exit)))
 
-              ((and (memory? a) (constant? b))
-               (memory-ref r0 a)
-               (jump (reg-const-op r0 (constant b))  next))
-              ((and (memory? a) (gpr? b))
-               (memory-ref r0 a)
-               (jump (reg-reg-op r0 (gpr b)) next))
-              ((and (memory? a) (memory? b))
-               (memory-ref r0 a)
-               (memory-ref r1 b)
-               (jump (reg-reg-op r0 r1) next))
+            ((and (memory? a) (constant? b))
+             (memory-ref r0 a)
+             (jump (reg-const-op r0 (constant b))  (current-exit)))
+            ((and (memory? a) (gpr? b))
+             (memory-ref r0 a)
+             (jump (reg-reg-op r0 (gpr b)) (current-exit)))
+            ((and (memory? a) (memory? b))
+             (memory-ref r0 a)
+             (memory-ref r1 b)
+             (jump (reg-reg-op r0 r1) (current-exit)))
 
-              (else
-               (error #,(symbol->string (syntax->datum #'name)) a b)))
-             (emit-side-exit)
-             (jit-link next)))))))
+            (else
+             (error #,(symbol->string (syntax->datum #'name)) a b))))))))
 
 ;; Auxiliary procedure for %ne.
 (define (!= a b) (not (= a b)))
 
-(define-binary-int-guard %eq = jit-beqi jit-beqr)
-(define-binary-int-guard %ne != jit-bnei jit-bner)
-(define-binary-int-guard %lt < jit-blti jit-bltr)
-(define-binary-int-guard %ge >= jit-bgei jit-bger)
+(define-binary-int-guard %eq != jit-bnei jit-bner)
+(define-binary-int-guard %ne = jit-beqi jit-beqr)
+(define-binary-int-guard %lt >= jit-bgei jit-bger)
+(define-binary-int-guard %ge < jit-blti jit-bltr)
 
 (define-prim (%flt (double a) (double b))
   (let ((next (jit-forward)))
@@ -568,8 +569,7 @@ both arguments were register or memory."
 ;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
 (define-prim (%return (void ip))
-  (let ((next (jit-forward))
-        (vp r0)
+  (let ((vp r0)
         (vp->fp r1)
         (tmp r2))
     (when (not (constant? ip))
@@ -577,10 +577,8 @@ both arguments were register or memory."
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
-    (jump (jit-beqi tmp (constant ip)) next)
-    (emit-side-exit)
+    (jump (jit-bnei tmp (constant ip)) (current-exit))
 
-    (jit-link next)
     (scm-frame-dynamic-link tmp vp->fp)
     (jit-lshi tmp tmp (imm %word-size-in-bits))
     (jit-addr vp->fp vp->fp tmp)
@@ -824,18 +822,18 @@ both arguments were register or memory."
 ;; Type check local N with TYPE and load to gpr or memory DST.  Won't work when
 ;; n is negative.
 (define-prim (%fref (int dst) (void n) (void type))
-  (let ((exit (jit-forward))
-        (next (jit-forward)))
-    (define-syntax-rule (load-constant constant)
-      (begin
-        (jump (jit-bnei r0 constant) exit)
-        (cond
-         ((gpr? dst)
-          (jit-movr (gpr dst) r0))
-         ((memory? dst)
-          (memory-set! dst r0))
-         (else
-          (error "%fref" dst n type)))))
+  (let-syntax ((load-constant
+                (syntax-rules ()
+                  ((_ constant)
+                   (begin
+                     (jump (jit-bnei r0 constant) (current-exit))
+                     (cond
+                      ((gpr? dst)
+                       (jit-movr (gpr dst) r0))
+                      ((memory? dst)
+                       (memory-set! dst r0))
+                      (else
+                       (error "%fref" dst n type))))))))
     (when (or (not (constant? n))
               (not (constant? type)))
       (error "%fref" dst n type))
@@ -845,7 +843,7 @@ both arguments were register or memory."
     (let ((type (ref-value type)))
       (cond
        ((eq? type &exact-integer)
-        (jump (scm-not-inump r0) exit)
+        (jump (scm-not-inump r0) (current-exit))
         (cond
          ((gpr? dst)
           (jit-rshi (gpr dst) r0 (imm 2)))
@@ -870,11 +868,7 @@ both arguments were register or memory."
          ((memory? dst)
           (memory-set! dst r0))))
        (else
-        (error "%fref" dst n type))))
-    (jump next)
-    (jit-link exit)
-    (emit-side-exit)
-    (jit-link next)))
+        (error "%fref" dst n type))))))
 
 ;; Load frame local to fpr or memory, with type check. This primitive is used
 ;; for loading to floating point register.

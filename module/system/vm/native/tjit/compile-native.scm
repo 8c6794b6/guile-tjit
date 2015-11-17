@@ -443,6 +443,9 @@ are local index number."
                         (gen-bailout
                          (compile-bailout asm trace-id snapshot trampoline args)))
                     (set-asm-out-code! asm out-code)
+                    (let ((exit (jit-forward)))
+                      (jit-patch-abs exit out-code)
+                      (set-asm-exit! asm exit))
                     (lp ops loop-locals loop-vars (cons gen-bailout acc)))))))
           (else
            (error "compile-ops: no snapshot with id" snapshot-id))))
@@ -465,7 +468,7 @@ are local index number."
                                              fragment-end-address)
                                       (and=> (get-root-trace linked-ip)
                                              fragment-end-address)))
-                   ((asm) (make-asm env fp-offset #f end-address))
+                   ((asm) (make-asm env end-address))
                    ((loop-locals loop-vars gen-bailouts)
                     (compile-ops asm entry '()))
                    ((loop-label gen-bailouts)

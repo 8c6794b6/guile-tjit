@@ -277,7 +277,7 @@ assumes `objdump' executable already installed."
             (let* ((addr (pointer-address
                           ((@ (system vm native tjit fragment) trampoline-ref)
                            trampoline n)))
-                   (pat (format #f "jmp +0x0*~x" addr)))
+                   (pat (format #f "j[a-z]+ +0x0*~x" addr)))
               (lp (+ n 1) (cons (cons n (make-regexp pat)) acc)))
             acc))))
   (define (side-exit-jump? line)
