@@ -145,7 +145,7 @@
        "  >")
       (else
        "   ")))
-  (define (pretty-locals locals variables)
+  (define (pretty-locals locals)
     (if (null? locals)
         "--"
         (map (match-lambda ((n . t)
@@ -162,6 +162,8 @@
                       (number->string x))))
            ((false? x)
             (green "#f"))
+           ((null? x)
+            (green "()"))
            ((undefined? x)
             (green "#<undefined>"))
            ((unspecified? x)
@@ -182,7 +184,7 @@
       (($ $snapshot id sp-offset fp-offset nlocals locals variables)
        (format #t "----     [snap~3,,,' @a] ~a:~a:~a ~a~%"
                id sp-offset fp-offset nlocals
-               (pretty-locals locals variables)))
+               (pretty-locals locals)))
       (_
        (format #t "----     NOT-A-SNAPSHOT~%"))))
   (define (dump-one idx op)
@@ -198,6 +200,11 @@
                     (pretty-register dst)
                     (pretty-constant n)
                     (pretty-type (cdr type))))
+           (('%return (const . addr))
+            (format #t "~4,,,'0@a ~a (~7a ~a|~a)~%" idx mark
+                    '%return
+                    (cyan (number->string addr 16))
+                    (addr->source-line addr)))
            (_
             (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
                     (car op)
@@ -221,9 +228,11 @@
     (_
      (format #t ";;; primops: ~a~%" plist))))
 
-(define (dump-disassembler trace-id entry-ip code code-size addr)
+(define (dump-disassembler trace-id entry-ip code code-size adjust
+                           loop-address snapshots trampoline)
   (format #t ";;; trace ~a: disassembly~%" trace-id)
-  ((tjit-disassembler) trace-id entry-ip code code-size addr))
+  ((tjit-disassembler) trace-id entry-ip code code-size adjust
+   loop-address snapshots trampoline))
 
 
 ;;;
@@ -364,7 +373,10 @@
                                           entry-ip
                                           code
                                           (jit-code-size)
-                                          (pointer-address ptr)))
+                                          (pointer-address ptr)
+                                          loop-address
+                                          snapshots
+                                          trampoline))
                      ;; When this trace is a side trace, replace the native code
                      ;; of trampoline in parent fragment.
                      (when fragment

@@ -32,8 +32,10 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (ice-9 popen)
+  #:use-module (ice-9 regex)
   #:use-module (ice-9 rdelim)
   #:use-module (rnrs bytevectors)
+  #:use-module (system foreign)
   #:use-module (system vm vm)
   #:use-module (srfi srfi-9)
   #:export (tjit-ip-counter
@@ -261,13 +263,40 @@ option was set to true."
        (tjit-stats))
       (display "not running with `vm-tjit' engine.\n")))
 
-(define (default-disassembler trace-id entry-ip code code-size addr)
+(define (default-disassembler trace-id entry-ip code code-size adjust
+          loop-address snapshots trampoline)
   "Disassemble CODE with size CODE-SIZE, using ADDR as offset address.
 
 TRACE-ID is the trace-id of given code, ENTRY-IP is the starting IP of the trace
 which the code was compiled from. Default value is for x86-64 architecture,
 assumes `objdump' executable already installed."
-  (let ((path (format #f "/tmp/trace-~a-~x" trace-id entry-ip)))
+  (define trampoline-address-rxs
+    (let ((nexit (hash-count (const #t) snapshots)))
+      (let lp ((n 0) (acc '()))
+        (if (< n nexit)
+            (let* ((addr (pointer-address
+                          ((@ (system vm native tjit fragment) trampoline-ref)
+                           trampoline n)))
+                   (pat (format #f "jmp +0x0*~x" addr)))
+              (lp (+ n 1) (cons (cons n (make-regexp pat)) acc)))
+            acc))))
+  (define (side-exit-jump? line)
+    (let lp ((rxs trampoline-address-rxs))
+      (match rxs
+        (((id . rx) . rxs)
+         (if (regexp-exec rx line)
+             id
+             (lp rxs)))
+        (()
+         #f))))
+  (let* ((path (format #f "/tmp/trace-~a-~x" trace-id entry-ip))
+         (loop-address/i (if (pointer? loop-address)
+                             (pointer-address loop-address)
+                             0))
+         (loop-start/rx
+          (make-regexp (format #f "^0x0*~x" loop-address/i)))
+         (loop-jump/rx
+          (make-regexp (format #f " j[a-z]+ +0x0*~x" loop-address/i))))
     (call-with-output-file path
       (lambda (port)
         (let ((code-copy (make-bytevector code-size)))
@@ -275,12 +304,25 @@ assumes `objdump' executable already installed."
           (put-bytevector port code-copy))))
     (let* ((fmt "objdump -D -b binary -mi386 -Mintel,x86-64 \\
 --prefix-address --dwarf-start=1 --adjust-vma=~a ~a")
-           (objdump (format #f fmt addr path))
+           (objdump (format #f fmt adjust path))
            (pipe (open-input-pipe objdump)))
       (let lp ((line (read-line pipe)) (n 0))
         (when (not (eof-object? line))
           (when (<= 2 n)
+            (when (and (pointer? loop-address)
+                       (regexp-exec loop-start/rx line))
+              (display "loop:\n"))
             (display line)
+            (when (and (pointer? loop-address)
+                       (regexp-exec loop-jump/rx line))
+              (display "    ->loop"))
+            (cond
+             ((side-exit-jump? line)
+              => (lambda (id)
+                   (display "    ->")
+                   (display id)))
+             (else
+              (values)))
             (newline))
           (lp (read-line pipe) (+ n 1))))
       (close-pipe pipe)
