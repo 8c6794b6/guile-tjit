@@ -329,10 +329,10 @@
             (with-jit-state
              (jit-prolog)
              (let-values
-                 (((trampoline loop-label loop-locals loop-vars fp-offset)
+                 (((trampoline loop-label loop-locals loop-vars fp-offset
+                               gen-bailouts)
                    (compile-native ops entry-ip locals snapshots fragment
-                                   parent-exit-id linked-ip
-                                   trace-id)))
+                                   parent-exit-id linked-ip trace-id)))
                (let ((epilog-label (jit-label)))
                  (jit-patch epilog-label)
                  (jit-retr reg-retval)
@@ -354,6 +354,14 @@
                            (or (and fragment (fragment-id fragment))
                                0)))
                      (make-bytevector-executable! code)
+
+                     ;; Emit bailouts with end address of this code.
+                     ;; Side traces need to jump to the address of
+                     ;; epilogue of parent root trace, to manage
+                     ;; non-volatile registers.
+                     (for-each (lambda (proc)
+                                 (proc end-address))
+                               gen-bailouts)
 
                      ;; Same entry-ip could be used when side exit 0 was
                      ;; taken for multiple times. Using trace-id as hash

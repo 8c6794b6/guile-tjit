@@ -421,8 +421,8 @@ are local index number."
 
 (define (compile-primlist primlist entry-ip snapshots fp-offset fragment
                           trampoline linked-ip trace-id)
-  (define (compile-ops asm ops)
-    (let lp ((ops ops) (loop-locals #f) (loop-vars #f))
+  (define (compile-ops asm ops acc)
+    (let lp ((ops ops) (loop-locals #f) (loop-vars #f) (acc acc))
       (match ops
         ((('%snap snapshot-id . args) . ops)
          (cond
@@ -432,18 +432,18 @@ are local index number."
                  ((snapshot-set-loop-info? snapshot)
                   (match snapshot
                     (($ $snapshot _ _ _ _ local-x-types)
-                     (lp ops local-x-types args))
+                     (lp ops local-x-types args acc))
                     (else
                      (error "snapshot loop info not found"))))
                  ((snapshot-jump-to-linked-code? snapshot)
                   (compile-link args snapshot asm linked-ip fragment)
-                  (lp ops loop-locals loop-vars))
+                  (lp ops loop-locals loop-vars acc))
                  (else
-                  (let ((ptr (compile-bailout asm trace-id snapshot args))
-                        (out-code (trampoline-ref trampoline snapshot-id)))
-                    (trampoline-set! trampoline snapshot-id ptr)
+                  (let ((out-code (trampoline-ref trampoline snapshot-id))
+                        (gen-bailout
+                         (compile-bailout asm trace-id snapshot trampoline args)))
                     (set-asm-out-code! asm out-code)
-                    (lp ops loop-locals loop-vars))))))
+                    (lp ops loop-locals loop-vars (cons gen-bailout acc)))))))
           (else
            (error "compile-ops: no snapshot with id" snapshot-id))))
         (((op-name . args) . ops)
@@ -454,11 +454,11 @@ are local index number."
                   (when (<= 4 verbosity)
                     (jit-note (format #f "~a" (cons op-name args)) 0)))
                 (apply proc asm args)
-                (lp ops loop-locals loop-vars)))
+                (lp ops loop-locals loop-vars acc)))
           (else
            (error "op not found" op-name))))
         (()
-         (values loop-locals loop-vars)))))
+         (values loop-locals loop-vars acc)))))
   (match primlist
     (($ $primlist entry loop mem-idx env handle-interrupts?)
      (let*-values (((end-address) (or (and=> fragment
@@ -466,106 +466,111 @@ are local index number."
                                       (and=> (get-root-trace linked-ip)
                                              fragment-end-address)))
                    ((asm) (make-asm env fp-offset #f end-address))
-                   ((loop-locals loop-vars) (compile-ops asm entry))
-                   ((loop-label)
+                   ((loop-locals loop-vars gen-bailouts)
+                    (compile-ops asm entry '()))
+                   ((loop-label gen-bailouts)
                     (if (null? loop)
-                        #f
+                        (values #f gen-bailouts)
                         (let ((loop-label (jit-label)))
                           (jit-note "loop" 0)
                           ;; Call scm_async_tick when heap objects were used in
                           ;; compiled native code.
                           (when handle-interrupts?
                             (vm-handle-interrupts asm))
-                          (compile-ops asm loop)
-                          (jump loop-label)
-                          loop-label))))
-       (values trampoline loop-label loop-locals loop-vars fp-offset)))
+                          (let-values
+                              (((a b gen-bailouts)
+                                (compile-ops asm loop gen-bailouts)))
+                            (jump loop-label)
+                            (values loop-label gen-bailouts))))))
+       (values trampoline loop-label loop-locals loop-vars fp-offset
+               gen-bailouts)))
     (_
      (error "compile-primlist: not a $primlist" primlist))))
 
-(define (compile-bailout asm trace-id snapshot args)
-  (let ((ip (snapshot-ip snapshot))
-        (id (snapshot-id snapshot)))
-    (debug 3 ";;; compile-bailout:~%")
-    (debug 3 ";;;   snapshot-id: ~a~%" id)
-    (debug 3 ";;;   next-ip:     ~a~%" ip)
-    (debug 3 ";;;   args:        ~a~%" args)
-    (with-jit-state
-     (jit-prolog)
-     (jit-tramp (imm (* 4 %word-size)))
-     (match snapshot
-       (($ $snapshot _ sp-offset fp-offset nlocals local-x-types)
+(define (compile-bailout asm trace-id snapshot trampoline args)
+  (lambda (end-address)
+    (let ((ip (snapshot-ip snapshot))
+          (id (snapshot-id snapshot)))
+      (debug 3 ";;; compile-bailout:~%")
+      (debug 3 ";;;   snapshot-id: ~a~%" id)
+      (debug 3 ";;;   next-ip:     ~a~%" ip)
+      (debug 3 ";;;   args:        ~a~%" args)
+      (with-jit-state
+       (jit-prolog)
+       (jit-tramp (imm (* 4 %word-size)))
+       (match snapshot
+         (($ $snapshot _ sp-offset fp-offset nlocals local-x-types)
 
-        ;; Store contents of args to frame. No need to recover the frame with
-        ;; snapshot when local-x-types were null.  Still snapshot data is used,
-        ;; so that the bytevector of compiled native code could be stored in
-        ;; fragment, to avoid garbage collection.
-        (when (not (null? local-x-types))
-          (let lp ((local-x-types local-x-types)
-                   (args args))
-            (match (list local-x-types args)
-              ((((local . type) . local-x-types) (arg . args))
-               (store-frame local type arg)
-               (lp local-x-types args))
-              (_
-               (values)))))
+          ;; Store contents of args to frame. No need to recover the frame with
+          ;; snapshot when local-x-types were null.  Still snapshot data is used,
+          ;; so that the bytevector of compiled native code could be stored in
+          ;; fragment, to avoid garbage collection.
+          (when (not (null? local-x-types))
+            (let lp ((local-x-types local-x-types)
+                     (args args))
+              (match (list local-x-types args)
+                ((((local . type) . local-x-types) (arg . args))
+                 (store-frame local type arg)
+                 (lp local-x-types args))
+                (_
+                 (values)))))
 
-        ;; Shift SP.
-        (when (not (= sp-offset 0))
-          (shift-sp sp-offset))
+          ;; Shift SP.
+          (when (not (= sp-offset 0))
+            (shift-sp sp-offset))
 
-        ;; Shift FP for inlined procedure.
-        (when (< fp-offset 0)
-          (shift-fp fp-offset))
+          ;; Shift FP for inlined procedure.
+          (when (< fp-offset 0)
+            (shift-fp fp-offset))
 
-        ;; Sync next IP with vp->ip for VM.
-        (jit-movi r0 (imm ip))
-        (vm-sync-ip r0)
+          ;; Sync next IP with vp->ip for VM.
+          (jit-movi r0 (imm ip))
+          (vm-sync-ip r0)
 
-        ;; Make tjit-retval for VM interpreter.
-        (jit-prepare)
-        (jit-pushargr reg-thread)
-        (jit-pushargi (scm-i-makinumi id))
-        (jit-pushargi (scm-i-makinumi trace-id))
-        (jit-pushargi (scm-i-makinumi nlocals))
-        (jit-calli %scm-tjit-make-retval)
-        (jit-retval reg-retval)
+          ;; Make tjit-retval for VM interpreter.
+          (jit-prepare)
+          (jit-pushargr reg-thread)
+          (jit-pushargi (scm-i-makinumi id))
+          (jit-pushargi (scm-i-makinumi trace-id))
+          (jit-pushargi (scm-i-makinumi nlocals))
+          (jit-calli %scm-tjit-make-retval)
+          (jit-retval reg-retval)
 
-        ;; Debug code to dump tjit-retval and locals.
-        (let ((dump-option (tjit-dump-option)))
-          (when (tjit-dump-exit? dump-option)
-            (jit-movr reg-thread reg-retval)
-            (jit-prepare)
-            (jit-pushargr reg-retval)
-            (load-vp reg-retval)
-            (jit-pushargr reg-retval)
-            (jit-calli %scm-tjit-dump-retval)
-            (jit-movr reg-retval reg-thread)
-            (when (tjit-dump-locals? dump-option)
+          ;; Debug code to dump tjit-retval and locals.
+          (let ((dump-option (tjit-dump-option)))
+            (when (tjit-dump-exit? dump-option)
               (jit-movr reg-thread reg-retval)
               (jit-prepare)
-              (jit-pushargi (scm-i-makinumi trace-id))
-              (jit-pushargi (imm nlocals))
-              (jit-ldxi reg-retval fp vp->sp-offset)
               (jit-pushargr reg-retval)
-              (jit-calli %scm-tjit-dump-locals)
-              (jit-movr reg-retval reg-thread)))))
-       (_
-        (debug 1 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
+              (load-vp reg-retval)
+              (jit-pushargr reg-retval)
+              (jit-calli %scm-tjit-dump-retval)
+              (jit-movr reg-retval reg-thread)
+              (when (tjit-dump-locals? dump-option)
+                (jit-movr reg-thread reg-retval)
+                (jit-prepare)
+                (jit-pushargi (scm-i-makinumi trace-id))
+                (jit-pushargi (imm nlocals))
+                (jit-ldxi reg-retval fp vp->sp-offset)
+                (jit-pushargr reg-retval)
+                (jit-calli %scm-tjit-dump-locals)
+                (jit-movr reg-retval reg-thread)))))
+         (_
+          (debug 1 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
 
-     (return-to-interpreter)
-     (jit-epilog)
-     (jit-realize)
-     (let* ((estimated-code-size (jit-code-size))
-            (code (make-bytevector estimated-code-size)))
-       (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-       (let ((ptr (jit-emit)))
-         (debug 3 ";;; compile-bailout: ptr=~a~%" ptr)
-         (make-bytevector-executable! code)
-         (dump-bailout ip id code)
-         (set-snapshot-variables! snapshot args)
-         (set-snapshot-code! snapshot code)
-         ptr)))))
+       (jumpi end-address)
+       (jit-epilog)
+       (jit-realize)
+       (let* ((estimated-code-size (jit-code-size))
+              (code (make-bytevector estimated-code-size)))
+         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+         (let ((ptr (jit-emit)))
+           (debug 3 ";;; compile-bailout: ptr=~a~%" ptr)
+           (make-bytevector-executable! code)
+           (dump-bailout ip id code)
+           (set-snapshot-variables! snapshot args)
+           (set-snapshot-code! snapshot code)
+           (trampoline-set! trampoline id ptr)))))))
 
 (define (compile-link args snapshot asm linked-ip fragment)
   (let* ((linked-fragment (get-root-trace linked-ip))

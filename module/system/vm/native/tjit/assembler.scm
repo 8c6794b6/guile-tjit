@@ -59,7 +59,6 @@
             jumpi
             sp-ref
             sp-set!
-            return-to-interpreter
             scm-from-double
             scm-frame-dynamic-link
             scm-frame-set-dynamic-link!
@@ -223,9 +222,6 @@
 
 (define registers-offset
   (make-negative-pointer (* -2 %word-size)))
-
-(define *ra-offset*
-  (make-negative-pointer (* -3 %word-size)))
 
 (define (volatile-offset reg)
   (let ((n (- (ref-value reg) *num-non-volatiles*)))
@@ -404,36 +400,16 @@
    (else
     (jit-stxi-d (moffs dst) fp src))))
 
-(define-syntax-rule (return-to-interpreter)
-  "Emit native code which returns to VM interpreter.
-
-This macro emits native code for jumping to return address."
-  (begin
-    (jit-ldxi r1 fp *ra-offset*)
-    (jit-jmpr r1)))
-
 (define-syntax-rule (emit-side-exit)
-  "Macro to emit native code of side exit.
+  "Emit native code of side exit.
 
-This macro emits native code which does jumping to current side exit, and does
-storing of return address used by next side exit. Assuming that the `out-code'
-of ASM contains native code for next side exit.
+This macro emits native code which does jumping to current side exit. Assuming
+that the `out-code' of ASM contains native code for next side exit.
 
 Side trace reuses native code which does %rsp shifting from parent trace's
-epilog part. Native code of side trace does not reset %rsp, since the use of
+epilog part. Native code of side trace does not reset %rsp, since it uses
 `jit-tramp'."
-  (let ((addr (jit-movi r1 (imm 0))))
-    (jit-stxi *ra-offset* fp r1)
-    (jumpi (asm-out-code asm))
-    (jit-patch addr) ; The jump destination for `return-to-interpreter'.
-    (cond
-     ((asm-end-address asm)
-      => (lambda (address)
-           (debug 3 ";;; emit-side-exit: jumping to ~a~%" address)
-           (jumpi address)))
-     (else
-      (debug 3 ";;; emit-side-exit: returning `reg-retval'~%")
-      (jit-retr reg-retval)))))
+  (jumpi (asm-out-code asm)))
 
 (define (move dst src)
   (cond
