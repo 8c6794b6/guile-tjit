@@ -585,21 +585,32 @@
                    kbox))
                 (else
                  (adapt-arity cps k src out))))
-            (define (unbox-arg cps arg have-arg)
+            (define (unbox-arg cps arg unbox-op have-arg)
               (with-cps cps
-                (letv f64)
-                (let$ body (have-arg f64))
-                (letk kunboxed ($kargs ('f64) (f64) ,body))
+                (letv unboxed)
+                (let$ body (have-arg unboxed))
+                (letk kunboxed ($kargs ('unboxed) (unboxed) ,body))
                 (build-term
-                  ($continue kunboxed src ($primcall 'scm->f64 (arg))))))
+                  ($continue kunboxed src ($primcall unbox-op (arg))))))
             (define (unbox-args cps args have-args)
               (case instruction
+                ((bv-f32-ref bv-f64-ref)
+                 (match args
+                   ((bv idx)
+                    (unbox-arg
+                     cps idx 'scm->u64
+                     (lambda (cps idx)
+                       (have-args cps (list bv idx)))))))
                 ((bv-f32-set! bv-f64-set!)
                  (match args
                    ((bv idx val)
-                    (unbox-arg cps val
-                               (lambda (cps val)
-                                 (have-args cps (list bv idx val)))))))
+                    (unbox-arg
+                     cps idx 'scm->u64
+                     (lambda (cps idx)
+                       (unbox-arg
+                        cps val 'scm->f64
+                        (lambda (cps val)
+                          (have-args cps (list bv idx val)))))))))
                 (else (have-args cps args))))
             (convert-args cps args
               (lambda (cps args)

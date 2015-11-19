@@ -756,8 +756,28 @@ minimum, and maximum."
   &exact-integer 8  #x0000000000000000 #xffffFFFFffffFFFF)
 (define-bytevector-accessors bv-s64-ref bv-s64-set!
   &exact-integer 8 (- #x8000000000000000) #x7fffFFFFffffFFFF)
-(define-bytevector-accessors bv-f32-ref bv-f32-set! &f64 4 -inf.0 +inf.0)
-(define-bytevector-accessors bv-f64-ref bv-f64-set! &f64 8 -inf.0 +inf.0)
+
+(define-syntax-rule (define-bytevector-uaccessors ref set type size min max)
+  (begin
+    (define-type-checker (ref bv idx)
+      (and (check-type bv &bytevector 0 +inf.0)
+           (check-type idx &u64 0 +inf.0)
+           (< (&max idx) (- (&min bv) size))))
+    (define-type-inferrer (ref bv idx result)
+      (restrict! bv &bytevector (+ (&min idx) size) +inf.0)
+      (restrict! idx &u64 0 (- (&max bv) size))
+      (define! result type min max))
+    (define-type-checker (set bv idx val)
+      (and (check-type bv &bytevector 0 +inf.0)
+           (check-type idx &u64 0 +inf.0)
+           (check-type val type min max)
+           (< (&max idx) (- (&min bv) size))))
+    (define-type-inferrer (set! bv idx val)
+      (restrict! bv &bytevector (+ (&min idx) size) +inf.0)
+      (restrict! idx &exact-integer 0 (- (&max bv) size))
+      (restrict! val type min max))))
+(define-bytevector-uaccessors bv-f32-ref bv-f32-set! &f64 4 -inf.0 +inf.0)
+(define-bytevector-uaccessors bv-f64-ref bv-f64-set! &f64 8 -inf.0 +inf.0)
 
 
 

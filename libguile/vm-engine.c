@@ -2990,17 +2990,19 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
 #define BV_FLOAT_REF(stem, fn_stem, type, size)				\
   do {									\
-    scm_t_signed_bits i;                                                \
     const type *float_ptr;						\
-    ARGS2 (bv, idx);							\
+    scm_t_uint8 dst, src, idx;                                          \
+    SCM bv;                                                             \
+    scm_t_uint64 c_idx;                                                 \
+    UNPACK_8_8_8 (op, dst, src, idx);                                   \
+    bv = SP_REF (src);                                                  \
+    c_idx = SP_REF_U64 (idx);                                           \
 									\
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-ref");                    \
-    i = SCM_I_INUM (idx);                                               \
-    float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);		\
+    float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx);        \
 									\
-    if (SCM_LIKELY (SCM_I_INUMP (idx)					\
-                    && (i >= 0)						\
-                    && (i + size <= SCM_BYTEVECTOR_LENGTH (bv))		\
+    if (SCM_LIKELY (size <= SCM_BYTEVECTOR_LENGTH (bv)                  \
+                    && (c_idx <= SCM_BYTEVECTOR_LENGTH (bv) - size)     \
                     && (ALIGNED_P (float_ptr, type))))			\
       {                                                                 \
         SP_SET_F64 (dst, *float_ptr);                                   \
@@ -3008,9 +3010,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       }                                                                 \
     else                                                                \
       {                                                                 \
-        SCM val;                                                        \
+        SCM scm_idx, val;                                               \
         SYNC_IP ();                                                     \
-        val = scm_bytevector_ ## fn_stem ## _native_ref (bv, idx);      \
+        scm_idx = scm_from_uint64 (c_idx);                              \
+        val = scm_bytevector_ ## fn_stem ## _native_ref (bv, scm_idx);  \
         SP_SET_F64 (dst, scm_to_double (val));                          \
         NEXT (1);                                                       \
       }                                                                 \
@@ -3130,29 +3133,30 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 #define BV_FLOAT_SET(stem, fn_stem, type, size)                         \
   do {                                                                  \
     scm_t_uint8 dst, idx, src;                                          \
-    scm_t_signed_bits i;                                                \
-    SCM bv, scm_idx;                                                    \
+    SCM bv;                                                             \
+    scm_t_uint64 c_idx;                                                 \
     double val;                                                         \
     type *float_ptr;                                                    \
 									\
     UNPACK_8_8_8 (op, dst, idx, src);                                   \
     bv = SP_REF (dst);                                                  \
-    scm_idx = SP_REF (idx);                                             \
+    c_idx = SP_REF_U64 (idx);                                           \
     val = SP_REF_F64 (src);                                             \
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
-    i = SCM_I_INUM (scm_idx);                                           \
-    float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);            \
+    float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx);        \
                                                                         \
-    if (SCM_LIKELY (SCM_I_INUMP (scm_idx)                               \
-                    && (i >= 0)                                         \
-                    && (i + size <= SCM_BYTEVECTOR_LENGTH (bv))         \
-                    && (ALIGNED_P (float_ptr, type))))                  \
+    if (SCM_LIKELY (size <= SCM_BYTEVECTOR_LENGTH (bv)                  \
+                    && c_idx <= SCM_BYTEVECTOR_LENGTH (bv) - size       \
+                    && ALIGNED_P (float_ptr, type)))                    \
       *float_ptr = val;                                                 \
     else                                                                \
       {                                                                 \
-        SCM boxed = scm_from_double (val);                              \
+        SCM boxed_idx, boxed_val;                                       \
+        boxed_idx = scm_from_uint64 (c_idx);                            \
+        boxed_val = scm_from_double (val);                              \
         SYNC_IP ();                                                     \
-        scm_bytevector_ ## fn_stem ## _native_set_x (bv, scm_idx, boxed); \
+        scm_bytevector_ ## fn_stem ## _native_set_x (bv, boxed_idx,     \
+                                                     boxed_val);        \
       }                                                                 \
     NEXT (1);                                                           \
   } while (0)
