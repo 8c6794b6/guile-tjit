@@ -3341,7 +3341,19 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (145, unused_145, NULL, NOP)
+  /* bv-length dst:12 src:12
+   *
+   * Store the length of the bytevector in SRC in DST, as an untagged
+   * 64-bit integer.
+   */
+  VM_DEFINE_OP (145, bv_length, "bv-length", OP1 (X8_S12_S12) | OP_DST)
+    {
+      ARGS1 (bv);
+      VM_VALIDATE_BYTEVECTOR (bv, "bytevector-length");
+      SP_SET_U64 (dst, SCM_BYTEVECTOR_LENGTH (bv));
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (146, unused_146, NULL, NOP)
   VM_DEFINE_OP (147, unused_147, NULL, NOP)
   VM_DEFINE_OP (148, unused_148, NULL, NOP)

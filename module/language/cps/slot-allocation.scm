@@ -793,7 +793,7 @@ are comparable with eqv?.  A tmp slot may be used."
              (($ $primcall (or 'scm->f64 'bv-f32-ref 'bv-f64-ref
                                'fadd 'fsub 'fmul 'fdiv))
               (intmap-add representations var 'f64))
-             (($ $primcall (or 'scm->u64))
+             (($ $primcall (or 'scm->u64 'bv-length))
               (intmap-add representations var 'u64))
              (_
               (intmap-add representations var 'scm))))

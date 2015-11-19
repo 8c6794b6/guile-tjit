@@ -160,6 +160,7 @@
             emit-make-array
             (emit-scm->f64* . emit-scm->f64)
             (emit-f64->scm* . emit-f64->scm)
+            (emit-bv-length* . emit-bv-length)
             (emit-bv-u8-ref* . emit-bv-u8-ref)
             (emit-bv-s8-ref* . emit-bv-s8-ref)
             (emit-bv-u16-ref* . emit-bv-u16-ref)

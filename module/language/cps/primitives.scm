@@ -41,6 +41,7 @@
     (modulo . mod)
     (variable-ref . box-ref)
     (variable-set! . box-set!)
+    (bytevector-length . bv-length)
     (bytevector-u8-ref . bv-u8-ref)
     (bytevector-u16-native-ref . bv-u16-ref)
     (bytevector-u32-native-ref . bv-u32-ref)

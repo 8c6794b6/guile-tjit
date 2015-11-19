@@ -576,6 +576,13 @@
                    (letk kbox ($kargs ('f64) (f64)
                                 ($continue k src ($primcall 'f64->scm (f64)))))
                    kbox))
+                ((bv-length)
+                 (with-cps cps
+                   (letv u64)
+                   (let$ k (adapt-arity k src out))
+                   (letk kbox ($kargs ('u64) (u64)
+                                ($continue k src ($primcall 'u64->scm (u64)))))
+                   kbox))
                 (else
                  (adapt-arity cps k src out))))
             (define (unbox-arg cps arg have-arg)

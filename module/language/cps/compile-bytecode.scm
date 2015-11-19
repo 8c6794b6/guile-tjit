@@ -185,6 +185,8 @@
          (emit-scm->f64 asm (from-sp dst) (from-sp (slot src))))
         (($ $primcall 'f64->scm (src))
          (emit-f64->scm asm (from-sp dst) (from-sp (slot src))))
+        (($ $primcall 'bv-length (bv))
+         (emit-bv-length asm (from-sp dst) (from-sp (slot bv))))
         (($ $primcall 'bv-u8-ref (bv idx))
          (emit-bv-u8-ref asm (from-sp dst) (from-sp (slot bv))
                          (from-sp (slot idx))))

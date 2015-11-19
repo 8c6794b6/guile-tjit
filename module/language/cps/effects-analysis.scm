@@ -360,7 +360,7 @@ is or might be a read or a write to the same location as A."
 
 ;; Bytevectors.
 (define-primitive-effects
-  ((bytevector-length _)                                       &type-check)
+  ((bv-length _)                                               &type-check)
 
   ((bv-u8-ref bv n)                (&read-object &bytevector)  &type-check)
   ((bv-s8-ref bv n)                (&read-object &bytevector)  &type-check)

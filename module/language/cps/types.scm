@@ -713,8 +713,8 @@ minimum, and maximum."
 ;;; Bytevectors.
 ;;;
 
-(define-simple-type-checker (bytevector-length &bytevector))
-(define-type-inferrer (bytevector-length bv result)
+(define-simple-type-checker (bv-length &bytevector))
+(define-type-inferrer (bv-length bv result)
   (restrict! bv &bytevector 0 +inf.0)
   (define! result &exact-integer (max (&min bv) 0) (&max bv)))
 
