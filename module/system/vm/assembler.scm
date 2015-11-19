@@ -95,6 +95,9 @@
             emit-br-if-<
             emit-br-if-<=
             emit-br-if-logtest
+            emit-br-if-u64-=
+            emit-br-if-u64-<
+            emit-br-if-u64-<=
             (emit-mov* . emit-mov)
             (emit-fmov* . emit-fmov)
             (emit-box* . emit-box)

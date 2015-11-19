@@ -376,6 +376,25 @@
       }                                                                 \
   }
 
+#define BR_U64_ARITHMETIC(crel,srel)                                    \
+  {                                                                     \
+    scm_t_uint32 a, b;                                                  \
+    scm_t_uint64 x, y;                                                  \
+    UNPACK_24 (op, a);                                                  \
+    UNPACK_24 (ip[1], b);                                               \
+    x = SP_REF_U64 (a);                                                 \
+    y = SP_REF_U64 (b);                                                 \
+    if ((ip[2] & 0x1) ? !(x crel y) : (x crel y))                       \
+      {                                                                 \
+        scm_t_int32 offset = ip[2];                                     \
+        offset >>= 8; /* Sign-extending shift. */                       \
+        if (offset <= 0)                                                \
+          VM_HANDLE_INTERRUPTS;                                         \
+        NEXT (offset);                                                  \
+      }                                                                 \
+    NEXT (3);                                                           \
+  }
+
 #define ARGS1(a1)                               \
   scm_t_uint16 dst, src;                        \
   SCM a1;                                       \
@@ -3358,9 +3377,31 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (146, unused_146, NULL, NOP)
-  VM_DEFINE_OP (147, unused_147, NULL, NOP)
-  VM_DEFINE_OP (148, unused_148, NULL, NOP)
+  /* br-if-= a:12 b:12 invert:1 _:7 offset:24
+   *
+   * If the value in A is = to the value in B, add OFFSET, a signed
+   * 24-bit number, to the current instruction pointer.
+   */
+  VM_DEFINE_OP (146, br_if_u64_ee, "br-if-u64-=", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_ARITHMETIC (==, scm_num_eq_p);
+    }
+
+  /* br-if-< a:12 b:12 invert:1 _:7 offset:24
+   *
+   * If the value in A is < to the value in B, add OFFSET, a signed
+   * 24-bit number, to the current instruction pointer.
+   */
+  VM_DEFINE_OP (147, br_if_u64_lt, "br-if-u64-<", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_ARITHMETIC (<, scm_less_p);
+    }
+
+  VM_DEFINE_OP (148, br_if_u64_le, "br-if-u64-<=", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_ARITHMETIC (<=, scm_leq_p);
+    }
+
   VM_DEFINE_OP (149, unused_149, NULL, NOP)
   VM_DEFINE_OP (150, unused_150, NULL, NOP)
   VM_DEFINE_OP (151, unused_151, NULL, NOP)

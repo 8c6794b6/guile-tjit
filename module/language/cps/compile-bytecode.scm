@@ -373,6 +373,11 @@
         (($ $primcall '= (a b)) (binary emit-br-if-= a b))
         (($ $primcall '>= (a b)) (binary emit-br-if-<= b a))
         (($ $primcall '> (a b)) (binary emit-br-if-< b a))
+        (($ $primcall 'u64-< (a b)) (binary emit-br-if-u64-< a b))
+        (($ $primcall 'u64-<= (a b)) (binary emit-br-if-u64-<= a b))
+        (($ $primcall 'u64-= (a b)) (binary emit-br-if-u64-= a b))
+        (($ $primcall 'u64->= (a b)) (binary emit-br-if-u64-<= b a))
+        (($ $primcall 'u64-> (a b)) (binary emit-br-if-u64-< b a))
         (($ $primcall 'logtest (a b)) (binary emit-br-if-logtest a b))))
 
     (define (compile-trunc label k exp nreq rest-var)

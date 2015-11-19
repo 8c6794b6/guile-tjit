@@ -93,7 +93,9 @@
 (define-branch-folder-alias eqv? eq?)
 
 (define (compare-ranges type0 min0 max0 type1 min1 max1)
-  (and (zero? (logand (logior type0 type1) (lognot &real)))
+  ;; Since &real, &u64, and &f64 are disjoint, we can compare once
+  ;; against their mask instead of doing three "or" comparisons.
+  (and (zero? (logand (logior type0 type1) (lognot (logior &real &f64 &u64))))
        (cond ((< max0 min1) '<)
              ((> min0 max1) '>)
              ((= min0 max0 min1 max1) '=)
@@ -106,30 +108,35 @@
     ((<) (values #t #t))
     ((= >= >) (values #t #f))
     (else (values #f #f))))
+(define-branch-folder-alias u64-< <)
 
 (define-binary-branch-folder (<= type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
     ((< <= =) (values #t #t))
     ((>) (values #t #f))
     (else (values #f #f))))
+(define-branch-folder-alias u64-<= <=)
 
 (define-binary-branch-folder (= type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
     ((=) (values #t #t))
     ((< >) (values #t #f))
     (else (values #f #f))))
+(define-branch-folder-alias u64-= =)
 
 (define-binary-branch-folder (>= type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
     ((> >= =) (values #t #t))
     ((<) (values #t #f))
     (else (values #f #f))))
+(define-branch-folder-alias u64->= >=)
 
 (define-binary-branch-folder (> type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
     ((>) (values #t #t))
     ((= <= <) (values #t #f))
     (else (values #f #f))))
+(define-branch-folder-alias u64-> >)
 
 (define-binary-branch-folder (logtest type0 min0 max0 type1 min1 max1)
   (define (logand-min a b)
