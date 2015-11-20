@@ -916,6 +916,7 @@ minimum, and maximum."
 
 (define-simple-type-checker (add &number &number))
 (define-type-checker (fadd a b) #t)
+(define-type-checker (uadd a b) #t)
 (define-type-inferrer (add a b result)
   (define-binary-result! a b result #t
                          (+ (&min a) (&min b))
@@ -924,9 +925,16 @@ minimum, and maximum."
   (define! result &f64
     (+ (&min a) (&min b))
     (+ (&max a) (&max b))))
+(define-type-inferrer (uadd a b result)
+  ;; Handle wraparound.
+  (let ((max (+ (&max a) (&max b))))
+    (if (<= max #xffffffffffffffff)
+        (define! result &u64 (+ (&min a) (&min b)) max)
+        (define! result &u64 0 #xffffffffffffffff))))
 
 (define-simple-type-checker (sub &number &number))
 (define-type-checker (fsub a b) #t)
+(define-type-checker (usub a b) #t)
 (define-type-inferrer (sub a b result)
   (define-binary-result! a b result #t
                          (- (&min a) (&max b))
@@ -935,9 +943,16 @@ minimum, and maximum."
   (define! result &f64
     (- (&min a) (&max b))
     (- (&max a) (&min b))))
+(define-type-inferrer (usub a b result)
+  ;; Handle wraparound.
+  (let ((min (- (&min a) (&max b))))
+    (if (< min 0)
+        (define! result &u64 0 #xffffffffffffffff)
+        (define! result &u64 min (- (&max a) (&min b))))))
 
 (define-simple-type-checker (mul &number &number))
 (define-type-checker (fmul a b) #t)
+(define-type-checker (umul a b) #t)
 (define (mul-result-range same? nan-impossible? min-a max-a min-b max-b)
   (define (nan* a b)
     (if (and (or (and (inf? a) (zero? b))
@@ -980,6 +995,12 @@ minimum, and maximum."
                                           min-a max-a min-b max-b))
       (lambda (min max)
         (define! result &f64 min max)))))
+(define-type-inferrer (umul a b result)
+  ;; Handle wraparound.
+  (let ((max (* (&max a) (&max b))))
+    (if (<= max #xffffffffffffffff)
+        (define! result &u64 (* (&min a) (&min b)) max)
+        (define! result &u64 0 #xffffffffffffffff))))
 
 (define-type-checker (div a b)
   (and (check-type a &number -inf.0 +inf.0)

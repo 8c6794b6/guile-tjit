@@ -3402,9 +3402,48 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       BR_U64_ARITHMETIC (<=, scm_leq_p);
     }
 
-  VM_DEFINE_OP (149, unused_149, NULL, NOP)
-  VM_DEFINE_OP (150, unused_150, NULL, NOP)
-  VM_DEFINE_OP (151, unused_151, NULL, NOP)
+  /* uadd dst:8 a:8 b:8
+   *
+   * Add A to B, and place the result in DST.  The operands and the
+   * result are unboxed unsigned 64-bit integers.  Overflow will wrap
+   * around.
+   */
+  VM_DEFINE_OP (149, uadd, "uadd", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+      UNPACK_8_8_8 (op, dst, a, b);
+      SP_SET_U64 (dst, SP_REF_U64 (a) + SP_REF_U64 (b));
+      NEXT (1);
+    }
+
+  /* usub dst:8 a:8 b:8
+   *
+   * Subtract B from A, and place the result in DST.  The operands and
+   * the result are unboxed unsigned 64-bit integers.  Overflow will
+   * wrap around.
+   */
+  VM_DEFINE_OP (150, usub, "usub", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+      UNPACK_8_8_8 (op, dst, a, b);
+      SP_SET_U64 (dst, SP_REF_U64 (a) - SP_REF_U64 (b));
+      NEXT (1);
+    }
+
+  /* umul dst:8 a:8 b:8
+   *
+   * Multiply A and B, and place the result in DST.  The operands and
+   * the result are unboxed unsigned 64-bit integers.  Overflow will
+   * wrap around.
+   */
+  VM_DEFINE_OP (151, umul, "umul", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+      UNPACK_8_8_8 (op, dst, a, b);
+      SP_SET_U64 (dst, SP_REF_U64 (a) * SP_REF_U64 (b));
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (152, unused_152, NULL, NOP)
   VM_DEFINE_OP (153, unused_153, NULL, NOP)
   VM_DEFINE_OP (154, unused_154, NULL, NOP)
