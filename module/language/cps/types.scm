@@ -206,6 +206,15 @@
 (define-compile-time-value &range-min (- #x8000000000000000))
 (define-compile-time-value &range-max    #xffffFFFFffffFFFF)
 
+;; This is a hack that takes advantage of knowing that
+;; most-positive-fixnum is the size of a word, but with two tag bits and
+;; one sign bit.  We also assume that the current common architectural
+;; restriction of a maximum 48-bit address space means that we won't see
+;; a size_t value above 2^48.
+(define *max-size-t*
+  (min (+ (ash most-positive-fixnum 3) #b111)
+       (1- (ash 1 48))))
+
 (define-inlinable (make-unclamped-type-entry type min max)
   (vector type min max))
 (define-inlinable (type-entry-type tentry)
@@ -271,10 +280,18 @@
      (logior (type-entry-type a) (type-entry-type b))
      (let ((a-min (type-entry-min a))
            (b-min (type-entry-min b)))
-       (if (< b-min a-min) -inf.0 a-min))
+       (cond
+        ((not (< b-min a-min)) a-min)
+        ((> 0 b-min) 0)
+        ((> &range-min b-min) &range-min)
+        (else -inf.0)))
      (let ((a-max (type-entry-max a))
            (b-max (type-entry-max b)))
-       (if (> b-max a-max) +inf.0 a-max))))))
+       (cond
+        ((not (> b-max a-max)) a-max)
+        ((> *max-size-t* b-max) *max-size-t*)
+        ((> &range-max b-max) &range-max)
+        (else +inf.0)))))))
 
 (define (type-entry-intersection a b)
   (cond
