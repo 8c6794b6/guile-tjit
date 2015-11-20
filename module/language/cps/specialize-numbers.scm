@@ -151,88 +151,112 @@
        (_ defs)))
    labels empty-intmap))
 
-;; Placeholder until we add the real implementation.
-(define (compute-specializable-u64-vars cps body preds defs)
-  empty-intset)
+;; Compute vars whose definitions are all unboxable and whose uses
+;; include an unbox operation.
+(define (compute-specializable-vars cps body preds defs
+                                    exp-result-unboxable?
+                                    unbox-op)
+  ;; Compute a map of VAR->LABEL... indicating the set of labels that
+  ;; define VAR with unboxable values, given the set of vars
+  ;; UNBOXABLE-VARS which is known already to be unboxable.
+  (define (collect-unboxable-def-labels unboxable-vars)
+    (define (add-unboxable-def unboxable-defs var label)
+      (intmap-add unboxable-defs var (intset label) intset-union))
+    (intset-fold (lambda (label unboxable-defs)
+                   (match (intmap-ref cps label)
+                     (($ $kargs _ _ ($ $continue k _ exp))
+                      (match exp
+                        ((? exp-result-unboxable?)
+                         (match (intmap-ref cps k)
+                           (($ $kargs (_) (def))
+                            (add-unboxable-def unboxable-defs def label))))
+                        (($ $values vars)
+                         (match (intmap-ref cps k)
+                           (($ $kargs _ defs)
+                            (fold
+                             (lambda (var def unboxable-defs)
+                               (if (intset-ref unboxable-vars var)
+                                   (add-unboxable-def unboxable-defs def label)
+                                   unboxable-defs))
+                             unboxable-defs vars defs))
+                           ;; Could be $ktail for $values.
+                           (_ unboxable-defs)))
+                        (_ unboxable-defs)))
+                     (_ unboxable-defs)))
+                 body empty-intmap))
+
+  ;; Compute the set of vars which are always unboxable.
+  (define (compute-unboxable-defs)
+    (fixpoint
+     (lambda (unboxable-vars)
+       (intmap-fold
+        (lambda (def unboxable-pred-labels unboxable-vars)
+          (if (and (not (intset-ref unboxable-vars def))
+                   ;; Are all defining expressions unboxable?
+                   (and-map (lambda (pred)
+                              (intset-ref unboxable-pred-labels pred))
+                            (intmap-ref preds (intmap-ref defs def))))
+              (intset-add unboxable-vars def)
+              unboxable-vars))
+        (collect-unboxable-def-labels unboxable-vars)
+        unboxable-vars))
+     empty-intset))
+
+  ;; Compute the set of vars that may ever be unboxed.
+  (define (compute-unbox-uses unboxable-defs)
+    (intset-fold
+     (lambda (label unbox-uses)
+       (match (intmap-ref cps label)
+         (($ $kargs _ _ ($ $continue k _ exp))
+          (match exp
+            (($ $primcall (? (lambda (op) (eq? op unbox-op))) (var))
+             (intset-add unbox-uses var))
+            (($ $values vars)
+             (match (intmap-ref cps k)
+               (($ $kargs _ defs)
+                (fold (lambda (var def unbox-uses)
+                        (if (intset-ref unboxable-defs def)
+                            (intset-add unbox-uses var)
+                            unbox-uses))
+                      unbox-uses vars defs))
+               (($ $ktail)
+                ;; Assume return is rare and that any unboxable def can
+                ;; be reboxed when leaving the procedure.
+                (fold (lambda (var unbox-uses)
+                        (intset-add unbox-uses var))
+                      unbox-uses vars))))
+            (_ unbox-uses)))
+         (_ unbox-uses)))
+     body empty-intset))
+
+  (let ((unboxable-defs (compute-unboxable-defs)))
+    (intset-intersect unboxable-defs (compute-unbox-uses unboxable-defs))))
 
 ;; Compute vars whose definitions are all inexact reals and whose uses
 ;; include an unbox operation.
 (define (compute-specializable-f64-vars cps body preds defs)
-  ;; Compute a map of VAR->LABEL... indicating the set of labels that
-  ;; define VAR with f64 values, given the set of vars F64-VARS which is
-  ;; known already to be f64-valued.
-  (define (collect-f64-def-labels f64-vars)
-    (define (add-f64-def f64-defs var label)
-      (intmap-add f64-defs var (intset label) intset-union))
-    (intset-fold (lambda (label f64-defs)
-                   (match (intmap-ref cps label)
-                     (($ $kargs _ _ ($ $continue k _ exp))
-                      (match exp
-                        ((or ($ $primcall 'f64->scm (_))
-                             ($ $const (and (? number?) (? inexact?) (? real?))))
-                         (match (intmap-ref cps k)
-                           (($ $kargs (_) (def))
-                            (add-f64-def f64-defs def label))))
-                        (($ $values vars)
-                         (match (intmap-ref cps k)
-                           (($ $kargs _ defs)
-                            (fold (lambda (var def f64-defs)
-                                    (if (intset-ref f64-vars var)
-                                        (add-f64-def f64-defs def label)
-                                        f64-defs))
-                                  f64-defs vars defs))
-                           ;; Could be $ktail for $values.
-                           (_ f64-defs)))
-                        (_ f64-defs)))
-                     (_ f64-defs)))
-                 body empty-intmap))
+  ;; Can the result of EXP definitely be unboxed as an f64?
+  (define (exp-result-f64? exp)
+    (match exp
+      ((or ($ $primcall 'f64->scm (_))
+           ($ $const (and (? number?) (? inexact?) (? real?))))
+       #t)
+      (_ #f)))
+  (compute-specializable-vars cps body preds defs exp-result-f64? 'scm->f64))
 
-  ;; Compute the set of vars which are always f64-valued.
-  (define (compute-f64-defs)
-    (fixpoint
-     (lambda (f64-vars)
-       (intmap-fold
-        (lambda (def f64-pred-labels f64-vars)
-          (if (and (not (intset-ref f64-vars def))
-                   ;; Are all defining expressions f64-valued?
-                   (and-map (lambda (pred)
-                              (intset-ref f64-pred-labels pred))
-                            (intmap-ref preds (intmap-ref defs def))))
-              (intset-add f64-vars def)
-              f64-vars))
-        (collect-f64-def-labels f64-vars)
-        f64-vars))
-     empty-intset))
+;; Compute vars whose definitions are all exact integers in the u64
+;; range and whose uses include an unbox operation.
+(define (compute-specializable-u64-vars cps body preds defs)
+  ;; Can the result of EXP definitely be unboxed as a u64?
+  (define (exp-result-u64? exp)
+    (match exp
+      ((or ($ $primcall 'u64->scm (_))
+           ($ $const (and (? number?) (? exact-integer?)
+                          (? (lambda (n) (<= 0 n #xffffffffffffffff))))))
+       #t)
+      (_ #f)))
 
-  ;; Compute the set of vars that may ever be unboxed.
-  (define (compute-f64-uses f64-defs)
-    (intset-fold
-     (lambda (label f64-uses)
-       (match (intmap-ref cps label)
-         (($ $kargs _ _ ($ $continue k _ exp))
-          (match exp
-            (($ $primcall 'scm->f64 (var))
-             (intset-add f64-uses var))
-            (($ $values vars)
-             (match (intmap-ref cps k)
-               (($ $kargs _ defs)
-                (fold (lambda (var def f64-uses)
-                        (if (intset-ref f64-defs def)
-                            (intset-add f64-uses var)
-                            f64-uses))
-                      f64-uses vars defs))
-               (($ $ktail)
-                ;; Assume return is rare and that any f64-valued def can
-                ;; be reboxed when leaving the procedure.
-                (fold (lambda (var f64-uses)
-                        (intset-add f64-uses var))
-                      f64-uses vars))))
-            (_ f64-uses)))
-         (_ f64-uses)))
-     body empty-intset))
-
-  (let ((f64-defs (compute-f64-defs)))
-    (intset-intersect f64-defs (compute-f64-uses f64-defs))))
+  (compute-specializable-vars cps body preds defs exp-result-u64? 'scm->u64))
 
 (define (compute-phi-vars cps preds)
   (intmap-fold (lambda (label preds phis)
@@ -278,6 +302,10 @@
     (match (intmap-ref phis var)
       ('f64 'scm->f64)
       ('u64 'scm->u64)))
+  (define (box-op var)
+    (match (intmap-ref phis var)
+      ('f64 'f64->scm)
+      ('u64 'u64->scm)))
   (define (unbox-operands)
     (define (unbox-arg cps arg def-var have-arg)
       (if (intmap-ref phis def-var (lambda (_) #f))
@@ -348,13 +376,14 @@
                                     (intmap-ref boxed var (lambda (var) var)))
                                   vars)))
             (define (box-var cps name var done)
-              (let ((f64 (intmap-ref boxed var (lambda (_) #f))))
-                (if f64
+              (let ((unboxed (intmap-ref boxed var (lambda (_) #f))))
+                (if unboxed
                     (with-cps cps
                       (let$ term (done))
                       (letk kboxed ($kargs (name) (var) ,term))
                       (build-term
-                        ($continue kboxed #f ($primcall 'f64->scm (f64)))))
+                        ($continue kboxed #f
+                          ($primcall (box-op var) (unboxed)))))
                     (done cps))))
             (define (box-vars cps names vars done)
               (match vars
