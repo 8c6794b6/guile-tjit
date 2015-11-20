@@ -347,6 +347,10 @@ the definitions that are live before and after LABEL, as intsets."
               (defs+ s))
              (($ $primcall 'struct-set!/immediate (s n x))
               (defs+* (intset s x)))
+             (($ $primcall (or 'add/immediate 'sub/immediate
+                               'uadd/immediate 'usub/immediate 'umul/immediate)
+                 (x y))
+              (defs+ x))
              (($ $primcall 'builtin-ref (idx))
               defs)
              (_
@@ -794,7 +798,8 @@ are comparable with eqv?.  A tmp slot may be used."
                                'fadd 'fsub 'fmul 'fdiv))
               (intmap-add representations var 'f64))
              (($ $primcall (or 'scm->u64 'bv-length
-                               'uadd 'usub 'umul))
+                               'uadd 'usub 'umul
+                               'uadd/immediate 'usub/immediate 'umul/immediate))
               (intmap-add representations var 'u64))
              (_
               (intmap-add representations var 'scm))))

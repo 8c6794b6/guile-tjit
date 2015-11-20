@@ -2382,7 +2382,29 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       BINARY_INTEGER_OP (+, scm_sum);
     }
 
-  VM_DEFINE_OP (87, unused_87, NULL, NOP)
+  /* add/immediate dst:8 src:8 imm:8
+   *
+   * Add the unsigned 8-bit value IMM to the value from SRC, and place
+   * the result in DST.
+   */
+  VM_DEFINE_OP (87, add_immediate, "add/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
+    {
+      scm_t_uint8 dst, src, imm;
+      SCM x;
+
+      UNPACK_8_8_8 (op, dst, src, imm);
+      x = SP_REF (src);
+
+      if (SCM_LIKELY (SCM_I_INUMP (x)))
+        {
+          scm_t_signed_bits sum = SCM_I_INUM (x) + (scm_t_signed_bits) imm;
+
+          if (SCM_LIKELY (SCM_POSFIXABLE (sum)))
+            RETURN (SCM_I_MAKINUM (sum));
+        }
+
+      RETURN_EXP (scm_sum (x, SCM_I_MAKINUM (imm)));
+    }
 
   /* sub dst:8 a:8 b:8
    *
@@ -2393,7 +2415,29 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       BINARY_INTEGER_OP (-, scm_difference);
     }
 
-  VM_DEFINE_OP (89, unused_89, NULL, NOP)
+  /* sub/immediate dst:8 src:8 imm:8
+   *
+   * Subtract the unsigned 8-bit value IMM from the value in SRC, and
+   * place the result in DST.
+   */
+  VM_DEFINE_OP (89, sub_immediate, "sub/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
+    {
+      scm_t_uint8 dst, src, imm;
+      SCM x;
+
+      UNPACK_8_8_8 (op, dst, src, imm);
+      x = SP_REF (src);
+
+      if (SCM_LIKELY (SCM_I_INUMP (x)))
+        {
+          scm_t_signed_bits diff = SCM_I_INUM (x) - (scm_t_signed_bits) imm;
+
+          if (SCM_LIKELY (SCM_NEGFIXABLE (diff)))
+            RETURN (SCM_I_MAKINUM (diff));
+        }
+
+      RETURN_EXP (scm_difference (x, SCM_I_MAKINUM (imm)));
+    }
 
   /* mul dst:8 a:8 b:8
    *
@@ -3400,9 +3444,57 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (152, unused_152, NULL, NOP)
-  VM_DEFINE_OP (153, unused_153, NULL, NOP)
-  VM_DEFINE_OP (154, unused_154, NULL, NOP)
+  /* uadd/immediate dst:8 src:8 imm:8
+   *
+   * Add the unsigned 64-bit value from SRC with the unsigned 8-bit
+   * value IMM and place the raw unsigned 64-bit result in DST.
+   * Overflow will wrap around.
+   */
+  VM_DEFINE_OP (152, uadd_immediate, "uadd/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
+    {
+      scm_t_uint8 dst, src, imm;
+      scm_t_uint64 x;
+
+      UNPACK_8_8_8 (op, dst, src, imm);
+      x = SP_REF_U64 (src);
+      SP_SET_U64 (dst, x + (scm_t_uint64) imm);
+      NEXT (1);
+    }
+
+  /* usub/immediate dst:8 src:8 imm:8
+   *
+   * Subtract the unsigned 8-bit value IMM from the unsigned 64-bit
+   * value in SRC and place the raw unsigned 64-bit result in DST.
+   * Overflow will wrap around.
+   */
+  VM_DEFINE_OP (153, usub_immediate, "usub/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
+    {
+      scm_t_uint8 dst, src, imm;
+      scm_t_uint64 x;
+
+      UNPACK_8_8_8 (op, dst, src, imm);
+      x = SP_REF_U64 (src);
+      SP_SET_U64 (dst, x - (scm_t_uint64) imm);
+      NEXT (1);
+    }
+
+  /* umul/immediate dst:8 src:8 imm:8
+   *
+   * Multiply the unsigned 64-bit value from SRC by the unsigned 8-bit
+   * value IMM and place the raw unsigned 64-bit result in DST.
+   * Overflow will wrap around.
+   */
+  VM_DEFINE_OP (154, umul_immediate, "umul/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
+    {
+      scm_t_uint8 dst, src, imm;
+      scm_t_uint64 x;
+
+      UNPACK_8_8_8 (op, dst, src, imm);
+      x = SP_REF_U64 (src);
+      SP_SET_U64 (dst, x * (scm_t_uint64) imm);
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (155, unused_155, NULL, NOP)
   VM_DEFINE_OP (156, unused_156, NULL, NOP)
   VM_DEFINE_OP (157, unused_157, NULL, NOP)

@@ -94,7 +94,6 @@
   (simplify #:simplify? #t)
   (contify #:contify? #t)
   (inline-constructors #:inline-constructors? #t)
-  (specialize-primcalls #:specialize-primcalls? #t)
   (elide-values #:elide-values? #t)
   (prune-bailouts #:prune-bailouts? #t)
   (peel-loops #:peel-loops? #t)
@@ -110,7 +109,8 @@
   (eliminate-common-subexpressions #:cse? #t)
   (eliminate-dead-code #:eliminate-dead-code? #t)
   (rotate-loops #:rotate-loops? #t)
-  (simplify #:simplify? #t))
+  (simplify #:simplify? #t)
+  (specialize-primcalls #:specialize-primcalls? #t))
 
 (define (cps-default-optimization-options)
   (list ;; #:split-rec? #t

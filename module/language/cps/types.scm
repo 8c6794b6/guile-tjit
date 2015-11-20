@@ -933,6 +933,7 @@ minimum, and maximum."
                  min* max*))))))
 
 (define-simple-type-checker (add &number &number))
+(define-type-aliases add add/immediate)
 (define-type-checker (fadd a b) #t)
 (define-type-checker (uadd a b) #t)
 (define-type-inferrer (add a b result)
@@ -949,8 +950,10 @@ minimum, and maximum."
     (if (<= max #xffffffffffffffff)
         (define! result &u64 (+ (&min a) (&min b)) max)
         (define! result &u64 0 #xffffffffffffffff))))
+(define-type-aliases uadd uadd/immediate)
 
 (define-simple-type-checker (sub &number &number))
+(define-type-aliases sub sub/immediate)
 (define-type-checker (fsub a b) #t)
 (define-type-checker (usub a b) #t)
 (define-type-inferrer (sub a b result)
@@ -967,6 +970,7 @@ minimum, and maximum."
     (if (< min 0)
         (define! result &u64 0 #xffffffffffffffff)
         (define! result &u64 min (- (&max a) (&min b))))))
+(define-type-aliases usub usub/immediate)
 
 (define-simple-type-checker (mul &number &number))
 (define-type-checker (fmul a b) #t)
@@ -1019,6 +1023,7 @@ minimum, and maximum."
     (if (<= max #xffffffffffffffff)
         (define! result &u64 (* (&min a) (&min b)) max)
         (define! result &u64 0 #xffffffffffffffff))))
+(define-type-aliases umul umul/immediate)
 
 (define-type-checker (div a b)
   (and (check-type a &number -inf.0 +inf.0)
