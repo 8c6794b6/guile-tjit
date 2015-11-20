@@ -81,7 +81,22 @@
         ($continue kunbox-b src
           ($primcall 'scm->f64 (a)))))))
 
-(define (specialize-f64-operations cps)
+(define (specialize-u64-comparison cps kf kt src op a b)
+  (pk 'specialize cps kf kt src op a b)
+  (let ((op (symbol-append 'u64- op)))
+    (with-cps cps
+      (letv u64-a u64-b)
+      (letk kop ($kargs ('u64-b) (u64-b)
+                  ($continue kf src
+                    ($branch kt ($primcall op (u64-a u64-b))))))
+      (letk kunbox-b ($kargs ('u64-a) (u64-a)
+                       ($continue kop src
+                         ($primcall 'scm->u64 (b)))))
+      (build-term
+        ($continue kunbox-b src
+          ($primcall 'scm->u64 (a)))))))
+
+(define (specialize-operations cps)
   (define (visit-cont label cont cps types)
     (match cont
       (($ $kfun)
@@ -101,6 +116,22 @@
                      (setk label ($kargs names vars ,body)))
                    cps)
                types))))))
+      (($ $kargs names vars
+          ($ $continue k src
+             ($ $branch kt ($ $primcall (and op (or '< '<= '= '>= '>)) (a b)))))
+       (call-with-values (lambda () (lookup-pre-type types label a))
+         (lambda (a-type a-min a-max)
+           (call-with-values (lambda () (lookup-pre-type types label b))
+             (lambda (b-type b-min b-max)
+               (values
+                (if (and (eqv? a-type b-type &exact-integer)
+                         (<= 0 a-min a-max #xffffffffffffffff)
+                         (<= 0 b-min b-max #xffffffffffffffff))
+                    (with-cps cps
+                      (let$ body (specialize-u64-comparison k kt src op a b))
+                      (setk label ($kargs names vars ,body)))
+                    cps)
+                types))))))
       (_ (values cps types))))
 
   (values (intmap-fold visit-cont cps cps #f)))
@@ -342,4 +373,4 @@
   ;; Type inference wants a renumbered graph; OK.
   (let ((cps (renumber cps)))
     (with-fresh-name-state cps
-      (specialize-f64-phis (specialize-f64-operations cps)))))
+      (specialize-f64-phis (specialize-operations cps)))))
