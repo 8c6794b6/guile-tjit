@@ -323,6 +323,8 @@ the definitions that are live before and after LABEL, as intsets."
            (match exp
              (($ $const)
               empty-intset)
+             (($ $primcall (or 'load-f64 'load-u64) (val))
+              empty-intset)
              (($ $primcall 'free-ref (closure slot))
               (defs+ closure))
              (($ $primcall 'free-set! (closure slot value))
@@ -794,10 +796,11 @@ are comparable with eqv?.  A tmp slot may be used."
              (($ $values (arg))
               (intmap-add representations var
                           (intmap-ref representations arg)))
-             (($ $primcall (or 'scm->f64 'bv-f32-ref 'bv-f64-ref
+             (($ $primcall (or 'scm->f64 'load-f64
+                               'bv-f32-ref 'bv-f64-ref
                                'fadd 'fsub 'fmul 'fdiv))
               (intmap-add representations var 'f64))
-             (($ $primcall (or 'scm->u64 'bv-length
+             (($ $primcall (or 'scm->u64 'load-u64 'bv-length
                                'uadd 'usub 'umul
                                'uadd/immediate 'usub/immediate 'umul/immediate))
               (intmap-add representations var 'u64))

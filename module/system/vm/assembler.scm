@@ -168,7 +168,11 @@
             (emit-class-of* . emit-class-of)
             emit-make-array
             (emit-scm->f64* . emit-scm->f64)
+            emit-load-f64
             (emit-f64->scm* . emit-f64->scm)
+            (emit-scm->u64* . emit-scm->u64)
+            emit-load-u64
+            (emit-u64->scm* . emit-u64->scm)
             (emit-bv-length* . emit-bv-length)
             (emit-bv-u8-ref* . emit-bv-u8-ref)
             (emit-bv-s8-ref* . emit-bv-s8-ref)
@@ -568,7 +572,16 @@ later by the linker."
             (error "make-long-immediate unavailable for this target"))
           (emit asm (ash (object-address imm) -32))
           (emit asm (logand (object-address imm) (1- (ash 1 32)))))
+         ((AF32 f64)
+          (let ((u64 (u64vector-ref (f64vector f64) 0)))
+            (emit asm (ash u64 -32))
+            (emit asm (logand u64 (1- (ash 1 32))))))
+         ((AU32 u64)
+          (emit asm (ash u64 -32))
+          (emit asm (logand u64 (1- (ash 1 32)))))
          ((B32))
+         ((BU32))
+         ((BF32))
          ((N32 label)
           (record-far-label-reference asm label)
           (emit asm 0))

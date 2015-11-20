@@ -50,6 +50,10 @@ SCM_SYMBOL (sym_bang, "!");
     M(I32) /* Immediate. */                     \
     M(A32) /* Immediate, high bits. */          \
     M(B32) /* Immediate, low bits. */           \
+    M(AF32) /* Immediate double, high bits. */  \
+    M(BF32) /* Immediate double, low bits. */   \
+    M(AU32) /* Immediate uint64, high bits. */  \
+    M(BU32) /* Immediate uint64, low bits. */   \
     M(N32) /* Non-immediate. */                 \
     M(R32) /* Scheme value (indirected). */     \
     M(L32) /* Label. */                         \
@@ -61,7 +65,7 @@ SCM_SYMBOL (sym_bang, "!");
     M(B1_X7_F24)                                \
     M(B1_X31)
 
-#define TYPE_WIDTH 5
+#define TYPE_WIDTH 6
 
 enum word_type
   {
@@ -82,14 +86,14 @@ static SCM word_type_symbols[] =
 /* The VM_DEFINE_OP macro uses a CPP-based DSL to describe what kinds of
    arguments each instruction takes.  This piece of code is the only
    bit that actually interprets that language.  These macro definitions
-   encode the operand types into bits in a 32-bit integer.
+   encode the operand types into bits in a 64-bit integer.
 
    (instruction-list) parses those encoded values into lists of symbols,
-   one for each 32-bit word that the operator takes.  This list is used
+   one for each 64-bit word that the operator takes.  This list is used
    by Scheme to generate assemblers and disassemblers for the
    instructions.  */
 
-#define NOP SCM_T_UINT32_MAX
+#define NOP SCM_T_UINT64_MAX
 #define OP1(type0) \
   (OP (0, type0))
 #define OP2(type0, type1) \
@@ -113,7 +117,7 @@ static SCM word_type_symbols[] =
 /* Scheme interface */
 
 static SCM
-parse_instruction (scm_t_uint8 opcode, const char *name, scm_t_uint32 meta)
+parse_instruction (scm_t_uint8 opcode, const char *name, scm_t_uint64 meta)
 {
   SCM tail = SCM_EOL;
   int len;

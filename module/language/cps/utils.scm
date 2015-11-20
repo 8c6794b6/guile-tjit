@@ -182,9 +182,11 @@ disjoint, an error will be signalled."
 
 (define (compute-defining-expressions conts)
   (define (meet-defining-expressions old new)
-    ;; If there are multiple definitions, punt and
-    ;; record #f.
-    #f)
+    ;; If there are multiple definitions and they are different, punt
+    ;; and record #f.
+    (if (equal? old new)
+        old
+        #f))
   (persistent-intmap
    (intmap-fold (lambda (label cont defs)
                   (match cont
@@ -198,14 +200,35 @@ disjoint, an error will be signalled."
                 empty-intmap)))
 
 (define (compute-constant-values conts)
-  (persistent-intmap
-   (intmap-fold (lambda (var exp out)
-                  (match exp
-                    (($ $const val)
-                     (intmap-add! out var val))
-                    (_ out)))
-                (compute-defining-expressions conts)
-                empty-intmap)))
+  (let ((defs (compute-defining-expressions conts)))
+    (persistent-intmap
+     (intmap-fold
+      (lambda (var exp out)
+        (match exp
+          (($ $primcall (or 'load-f64 'load-u64) (val))
+           (intmap-add! out var (intmap-ref out val)))
+          ;; Punch through type conversions to allow uadd to specialize
+          ;; to uadd/immediate.
+          (($ $primcall 'scm->f64 (val))
+           (let ((f64 (intmap-ref out val (lambda (_) #f))))
+             (if (and f64 (number? f64) (inexact? f64) (real? f64))
+                 (intmap-add! out var f64)
+                 out)))
+          (($ $primcall 'scm->u64 (val))
+           (let ((u64 (intmap-ref out val (lambda (_) #f))))
+             (if (and u64 (number? u64) (exact-integer? u64)
+                      (<= 0 u64 #xffffFFFFffffFFFF))
+                 (intmap-add! out var u64)
+                 out)))
+          (_ out)))
+      defs
+      (intmap-fold (lambda (var exp out)
+                     (match exp
+                       (($ $const val)
+                        (intmap-add! out var val))
+                       (_ out)))
+                   defs
+                   empty-intmap)))))
 
 (define (compute-function-body conts kfun)
   (persistent-intset

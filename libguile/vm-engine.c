@@ -3495,8 +3495,41 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (155, unused_155, NULL, NOP)
-  VM_DEFINE_OP (156, unused_156, NULL, NOP)
+  /* load-f64 dst:24 high-bits:32 low-bits:32
+   *
+   * Make a double-precision floating-point value with HIGH-BITS and
+   * LOW-BITS.
+   */
+  VM_DEFINE_OP (155, load_f64, "load-f64", OP3 (X8_S24, AF32, BF32) | OP_DST)
+    {
+      scm_t_uint32 dst;
+      scm_t_uint64 val;
+
+      UNPACK_24 (op, dst);
+      val = ip[1];
+      val <<= 32;
+      val |= ip[2];
+      SP_SET_U64 (dst, val);
+      NEXT (3);
+    }
+
+  /* load-u64 dst:24 high-bits:32 low-bits:32
+   *
+   * Make an unsigned 64-bit integer with HIGH-BITS and LOW-BITS.
+   */
+  VM_DEFINE_OP (156, load_u64, "load-u64", OP3 (X8_S24, AU32, BU32) | OP_DST)
+    {
+      scm_t_uint32 dst;
+      scm_t_uint64 val;
+
+      UNPACK_24 (op, dst);
+      val = ip[1];
+      val <<= 32;
+      val |= ip[2];
+      SP_SET_U64 (dst, val);
+      NEXT (3);
+    }
+
   VM_DEFINE_OP (157, unused_157, NULL, NOP)
   VM_DEFINE_OP (158, unused_158, NULL, NOP)
   VM_DEFINE_OP (159, unused_159, NULL, NOP)

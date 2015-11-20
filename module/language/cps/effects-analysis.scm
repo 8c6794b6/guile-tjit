@@ -354,8 +354,10 @@ is or might be a read or a write to the same location as A."
 ;; Unboxed floats and integers.
 (define-primitive-effects
   ((scm->f64 _)                                                &type-check)
+  ((load-f64 _))
   ((f64->scm _))
   ((scm->u64 _)                                                &type-check)
+  ((load-u64 _))
   ((u64->scm _)))
 
 ;; Bytevectors.

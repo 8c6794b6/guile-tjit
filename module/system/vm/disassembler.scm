@@ -108,7 +108,7 @@
     (define (parse-tail-word word type)
       (with-syntax ((word word))
         (case type
-          ((C32 I32 A32 B32)
+          ((C32 I32 A32 B32 AU32 BU32 AF32 BF32)
            #'(word))
           ((N32 R32 L32 LO32)
            #'((unpack-s32 word)))

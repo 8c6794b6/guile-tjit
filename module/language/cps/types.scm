@@ -706,6 +706,7 @@ minimum, and maximum."
 (define-type-inferrer (scm->f64 scm result)
   (restrict! scm &real -inf.0 +inf.0)
   (define! result &f64 (&min scm) (&max scm)))
+(define-type-aliases scm->f64 load-f64)
 
 (define-type-checker (f64->scm f64)
   #t)
@@ -717,6 +718,7 @@ minimum, and maximum."
 (define-type-inferrer (scm->u64 scm result)
   (restrict! scm &exact-integer 0 #xffffffffffffffff)
   (define! result &u64 (max (&min scm) 0) (min (&max scm) #xffffffffffffffff)))
+(define-type-aliases scm->u64 load-u64)
 
 (define-type-checker (u64->scm u64)
   #t)
