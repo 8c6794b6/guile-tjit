@@ -81,8 +81,27 @@
         ($continue kunbox-b src
           ($primcall 'scm->f64 (a)))))))
 
+(define (specialize-u64-binop cps k src op a b)
+  (let ((uop (match op
+               ('add 'uadd)
+               ('sub 'usub)
+               ('mul 'umul))))
+    (with-cps cps
+      (letv u64-a u64-b result)
+      (letk kbox ($kargs ('result) (result)
+                   ($continue k src
+                     ($primcall 'u64->scm (result)))))
+      (letk kop ($kargs ('u64-b) (u64-b)
+                  ($continue kbox src
+                    ($primcall uop (u64-a u64-b)))))
+      (letk kunbox-b ($kargs ('u64-a) (u64-a)
+                       ($continue kop src
+                         ($primcall 'scm->u64 (b)))))
+      (build-term
+        ($continue kunbox-b src
+          ($primcall 'scm->u64 (a)))))))
+
 (define (specialize-u64-comparison cps kf kt src op a b)
-  (pk 'specialize cps kf kt src op a b)
   (let ((op (symbol-append 'u64- op)))
     (with-cps cps
       (letv u64-a u64-b)
@@ -98,6 +117,13 @@
 
 (define (specialize-operations cps)
   (define (visit-cont label cont cps types)
+    (define (operand-in-range? var &type &min &max)
+      (call-with-values (lambda ()
+                          (lookup-pre-type types label var))
+        (lambda (type min max)
+          (and (eqv? type &type) (<= &min min max &max)))))
+    (define (u64-operand? var)
+      (operand-in-range? var &exact-integer 0 #xffffffffffffffff))
     (match cont
       (($ $kfun)
        (values cps (infer-types cps label)))
@@ -110,28 +136,31 @@
                               (lookup-post-type types label result 0))
             (lambda (type min max)
               (values
-               (if (eqv? type &flonum)
-                   (with-cps cps
-                     (let$ body (specialize-f64-binop k src op a b))
-                     (setk label ($kargs names vars ,body)))
-                   cps)
+               (cond
+                ((eqv? type &flonum)
+                 (with-cps cps
+                   (let$ body (specialize-f64-binop k src op a b))
+                   (setk label ($kargs names vars ,body))))
+                ((and (eqv? type &exact-integer)
+                      (<= 0 min max #xffffffffffffffff)
+                      (u64-operand? a) (u64-operand? b)
+                      (not (eq? op 'div)))
+                 (with-cps cps
+                   (let$ body (specialize-u64-binop k src op a b))
+                   (setk label ($kargs names vars ,body))))
+                (else
+                 cps))
                types))))))
       (($ $kargs names vars
           ($ $continue k src
              ($ $branch kt ($ $primcall (and op (or '< '<= '= '>= '>)) (a b)))))
-       (call-with-values (lambda () (lookup-pre-type types label a))
-         (lambda (a-type a-min a-max)
-           (call-with-values (lambda () (lookup-pre-type types label b))
-             (lambda (b-type b-min b-max)
-               (values
-                (if (and (eqv? a-type b-type &exact-integer)
-                         (<= 0 a-min a-max #xffffffffffffffff)
-                         (<= 0 b-min b-max #xffffffffffffffff))
-                    (with-cps cps
-                      (let$ body (specialize-u64-comparison k kt src op a b))
-                      (setk label ($kargs names vars ,body)))
-                    cps)
-                types))))))
+       (values
+        (if (and (u64-operand? a) (u64-operand? b))
+            (with-cps cps
+              (let$ body (specialize-u64-comparison k kt src op a b))
+              (setk label ($kargs names vars ,body)))
+            cps)
+        types))
       (_ (values cps types))))
 
   (values (intmap-fold visit-cont cps cps #f)))
