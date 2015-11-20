@@ -27,7 +27,7 @@
   #:use-module (srfi srfi-4)
   #:use-module (srfi srfi-16)
   #:export (resolve-primitives add-interesting-primitive!
-            expand-primitives
+            expand-primcall expand-primitives
             effect-free-primitive? effect+exception-free-primitive?
             constructor-primitive?
             singly-valued-primitive? equality-primitive?
@@ -313,16 +313,16 @@
 
 (define *primitive-expand-table* (make-hash-table))
 
+(define (expand-primcall x)
+  (record-case x
+    ((<primcall> src name args)
+     (let ((expand (hashq-ref *primitive-expand-table* name)))
+       (or (and expand (apply expand src args))
+           x)))
+    (else x)))
+
 (define (expand-primitives x)
-  (pre-order
-   (lambda (x)
-     (record-case x
-       ((<primcall> src name args)
-        (let ((expand (hashq-ref *primitive-expand-table* name)))
-          (or (and expand (apply expand src args))
-              x)))
-       (else x)))
-   x))
+  (pre-order expand-primcall x))
 
 ;;; I actually did spend about 10 minutes trying to redo this with
 ;;; syntax-rules. Patches appreciated.
@@ -388,18 +388,16 @@
 
 ;; FIXME: All the code that uses `const?' is redundant with `peval'.
 
+(define-primitive-expander 1+ (x)
+  (+ x 1))
+
+(define-primitive-expander 1- (x)
+  (- x 1))
+
 (define-primitive-expander +
   () 0
   (x) (values x)
-  (x y) (if (and (const? y) (eqv? (const-exp y) 1))
-            (1+ x)
-            (if (and (const? y) (eqv? (const-exp y) -1))
-                (1- x)
-                (if (and (const? x) (eqv? (const-exp x) 1))
-                    (1+ y)
-                    (if (and (const? x) (eqv? (const-exp x) -1))
-                        (1- y)
-                        (+ x y)))))
+  (x y) (+ x y)
   (x y z ... last) (+ (+ x y . z) last))
 
 (define-primitive-expander *
@@ -409,9 +407,7 @@
   
 (define-primitive-expander -
   (x) (- 0 x)
-  (x y) (if (and (const? y) (eqv? (const-exp y) 1))
-            (1- x)
-            (- x y))
+  (x y) (- x y)
   (x y z ... last) (- (- x y . z) last))
   
 (define-primitive-expander /

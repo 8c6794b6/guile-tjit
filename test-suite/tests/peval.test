@@ -534,7 +534,7 @@
     ;; <https://lists.gnu.org/archive/html/bug-guile/2011-09/msg00019.html>.
     (let ((fold (lambda (f g) (f (g top)))))
       (fold 1+ (lambda (x) x)))
-    (primcall 1+ (toplevel top)))
+    (primcall + (toplevel top) (const 1)))
   
   (pass-if-peval
     ;; Procedure not inlined when residual code contains recursive calls.
@@ -557,7 +557,7 @@
                    (lambda ()
                      (lambda-case
                       (((x2) #f #f #f () (_))
-                       (primcall 1- (lexical x2 _))))))))
+                       (primcall - (lexical x2 _) (const 1))))))))
 
   (pass-if "inlined lambdas are alpha-renamed"
     ;; In this example, `make-adder' is inlined more than once; thus,
@@ -788,8 +788,8 @@
                            (((x) #f #f #f () (_))
                             (if _ _
                                 (call (lexical loop _)
-                                       (primcall 1-
-                                                 (lexical x _))))))))
+                                      (primcall - (lexical x _)
+                                                (const 1))))))))
             (call (lexical loop _) (toplevel x))))
 
   (pass-if-peval

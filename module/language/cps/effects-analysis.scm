@@ -428,8 +428,6 @@ is or might be a read or a write to the same location as A."
   ((uadd . _))
   ((usub . _))
   ((umul . _))
-  ((sub1 . _)                      &type-check)
-  ((add1 . _)                      &type-check)
   ((quo . _)                       &type-check)
   ((rem . _)                       &type-check)
   ((mod . _)                       &type-check)

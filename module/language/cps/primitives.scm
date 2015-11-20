@@ -34,9 +34,10 @@
             ))
 
 (define *instruction-aliases*
-  '((+ . add) (1+ . add1)
-    (- . sub) (1- . sub1)
-    (* . mul) (/ . div)
+  '((+ . add)
+    (- . sub)
+    (* . mul)
+    (/ . div)
     (quotient . quo) (remainder . rem)
     (modulo . mod)
     (variable-ref . box-ref)

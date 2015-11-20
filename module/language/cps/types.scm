@@ -1061,14 +1061,6 @@ minimum, and maximum."
       (lambda (min max)
         (define! result &f64 min max)))))
 
-(define-simple-type-checker (add1 &number))
-(define-type-inferrer (add1 a result)
-  (define-unary-result! a result (1+ (&min a)) (1+ (&max a))))
-
-(define-simple-type-checker (sub1 &number))
-(define-type-inferrer (sub1 a result)
-  (define-unary-result! a result (1- (&min a)) (1- (&max a))))
-
 (define-type-checker (quo a b)
   (and (check-type a &exact-integer -inf.0 +inf.0)
        (check-type b &exact-integer -inf.0 +inf.0)

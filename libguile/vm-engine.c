@@ -2382,29 +2382,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       BINARY_INTEGER_OP (+, scm_sum);
     }
 
-  /* add1 dst:12 src:12
-   *
-   * Add 1 to the value in SRC, and place the result in DST.
-   */
-  VM_DEFINE_OP (87, add1, "add1", OP1 (X8_S12_S12) | OP_DST)
-    {
-      ARGS1 (x);
-
-      /* Check for overflow.  We must avoid overflow in the signed
-         addition below, even if X is not an inum.  */
-      if (SCM_LIKELY ((scm_t_signed_bits) SCM_UNPACK (x) <= INUM_MAX - INUM_STEP))
-        {
-          SCM result;
-
-          /* Add 1 to the integer without untagging.  */
-          result = SCM_PACK ((scm_t_signed_bits) SCM_UNPACK (x) + INUM_STEP);
-
-          if (SCM_LIKELY (SCM_I_INUMP (result)))
-            RETURN (result);
-        }
-
-      RETURN_EXP (scm_sum (x, SCM_I_MAKINUM (1)));
-    }
+  VM_DEFINE_OP (87, unused_87, NULL, NOP)
 
   /* sub dst:8 a:8 b:8
    *
@@ -2415,29 +2393,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       BINARY_INTEGER_OP (-, scm_difference);
     }
 
-  /* sub1 dst:12 src:12
-   *
-   * Subtract 1 from SRC, and place the result in DST.
-   */
-  VM_DEFINE_OP (89, sub1, "sub1", OP1 (X8_S12_S12) | OP_DST)
-    {
-      ARGS1 (x);
-
-      /* Check for overflow.  We must avoid overflow in the signed
-         subtraction below, even if X is not an inum.  */
-      if (SCM_LIKELY ((scm_t_signed_bits) SCM_UNPACK (x) >= INUM_MIN + INUM_STEP))
-        {
-          SCM result;
-
-          /* Substract 1 from the integer without untagging.  */
-          result = SCM_PACK ((scm_t_signed_bits) SCM_UNPACK (x) - INUM_STEP);
-
-          if (SCM_LIKELY (SCM_I_INUMP (result)))
-            RETURN (result);
-        }
-
-      RETURN_EXP (scm_difference (x, SCM_I_MAKINUM (1)));
-    }
+  VM_DEFINE_OP (89, unused_89, NULL, NOP)
 
   /* mul dst:8 a:8 b:8
    *

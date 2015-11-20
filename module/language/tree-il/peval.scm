@@ -1357,7 +1357,8 @@ top-level bindings from ENV and return the resulting expression."
        (let revisit-proc ((proc (visit orig-proc 'operator)))
          (match proc
            (($ <primitive-ref> _ name)
-            (for-tail (make-primcall src name orig-args)))
+            (for-tail
+             (expand-primcall (make-primcall src name orig-args))))
            (($ <lambda> _ _
                ($ <lambda-case> _ req opt rest #f inits gensyms body #f))
             ;; Simple case: no keyword arguments.
