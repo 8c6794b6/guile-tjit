@@ -151,6 +151,10 @@
        (_ defs)))
    labels empty-intmap))
 
+;; Placeholder until we add the real implementation.
+(define (compute-specializable-u64-vars cps body preds defs)
+  empty-intset)
+
 ;; Compute vars whose definitions are all inexact reals and whose uses
 ;; include an unbox operation.
 (define (compute-specializable-f64-vars cps body preds defs)
@@ -245,33 +249,44 @@
                preds empty-intset))
 
 ;; Compute the set of variables which have more than one definition,
-;; whose definitions are always f64-valued, and which have at least one
-;; use that is an unbox operation.
-(define (compute-specializable-f64-phis cps body preds defs)
-  (intset-intersect
-   (compute-specializable-f64-vars cps body preds defs)
-   (compute-phi-vars cps preds)))
+;; whose definitions are always f64-valued or u64-valued, and which have
+;; at least one use that is an unbox operation.
+(define (compute-specializable-phis cps body preds defs)
+  (let ((f64-vars (compute-specializable-f64-vars cps body preds defs))
+        (u64-vars (compute-specializable-u64-vars cps body preds defs))
+        (phi-vars (compute-phi-vars cps preds)))
+    (unless (eq? empty-intset (intset-intersect f64-vars u64-vars))
+      (error "expected f64 and u64 vars to be disjoint sets"))
+    (intset-fold (lambda (var out) (intmap-add out var 'u64))
+                 (intset-intersect u64-vars phi-vars)
+                 (intset-fold (lambda (var out) (intmap-add out var 'f64))
+                              (intset-intersect f64-vars phi-vars)
+                              empty-intmap))))
 
-;; Each definition of an f64 variable should unbox that variable.  The
-;; cont that binds the variable should re-box it under its original
+;; Each definition of an f64/u64 variable should unbox that variable.
+;; The cont that binds the variable should re-box it under its original
 ;; name, and rely on CSE to remove the boxing as appropriate.
-(define (apply-f64-specialization cps kfun body preds defs phis)
+(define (apply-specialization cps kfun body preds defs phis)
   (define (compute-unbox-labels)
-    (intset-fold (lambda (phi labels)
+    (intmap-fold (lambda (phi kind labels)
                    (fold1 (lambda (pred labels)
                             (intset-add labels pred))
                           (intmap-ref preds (intmap-ref defs phi))
                           labels))
                  phis empty-intset))
+  (define (unbox-op var)
+    (match (intmap-ref phis var)
+      ('f64 'scm->f64)
+      ('u64 'scm->u64)))
   (define (unbox-operands)
     (define (unbox-arg cps arg def-var have-arg)
-      (if (intset-ref phis def-var)
+      (if (intmap-ref phis def-var (lambda (_) #f))
           (with-cps cps
-            (letv f64)
-            (let$ body (have-arg f64))
-            (letk kunboxed ($kargs ('f64) (f64) ,body))
+            (letv unboxed)
+            (let$ body (have-arg unboxed))
+            (letk kunboxed ($kargs ('unboxed) (unboxed) ,body))
             (build-term
-              ($continue kunboxed #f ($primcall 'scm->f64 (arg)))))
+              ($continue kunboxed #f ($primcall (unbox-op def-var) (arg)))))
           (have-arg cps arg)))
     (define (unbox-args cps args def-vars have-args)
       (match args
@@ -288,33 +303,35 @@
      (lambda (label cps)
        (match (intmap-ref cps label)
          (($ $kargs names vars ($ $continue k src exp))
-          ;; For expressions that define a single value, we know we need
-          ;; to unbox that value.  For $values though we might have to
-          ;; unbox just a subset of values.
-          (match exp
-            (($ $values args)
-             (let ((def-vars (match (intmap-ref cps k)
-                               (($ $kargs _ defs) defs))))
-               (with-cps cps
-                 (let$ term (unbox-args
-                             args def-vars
-                             (lambda (cps args)
-                               (with-cps cps
-                                 (build-term
-                                   ($continue k src ($values args)))))))
-                 (setk label ($kargs names vars ,term)))))
-            (_
-             (with-cps cps
-               (letv const)
-               (letk kunbox ($kargs ('const) (const)
-                              ($continue k src
-                                ($primcall 'scm->f64 (const)))))
-               (setk label ($kargs names vars
-                             ($continue k src ,exp)))))))))
+          (match (intmap-ref cps k)
+            (($ $kargs _ defs)
+             (match exp
+               ;; For expressions that define a single value, we know we need
+               ;; to unbox that value.  For $values though we might have to
+               ;; unbox just a subset of values.
+               (($ $values args)
+                (with-cps cps
+                  (let$ term (unbox-args
+                              args defs
+                              (lambda (cps args)
+                                (with-cps cps
+                                  (build-term
+                                    ($continue k src ($values args)))))))
+                  (setk label ($kargs names vars ,term))))
+               (_
+                (match defs
+                  ((def)
+                   (with-cps cps
+                     (letv boxed)
+                     (letk kunbox ($kargs ('boxed) (boxed)
+                                    ($continue k src
+                                      ($primcall (unbox-op def) (boxed)))))
+                     (setk label ($kargs names vars
+                                   ($continue kunbox src ,exp)))))))))))))
      (compute-unbox-labels)
      cps))
   (define (compute-box-labels)
-    (intset-fold (lambda (phi labels)
+    (intmap-fold (lambda (phi kind labels)
                    (intset-add labels (intmap-ref defs phi)))
                  phis empty-intset))
   (define (box-results cps)
@@ -323,7 +340,7 @@
        (match (intmap-ref cps label)
          (($ $kargs names vars term)
           (let* ((boxed (fold1 (lambda (var boxed)
-                                 (if (intset-ref phis var)
+                                 (if (intmap-ref phis var (lambda (_) #f))
                                      (intmap-add boxed var (fresh-var))
                                      boxed))
                                vars empty-intmap))
@@ -357,15 +374,15 @@
      cps))
   (box-results (unbox-operands)))
 
-(define (specialize-f64-phis cps)
+(define (specialize-phis cps)
   (intmap-fold
    (lambda (kfun body cps)
      (let* ((preds (compute-predecessors cps kfun #:labels body))
             (defs (compute-defs cps body))
-            (phis (compute-specializable-f64-phis cps body preds defs)))
-       (if (eq? phis empty-intset)
+            (phis (compute-specializable-phis cps body preds defs)))
+       (if (eq? phis empty-intmap)
            cps
-           (apply-f64-specialization cps kfun body preds defs phis))))
+           (apply-specialization cps kfun body preds defs phis))))
    (compute-reachable-functions cps)
    cps))
 
@@ -373,4 +390,4 @@
   ;; Type inference wants a renumbered graph; OK.
   (let ((cps (renumber cps)))
     (with-fresh-name-state cps
-      (specialize-f64-phis (specialize-operations cps)))))
+      (specialize-phis (specialize-operations cps)))))
