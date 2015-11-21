@@ -387,6 +387,7 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                                            ((0) 'scm)
                                            ((1) 'f64)
                                            ((2) 'u64)
+                                           ((3) 's64)
                                            (else 'unknown))))
                      (cons (vector name def-offset slot representation)
                            (lp pos names)))))))))))

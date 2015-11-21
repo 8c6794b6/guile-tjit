@@ -120,6 +120,7 @@
             ;; Untagged types.
             &f64
             &u64
+            &s64
 
             infer-types
             lookup-pre-type
@@ -171,7 +172,8 @@
   &hash-table
 
   &f64
-  &u64)
+  &u64
+  &s64)
 
 (define-syntax &no-type (identifier-syntax 0))
 
@@ -203,8 +205,12 @@
          (var (identifier? #'var)
               (datum->syntax #'var val)))))))
 
-(define-compile-time-value &range-min (- #x8000000000000000))
-(define-compile-time-value &range-max    #xffffFFFFffffFFFF)
+(define-compile-time-value &s64-min (- #x8000000000000000))
+(define-compile-time-value &s64-max    #x7fffFFFFffffFFFF)
+(define-compile-time-value &u64-max    #xffffFFFFffffFFFF)
+
+(define-syntax &range-min (identifier-syntax &s64-min))
+(define-syntax &range-max (identifier-syntax &u64-max))
 
 ;; This is a hack that takes advantage of knowing that
 ;; most-positive-fixnum is the size of a word, but with two tag bits and
@@ -725,6 +731,18 @@ minimum, and maximum."
 (define-type-inferrer (u64->scm u64 result)
   (define! result &exact-integer (&min u64) (&max u64)))
 
+(define-type-checker (scm->s64 scm)
+  (check-type scm &exact-integer &s64-min &s64-max))
+(define-type-inferrer (scm->s64 scm result)
+  (restrict! scm &exact-integer &s64-min &s64-max)
+  (define! result &s64 (max (&min scm) &s64-min) (min (&max scm) &s64-max)))
+(define-type-aliases scm->s64 load-s64)
+
+(define-type-checker (s64->scm s64)
+  #t)
+(define-type-inferrer (s64->scm s64 result)
+  (define! result &exact-integer (&min s64) (&max s64)))
+
 
 
 
@@ -773,9 +791,9 @@ minimum, and maximum."
 (define-bytevector-accessors bv-s32-ref bv-s32-set!
   &exact-integer 4 (- #x80000000) #x7fffFFFF)
 (define-bytevector-accessors bv-u64-ref bv-u64-set!
-  &exact-integer 8  #x0000000000000000 #xffffFFFFffffFFFF)
+  &exact-integer 8 0 &u64-max)
 (define-bytevector-accessors bv-s64-ref bv-s64-set!
-  &exact-integer 8 (- #x8000000000000000) #x7fffFFFFffffFFFF)
+  &exact-integer 8 &s64-min &s64-max)
 
 (define-syntax-rule (define-bytevector-uaccessors ref set type size lo hi)
   (begin

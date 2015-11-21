@@ -173,6 +173,9 @@
             (emit-scm->u64* . emit-scm->u64)
             emit-load-u64
             (emit-u64->scm* . emit-u64->scm)
+            (emit-scm->s64* . emit-scm->s64)
+            emit-load-s64
+            (emit-s64->scm* . emit-s64->scm)
             (emit-bv-length* . emit-bv-length)
             (emit-bv-u8-ref* . emit-bv-u8-ref)
             (emit-bv-s8-ref* . emit-bv-s8-ref)
@@ -1919,6 +1922,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                         ((scm) 0)
                         ((f64) 1)
                         ((u64) 2)
+                        ((s64) 3)
                         (else (error "what!" representation)))))
              (put-uleb128 names-port (logior (ash slot 2) tag)))
            (lp definitions))))))

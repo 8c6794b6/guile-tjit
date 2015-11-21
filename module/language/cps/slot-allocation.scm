@@ -53,8 +53,8 @@
   ;;
   (slots allocation-slots)
 
-  ;; A map of VAR to representation.  A representation is 'scm, 'f64, or
-  ;; 'u64.
+  ;; A map of VAR to representation.  A representation is 'scm, 'f64,
+  ;; 'u64, or 's64.
   ;;
   (representations allocation-representations)
 
@@ -323,7 +323,7 @@ the definitions that are live before and after LABEL, as intsets."
            (match exp
              (($ $const)
               empty-intset)
-             (($ $primcall (or 'load-f64 'load-u64) (val))
+             (($ $primcall (or 'load-f64 'load-u64 'load-s64) (val))
               empty-intset)
              (($ $primcall 'free-ref (closure slot))
               (defs+ closure))
@@ -804,6 +804,8 @@ are comparable with eqv?.  A tmp slot may be used."
                                'uadd 'usub 'umul
                                'uadd/immediate 'usub/immediate 'umul/immediate))
               (intmap-add representations var 'u64))
+             (($ $primcall (or 'scm->s64 'load-s64))
+              (intmap-add representations var 's64))
              (_
               (intmap-add representations var 'scm))))
           (vars
@@ -885,7 +887,7 @@ are comparable with eqv?.  A tmp slot may be used."
            (#f slot-map)
            (slot
             (let ((desc (match (intmap-ref representations var)
-                          ((or 'u64 'f64) slot-desc-live-raw)
+                          ((or 'u64 'f64 's64) slot-desc-live-raw)
                           ('scm slot-desc-live-scm))))
               (logior slot-map (ash desc (* 2 slot)))))))
        live-vars 0))

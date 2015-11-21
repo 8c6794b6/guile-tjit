@@ -62,6 +62,7 @@
         (('umul (? u8? x) y) (build-exp ($primcall 'umul/immediate (y x))))
         (('scm->f64 (? f64?)) (rename 'load-f64))
         (('scm->u64 (? u64?)) (rename 'load-u64))
+        (('scm->s64 (? s64?)) (rename 'load-s64))
         (_ #f)))
     (intmap-map
      (lambda (label cont)

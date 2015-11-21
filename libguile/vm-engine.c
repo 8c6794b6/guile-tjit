@@ -257,6 +257,9 @@
 #define SP_REF_U64(i)		(sp[i].as_u64)
 #define SP_SET_U64(i,o)		(sp[i].as_u64 = o)
 
+#define SP_REF_S64(i)		(sp[i].as_s64)
+#define SP_SET_S64(i,o)		(sp[i].as_s64 = o)
+
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
 #define VARIABLE_BOUNDP(v)      (!scm_is_eq (VARIABLE_REF (v), SCM_UNDEFINED))
@@ -3530,9 +3533,49 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (3);
     }
 
-  VM_DEFINE_OP (157, unused_157, NULL, NOP)
-  VM_DEFINE_OP (158, unused_158, NULL, NOP)
-  VM_DEFINE_OP (159, unused_159, NULL, NOP)
+  /* scm->s64 dst:12 src:12
+   *
+   * Unpack a signed 64-bit integer from SRC and place it in DST.
+   */
+  VM_DEFINE_OP (157, scm_to_s64, "scm->s64", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
+      SP_SET_S64 (dst, scm_to_int64 (SP_REF (src)));
+      NEXT (1);
+    }
+
+  /* s64->scm dst:12 src:12
+   *
+   * Pack an signed 64-bit integer into a SCM value.
+   */
+  VM_DEFINE_OP (158, s64_to_scm, "s64->scm", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
+      SP_SET (dst, scm_from_int64 (SP_REF_S64 (src)));
+      NEXT (1);
+    }
+
+  /* load-s64 dst:24 high-bits:32 low-bits:32
+   *
+   * Make an unsigned 64-bit integer with HIGH-BITS and LOW-BITS.
+   */
+  VM_DEFINE_OP (159, load_s64, "load-s64", OP3 (X8_S24, AS32, BS32) | OP_DST)
+    {
+      scm_t_uint32 dst;
+      scm_t_uint64 val;
+
+      UNPACK_24 (op, dst);
+      val = ip[1];
+      val <<= 32;
+      val |= ip[2];
+      SP_SET_U64 (dst, val);
+      NEXT (3);
+    }
+
   VM_DEFINE_OP (160, unused_160, NULL, NOP)
   VM_DEFINE_OP (161, unused_161, NULL, NOP)
   VM_DEFINE_OP (162, unused_162, NULL, NOP)
