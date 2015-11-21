@@ -206,7 +206,7 @@
                     (pretty-constant n)
                     (pretty-type (cdr type))))
            (('%return (const . addr))
-            (format #t "~4,,,'0@a ~a (~7a ~a|~a)~%" idx mark
+            (format #t "~4,,,'0@a ~a (~7a ~a/~a)~%" idx mark
                     '%return
                     (cyan (number->string addr 16))
                     (addr->source-line addr)))

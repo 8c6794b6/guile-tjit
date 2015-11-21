@@ -60,13 +60,16 @@
             jumpi
             sp-ref
             sp-set!
+            memory-ref
+            memory-set!
+            memory-ref/f
+            memory-set!/f
             scm-from-double
             scm-frame-dynamic-link
             scm-frame-set-dynamic-link!
             scm-frame-return-address
             scm-frame-set-return-address!
             scm-real-value
-            vp->sp-offset
             registers-offset
             load-vp
             store-vp
@@ -380,10 +383,10 @@
    (else
     (jit-ldxi dst fp (moffs src)))))
 
-(define-syntax-rule (memory-ref/fpr dst src)
+(define-syntax-rule (memory-ref/f dst src)
   (cond
    ((not (memory? src))
-    (error "memory-ref/fpr: not a memory" src))
+    (error "memory-ref/f: not a memory" src))
    (else
     (jit-ldxi-d dst fp (moffs src)))))
 
@@ -394,10 +397,10 @@
    (else
     (jit-stxi (moffs dst) fp src))))
 
-(define-syntax-rule (memory-set!/fpr dst src)
+(define-syntax-rule (memory-set!/f dst src)
   (cond
    ((not (memory? dst))
-    (error "memory-set!/fpr: not a memory" dst))
+    (error "memory-set!/f: not a memory" dst))
    (else
     (jit-stxi-d (moffs dst) fp src))))
 
@@ -438,7 +441,7 @@ epilog part. Native code of side trace does not reset %rsp, since it uses
    ((and (fpr? dst) (fpr? src))
     (jit-movr-d (fpr dst) (fpr src)))
    ((and (fpr? dst) (memory? src))
-    (memory-ref/fpr f0 src)
+    (memory-ref/f f0 src)
     (jit-movr-d (fpr dst) f0))
 
    ((and (memory? dst) (constant? src))
@@ -453,7 +456,7 @@ epilog part. Native code of side trace does not reset %rsp, since it uses
    ((and (memory? dst) (gpr? src))
     (memory-set! dst (gpr src)))
    ((and (memory? dst) (fpr? src))
-    (memory-set!/fpr dst (fpr src)))
+    (memory-set!/f dst (fpr src)))
    ((and (memory? dst) (memory? src))
     (memory-ref r0 src)
     (memory-set! dst r0))
@@ -543,12 +546,12 @@ both arguments were register or memory."
      ((and (fpr? a) (fpr? b))
       (jump (jit-bger-d (fpr a) (fpr b)) next))
      ((and (fpr? a) (memory? b))
-      (memory-ref/fpr f0 b)
+      (memory-ref/f f0 b)
       (jump (jit-bger-d (fpr a) f0) next))
 
      ((and (memory? a) (memory? b))
-      (memory-ref/fpr f0 a)
-      (memory-ref/fpr f1 b)
+      (memory-ref/f f0 a)
+      (memory-ref/f f1 b)
       (jump (jit-bger-d f0 f1) next))
 
      (else
@@ -756,15 +759,15 @@ both arguments were register or memory."
 
    ((and (memory? dst) (fpr? a) (fpr? b))
     (jit-addr-d f0 (fpr a) (fpr b))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
    ((and (memory? dst) (memory? a) (constant? b))
-    (memory-ref/fpr f0 a)
+    (memory-ref/f f0 a)
     (jit-addi-d f0 f0 (constant b))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
    ((and (memory? dst) (memory? a) (fpr? b))
-    (memory-ref/fpr f0 a)
+    (memory-ref/f f0 a)
     (jit-addr-d f0 f0 (fpr b))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
    (else
     (error "%fadd" dst a b))))
 
@@ -780,12 +783,12 @@ both arguments were register or memory."
 
    ((and (memory? dst) (fpr? a) (fpr? b))
     (jit-subr-d f0 (fpr a) (fpr b))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
    ((and (memory? dst) (memory? a) (memory? b))
-    (memory-ref/fpr f0 a)
-    (memory-ref/fpr f1 b)
+    (memory-ref/f f0 a)
+    (memory-ref/f f1 b)
     (jit-subr-d f0 f0 f1)
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
    (else
     (error "%fsub" dst a b))))
 
@@ -800,11 +803,11 @@ both arguments were register or memory."
 
    ((and (memory? dst) (constant? a) (fpr? b))
     (jit-muli-d f0 (fpr b) (constant a))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
    ((and (memory? dst) (memory? a) (fpr? b))
-    (memory-ref/fpr f0 a)
+    (memory-ref/f f0 a)
     (jit-mulr-d f0 f0 (fpr b))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
    (else
     (error "%fmul" dst a b))))
 
@@ -887,7 +890,7 @@ both arguments were register or memory."
       (scm-real-value (fpr dst) r0))
      ((memory? dst)
       (scm-real-value f0 r0)
-      (memory-set!/fpr dst f0))
+      (memory-set!/f dst f0))
      (else
       (error "%fref/f" dst n)))
     (jump next)
@@ -933,12 +936,12 @@ both arguments were register or memory."
 
    ((and (memory? dst) (gpr? src) (constant? n))
     (jit-ldxi-d f0 (gpr src) (constant-word n))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
 
    ((and (memory? dst) (memory? src) (constant? n))
     (memory-ref r0 src)
     (jit-ldxi-d f0 r0 (constant-word n))
-    (memory-set!/fpr dst f0))
+    (memory-set!/f dst f0))
 
    (else
     (error "%cref/f" dst src n))))
