@@ -218,12 +218,12 @@
    (else
     (error "store-frame" local type src))))
 
-(define (maybe-store local-x-types srcs src-unwrapper references shift)
+(define (maybe-store local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES.
 
-Returns a hash-table containing src with SRC-UNWRAPPER applied. Key of the
-returned hash-table is local index in LOCAL-X-TYPES. Locals in returned
-hash-table is shifted for SHIFT."
+Returns a hash-table containing src. Key of the returned hash-table is
+local index in LOCAL-X-TYPES. Locals in returned hash-table is shifted
+for SHIFT."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
   (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
@@ -233,15 +233,12 @@ hash-table is shifted for SHIFT."
            (acc (make-hash-table)))
     (match (list local-x-types srcs)
       ((((local . type) . local-x-types) (src . srcs))
-       (let ((unwrapped-src (src-unwrapper src)))
-         ;; XXX: Might need to add more conditions for storing dynamic link and
-         ;; return addresses, not sure always these should be stored.
-         (when (or (dynamic-link? type)
-                   (return-address? type)
-                   (not (assq local references)))
-           (store-frame local type unwrapped-src))
-         (hashq-set! acc (- local shift) unwrapped-src)
-         (lp local-x-types srcs acc)))
+       (when (or (dynamic-link? type)
+                 (return-address? type)
+                 (not (assq local references)))
+         (store-frame local type src))
+       (hashq-set! acc (- local shift) src)
+       (lp local-x-types srcs acc))
       (_
        acc))))
 
@@ -257,10 +254,10 @@ hash-table is shifted for SHIFT."
     (store-vp->fp vp vp->fp)))
 
 (define (shift-sp sp-offset)
-  (let ((vp->sp r0)
-        (op (if (< 0 sp-offset)
+  (let ((op (if (< 0 sp-offset)
                 jit-addi
-                jit-subi)))
+                jit-subi))
+        (vp->sp r0))
     (load-vp->sp vp->sp)
     (op vp->sp vp->sp (imm (* (abs sp-offset) %word-size)))
     (store-vp->sp vp->sp)
@@ -308,24 +305,23 @@ are local index number."
                  ((equal? dst-var src-var)
                   (hashq-remove! srcs local)
                   (lp rest))
+                 ((dst-is-full? (map cdr dsts)
+                                (map cdr (hash-map->list cons srcs)))
+                  ;; When all of the elements in dsts are in srcs, move one
+                  ;; of the srcs to temporary location.  `-2' is for gpr R1
+                  ;; or fpr F1 in lightning, used as scratch register in
+                  ;; this module.
+                  (let ((tmp (if (fpr? src-var)
+                                 (make-fpr -2)
+                                 (make-gpr -2)))
+                        (src-local (find-src-local src-var)))
+                    (dump-move local tmp src-var)
+                    (move tmp src-var)
+                    (hashq-set! srcs src-local tmp)
+                    (lp dsts)))
                  (else
-                  (let ((srcs-list (hash-map->list cons srcs)))
-                    (cond
-                     ((dst-is-full? (map cdr dsts) (map cdr srcs-list))
-                      ;; When all of the elements in dsts are in srcs, move one
-                      ;; of the srcs to temporary location.  `-2' is for gpr R1
-                      ;; or fpr F1 in lightning, used as scratch register in
-                      ;; this module.
-                      (let ((tmp (or (and (fpr? src-var) (make-fpr -2))
-                                     (make-gpr -2)))
-                            (src-local (find-src-local src-var)))
-                        (dump-move local tmp src-var)
-                        (move tmp src-var)
-                        (hashq-set! srcs src-local tmp)
-                        (lp dsts)))
-                     (else
-                      ;; Rotate the list and try again.
-                      (lp (append rest (list (cons local dst-var)))))))))))
+                  ;; Rotate the list and try again.
+                  (lp (append rest (list (cons local dst-var))))))))
           ((hashq-ref srcs local)
            => (lambda (src-var)
                 (when (not (equal? src-var dst-var))
@@ -409,8 +405,7 @@ are local index number."
             (($ $snapshot _ sp-offset fp-offset _ local-x-types exit-variables)
              (let ((locals (snapshot-locals (hashq-ref snapshots 0))))
                (debug 3 ";;; side-trace: locals: ~a~%" locals)
-               (maybe-store local-x-types exit-variables identity
-                            locals 0)))))
+               (maybe-store local-x-types exit-variables locals 0)))))
        (else
         (error "compile-native: snapshot not found in parent trace"
                parent-exit-id)))))
@@ -578,14 +573,12 @@ are local index number."
 (define (compile-link args snapshot asm linked-ip fragment)
   (let* ((linked-fragment (get-root-trace linked-ip))
          (loop-locals (fragment-loop-locals linked-fragment)))
-    (debug 3 ";;; compile-link: args=~s~%" args)
     (match snapshot
       (($ $snapshot sid sp-offset fp-offset _ local-x-types)
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
-       (let* ((src-shift-amount sp-offset)
-              (src-table (maybe-store local-x-types args identity loop-locals
+       (let* ((src-table (maybe-store local-x-types args loop-locals
                                       sp-offset))
               (type-table (make-hash-table))
               (dst-table (make-hash-table)))
@@ -611,4 +604,4 @@ are local index number."
        ;; Jump to the beginning of linked trace.
        (jumpi (fragment-loop-address linked-fragment)))
       (_
-       (debug 3 ";;; compile-link: IP is 0, snapshot not found~%")))))
+       (error "compile-link: not a snapshot" snapshot)))))
