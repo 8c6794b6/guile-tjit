@@ -2957,62 +2957,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Fetch the item at byte offset IDX in the bytevector SRC, and store
    * it in DST.  All accesses use native endianness.
    */
-#define BV_FIXABLE_INT_REF(stem, fn_stem, type, size)			\
+#define BV_REF(stem, type, size, slot)                                  \
   do {									\
-    scm_t_signed_bits i;                                                \
-    const scm_t_ ## type *int_ptr;					\
-    ARGS2 (bv, idx);							\
-									\
-    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-ref");                    \
-    i = SCM_I_INUM (idx);                                               \
-    int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
-									\
-    if (SCM_LIKELY (SCM_I_INUMP (idx)					\
-                    && (i >= 0)						\
-                    && (i + size <= SCM_BYTEVECTOR_LENGTH (bv))		\
-                    && (ALIGNED_P (int_ptr, scm_t_ ## type))))		\
-      RETURN (SCM_I_MAKINUM (*int_ptr));                                \
-    else                                                                \
-      {									\
-        SYNC_IP ();							\
-        RETURN (scm_bytevector_ ## fn_stem ## _ref (bv, idx));		\
-      }									\
-  } while (0)
-
-#define BV_INT_REF(stem, type, size)					\
-  do {									\
-    scm_t_signed_bits i;                                                \
-    const scm_t_ ## type *int_ptr;					\
-    ARGS2 (bv, idx);							\
-									\
-    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-ref");                    \
-    i = SCM_I_INUM (idx);                                               \
-    int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
-									\
-    if (SCM_LIKELY (SCM_I_INUMP (idx)					\
-                    && (i >= 0)						\
-                    && (i + size <= SCM_BYTEVECTOR_LENGTH (bv))		\
-                    && (ALIGNED_P (int_ptr, scm_t_ ## type))))		\
-      {									\
-        scm_t_ ## type x = *int_ptr;					\
-        if (SCM_FIXABLE (x))						\
-          RETURN (SCM_I_MAKINUM (x));					\
-        else								\
-          {								\
-            SYNC_IP ();                                                 \
-            RETURN (scm_from_ ## type (x));				\
-          }								\
-      }									\
-    else                                                                \
-      {									\
-        SYNC_IP ();							\
-        RETURN (scm_bytevector_ ## stem ## _native_ref (bv, idx));	\
-      }									\
-  } while (0)
-
-#define BV_FLOAT_REF(stem, fn_stem, type, size)				\
-  do {									\
-    const type *float_ptr;						\
+    type result;                                                        \
     scm_t_uint8 dst, src, idx;                                          \
     SCM bv;                                                             \
     scm_t_uint64 c_idx;                                                 \
@@ -3021,63 +2968,45 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     c_idx = SP_REF_U64 (idx);                                           \
 									\
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-ref");                    \
-    float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx);        \
 									\
-    if (SCM_LIKELY (size <= SCM_BYTEVECTOR_LENGTH (bv)                  \
-                    && (c_idx <= SCM_BYTEVECTOR_LENGTH (bv) - size)     \
-                    && (ALIGNED_P (float_ptr, type))))			\
-      {                                                                 \
-        SP_SET_F64 (dst, *float_ptr);                                   \
-        NEXT (1);                                                       \
-      }                                                                 \
-    else                                                                \
-      {                                                                 \
-        SCM scm_idx, val;                                               \
-        SYNC_IP ();                                                     \
-        scm_idx = scm_from_uint64 (c_idx);                              \
-        val = scm_bytevector_ ## fn_stem ## _native_ref (bv, scm_idx);  \
-        SP_SET_F64 (dst, scm_to_double (val));                          \
-        NEXT (1);                                                       \
-      }                                                                 \
+    if (SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) < size)                \
+        || SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) - size < c_idx))    \
+      vm_error_out_of_range_uint64 ("bv-" #stem "-ref", c_idx);         \
+                                                                        \
+    memcpy (&result, SCM_BYTEVECTOR_CONTENTS (bv) + c_idx, size);       \
+    SP_SET_ ## slot (dst, result);                                      \
+    NEXT (1);                                                           \
   } while (0)
 
   VM_DEFINE_OP (116, bv_u8_ref, "bv-u8-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_FIXABLE_INT_REF (u8, u8, uint8, 1);
+    BV_REF (u8, scm_t_uint8, 1, U64);
 
   VM_DEFINE_OP (117, bv_s8_ref, "bv-s8-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_FIXABLE_INT_REF (s8, s8, int8, 1);
+    BV_REF (s8, scm_t_int8, 1, S64);
 
   VM_DEFINE_OP (118, bv_u16_ref, "bv-u16-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_FIXABLE_INT_REF (u16, u16_native, uint16, 2);
+    BV_REF (u16, scm_t_uint16, 2, U64);
 
   VM_DEFINE_OP (119, bv_s16_ref, "bv-s16-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_FIXABLE_INT_REF (s16, s16_native, int16, 2);
+    BV_REF (s16, scm_t_int16, 2, S64);
 
   VM_DEFINE_OP (120, bv_u32_ref, "bv-u32-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-#if SIZEOF_VOID_P > 4
-    BV_FIXABLE_INT_REF (u32, u32_native, uint32, 4);
-#else
-    BV_INT_REF (u32, uint32, 4);
-#endif
+    BV_REF (u32, scm_t_uint32, 4, U64);
 
   VM_DEFINE_OP (121, bv_s32_ref, "bv-s32-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-#if SIZEOF_VOID_P > 4
-    BV_FIXABLE_INT_REF (s32, s32_native, int32, 4);
-#else
-    BV_INT_REF (s32, int32, 4);
-#endif
+    BV_REF (s32, scm_t_int32, 4, S64);
 
   VM_DEFINE_OP (122, bv_u64_ref, "bv-u64-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_INT_REF (u64, uint64, 8);
+    BV_REF (u64, scm_t_uint64, 8, U64);
 
   VM_DEFINE_OP (123, bv_s64_ref, "bv-s64-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_INT_REF (s64, int64, 8);
+    BV_REF (s64, scm_t_int64, 8, S64);
 
   VM_DEFINE_OP (124, bv_f32_ref, "bv-f32-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_FLOAT_REF (f32, ieee_single, float, 4);
+    BV_REF (f32, float, 4, F64);
 
   VM_DEFINE_OP (125, bv_f64_ref, "bv-f64-ref", OP1 (X8_S8_S8_S8) | OP_DST)
-    BV_FLOAT_REF (f64, ieee_double, double, 8);
+    BV_REF (f64, double, 8, F64);
 
   /* bv-u8-set! dst:8 idx:8 src:8
    * bv-s8-set! dst:8 idx:8 src:8
@@ -3093,133 +3022,89 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Store SRC into the bytevector DST at byte offset IDX.  Multibyte
    * values are written using native endianness.
    */
-#define BV_FIXABLE_INT_SET(stem, fn_stem, type, min, max, size)		\
+#define BV_BOUNDED_SET(stem, type, min, max, size, slot_type, slot)     \
   do {									\
-    scm_t_uint8 dst, idx, src;                                          \
-    scm_t_signed_bits i, j = 0;                                         \
-    SCM bv, scm_idx, val;                                               \
-    scm_t_ ## type *int_ptr;						\
-									\
-    UNPACK_8_8_8 (op, dst, idx, src);                                   \
-    bv = SP_REF (dst);                                               \
-    scm_idx = SP_REF (idx);                                          \
-    val = SP_REF (src);                                              \
-    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
-    i = SCM_I_INUM (scm_idx);                                           \
-    int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
-									\
-    if (SCM_LIKELY (SCM_I_INUMP (scm_idx)                               \
-                    && (i >= 0)                                         \
-                    && (i + size <= SCM_BYTEVECTOR_LENGTH (bv))         \
-                    && (ALIGNED_P (int_ptr, scm_t_ ## type))		\
-                    && (SCM_I_INUMP (val))				\
-                    && ((j = SCM_I_INUM (val)) >= min)                  \
-                    && (j <= max)))					\
-      *int_ptr = (scm_t_ ## type) j;					\
-    else                                                                \
-      {                                                                 \
-        SYNC_IP ();                                                     \
-        scm_bytevector_ ## fn_stem ## _set_x (bv, scm_idx, val);        \
-      }                                                                 \
-    NEXT (1);                                                           \
-  } while (0)
-
-#define BV_INT_SET(stem, type, size)					\
-  do {									\
-    scm_t_uint8 dst, idx, src;                                          \
-    scm_t_signed_bits i;                                                \
-    SCM bv, scm_idx, val;                                               \
-    scm_t_ ## type *int_ptr;						\
-									\
-    UNPACK_8_8_8 (op, dst, idx, src);                                   \
-    bv = SP_REF (dst);                                               \
-    scm_idx = SP_REF (idx);                                          \
-    val = SP_REF (src);                                              \
-    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
-    i = SCM_I_INUM (scm_idx);                                           \
-    int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
-									\
-    if (SCM_LIKELY (SCM_I_INUMP (scm_idx)                               \
-                    && (i >= 0)                                         \
-                    && (i + size <= SCM_BYTEVECTOR_LENGTH (bv))         \
-                    && (ALIGNED_P (int_ptr, scm_t_ ## type))))          \
-      *int_ptr = scm_to_ ## type (val);                                 \
-    else                                                                \
-      {                                                                 \
-        SYNC_IP ();                                                     \
-        scm_bytevector_ ## stem ## _native_set_x (bv, scm_idx, val);    \
-      }                                                                 \
-    NEXT (1);                                                           \
-  } while (0)
-
-#define BV_FLOAT_SET(stem, fn_stem, type, size)                         \
-  do {                                                                  \
+    scm_t_ ## slot_type slot_val;                                       \
+    type val;                                                           \
     scm_t_uint8 dst, idx, src;                                          \
     SCM bv;                                                             \
     scm_t_uint64 c_idx;                                                 \
-    double val;                                                         \
-    type *float_ptr;                                                    \
-									\
     UNPACK_8_8_8 (op, dst, idx, src);                                   \
     bv = SP_REF (dst);                                                  \
     c_idx = SP_REF_U64 (idx);                                           \
-    val = SP_REF_F64 (src);                                             \
+    slot_val = SP_REF_ ## slot (src);                                   \
+									\
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
-    float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx);        \
+									\
+    if (SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) < size)                \
+        || SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) - size < c_idx))    \
+      vm_error_out_of_range_uint64 ("bv-" #stem "-set!", c_idx);        \
                                                                         \
-    if (SCM_LIKELY (size <= SCM_BYTEVECTOR_LENGTH (bv)                  \
-                    && c_idx <= SCM_BYTEVECTOR_LENGTH (bv) - size       \
-                    && ALIGNED_P (float_ptr, type)))                    \
-      *float_ptr = val;                                                 \
-    else                                                                \
-      {                                                                 \
-        SCM boxed_idx, boxed_val;                                       \
-        boxed_idx = scm_from_uint64 (c_idx);                            \
-        boxed_val = scm_from_double (val);                              \
-        SYNC_IP ();                                                     \
-        scm_bytevector_ ## fn_stem ## _native_set_x (bv, boxed_idx,     \
-                                                     boxed_val);        \
-      }                                                                 \
+    if (SCM_UNLIKELY (slot_val < min) || SCM_UNLIKELY (slot_val > max)) \
+      vm_error_out_of_range_ ## slot_type ("bv-" #stem "-set!",         \
+                                           slot_val);                   \
+                                                                        \
+    val = slot_val;                                                     \
+    memcpy (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx, &val, size);          \
+    NEXT (1);                                                           \
+  } while (0)
+
+#define BV_SET(stem, type, size, slot)                                  \
+  do {									\
+    type val;                                                           \
+    scm_t_uint8 dst, idx, src;                                          \
+    SCM bv;                                                             \
+    scm_t_uint64 c_idx;                                                 \
+    UNPACK_8_8_8 (op, dst, idx, src);                                   \
+    bv = SP_REF (dst);                                                  \
+    c_idx = SP_REF_U64 (idx);                                           \
+    val = SP_REF_ ## slot (src);                                        \
+									\
+    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
+									\
+    if (SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) < size)                \
+        || SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) - size < c_idx))    \
+      vm_error_out_of_range_uint64 ("bv-" #stem "-set!", c_idx);        \
+                                                                        \
+    memcpy (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx, &val, size);          \
     NEXT (1);                                                           \
   } while (0)
 
   VM_DEFINE_OP (126, bv_u8_set, "bv-u8-set!", OP1 (X8_S8_S8_S8))
-    BV_FIXABLE_INT_SET (u8, u8, uint8, 0, SCM_T_UINT8_MAX, 1);
+    BV_BOUNDED_SET (u8, scm_t_uint8,
+                    0, SCM_T_UINT8_MAX, 1, uint64, U64);
 
   VM_DEFINE_OP (127, bv_s8_set, "bv-s8-set!", OP1 (X8_S8_S8_S8))
-    BV_FIXABLE_INT_SET (s8, s8, int8, SCM_T_INT8_MIN, SCM_T_INT8_MAX, 1);
+    BV_BOUNDED_SET (s8, scm_t_int8,
+                    SCM_T_INT8_MIN, SCM_T_INT8_MAX, 1, int64, S64);
 
   VM_DEFINE_OP (128, bv_u16_set, "bv-u16-set!", OP1 (X8_S8_S8_S8))
-    BV_FIXABLE_INT_SET (u16, u16_native, uint16, 0, SCM_T_UINT16_MAX, 2);
+    BV_BOUNDED_SET (u16, scm_t_uint16,
+                    0, SCM_T_UINT16_MAX, 2, uint64, U64);
 
   VM_DEFINE_OP (129, bv_s16_set, "bv-s16-set!", OP1 (X8_S8_S8_S8))
-    BV_FIXABLE_INT_SET (s16, s16_native, int16, SCM_T_INT16_MIN, SCM_T_INT16_MAX, 2);
+    BV_BOUNDED_SET (s16, scm_t_int16,
+                    SCM_T_INT16_MIN, SCM_T_INT16_MAX, 2, int64, S64);
 
   VM_DEFINE_OP (130, bv_u32_set, "bv-u32-set!", OP1 (X8_S8_S8_S8))
-#if SIZEOF_VOID_P > 4
-    BV_FIXABLE_INT_SET (u32, u32_native, uint32, 0, SCM_T_UINT32_MAX, 4);
-#else
-    BV_INT_SET (u32, uint32, 4);
-#endif
+    BV_BOUNDED_SET (u32, scm_t_uint32,
+                    0, SCM_T_UINT32_MAX, 4, uint64, U64);
 
   VM_DEFINE_OP (131, bv_s32_set, "bv-s32-set!", OP1 (X8_S8_S8_S8))
-#if SIZEOF_VOID_P > 4
-    BV_FIXABLE_INT_SET (s32, s32_native, int32, SCM_T_INT32_MIN, SCM_T_INT32_MAX, 4);
-#else
-    BV_INT_SET (s32, int32, 4);
-#endif
+    BV_BOUNDED_SET (s32, scm_t_int32,
+                    SCM_T_INT32_MIN, SCM_T_INT32_MAX, 4, int64, S64);
 
   VM_DEFINE_OP (132, bv_u64_set, "bv-u64-set!", OP1 (X8_S8_S8_S8))
-    BV_INT_SET (u64, uint64, 8);
+    BV_SET (u64, scm_t_uint64, 8, U64);
 
   VM_DEFINE_OP (133, bv_s64_set, "bv-s64-set!", OP1 (X8_S8_S8_S8))
-    BV_INT_SET (s64, int64, 8);
+    BV_SET (s64, scm_t_int64, 8, S64);
 
   VM_DEFINE_OP (134, bv_f32_set, "bv-f32-set!", OP1 (X8_S8_S8_S8))
-    BV_FLOAT_SET (f32, ieee_single, float, 4);
+    BV_SET (f32, float, 4, F64);
 
   VM_DEFINE_OP (135, bv_f64_set, "bv-f64-set!", OP1 (X8_S8_S8_S8))
-    BV_FLOAT_SET (f64, ieee_double, double, 8);
+    BV_SET (f6, double, 8, F64);
 
   /* scm->f64 dst:12 src:12
    *

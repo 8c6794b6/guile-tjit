@@ -576,12 +576,19 @@
                    (letk kbox ($kargs ('f64) (f64)
                                 ($continue k src ($primcall 'f64->scm (f64)))))
                    kbox))
-                ((bv-length)
+                ((bv-length bv-u8-ref bv-u16-ref bv-u32-ref bv-u64-ref)
                  (with-cps cps
                    (letv u64)
                    (let$ k (adapt-arity k src out))
                    (letk kbox ($kargs ('u64) (u64)
                                 ($continue k src ($primcall 'u64->scm (u64)))))
+                   kbox))
+                ((bv-s8-ref bv-s16-ref bv-s32-ref bv-s64-ref)
+                 (with-cps cps
+                   (letv s64)
+                   (let$ k (adapt-arity k src out))
+                   (letk kbox ($kargs ('s64) (s64)
+                                ($continue k src ($primcall 's64->scm (s64)))))
                    kbox))
                 (else
                  (adapt-arity cps k src out))))
@@ -594,7 +601,9 @@
                   ($continue kunboxed src ($primcall unbox-op (arg))))))
             (define (unbox-args cps args have-args)
               (case instruction
-                ((bv-f32-ref bv-f64-ref)
+                ((bv-f32-ref bv-f64-ref
+                  bv-s8-ref bv-s16-ref bv-s32-ref bv-s64-ref
+                  bv-u8-ref bv-u16-ref bv-u32-ref bv-u64-ref)
                  (match args
                    ((bv idx)
                     (unbox-arg
@@ -609,6 +618,26 @@
                      (lambda (cps idx)
                        (unbox-arg
                         cps val 'scm->f64
+                        (lambda (cps val)
+                          (have-args cps (list bv idx val)))))))))
+                ((bv-s8-set! bv-s16-set! bv-s32-set! bv-s64-set!)
+                 (match args
+                   ((bv idx val)
+                    (unbox-arg
+                     cps idx 'scm->u64
+                     (lambda (cps idx)
+                       (unbox-arg
+                        cps val 'scm->s64
+                        (lambda (cps val)
+                          (have-args cps (list bv idx val)))))))))
+                ((bv-u8-set! bv-u16-set! bv-u32-set! bv-u64-set!)
+                 (match args
+                   ((bv idx val)
+                    (unbox-arg
+                     cps idx 'scm->u64
+                     (lambda (cps idx)
+                       (unbox-arg
+                        cps val 'scm->u64
                         (lambda (cps val)
                           (have-args cps (list bv idx val)))))))))
                 (else (have-args cps args))))

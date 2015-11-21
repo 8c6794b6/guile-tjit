@@ -447,6 +447,8 @@ static void vm_error_not_a_bytevector (const char *subr, SCM x) SCM_NORETURN SCM
 static void vm_error_not_a_struct (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_vector (const char *subr, SCM v) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_out_of_range (const char *subr, SCM k) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_out_of_range_uint64 (const char *subr, scm_t_uint64 idx) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_out_of_range_int64 (const char *subr, scm_t_int64 idx) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_no_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_enough_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_number_of_values (scm_t_uint32 expected) SCM_NORETURN SCM_NOINLINE;
@@ -582,6 +584,18 @@ vm_error_out_of_range (const char *subr, SCM k)
 {
   scm_to_size_t (k);
   scm_out_of_range (subr, k);
+}
+
+static void
+vm_error_out_of_range_uint64 (const char *subr, scm_t_uint64 idx)
+{
+  scm_out_of_range (subr, scm_from_uint64 (idx));
+}
+
+static void
+vm_error_out_of_range_int64 (const char *subr, scm_t_int64 idx)
+{
+  scm_out_of_range (subr, scm_from_int64 (idx));
 }
 
 static void

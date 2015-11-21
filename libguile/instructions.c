@@ -54,6 +54,8 @@ SCM_SYMBOL (sym_bang, "!");
     M(BF32) /* Immediate double, low bits. */   \
     M(AU32) /* Immediate uint64, high bits. */  \
     M(BU32) /* Immediate uint64, low bits. */   \
+    M(AS32) /* Immediate int64, high bits. */   \
+    M(BS32) /* Immediate int64, low bits. */    \
     M(N32) /* Non-immediate. */                 \
     M(R32) /* Scheme value (indirected). */     \
     M(L32) /* Label. */                         \

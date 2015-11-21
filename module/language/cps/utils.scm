@@ -223,7 +223,7 @@ disjoint, an error will be signalled."
           (($ $primcall 'scm->s64 (val))
            (let ((s64 (intmap-ref out val (lambda (_) #f))))
              (if (and s64 (number? s64) (exact-integer? s64)
-                      (<= (- #x8000000000000000) u64 #x7fffFFFFffffFFFF))
+                      (<= (- #x8000000000000000) s64 #x7fffFFFFffffFFFF))
                  (intmap-add! out var s64)
                  out)))
           (_ out)))
