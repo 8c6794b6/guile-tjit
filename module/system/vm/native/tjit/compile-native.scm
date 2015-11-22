@@ -257,10 +257,8 @@ for SHIFT."
   (let ((op (if (< 0 sp-offset)
                 jit-addi
                 jit-subi))
-        (vp->sp r0))
-    (load-vp->sp vp->sp)
+        (vp->sp %sp))
     (op vp->sp vp->sp (imm (* (abs sp-offset) %word-size)))
-    (store-vp->sp vp->sp)
     (vm-sync-sp vp->sp)))
 
 (define (move-or-load-carefully dsts srcs types)
@@ -359,13 +357,12 @@ are local index number."
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
   (let* ((trampoline (make-trampoline (hash-count (const #t) snapshots)))
          (fp-offset
-          ;; Root trace allocates spaces for spilled variables, 4 words to store
-          ;; reserved values: `vp', `vp->sp', and `registers', and return
-          ;; address used by side exits, and space to save volatile
-          ;; registers. Side trace cannot allocate additional memory, because
-          ;; side trace uses `jit-tramp'. Native code will not work if number of
-          ;; spilled variables exceeds the number returned from parameter
-          ;; `(tjit-max-spills)'.
+          ;; Root trace allocates spaces for spilled variables, 1 word
+          ;; to store `registers' from argument, and space to save
+          ;; volatile registers. Side trace cannot allocate additional
+          ;; memory, because side trace uses `jit-tramp'. Native code
+          ;; will not work if number of spilled variables exceeds the
+          ;; number returned from parameter `(tjit-max-spills)'.
           (if (not fragment)
               (let ((max-spills (tjit-max-spills))
                     (nspills (primlist-nspills primlist)))
@@ -373,7 +370,7 @@ are local index number."
                   ;; XXX: Escape from this procedure, increment compilation
                   ;; failure for this entry-ip.
                   (error "Too many spilled variables" nspills))
-                (jit-allocai (imm (* (+ max-spills 4 *num-volatiles*)
+                (jit-allocai (imm (* (+ max-spills 1 *num-volatiles*)
                                      %word-size))))
               (fragment-fp-offset fragment))))
     (cond
@@ -383,14 +380,14 @@ are local index number."
             (registers r1))
 
         ;; Get arguments.
-        (jit-getarg reg-thread (jit-arg)) ; thread
-        (jit-getarg vp (jit-arg))         ; vp
-        (jit-getarg registers (jit-arg))  ; registers, for prompt
+        (jit-getarg %thread (jit-arg))   ; thread
+        (jit-getarg vp (jit-arg))        ; vp
+        (jit-getarg registers (jit-arg)) ; registers, for prompt
 
         ;; Store `vp', `vp->sp', and `registers'.
         (store-vp vp)
         (vm-cache-sp vp)
-        (jit-stxi registers-offset fp registers)))
+        (jit-stxi registers-offset %fp registers)))
 
      ;; Side trace.
      (else
@@ -527,32 +524,31 @@ are local index number."
 
           ;; Make tjit-retval for VM interpreter.
           (jit-prepare)
-          (jit-pushargr reg-thread)
+          (jit-pushargr %thread)
           (jit-pushargi (scm-i-makinumi id))
           (jit-pushargi (scm-i-makinumi trace-id))
           (jit-pushargi (scm-i-makinumi nlocals))
           (jit-calli %scm-tjit-make-retval)
-          (jit-retval reg-retval)
+          (jit-retval %retval)
 
           ;; Debug code to dump tjit-retval and locals.
           (let ((dump-option (tjit-dump-option)))
             (when (tjit-dump-exit? dump-option)
-              (jit-movr reg-thread reg-retval)
+              (jit-movr %thread %retval)
               (jit-prepare)
-              (jit-pushargr reg-retval)
-              (load-vp reg-retval)
-              (jit-pushargr reg-retval)
+              (jit-pushargr %retval)
+              (load-vp %retval)
+              (jit-pushargr %retval)
               (jit-calli %scm-tjit-dump-retval)
-              (jit-movr reg-retval reg-thread)
+              (jit-movr %retval %thread)
               (when (tjit-dump-locals? dump-option)
-                (jit-movr reg-thread reg-retval)
+                (jit-movr %thread %retval)
                 (jit-prepare)
                 (jit-pushargi (scm-i-makinumi trace-id))
                 (jit-pushargi (imm nlocals))
-                (load-vp->sp reg-retval)
-                (jit-pushargr reg-retval)
+                (jit-pushargr %sp)
                 (jit-calli %scm-tjit-dump-locals)
-                (jit-movr reg-retval reg-thread)))))
+                (jit-movr %retval %thread)))))
          (_
           (debug 1 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
 

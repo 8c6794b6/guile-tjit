@@ -75,8 +75,6 @@
             store-vp
             load-vp->fp
             store-vp->fp
-            load-vp->sp
-            store-vp->sp
             vm-cache-sp
             vm-sync-ip
             vm-sync-sp
@@ -194,7 +192,7 @@
 (define-syntax-rule (scm-from-double dst src)
   (begin
     (jit-prepare)
-    (jit-pushargr reg-thread)
+    (jit-pushargr %thread)
     (jit-pushargr-d src)
     (jit-calli %scm-from-double)
     (jit-retval dst)))
@@ -219,26 +217,23 @@
 
 (define-syntax-rule (moffs mem)
   (let ((n (+ (ref-value mem) *num-volatiles*)))
-    (make-negative-pointer (* (- -5 n) %word-size))))
-
-(define vp->sp-offset
-  (make-negative-pointer (* -1 %word-size)))
+    (make-negative-pointer (* (- -2 n) %word-size))))
 
 (define registers-offset
-  (make-negative-pointer (* -2 %word-size)))
+  (make-negative-pointer (* -1 %word-size)))
 
 (define (volatile-offset reg)
   (let ((n (- (ref-value reg) *num-non-volatiles*)))
-    (make-negative-pointer (* (- -4 n) %word-size))))
+    (make-negative-pointer (* (- -2 n) %word-size))))
 
 (define (spilled-offset mem)
   (moffs mem))
 
 (define-syntax-rule (load-vp dst)
-  (jit-ldr dst fp))
+  (jit-ldr dst %fp))
 
 (define-syntax-rule (store-vp src)
-  (jit-str fp src))
+  (jit-str %fp src))
 
 (define-syntax-rule (load-vp->fp dst vp)
   (jit-ldxi dst vp (imm (* 2 %word-size))))
@@ -246,16 +241,8 @@
 (define-syntax-rule (store-vp->fp vp src)
   (jit-stxi (imm (* 2 %word-size)) vp src))
 
-(define-syntax-rule (load-vp->sp dst)
-  (jit-ldxi dst fp vp->sp-offset))
-
-(define-syntax-rule (store-vp->sp src)
-  (jit-stxi vp->sp-offset fp src))
-
 (define-syntax-rule (vm-cache-sp vp)
-  (let ((vp->sp (if (eq? vp r0) r1 r0)))
-    (jit-ldxi vp->sp vp (make-pointer %word-size))
-    (store-vp->sp vp->sp)))
+  (jit-ldxi %sp vp (make-pointer %word-size)))
 
 (define-syntax-rule (vm-sync-ip src)
   (let ((vp (if (eq? src r0) r1 r0)))
@@ -273,21 +260,17 @@
     (store-vp->fp vp src)))
 
 (define-syntax-rule (sp-ref dst n)
-  (let ((vp->sp (if (eq? dst r0) r1 r0)))
-    (load-vp->sp vp->sp)
-    (if (= 0 n)
-        (jit-ldr dst vp->sp)
-        (jit-ldxi dst vp->sp (make-signed-pointer (* n %word-size))))))
+  (if (= 0 n)
+      (jit-ldr dst %sp)
+      (jit-ldxi dst %sp (make-signed-pointer (* n %word-size)))))
 
 (define-syntax-rule (sp-set! n src)
-  (let ((vp->sp (if (eq? src r0) r1 r0)))
-    (jit-ldxi vp->sp fp vp->sp-offset)
-    (if (= 0 n)
-        (jit-str vp->sp src)
-        (jit-stxi (make-signed-pointer (* n %word-size)) vp->sp src))))
+  (if (= 0 n)
+      (jit-str %sp src)
+      (jit-stxi (make-signed-pointer (* n %word-size)) %sp src)))
 
 (define-syntax-rule (vm-thread-pending-asyncs dst)
-  (jit-ldxi dst reg-thread (imm #x104)))
+  (jit-ldxi dst %thread (imm #x104)))
 
 (define-syntax-rule (vm-handle-interrupts asm-arg)
   (let ((next (jit-forward)))
@@ -303,10 +286,10 @@
     (jit-link next)))
 
 (define (store-volatile src)
-  (jit-stxi (volatile-offset src) fp (gpr src)))
+  (jit-stxi (volatile-offset src) %fp (gpr src)))
 
 (define (load-volatile dst)
-  (jit-ldxi (gpr dst) fp (volatile-offset dst)))
+  (jit-ldxi (gpr dst) %fp (volatile-offset dst)))
 
 
 ;;;
@@ -352,12 +335,10 @@
 (define (make-asm env end-address)
   (define (volatile-regs-in-use env)
     (hash-fold (lambda (_ reg acc)
-                 (cond
-                  ((and (gpr? reg)
-                        (<= *num-non-volatiles* (ref-value reg)))
-                   (cons reg acc))
-                  (else
-                   acc)))
+                 (if (and (gpr? reg)
+                          (<= *num-non-volatiles* (ref-value reg)))
+                     (cons reg acc)
+                     acc))
                '()
                env))
   (let ((volatiles (volatile-regs-in-use env)))
@@ -381,28 +362,28 @@
    ((not (memory? src))
     (error "memory-ref: not a memory" src))
    (else
-    (jit-ldxi dst fp (moffs src)))))
+    (jit-ldxi dst %fp (moffs src)))))
 
 (define-syntax-rule (memory-ref/f dst src)
   (cond
    ((not (memory? src))
     (error "memory-ref/f: not a memory" src))
    (else
-    (jit-ldxi-d dst fp (moffs src)))))
+    (jit-ldxi-d dst %fp (moffs src)))))
 
 (define-syntax-rule (memory-set! dst src)
   (cond
    ((not (memory? dst))
     (error "memory-set!: not a memory" dst))
    (else
-    (jit-stxi (moffs dst) fp src))))
+    (jit-stxi (moffs dst) %fp src))))
 
 (define-syntax-rule (memory-set!/f dst src)
   (cond
    ((not (memory? dst))
     (error "memory-set!/f: not a memory" dst))
    (else
-    (jit-stxi-d (moffs dst) fp src))))
+    (jit-stxi-d (moffs dst) %fp src))))
 
 (define-syntax-rule (emit-side-exit)
   "Emit native code of side exit.
@@ -452,7 +433,7 @@ epilog part. Native code of side trace does not reset %rsp, since it uses
         (memory-set! dst r0))
        ((flonum? val)
         (jit-movi-d f0 (constant src))
-        (jit-stxi-d (spilled-offset dst) fp f0)))))
+        (memory-set!/f dst f0)))))
    ((and (memory? dst) (gpr? src))
     (memory-set! dst (gpr src)))
    ((and (memory? dst) (fpr? src))
@@ -731,20 +712,20 @@ both arguments were register or memory."
    ((and (gpr? dst) (fpr? src))
     (scm-from-double (gpr dst) (fpr src)))
    ((and (gpr? dst) (memory? src))
-    (jit-ldxi-d f0 fp (moffs src))
+    (memory-ref/f f0 src)
     (scm-from-double (gpr dst) f0))
 
    ((and (memory? dst) (constant? src))
     (jit-movi-d f0 (constant src))
     (scm-from-double r0 f0)
-    (jit-stxi (moffs dst) fp r0))
+    (memory-set! dst r0))
    ((and (memory? dst) (fpr? src))
     (scm-from-double r0 (fpr src))
-    (jit-stxi (moffs dst) fp r0))
+    (memory-set! dst r0))
    ((and (memory? dst) (memory? src))
-    (jit-ldxi-d f0 fp (moffs src))
+    (memory-ref/f f0 src)
     (scm-from-double r0 f0)
-    (jit-stxi (moffs dst) f0 r0))
+    (memory-set! dst r0))
    (else
     (error "XXX: %scm-from-double" dst src))))
 
@@ -973,7 +954,7 @@ both arguments were register or memory."
 (define-syntax-rule (push-gpr-or-mem arg overwritten?)
   (cond
    (overwritten?
-    (jit-ldxi r0 fp (volatile-offset arg))
+    (jit-ldxi r0 %fp (volatile-offset arg))
     (jit-pushargr r0))
    ((gpr? arg)
     (jit-pushargr (gpr arg)))
@@ -1006,7 +987,7 @@ both arguments were register or memory."
                   (store-volatile reg)))
               (asm-volatiles asm))
     (jit-prepare)
-    (jit-pushargr reg-thread)
+    (jit-pushargr %thread)
     (push-gpr-or-mem x x-overwritten?)
     (push-gpr-or-mem y y-overwritten?)
     (jit-calli %scm-inline-cons)

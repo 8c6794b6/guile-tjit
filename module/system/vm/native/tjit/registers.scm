@@ -38,14 +38,20 @@
             *num-arg-fprs*
             gpr-ref
             fpr-ref
-            fp
-            reg-thread
-            reg-retval
+            %fp
+            %sp
+            %thread
+            %retval
             physical-name))
 
 ;;;
 ;;; Internal aliases
 ;;;
+
+(define rbx v0)
+(define r13 v1)
+(define r14 v2)
+(define r15 v3)
 
 (define r9 (jit-r 8))
 (define r8 (jit-r 9))
@@ -68,21 +74,25 @@
 ;;; Exported
 ;;;
 
-;; Non-volatile register to refer FP in native code.
-(define fp (jit-fp))
+;; Non-volatile register to refer FP in native code. This FP came from
+;; Lightning, not the `vp->fp' passed from VM interpreter.
+(define %fp (jit-fp))
+
+;; Non-volatile register to hold vp->sp.
+(define-syntax %sp (identifier-syntax rbx))
 
 ;; Non-volatile register to hold thread.
-(define-syntax reg-thread (identifier-syntax v0))
+(define-syntax %thread (identifier-syntax r13))
 
 ;; Volatile register to hold return value from native code to VM.
-(define-syntax reg-retval (identifier-syntax r0))
+(define-syntax %retval (identifier-syntax r0))
 
 ;; Non-volatile registers. `r3' from Lightning is R12, which is non-volatile in
 ;; Linux's calling convention sense, but Lightning sometimes internally uses
 ;; `r3', e.g: when branching instruction `jit-beqi' which takes immediate
 ;; values, were called and r0, r1, r2 were already in use.
 (define *non-volatile-registers*
-  `#(,v1 ,v2 ,v3))
+  `#(,r14 ,r15))
 
 ;; Ordering is mandatory. The last element in the vector is ARG1 register, next
 ;; to the last vector element is ARG2 register, and so on. Non-argument volatile
@@ -140,8 +150,9 @@
 
 (define (physical-name r)
   (let ((gpr-names
-         ;; RBX is for thread, R12 is used by Lightning.
-         #(r11 r10 rax r13 r14 r15 r9 r8 rcx rdx rsi rdi))
+         ;; RBX is for %sp, R13 is for %thread, and R12 is used by
+         ;; Lightning.
+         #(r11 r10 rax r14 r15 r9 r8 rcx rdx rsi rdi))
         (fpr-names
          #(xmm8 xmm9 xmm10 xmm11 xmm12 xmm13 xmm14 xmm15
                 xmm7 xmm6 xmm5 xmm4 xmm3 xmm2 xmm1 xmm0)))

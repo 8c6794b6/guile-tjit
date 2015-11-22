@@ -47,8 +47,7 @@
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
-  #:export (tjitc
-            init-vm-tjit)
+  #:export (tjitc init-vm-tjit)
   #:re-export (tjit-stats))
 
 
@@ -335,7 +334,7 @@
                                    parent-exit-id linked-ip trace-id)))
                (let ((epilog-label (jit-label)))
                  (jit-patch epilog-label)
-                 (jit-retr reg-retval)
+                 (jit-retr %retval)
                  (jit-epilog)
                  (jit-realize)
                  (let* ((estimated-size (jit-code-size))
