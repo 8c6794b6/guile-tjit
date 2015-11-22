@@ -235,7 +235,10 @@ for SHIFT."
       ((((local . type) . local-x-types) (src . srcs))
        (when (or (dynamic-link? type)
                  (return-address? type)
-                 (not (assq local references)))
+                 (not references)
+                 (let ((reg (hashq-ref references (- local shift))))
+                   (or (not reg)
+                       (not (equal? src reg)))))
          (store-frame local type src))
        (hashq-set! acc (- local shift) src)
        (lp local-x-types srcs acc))
@@ -399,10 +402,10 @@ are local index number."
       (cond
        ((hashq-ref (fragment-snapshots fragment) parent-exit-id)
         => (match-lambda
-            (($ $snapshot _ sp-offset fp-offset _ local-x-types exit-variables)
-             (let ((locals (snapshot-locals (hashq-ref snapshots 0))))
-               (debug 3 ";;; side-trace: locals: ~a~%" locals)
-               (maybe-store local-x-types exit-variables locals 0)))))
+             (($ $snapshot _ sp-offset _ _ local-x-types exit-variables)
+              (let ((locals (snapshot-locals (hashq-ref snapshots 0))))
+                (debug 3 ";;; side-trace: locals: ~a~%" locals)
+                (maybe-store local-x-types exit-variables #f 0)))))
        (else
         (error "compile-native: snapshot not found in parent trace"
                parent-exit-id)))))
@@ -574,9 +577,7 @@ are local index number."
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
-       (let* ((src-table (maybe-store local-x-types args loop-locals
-                                      sp-offset))
-              (type-table (make-hash-table))
+       (let* ((type-table (make-hash-table))
               (dst-table (make-hash-table)))
          (let lp ((locals loop-locals)
                   (dsts (fragment-loop-vars linked-fragment)))
@@ -587,7 +588,8 @@ are local index number."
               (lp locals dsts))
              (_
               (values))))
-         (move-or-load-carefully dst-table src-table type-table))
+         (let ((src-table (maybe-store local-x-types args dst-table sp-offset)))
+           (move-or-load-carefully dst-table src-table type-table)))
 
        ;; Shift SP.
        (when (not (= sp-offset 0))
