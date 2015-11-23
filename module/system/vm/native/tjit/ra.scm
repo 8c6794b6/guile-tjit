@@ -135,7 +135,7 @@
                 (gen-mem))
             var))
 
-(define (compile-primlist term snapshots arg-env
+(define (assign-registers term snapshots arg-env
                           arg-free-gprs arg-free-fprs arg-mem-idx snapshot-id)
   "Compile ANF term to list of primitive operations."
   (syntax-parameterize
@@ -205,7 +205,7 @@
        ((constant? k) (make-constant k))
        ((symbol? k) (hashq-ref env k))
        (else
-        (error "compile-primlist: ref not found" k))))
+        (error "assign-registers: ref not found" k))))
     (define (constant? x)
       (cond
        ((boolean? x) #t)
@@ -214,24 +214,24 @@
        ((null? x) #t)
        ((undefined? x) #t)
        (else #f)))
-    (define (compile-term term acc)
+    (define (assign-term term acc)
       (match term
         (('let (('_ ('%snap id . args))) term1)
          (let* ((regs (map ref args))
                 (prim `(%snap ,id ,@regs)))
            (set! snapshot-id id)
            (set-snapshot-variables! (hashq-ref snapshots id) regs)
-           (compile-term term1 (cons prim acc))))
+           (assign-term term1 (cons prim acc))))
         (('let (('_ (op . args))) term1)
          (let ((prim `(,op ,@(map ref args))))
-           (compile-term term1 (cons prim acc))))
+           (assign-term term1 (cons prim acc))))
         (('let ((dst (? constant? val))) term1)
          (let* ((reg (cond
                       ((ref dst) => identity)
                       ((flonum? val) (get-fpr! dst))
                       (else (get-gpr! dst))))
                 (prim `(%move ,reg ,(make-constant val))))
-           (compile-term term1 (cons prim acc))))
+           (assign-term term1 (cons prim acc))))
         (('let ((dst (? symbol? src))) term1)
          (let* ((src-reg (ref src))
                 (dst-reg (cond
@@ -240,12 +240,12 @@
                           ((fpr? src-reg) (get-fpr! dst))
                           ((memory? src-reg) (get-mem! dst))))
                 (prim `(%move ,dst-reg ,src-reg)))
-           (compile-term term1 (cons prim acc))))
+           (assign-term term1 (cons prim acc))))
         (('let ((dst (op . args))) term1)
          ;; Set and get argument types before destination type.
          (let* ((arg-regs (get-arg-types! op dst args))
                 (prim `(,op ,(get-dst-type! op dst) ,@arg-regs)))
-           (compile-term term1 (cons prim acc))))
+           (assign-term term1 (cons prim acc))))
         (('loop . _)
          acc)
         ('_
@@ -253,7 +253,7 @@
         (()
          acc)))
 
-    (let ((plist (reverse! (compile-term term '()))))
+    (let ((plist (reverse! (assign-term term '()))))
       (values plist snapshot-id))))
 
 
@@ -320,11 +320,11 @@
          (let*-values (((_)
                         (set-initial-args! entry-args initial-local-x-types))
                        ((entry-ops snapshot-idx)
-                        (compile-primlist entry-body snapshots
+                        (assign-registers entry-body snapshots
                                           env free-gprs free-fprs mem-idx
                                           0))
                        ((loop-ops snapshot-idx)
-                        (compile-primlist loop-body snapshots
+                        (assign-registers loop-body snapshots
                                           env free-gprs free-fprs mem-idx
                                           snapshot-idx)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
@@ -374,7 +374,7 @@
          (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
                 (sort-variables-in-env env))
          (let-values (((patch-ops snapshot-idx)
-                       (compile-primlist patch-body snapshots
+                       (assign-registers patch-body snapshots
                                          env free-gprs free-fprs mem-idx
                                          0)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
