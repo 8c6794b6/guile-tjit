@@ -135,8 +135,8 @@
                 (gen-mem))
             var))
 
-(define (compile-primlist term arg-env arg-free-gprs arg-free-fprs arg-mem-idx
-                          snapshot-id)
+(define (compile-primlist term snapshots arg-env
+                          arg-free-gprs arg-free-fprs arg-mem-idx snapshot-id)
   "Compile ANF term to list of primitive operations."
   (syntax-parameterize
       ((env (identifier-syntax arg-env))
@@ -217,8 +217,10 @@
     (define (compile-term term acc)
       (match term
         (('let (('_ ('%snap id . args))) term1)
-         (let ((prim `(%snap ,id ,@(map ref args))))
+         (let* ((regs (map ref args))
+                (prim `(%snap ,id ,@regs)))
            (set! snapshot-id id)
+           (set-snapshot-variables! (hashq-ref snapshots id) regs)
            (compile-term term1 (cons prim acc))))
         (('let (('_ (op . args))) term1)
          (let ((prim `(,op ,@(map ref args))))
@@ -260,7 +262,7 @@
 ;;;
 
 (define (ir->primlist parent-snapshot initial-snapshot vars handle-interrupts?
-                      term)
+                      snapshots term)
   (let ((initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
@@ -318,11 +320,11 @@
          (let*-values (((_)
                         (set-initial-args! entry-args initial-local-x-types))
                        ((entry-ops snapshot-idx)
-                        (compile-primlist entry-body
+                        (compile-primlist entry-body snapshots
                                           env free-gprs free-fprs mem-idx
                                           0))
                        ((loop-ops snapshot-idx)
-                        (compile-primlist loop-body
+                        (compile-primlist loop-body snapshots
                                           env free-gprs free-fprs mem-idx
                                           snapshot-idx)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
@@ -372,7 +374,7 @@
          (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
                 (sort-variables-in-env env))
          (let-values (((patch-ops snapshot-idx)
-                       (compile-primlist patch-body
+                       (compile-primlist patch-body snapshots
                                          env free-gprs free-fprs mem-idx
                                          0)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"

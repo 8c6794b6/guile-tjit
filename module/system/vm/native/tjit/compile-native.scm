@@ -468,9 +468,18 @@ are local index number."
        ((hashq-ref (fragment-snapshots fragment) parent-exit-id)
         => (match-lambda
              (($ $snapshot _ sp-offset _ _ local-x-types exit-variables)
-              (let ((locals (snapshot-locals (hashq-ref snapshots 0))))
-                (debug 3 ";;; side-trace: locals: ~a~%" locals)
-                (maybe-store local-x-types exit-variables #f 0)))))
+              (let* ((snap0 (hashq-ref snapshots 0))
+                     (locals (snapshot-locals snap0))
+                     (vars (snapshot-variables snap0))
+                     (references (make-hash-table)))
+                (let lp ((locals locals) (vars vars))
+                  (match (list locals vars)
+                    ((((local . _) . locals) (var . vars))
+                     (hashq-set! references local var)
+                     (lp locals vars))
+                    (_
+                     (values))))
+                (maybe-store local-x-types exit-variables references 0)))))
        (else
         (error "compile-native: snapshot not found in parent trace"
                parent-exit-id)))))
@@ -630,7 +639,6 @@ are local index number."
            (debug 3 ";;; compile-bailout: ptr=~a~%" ptr)
            (make-bytevector-executable! code)
            (dump-bailout ip id code)
-           (set-snapshot-variables! snapshot args)
            (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline id ptr)))))))
 

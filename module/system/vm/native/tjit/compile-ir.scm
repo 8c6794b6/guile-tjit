@@ -293,5 +293,6 @@ to indicate whether the trace contains loop or not."
                                      initial-snapshot
                                      vars
                                      handle-interrupts?
+                                     snapshots
                                      ir))))
       (values locals snapshots ir plist))))
