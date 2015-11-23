@@ -37,7 +37,6 @@
   #:use-module (system foreign)
   #:use-module (system vm debug)
   #:use-module (system vm native debug)
-  #:use-module (system vm native lightning)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit compile-native)
   #:use-module (system vm native tjit fragment)
@@ -52,7 +51,7 @@
 
 
 ;;;
-;;; Debug procedures
+;;; Dump procedures
 ;;;
 
 (define-syntax-rule (addr->source-line addr)
@@ -343,78 +342,19 @@
            (else
             (when (tjit-dump-ops? dump-option)
               (dump-primlist trace-id ops snapshots))
-            (with-jit-state
-             (jit-prolog)
-             (let-values
-                 (((trampoline loop-label loop-locals loop-vars fp-offset
-                               gen-bailouts)
-                   (compile-native ops entry-ip locals snapshots fragment
-                                   parent-exit-id linked-ip trace-id)))
-               (let ((epilog-label (jit-label)))
-                 (jit-patch epilog-label)
-                 (jit-retr %retval)
-                 (jit-epilog)
-                 (jit-realize)
-                 (let* ((estimated-size (jit-code-size))
-                        (code (make-bytevector estimated-size)))
-                   (jit-set-code (bytevector->pointer code)
-                                 (imm estimated-size))
-                   (let* ((ptr (jit-emit))
-                          (exit-counts (make-hash-table))
-                          (loop-address
-                           (and loop-label (jit-address loop-label)))
-                          (end-address
-                           (or (and fragment
-                                    (fragment-end-address fragment))
-                               (jit-address epilog-label)))
-                          (parent-id
-                           (or (and fragment (fragment-id fragment))
-                               0)))
-                     (make-bytevector-executable! code)
-
-                     ;; Emit bailouts with end address of this code.
-                     ;; Side traces need to jump to the address of
-                     ;; epilogue of parent root trace, to manage
-                     ;; non-volatile registers.
-                     (for-each (lambda (proc)
-                                 (proc end-address))
-                               gen-bailouts)
-
-                     ;; Same entry-ip could be used when side exit 0 was
-                     ;; taken for multiple times. Using trace-id as hash
-                     ;; table key.
-                     (put-fragment! trace-id (make-fragment trace-id
-                                                            code
-                                                            exit-counts
-                                                            entry-ip
-                                                            parent-id
-                                                            parent-exit-id
-                                                            loop-address
-                                                            loop-locals
-                                                            loop-vars
-                                                            snapshots
-                                                            trampoline
-                                                            fp-offset
-                                                            end-address))
-                     (when (and verbosity (<= 4 verbosity))
-                       (jit-print))
-                     (when (tjit-dump-disassemble? dump-option)
-                       (dump-disassembler trace-id
-                                          entry-ip
-                                          code
-                                          (jit-code-size)
-                                          (pointer-address ptr)
-                                          loop-address
-                                          snapshots
-                                          trampoline))
-                     ;; When this trace is a side trace, replace the native code
-                     ;; of trampoline in parent fragment.
-                     (when fragment
-                       (let ((trampoline (fragment-trampoline fragment))
-                             (snapshot (hashq-ref (fragment-snapshots fragment)
-                                                  parent-exit-id)))
-                         (trampoline-set! trampoline parent-exit-id ptr)
-                         (set-snapshot-code! snapshot code))))))))))
+            (let-values (((code size adjust loop-address trampoline)
+                          (compile-native ops entry-ip locals snapshots
+                                          fragment parent-exit-id linked-ip
+                                          trace-id)))
+              (when (tjit-dump-disassemble? dump-option)
+                (dump-disassembler trace-id
+                                   entry-ip
+                                   code
+                                   size
+                                   adjust
+                                   loop-address
+                                   snapshots
+                                   trampoline)))))
           (when (tjit-dump-time? dump-option)
             (let ((log (get-tjit-time-log trace-id)))
               (set-tjit-time-log-end! log (get-internal-run-time))))))))
