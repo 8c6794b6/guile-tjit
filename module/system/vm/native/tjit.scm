@@ -238,6 +238,17 @@
   ((tjit-disassembler) trace-id entry-ip code code-size adjust
    loop-address snapshots trampoline))
 
+(define *skipped-modules*
+  ;; XXX: Workaround for segfault happening with fresh compile.
+  ;;
+  ;; Ideally, the modules listed here should not skipped the
+  ;; compilation, though the segfault were bothering too much. When
+  ;; tracing JIT compiler get more stable, the list of skipped modules
+  ;; should be removed.
+  ;;
+  '((system vm assembler)
+    (system vm linker)))
+
 
 ;;;
 ;;; Entry point
@@ -260,6 +271,18 @@
              (lp (cons (cons elt env) acc) (+ offset len) envs)))
           (()
            (reverse! acc))))))
+  (define (module-to-skip? ip)
+    (string-match
+     (string-append "("
+                    (string-join
+                     (map (lambda (m)
+                            (module-filename (resolve-module m)))
+                          *skipped-modules*)
+                     "|")
+                    ")")
+     (or (let ((src (find-source-for-addr ip)))
+           (and src (source-file src)))
+         "")))
   (define-syntax-rule (increment-compilation-failure ip)
     (let ((count (hashq-ref (tjit-failed-ip-table) ip 0)))
       (hashq-set! (tjit-failed-ip-table) ip (+ count 1))))
@@ -284,7 +307,7 @@
          (entry-ip (cadr (car ip-x-ops)))
          (verbosity (lightning-verbosity))
          (fragment (get-fragment parent-ip))
-         (sline (addr->source-line (cadr (car ip-x-ops))))
+         (sline (addr->source-line entry-ip))
          (dump-option (tjit-dump-option)))
 
     (when (and verbosity (<= 3 verbosity))
@@ -295,14 +318,9 @@
       (format #t ";;; loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
 
-    ;; XXX: Workaround for segfault happening with fresh compile,
-    ;; Suppressing traces in file path matching to
-    ;; "system/vm/linker.scm" to avoid traces in (system vm linker).
-    (if (string-match "system/vm/linker.scm"
-                      (or (let ((src (find-source-for-addr
-                                      (cadr (car ip-x-ops)))))
-                            (and src (source-file src)))
-                          ""))
+    (if (module-to-skip? entry-ip)
+        ;; XXX: Workaround for modules causing segfault at the time of
+        ;; bytecode compilation with `vm-tjit'.
         (begin
           (debug 1 ";;; trace ~a: linker.scm matched, aborted ~%" trace-id)
           (increment-compilation-failure entry-ip))
