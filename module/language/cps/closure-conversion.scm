@@ -490,18 +490,29 @@ Otherwise @var{var} is bound, so @var{k} is called with @var{var}."
                (letk k* ($kargs (#f) (var*) ,body))
                (build-term ($continue k* #f ($primcall op (self)))))))
           (_
-           (let* ((idx (intset-find free var))
-                  (op (cond
-                       ((not self-known?) 'free-ref)
-                       ((<= idx #xff) 'vector-ref/immediate)
-                       (else 'vector-ref))))
-             (with-cps cps
-               (letv var*)
-               (let$ body (k var*))
-               (letk k* ($kargs (#f) (var*) ,body))
-               ($ (with-cps-constants ((idx idx))
-                    (build-term
-                      ($continue k* #f ($primcall op (self idx)))))))))))
+           (let ((idx (intset-find free var)))
+             (cond
+              (self-known?
+               (with-cps cps
+                 (letv var* u64)
+                 (let$ body (k var*))
+                 (letk k* ($kargs (#f) (var*) ,body))
+                 (letk kunbox ($kargs ('idx) (u64)
+                                ($continue k* #f
+                                  ($primcall 'vector-ref (self u64)))))
+                 ($ (with-cps-constants ((idx idx))
+                      (build-term
+                        ($continue kunbox #f
+                          ($primcall 'scm->u64 (idx))))))))
+              (else
+               (with-cps cps
+                 (letv var*)
+                 (let$ body (k var*))
+                 (letk k* ($kargs (#f) (var*) ,body))
+                 ($ (with-cps-constants ((idx idx))
+                      (build-term
+                        ($continue k* #f
+                          ($primcall 'free-ref (self idx)))))))))))))
        (else
         (with-cps cps
           ($ (k var))))))
@@ -541,12 +552,15 @@ term."
         (#(#t nfree)
          (unless (> nfree 2)
            (error "unexpected well-known nullary, unary, or binary closure"))
-         (let ((op (if (<= nfree #xff) 'make-vector/immediate 'make-vector)))
-           (with-cps cps
-             ($ (with-cps-constants ((nfree nfree)
-                                     (false #f))
-                  (build-term
-                    ($continue k src ($primcall op (nfree false)))))))))))
+         (with-cps cps
+           ($ (with-cps-constants ((nfree nfree)
+                                   (false #f))
+                (letv u64)
+                (letk kunbox ($kargs ('nfree) (u64)
+                               ($continue k src
+                                 ($primcall 'make-vector (u64 false)))))
+                (build-term
+                  ($continue kunbox src ($primcall 'scm->u64 (nfree))))))))))
 
     (define (init-closure cps k src var known? free)
       "Initialize the free variables @var{closure-free} in a closure
@@ -587,15 +601,25 @@ bound to @var{var}, and continue to @var{k}."
                   (letk k ($kargs () () ,body))
                   ($ (convert-arg v
                        (lambda (cps v)
-                         (let ((op (cond
-                                    ((not known?) 'free-set!)
-                                    ((<= idx #xff) 'vector-set!/immediate)
-                                    (else 'vector-set!))))
+                         (cond
+                          (known?
+                           (with-cps cps
+                             (letv u64)
+                             (letk kunbox
+                                   ($kargs ('idx) (u64)
+                                     ($continue k src
+                                       ($primcall 'vector-set! (var u64 v)))))
+                             ($ (with-cps-constants ((idx idx))
+                                  (build-term
+                                    ($continue kunbox src
+                                      ($primcall 'scm->u64 (idx))))))))
+                          (else
                            (with-cps cps
                              ($ (with-cps-constants ((idx idx))
                                   (build-term
                                     ($continue k src
-                                      ($primcall op (var idx v))))))))))))))))))
+                                      ($primcall 'free-set!
+                                                 (var idx v)))))))))))))))))))
 
     (define (make-single-closure cps k src kfun)
       (let ((free (intmap-ref free-vars kfun)))

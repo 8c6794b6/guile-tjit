@@ -576,7 +576,9 @@
                    (letk kbox ($kargs ('f64) (f64)
                                 ($continue k src ($primcall 'f64->scm (f64)))))
                    kbox))
-                ((bv-length bv-u8-ref bv-u16-ref bv-u32-ref bv-u64-ref)
+                ((string-length
+                  vector-length
+                  bv-length bv-u8-ref bv-u16-ref bv-u32-ref bv-u64-ref)
                  (with-cps cps
                    (letv u64)
                    (let$ k (adapt-arity k src out))
@@ -640,6 +642,34 @@
                         cps val 'scm->u64
                         (lambda (cps val)
                           (have-args cps (list bv idx val)))))))))
+                ((vector-ref struct-ref string-ref)
+                 (match args
+                   ((obj idx)
+                    (unbox-arg
+                     cps idx 'scm->u64
+                     (lambda (cps idx)
+                       (have-args cps (list obj idx)))))))
+                ((vector-set! struct-set!)
+                 (match args
+                   ((obj idx val)
+                    (unbox-arg
+                     cps idx 'scm->u64
+                     (lambda (cps idx)
+                       (have-args cps (list obj idx val)))))))
+                ((make-vector)
+                 (match args
+                   ((length init)
+                    (unbox-arg
+                     cps length 'scm->u64
+                     (lambda (cps length)
+                       (have-args cps (list length init)))))))
+                ((allocate-struct)
+                 (match args
+                   ((vtable nfields)
+                    (unbox-arg
+                     cps nfields 'scm->u64
+                     (lambda (cps nfields)
+                       (have-args cps (list vtable nfields)))))))
                 (else (have-args cps args))))
             (convert-args cps args
               (lambda (cps args)

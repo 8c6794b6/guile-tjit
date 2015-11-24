@@ -2224,13 +2224,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (76, string_length, "string-length", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (str);
-      if (SCM_LIKELY (scm_is_string (str)))
-        RETURN (SCM_I_MAKINUM (scm_i_string_length (str)));
-      else
-        {
-          SYNC_IP ();
-          RETURN (scm_string_length (str));
-        }
+      VM_ASSERT (scm_is_string (str),
+                 vm_error_not_a_string ("string-length", str));
+      SP_SET_U64 (dst, scm_i_string_length (str));
+      NEXT (1);
     }
 
   /* string-ref dst:8 src:8 idx:8
@@ -2240,18 +2237,20 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (77, string_ref, "string-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     {
-      scm_t_signed_bits i = 0;
-      ARGS2 (str, idx);
-      if (SCM_LIKELY (scm_is_string (str)
-                      && SCM_I_INUMP (idx)
-                      && ((i = SCM_I_INUM (idx)) >= 0)
-                      && i < scm_i_string_length (str)))
-        RETURN (SCM_MAKE_CHAR (scm_i_string_ref (str, i)));
-      else
-        {
-          SYNC_IP ();
-          RETURN (scm_string_ref (str, idx));
-        }
+      scm_t_uint8 dst, src, idx;
+      SCM str;
+      scm_t_uint32 c_idx;
+
+      UNPACK_8_8_8 (op, dst, src, idx);
+      str = SP_REF (src);
+      c_idx = SP_REF_U64 (idx);
+
+      VM_ASSERT (scm_is_string (str),
+                 vm_error_not_a_string ("string-ref", str));
+      VM_ASSERT (c_idx < scm_i_string_length (str),
+                 vm_error_out_of_range_uint64 ("string-ref", c_idx));
+
+      RETURN (SCM_MAKE_CHAR (scm_i_string_ref (str, c_idx)));
     }
 
   /* No string-set! instruction, as there is no good fast path there.  */
@@ -2267,8 +2266,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, dst, src);
       SYNC_IP ();
       SP_SET (dst,
-                 scm_string_to_number (SP_REF (src),
-                                       SCM_UNDEFINED /* radix = 10 */));
+              scm_string_to_number (SP_REF (src),
+                                    SCM_UNDEFINED /* radix = 10 */));
       NEXT (1);
     }
 
@@ -2574,11 +2573,17 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (99, make_vector, "make-vector", OP1 (X8_S8_S8_S8) | OP_DST)
     {
-      scm_t_uint8 dst, init, length;
+      scm_t_uint8 dst, length, init;
+      scm_t_uint64 length_val;
 
       UNPACK_8_8_8 (op, dst, length, init);
+      length_val = SP_REF_U64 (length);
+      VM_ASSERT (length_val < (size_t) -1,
+                 vm_error_out_of_range_uint64 ("make-vector", length_val));
 
-      SP_SET (dst, scm_make_vector (SP_REF (length), SP_REF (init)));
+      /* TODO: Inline this allocation.  */
+      SYNC_IP ();
+      SP_SET (dst, scm_c_make_vector (length_val, SP_REF (init)));
 
       NEXT (1);
     }
@@ -2615,7 +2620,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       ARGS1 (vect);
       VM_ASSERT (SCM_I_IS_VECTOR (vect),
                  vm_error_not_a_vector ("vector-ref", vect));
-      RETURN (SCM_I_MAKINUM (SCM_I_VECTOR_LENGTH (vect)));
+
+      SP_SET_U64 (dst, SCM_I_VECTOR_LENGTH (vect));
+      NEXT (1);
     }
 
   /* vector-ref dst:8 src:8 idx:8
@@ -2625,15 +2632,19 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (102, vector_ref, "vector-ref", OP1 (X8_S8_S8_S8) | OP_DST)
     {
-      scm_t_signed_bits i = 0;
-      ARGS2 (vect, idx);
+      scm_t_uint8 dst, src, idx;
+      SCM vect;
+      scm_t_uint64 c_idx;
+
+      UNPACK_8_8_8 (op, dst, src, idx);
+      vect = SP_REF (src);
+      c_idx = SP_REF_U64 (idx);
+
       VM_ASSERT (SCM_I_IS_VECTOR (vect),
                  vm_error_not_a_vector ("vector-ref", vect));
-      VM_ASSERT ((SCM_I_INUMP (idx)
-                  && ((i = SCM_I_INUM (idx)) >= 0)
-                  && i < SCM_I_VECTOR_LENGTH (vect)),
-                 vm_error_out_of_range ("vector-ref", idx));
-      RETURN (SCM_I_VECTOR_ELTS (vect)[i]);
+      VM_ASSERT (c_idx < SCM_I_VECTOR_LENGTH (vect),
+                 vm_error_out_of_range_uint64 ("vector-ref", c_idx));
+      RETURN (SCM_I_VECTOR_ELTS (vect)[c_idx]);
     }
 
   /* vector-ref/immediate dst:8 src:8 idx:8
@@ -2644,15 +2655,15 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (103, vector_ref_immediate, "vector-ref/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
     {
       scm_t_uint8 dst, src, idx;
-      SCM v;
+      SCM vect;
       
       UNPACK_8_8_8 (op, dst, src, idx);
-      v = SP_REF (src);
-      VM_ASSERT (SCM_I_IS_VECTOR (v),
-                 vm_error_not_a_vector ("vector-ref", v));
-      VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (v),
-                 vm_error_out_of_range ("vector-ref", scm_from_size_t (idx)));
-      SP_SET (dst, SCM_I_VECTOR_ELTS (SP_REF (src))[idx]);
+      vect = SP_REF (src);
+      VM_ASSERT (SCM_I_IS_VECTOR (vect),
+                 vm_error_not_a_vector ("vector-ref", vect));
+      VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (vect),
+                 vm_error_out_of_range_uint64 ("vector-ref", idx));
+      SP_SET (dst, SCM_I_VECTOR_ELTS (vect)[idx]);
       NEXT (1);
     }
 
@@ -2662,22 +2673,20 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (104, vector_set, "vector-set!", OP1 (X8_S8_S8_S8))
     {
-      scm_t_uint8 dst, idx_var, src;
-      SCM vect, idx, val;
-      scm_t_signed_bits i = 0;
+      scm_t_uint8 dst, idx, src;
+      SCM vect, val;
+      scm_t_uint64 c_idx;
 
-      UNPACK_8_8_8 (op, dst, idx_var, src);
+      UNPACK_8_8_8 (op, dst, idx, src);
       vect = SP_REF (dst);
-      idx = SP_REF (idx_var);
+      c_idx = SP_REF_U64 (idx);
       val = SP_REF (src);
 
       VM_ASSERT (SCM_I_IS_VECTOR (vect),
-                 vm_error_not_a_vector ("vector-ref", vect));
-      VM_ASSERT ((SCM_I_INUMP (idx)
-                  && ((i = SCM_I_INUM (idx)) >= 0)
-                  && i < SCM_I_VECTOR_LENGTH (vect)),
-                 vm_error_out_of_range ("vector-ref", idx));
-      SCM_I_VECTOR_WELTS (vect)[i] = val;
+                 vm_error_not_a_vector ("vector-set!", vect));
+      VM_ASSERT (c_idx < SCM_I_VECTOR_LENGTH (vect),
+                 vm_error_out_of_range_uint64 ("vector-set!", c_idx));
+      SCM_I_VECTOR_WELTS (vect)[c_idx] = val;
       NEXT (1);
     }
 
@@ -2698,7 +2707,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       VM_ASSERT (SCM_I_IS_VECTOR (vect),
                  vm_error_not_a_vector ("vector-ref", vect));
       VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (vect),
-                 vm_error_out_of_range ("vector-ref", scm_from_size_t (idx)));
+                 vm_error_out_of_range_uint64 ("vector-ref", idx));
       SCM_I_VECTOR_WELTS (vect)[idx] = val;
       NEXT (1);
     }
@@ -2734,8 +2743,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, vtable, nfields);
 
+      /* TODO: Specify nfields as untagged value when calling
+         allocate-struct.  */
       SYNC_IP ();
-      ret = scm_allocate_struct (SP_REF (vtable), SP_REF (nfields));
+      ret = scm_allocate_struct (SP_REF (vtable),
+                                 scm_from_uint64 (SP_REF_U64 (nfields)));
       SP_SET (dst, ret);
 
       NEXT (1);
@@ -2750,25 +2762,22 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_uint8 dst, src, idx;
       SCM obj;
-      SCM index;
+      scm_t_uint64 index;
 
       UNPACK_8_8_8 (op, dst, src, idx);
 
       obj = SP_REF (src);
-      index = SP_REF (idx);
+      index = SP_REF_U64 (idx);
 
       if (SCM_LIKELY (SCM_STRUCTP (obj)
                       && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
                                                         SCM_VTABLE_FLAG_SIMPLE)
-                      && SCM_I_INUMP (index)
-                      && SCM_I_INUM (index) >= 0
-                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
-                                               (SCM_STRUCT_VTABLE (obj),
-                                                scm_vtable_index_size))))
-        RETURN (SCM_STRUCT_SLOT_REF (obj, SCM_I_INUM (index)));
+                      && index < (SCM_STRUCT_DATA_REF (SCM_STRUCT_VTABLE (obj),
+                                                       scm_vtable_index_size))))
+        RETURN (SCM_STRUCT_SLOT_REF (obj, index));
 
       SYNC_IP ();
-      RETURN (scm_struct_ref (obj, index));
+      RETURN (scm_struct_ref (obj, scm_from_uint64 (index)));
     }
 
   /* struct-set! dst:8 idx:8 src:8
@@ -2778,31 +2787,29 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (109, struct_set, "struct-set!", OP1 (X8_S8_S8_S8))
     {
       scm_t_uint8 dst, idx, src;
-      SCM obj, val, index;
+      SCM obj, val;
+      scm_t_uint64 index;
 
       UNPACK_8_8_8 (op, dst, idx, src);
 
       obj = SP_REF (dst);
       val = SP_REF (src);
-      index = SP_REF (idx);
+      index = SP_REF_U64 (idx);
 
       if (SCM_LIKELY (SCM_STRUCTP (obj)
                       && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
                                                         SCM_VTABLE_FLAG_SIMPLE)
                       && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
                                                         SCM_VTABLE_FLAG_SIMPLE_RW)
-                      && SCM_I_INUMP (index)
-                      && SCM_I_INUM (index) >= 0
-                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
-                                               (SCM_STRUCT_VTABLE (obj),
-                                                scm_vtable_index_size))))
+                      && index < (SCM_STRUCT_DATA_REF (SCM_STRUCT_VTABLE (obj),
+                                                       scm_vtable_index_size))))
         {
-          SCM_STRUCT_SLOT_SET (obj, SCM_I_INUM (index), val);
+          SCM_STRUCT_SLOT_SET (obj, index, val);
           NEXT (1);
         }
 
       SYNC_IP ();
-      scm_struct_set_x (obj, index, val);
+      scm_struct_set_x (obj, scm_from_uint64 (index), val);
       NEXT (1);
     }
 

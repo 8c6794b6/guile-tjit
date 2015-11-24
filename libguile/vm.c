@@ -443,6 +443,7 @@ static void vm_error_wrong_type_apply (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_stack_underflow (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_improper_list (SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_pair (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_not_a_string (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_bytevector (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_struct (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_vector (const char *subr, SCM v) SCM_NORETURN SCM_NOINLINE;
@@ -559,6 +560,12 @@ static void
 vm_error_not_a_pair (const char *subr, SCM x)
 {
   scm_wrong_type_arg_msg (subr, 1, x, "pair");
+}
+
+static void
+vm_error_not_a_string (const char *subr, SCM x)
+{
+  scm_wrong_type_arg_msg (subr, 1, x, "string");
 }
 
 static void

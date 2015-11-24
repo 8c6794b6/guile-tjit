@@ -592,26 +592,26 @@ minimum, and maximum."
 ;; This max-vector-len computation is a hack.
 (define *max-vector-len* (ash most-positive-fixnum -5))
 
-(define-simple-type-checker (make-vector (&exact-integer 0 *max-vector-len*)
+(define-simple-type-checker (make-vector (&u64 0 *max-vector-len*)
                                          &all-types))
 (define-type-inferrer (make-vector size init result)
-  (restrict! size &exact-integer 0 *max-vector-len*)
+  (restrict! size &u64 0 *max-vector-len*)
   (define! result &vector (max (&min size) 0) (&max size)))
 
 (define-type-checker (vector-ref v idx)
   (and (check-type v &vector 0 *max-vector-len*)
-       (check-type idx &exact-integer 0 (1- (&min v)))))
+       (check-type idx &u64 0 (1- (&min v)))))
 (define-type-inferrer (vector-ref v idx result)
   (restrict! v &vector (1+ (&min idx)) *max-vector-len*)
-  (restrict! idx &exact-integer 0 (1- (min (&max v) *max-vector-len*)))
+  (restrict! idx &u64 0 (1- (min (&max v) *max-vector-len*)))
   (define! result &all-types -inf.0 +inf.0))
 
 (define-type-checker (vector-set! v idx val)
   (and (check-type v &vector 0 *max-vector-len*)
-       (check-type idx &exact-integer 0 (1- (&min v)))))
+       (check-type idx &u64 0 (1- (&min v)))))
 (define-type-inferrer (vector-set! v idx val)
   (restrict! v &vector (1+ (&min idx)) *max-vector-len*)
-  (restrict! idx &exact-integer 0 (1- (min (&max v) *max-vector-len*))))
+  (restrict! idx &u64 0 (1- (min (&max v) *max-vector-len*))))
 
 (define-type-aliases make-vector make-vector/immediate)
 (define-type-aliases vector-ref vector-ref/immediate)
@@ -620,7 +620,7 @@ minimum, and maximum."
 (define-simple-type-checker (vector-length &vector))
 (define-type-inferrer (vector-length v result)
   (restrict! v &vector 0 *max-vector-len*)
-  (define! result &exact-integer (max (&min v) 0)
+  (define! result &u64 (max (&min v) 0)
     (min (&max v) *max-vector-len*)))
 
 
@@ -634,27 +634,27 @@ minimum, and maximum."
 ;; vt is actually a vtable.
 (define-type-inferrer (allocate-struct vt size result)
   (restrict! vt &struct vtable-offset-user *max-size-t*)
-  (restrict! size &exact-integer 0 *max-size-t*)
+  (restrict! size &u64 0 *max-size-t*)
   (define! result &struct (max (&min size) 0) (min (&max size) *max-size-t*)))
 
 (define-type-checker (struct-ref s idx)
   (and (check-type s &struct 0 *max-size-t*)
-       (check-type idx &exact-integer 0 *max-size-t*)
+       (check-type idx &u64 0 *max-size-t*)
        ;; FIXME: is the field readable?
        (< (&max idx) (&min s))))
 (define-type-inferrer (struct-ref s idx result)
   (restrict! s &struct (1+ (&min idx)) *max-size-t*)
-  (restrict! idx &exact-integer 0 (1- (min (&max s) *max-size-t*)))
+  (restrict! idx &u64 0 (1- (min (&max s) *max-size-t*)))
   (define! result &all-types -inf.0 +inf.0))
 
 (define-type-checker (struct-set! s idx val)
   (and (check-type s &struct 0 *max-size-t*)
-       (check-type idx &exact-integer 0 *max-size-t*)
+       (check-type idx &u64 0 *max-size-t*)
        ;; FIXME: is the field writable?
        (< (&max idx) (&min s))))
 (define-type-inferrer (struct-set! s idx val)
   (restrict! s &struct (1+ (&min idx)) *max-size-t*)
-  (restrict! idx &exact-integer 0 (1- (min (&max s) *max-size-t*))))
+  (restrict! idx &u64 0 (1- (min (&max s) *max-size-t*))))
 
 (define-type-aliases allocate-struct allocate-struct/immediate)
 (define-type-aliases struct-ref struct-ref/immediate)
@@ -674,11 +674,11 @@ minimum, and maximum."
 
 (define-type-checker (string-ref s idx)
   (and (check-type s &string 0 *max-size-t*)
-       (check-type idx &exact-integer 0 *max-size-t*)
+       (check-type idx &u64 0 *max-size-t*)
        (< (&max idx) (&min s))))
 (define-type-inferrer (string-ref s idx result)
   (restrict! s &string (1+ (&min idx)) *max-size-t*)
-  (restrict! idx &exact-integer 0 (1- (min (&max s) *max-size-t*)))
+  (restrict! idx &u64 0 (1- (min (&max s) *max-size-t*)))
   (define! result &char 0 *max-char*))
 
 (define-type-checker (string-set! s idx val)
@@ -694,7 +694,7 @@ minimum, and maximum."
 (define-simple-type-checker (string-length &string))
 (define-type-inferrer (string-length s result)
   (restrict! s &string 0 *max-size-t*)
-  (define! result &exact-integer (max (&min s) 0) (min (&max s) *max-size-t*)))
+  (define! result &u64 (max (&min s) 0) (min (&max s) *max-size-t*)))
 
 (define-simple-type (number->string &number) (&string 0 *max-size-t*))
 (define-simple-type (string->number (&string 0 *max-size-t*))
@@ -753,7 +753,7 @@ minimum, and maximum."
 (define-simple-type-checker (bv-length &bytevector))
 (define-type-inferrer (bv-length bv result)
   (restrict! bv &bytevector 0 *max-size-t*)
-  (define! result &exact-integer
+  (define! result &u64
     (max (&min bv) 0) (min (&max bv) *max-size-t*)))
 
 (define-syntax-rule (define-bytevector-accessors ref set type size lo hi)
@@ -773,7 +773,7 @@ minimum, and maximum."
            (< (&max idx) (- (&min bv) size))))
     (define-type-inferrer (set! bv idx val)
       (restrict! bv &bytevector (+ (&min idx) size) *max-size-t*)
-      (restrict! idx &exact-integer 0 (- (min (&max bv) *max-size-t*) size))
+      (restrict! idx &u64 0 (- (min (&max bv) *max-size-t*) size))
       (restrict! val type lo hi))))
 
 (define-bytevector-accessors bv-u8-ref bv-u8-set! &u64 1 0 #xff)

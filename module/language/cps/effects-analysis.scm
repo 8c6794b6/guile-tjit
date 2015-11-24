@@ -317,7 +317,7 @@ is or might be a read or a write to the same location as A."
   (logior &write (vector-field n constants)))
 (define-primitive-effects* constants
   ((vector . _)                    (&allocate &vector))
-  ((make-vector n init)            (&allocate &vector)         &type-check)
+  ((make-vector n init)            (&allocate &vector))
   ((make-vector/immediate n init)  (&allocate &vector))
   ((vector-ref v n)                (read-vector-field n constants) &type-check)
   ((vector-ref/immediate v n)      (read-vector-field n constants) &type-check)
