@@ -291,6 +291,29 @@
 (define (load-volatile dst)
   (jit-ldxi (gpr dst) %fp (volatile-offset dst)))
 
+(define-syntax-rule (push-gpr-or-mem arg overwritten?)
+  (cond
+   (overwritten?
+    (jit-ldxi r0 %fp (volatile-offset arg))
+    (jit-pushargr r0))
+   ((gpr? arg)
+    (jit-pushargr (gpr arg)))
+   ((memory? arg)
+    (memory-ref r0 arg)
+    (jit-pushargr r0))
+   (else
+    (error "push-gpr-or-mem: unknown arg" arg))))
+
+(define-syntax-rule (retval-to-gpr-or-mem dst)
+  (cond
+   ((gpr? dst)
+    (jit-retval (gpr dst)))
+   ((memory? dst)
+    (jit-retval r0)
+    (memory-set! dst r0))
+   (else
+    (error "retval-to-gpr-or-mem: unknown dst" dst))))
+
 
 ;;;
 ;;; Predicates
@@ -854,8 +877,8 @@ both arguments were register or memory."
        (else
         (error "%fref" dst n type))))))
 
-;; Load frame local to fpr or memory, with type check. This primitive is used
-;; for loading to floating point register.
+;; Load frame local to fpr or memory, with type check. This primitive
+;; is used for loading floating point number to FPR.
 (define-prim (%fref/f (double dst) (void n))
   (let ((exit (jit-forward))
         (next (jit-forward)))
@@ -950,29 +973,6 @@ both arguments were register or memory."
 ;;;
 ;;; Heap objects
 ;;;
-
-(define-syntax-rule (push-gpr-or-mem arg overwritten?)
-  (cond
-   (overwritten?
-    (jit-ldxi r0 %fp (volatile-offset arg))
-    (jit-pushargr r0))
-   ((gpr? arg)
-    (jit-pushargr (gpr arg)))
-   ((memory? arg)
-    (memory-ref r0 arg)
-    (jit-pushargr r0))
-   (else
-    (error "push-gpr-or-mem: unknown arg" arg))))
-
-(define-syntax-rule (retval-to-gpr-or-mem dst)
-  (cond
-   ((gpr? dst)
-    (jit-retval (gpr dst)))
-   ((memory? dst)
-    (jit-retval r0)
-    (memory-set! dst r0))
-   (else
-    (error "retval-to-gpr-or-mem: unknown dst" dst))))
 
 ;; Call C function `scm_do_inline_cons'. Save volatile registers before calling,
 ;; restore after getting returned value.

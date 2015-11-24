@@ -195,6 +195,14 @@ referenced by dst and src value at runtime."
                 . body))))
        (hashq-set! *ir-procedures* 'name proc)))))
 
+(define-syntax define-interrupt-ir
+  (syntax-rules ()
+    ((_ names-and-args . body)
+     (define-ir names-and-args
+       (begin
+         (variable-set! handle-interrupts? #t)
+         . body)))))
+
 (define-syntax-rule (to-fixnum scm)
   `(%rsh ,scm 2))
 
@@ -210,6 +218,9 @@ referenced by dst and src value at runtime."
 (define-syntax-rule (local-ref n)
   (vector-ref locals n))
 
+(define-syntax-rule (var-ref n)
+  (assq-ref vars (+ n (current-sp-offset))))
+
 (define-syntax-rule (current-sp-offset)
   (vector-ref (past-frame-sp-offsets past-frame)
               (variable-ref bytecode-index)))
@@ -217,9 +228,6 @@ referenced by dst and src value at runtime."
 (define-syntax-rule (current-fp-offset)
   (vector-ref (past-frame-fp-offsets past-frame)
               (variable-ref bytecode-index)))
-
-(define-syntax-rule (var-ref n)
-  (assq-ref vars (+ n (current-sp-offset))))
 
 (define-syntax-rule (take-snapshot! ip dst-offset)
   (let-values (((ret snapshot)
@@ -238,14 +246,6 @@ referenced by dst and src value at runtime."
     (variable-set! snapshot-id (+ (variable-ref snapshot-id) 1))
     ret))
 
-(define-syntax define-interrupt-ir
-  (syntax-rules ()
-    ((_ names-and-args . body)
-     (define-ir names-and-args
-       (begin
-         (variable-set! handle-interrupts? #t)
-         . body)))))
-
 ;; XXX: Tag more types.
 (define-syntax-rule (with-boxing next val var tmp)
   (cond
@@ -259,7 +259,7 @@ referenced by dst and src value at runtime."
    ((pair? val)
     (next var))
    (else
-    (debug 1 ";;; with-boxing: ~a ~a ~a~%" val var tmp)
+    (debug 1 "XXX: with-boxing: ~a ~a ~a~%" val var tmp)
     (escape #f))))
 
 ;; XXX: Tag more types. Add guard.
@@ -271,12 +271,12 @@ referenced by dst and src value at runtime."
    ((fixnum? val)
     `(let ((,var ,(to-fixnum var)))
        ,(next)))
-   ((pair? val)
-    (next))
-   ((null? val)
+   ((or (null? val)
+        (pair? val)
+        (procedure? val))
     (next))
    (else
-    (debug 1 ";;; with-unboxing: ~a ~a~%" val var)
+    (debug 1 "XXX: with-unboxing: ~a ~a~%" val var)
     (escape #f))))
 
 
@@ -688,7 +688,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%fadd ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "ir:convert add ~a ~a ~a~%" rdst ra rb)
+      (debug 3 "XXX: add ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
 (define-ir (add1 (local dst) (local src))
@@ -701,7 +701,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%add ,vsrc 1)))
          ,(next)))
      (else
-      (debug 3 "ir:convert add1 ~a ~a" rdst rsrc)
+      (debug 3 "XXX: add1 ~a ~a" rdst rsrc)
       (escape #f)))))
 
 (define-ir (sub (local dst) (local a) (local b))
@@ -719,7 +719,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%fsub ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
+      (debug 3 "XXX: sub ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
 (define-ir (sub1 (local dst) (local src))
@@ -732,7 +732,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%sub ,vsrc 1)))
          ,(next)))
      (else
-      (debug 3 "ir:convert sub1 ~a ~a~%" rdst rsrc)
+      (debug 3 "XXX: sub1 ~a ~a~%" rdst rsrc)
       (escape #f)))))
 
 (define-ir (mul (local dst) (local a) (local b))
@@ -747,7 +747,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%fmul ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "*** ir:convert: NYI mul ~a ~a ~a~%" rdst ra rb)
+      (debug 3 "XXX: mul ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
 ;; XXX: div
@@ -766,7 +766,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%mod ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "*** ir:convert: NYI mod ~a ~a ~a~%" rdst ra rb)
+      (debug 3 "XXX: mod ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
 ;; XXX: ash
@@ -923,7 +923,7 @@ referenced by dst and src value at runtime."
                       escape
                       (cdr op)))))
        (else
-        (debug 2 "*** ir:convert: NYI ~a~%" (car op))
+        (debug 2 "*** IR: NYI ~a~%" (car op))
         (escape #f))))
     (define (convert trace)
       ;; Last operation is wrapped in a thunk, to assign snapshot ID
@@ -955,7 +955,7 @@ referenced by dst and src value at runtime."
         (last-op
          (or (and (procedure? last-op)
                   (last-op))
-             (error "ir.scm: last arg was not a procedure" last-op)))))
+             (error "trace->ir: last arg was not a procedure" last-op)))))
 
     (convert trace)))
 
