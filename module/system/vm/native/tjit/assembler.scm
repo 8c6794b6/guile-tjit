@@ -79,7 +79,8 @@
             vm-sync-ip
             vm-sync-sp
             vm-sync-fp
-            vm-handle-interrupts))
+            vm-handle-interrupts
+            unbox-scm))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -815,6 +816,68 @@ both arguments were register or memory."
    (else
     (error "%fmul" dst a b))))
 
+(define-syntax unbox-scm
+  (syntax-rules ()
+    ((_ dst src type guard?)
+     ;; Passing `guard?' parameter, control expansion of
+     ;; `(current-exit)' at macro-expansion time, since it uses syntax
+     ;; paramter `asm'.
+     (letrec-syntax ((load-constant
+                      (syntax-rules ()
+                        ((_ constant #f)
+                         (cond
+                          ((gpr? dst)
+                           (jit-movr (gpr dst) src))
+                          ((memory? dst)
+                           (memory-set! dst src))
+                          (else
+                           (error "load-and-unbox" dst type))))
+                        ((_ constant any)
+                         (begin
+                           (jump (jit-bnei src constant) (current-exit))
+                           (load-constant constant #f)))))
+                     (maybe-guard
+                      (syntax-rules ()
+                        ((_ #f exp)
+                         (values))
+                        ((_ any exp)
+                         exp))))
+       (cond
+        ((eq? type &flonum)
+         (cond
+          ((fpr? dst)
+           (scm-real-value (fpr dst) src))
+          ((memory? dst)
+           (scm-real-value f0 src)
+           (memory-set!/f dst f0))))
+        ((eq? type &exact-integer)
+         (maybe-guard guard?
+                      (jump (scm-not-inump src) (current-exit)))
+         (cond
+          ((gpr? dst)
+           (jit-rshi (gpr dst) src (imm 2)))
+          ((memory? dst)
+           (jit-rshi r0 src (imm 2))
+           (memory-set! dst r0))))
+        ((eq? type &false)
+         (load-constant *scm-false* guard?))
+        ((eq? type &true)
+         (load-constant *scm-true* guard?))
+        ((eq? type &unspecified)
+         (load-constant *scm-unspecified* guard?))
+        ((eq? type &undefined)
+         (load-constant *scm-undefined* guard?))
+        ((eq? type &null)
+         (load-constant *scm-null* guard?))
+        ((memq type (list &box &procedure &pair))
+         ;; XXX: Add guard for each type.
+         (cond
+          ((gpr? dst)
+           (jit-movr (gpr dst) src))
+          ((memory? dst)
+           (memory-set! dst src))))
+        (else
+         (error "load-and-unbox" dst type guard?)))))))
 
 ;;;
 ;;; Load and store
@@ -826,56 +889,14 @@ both arguments were register or memory."
 ;;; instructions specify its operand type, size of CPS will be more compact, but
 ;;; may loose chances to optimize away type checking instructions.
 
-;; Type check local N with TYPE and load to gpr or memory DST.  Won't work when
-;; n is negative.
+;; Type check local N with TYPE and load to gpr or memory DST.
 (define-prim (%fref (int dst) (void n) (void type))
-  (let-syntax ((load-constant
-                (syntax-rules ()
-                  ((_ constant)
-                   (begin
-                     (jump (jit-bnei r0 constant) (current-exit))
-                     (cond
-                      ((gpr? dst)
-                       (jit-movr (gpr dst) r0))
-                      ((memory? dst)
-                       (memory-set! dst r0))
-                      (else
-                       (error "%fref" dst n type))))))))
+  (let ((t (ref-value type)))
     (when (or (not (constant? n))
               (not (constant? type)))
       (error "%fref" dst n type))
-
     (sp-ref r0 (ref-value n))
-
-    (let ((type (ref-value type)))
-      (cond
-       ((eq? type &exact-integer)
-        (jump (scm-not-inump r0) (current-exit))
-        (cond
-         ((gpr? dst)
-          (jit-rshi (gpr dst) r0 (imm 2)))
-         ((memory? dst)
-          (jit-rshi r0 r0 (imm 2))
-          (memory-set! dst r0))))
-       ((eq? type &false)
-        (load-constant *scm-false*))
-       ((eq? type &true)
-        (load-constant *scm-true*))
-       ((eq? type &unspecified)
-        (load-constant *scm-unspecified*))
-       ((eq? type &undefined)
-        (load-constant *scm-undefined*))
-       ((eq? type &null)
-        (load-constant *scm-null*))
-       ((memq type (list &box &procedure &pair))
-        ;; XXX: Add guard for each type.
-        (cond
-         ((gpr? dst)
-          (jit-movr (gpr dst) r0))
-         ((memory? dst)
-          (memory-set! dst r0))))
-       (else
-        (error "%fref" dst n type))))))
+    (unbox-scm dst r0 t #t)))
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.
