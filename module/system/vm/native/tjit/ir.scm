@@ -109,10 +109,10 @@
 ;;;
 
 (define *ir-procedures*
-  (make-hash-table))
+  (make-hash-table 255))
 
 (define *local-accumulator*
-  (make-hash-table))
+  (make-hash-table 255))
 
 (define-syntax define-ir-syntax-parameters
   (syntax-rules ()
