@@ -246,6 +246,39 @@ referenced by dst and src value at runtime."
          (variable-set! handle-interrupts? #t)
          . body)))))
 
+;; XXX: Tag more types.
+(define-syntax-rule (with-boxing next val var tmp)
+  (cond
+   ((fixnum? val)
+    `(let ((,tmp (%lsh ,var 2)))
+       (let ((,tmp (%add ,tmp 2)))
+         ,(next tmp))))
+   ((flonum? val)
+    `(let ((,tmp (%from-double ,var)))
+       ,(next tmp)))
+   ((pair? val)
+    (next var))
+   (else
+    (debug 1 ";;; with-boxing: ~a ~a ~a~%" val var tmp)
+    (escape #f))))
+
+;; XXX: Tag more types. Add guard.
+(define-syntax-rule (with-unboxing next val var)
+  (cond
+   ((flonum? val)
+    `(let ((,var ,(to-double var)))
+       ,(next)))
+   ((fixnum? val)
+    `(let ((,var ,(to-fixnum var)))
+       ,(next)))
+   ((pair? val)
+    (next))
+   ((null? val)
+    (next))
+   (else
+    (debug 1 ";;; with-unboxing: ~a ~a~%" val var)
+    (escape #f))))
+
 
 ;;; *** Call and return
 
@@ -317,7 +350,7 @@ referenced by dst and src value at runtime."
                   ((< min-local-index n max-local-index)
                    (let* ((i (- n sp-offset))
                           (val (if (< -1 i (vector-length locals))
-                                   (vector-ref locals i)
+                                   (local-ref i)
                                    (escape #f)))
                           (type (type-of val))
                           (idx n))
@@ -492,40 +525,23 @@ referenced by dst and src value at runtime."
 ;; XXX: Add test for nested boxes.
 
 (define-ir (box-ref (local dst) (local src))
-  ;; XXX: Add guard to check type of box contents.
   (let ((vdst (var-ref dst))
         (vsrc (var-ref src))
         (rsrc (and (< src (vector-length locals))
-                   (variable-ref (vector-ref locals src)))))
+                   (variable-ref (local-ref src)))))
     `(let ((,vdst (%cref ,vsrc 1)))
-       ,(cond
-         ((flonum? rsrc)
-          `(let ((,vdst ,(to-double vdst)))
-             ,(next)))
-         ((fixnum? rsrc)
-          `(let ((,vdst ,(to-fixnum vdst)))
-             ,(next)))
-         (else
-          (next))))))
+       ,(with-unboxing next rsrc vdst))))
 
 (define-ir (box-set! (local dst) (local src))
-  (let ((vdst (var-ref dst))
-        (vsrc (var-ref src))
-        (rdst (and (< dst (vector-length locals))
-                   (variable-ref (vector-ref locals dst)))))
-    (cond
-     ((flonum? rdst)
-      `(let ((,vsrc (%from-double ,vsrc)))
-         (let ((_ (%cset ,vdst 1 ,vsrc)))
-           ,(next))))
-     ((fixnum? rdst)
-      `(let ((,vsrc (%lsh ,vsrc 2)))
-         (let ((,vsrc (%add ,vsrc 2)))
-           (let ((_ (%cset ,vdst 1 ,vsrc)))
-             ,(next)))))
-     (else
-      `(let ((_ (%cset ,vdst 1 ,vsrc)))
-         ,(next))))))
+  (let* ((vdst (var-ref dst))
+         (vsrc (var-ref src))
+         (rdst (and (< dst (vector-length locals))
+                    (variable-ref (local-ref dst))))
+         (r0 (make-tmpvar 0))
+         (emit-next (lambda (tmp)
+                      `(let ((_ (%cset ,vdst 1 ,tmp)))
+                         ,(next)))))
+    (with-boxing emit-next rdst vsrc r0)))
 
 ;; XXX: make-closure
 ;; XXX: free-ref
@@ -605,19 +621,6 @@ referenced by dst and src value at runtime."
 
 ;;; *** Pairs
 
-;; XXX: Tag more types.
-(define-syntax-rule (with-boxing next rt var tmp)
-  (cond
-   ((fixnum? rt)
-    `(let ((,tmp (%lsh ,var 2)))
-       (let ((,tmp (%add ,tmp 2)))
-         ,(next tmp))))
-   ((pair? rt)
-    (next var))
-   (else
-    (debug 1 ";;; with-boxing: ~a ~a ~a~%" rt var tmp)
-    (escape #f))))
-
 ;; Using dedicated IR for `cons'. Uses C function `scm_inline_cons', which
 ;; expects current thread as first argument. The value of current thread is not
 ;; stored in frame but in non-volatile register, and currently there is no way
@@ -649,14 +652,8 @@ referenced by dst and src value at runtime."
       (debug 1 "XXX: car ~a ~a~%" rdst rsrc)
       (escape #f))
     `(let ((,vdst (%cref ,vsrc 0)))
-       ;; XXX: Add guards.
-       ,(cond
-         ((fixnum? (car rsrc))
-          `(let ((,vdst ,(to-fixnum vdst)))
-             ,(next)))
-         (else
-          (debug 1 "XXX: car ~a ~a~%" rdst rsrc)
-          (escape #f))))))
+       ,(let ((rcar (car rsrc)))
+          (with-unboxing next rcar vdst)))))
 
 (define-ir (cdr (local dst) (local src))
   (let ((rdst (local-ref dst))
@@ -667,15 +664,8 @@ referenced by dst and src value at runtime."
       (debug 1 "XXX: cdr ~a ~a~%" rdst rsrc)
       (escape #f))
     `(let ((,vdst (%cref ,vsrc 1)))
-       ;; XXX: Add guards.
-       ,(cond
-         ((pair? (cdr rsrc))
-          (next))
-         ((null? (cdr rsrc))
-          (next))
-         (else
-          (debug 1 "XXX: cdr ~a ~a~%" rdst rsrc)
-          (escape #f))))))
+       ,(let ((rcdr (cdr rsrc)))
+          (with-unboxing next rcdr vdst)))))
 
 ;; XXX: set-car!
 ;; XXX: set-cdr!
