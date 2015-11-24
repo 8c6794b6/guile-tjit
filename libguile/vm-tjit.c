@@ -127,19 +127,21 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
 }
 
 static inline void
-start_recording (size_t *state, scm_t_uint32 *start, scm_t_uint32 *end,
+start_recording (enum scm_tjit_vm_state *state,
+                 scm_t_uint32 *start, scm_t_uint32 *end,
                  scm_t_uintptr *loop_start, scm_t_uintptr *loop_end)
 {
-  *state = SCM_TJIT_STATE_RECORD;
+  *state = SCM_TJIT_VM_STATE_RECORD;
   *loop_start = (scm_t_uintptr) start;
   *loop_end = (scm_t_uintptr) end;
 }
 
 static inline void
-stop_recording (size_t *state, SCM *traces, scm_t_uint32 *bc_idx,
+stop_recording (enum scm_tjit_vm_state *state,
+                SCM *traces, scm_t_uint32 *bc_idx,
                 int *parent_fragment_id, int *exit_id)
 {
-  *state = SCM_TJIT_STATE_INTERPRET;
+  *state = SCM_TJIT_VM_STATE_INTERPRET;
   *traces = SCM_EOL;
   *bc_idx = 0;
   *parent_fragment_id = 0;
@@ -170,7 +172,8 @@ is_hot_exit (SCM ip, SCM count)
 static inline void
 call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
              scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
-             size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
+             enum scm_tjit_vm_state *state,
+             scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              int *parent_fragment_id, int *parent_exit_id,
              scm_t_uint32 *nlocals_out)
 {
@@ -266,6 +269,23 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
   return scm_inline_cons (thread, trace, traces);
 }
 
+struct scm_tjit_state *scm_make_tjit_state (void)
+{
+  struct scm_tjit_state *t =
+    scm_gc_malloc (sizeof (struct scm_tjit_state), "tjitstate");
+
+  t->vm_state = SCM_TJIT_VM_STATE_INTERPRET;
+  t->loop_start = 0;
+  t->loop_end = 0;
+  t->bc_idx = 0;
+  t->bytecode = tjit_bytecode_buffer ();
+  t->traces = SCM_EOL;
+  t->parent_fragment_id = 0;
+  t->parent_exit_id = 0;
+
+  return t;
+}
+
 
 /* C macros for vm-tjit engine
 
@@ -288,9 +308,11 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
         call_native (s_ip, ip, fragment, thread, vp, registers,         \
-                     &tjit_state,                                       \
-                     &tjit_loop_start, &tjit_loop_end,                  \
-                     &tjit_parent_fragment_id, &tjit_parent_exit_id,    \
+                     &tjit_state->vm_state,                             \
+                     &tjit_state->loop_start,                           \
+                     &tjit_state->loop_end,                             \
+                     &tjit_state->parent_fragment_id,                   \
+                     &tjit_state->parent_exit_id,                       \
                      &nlocals);                                         \
                                                                         \
         /* Update `sp' and `ip' in C code. */                           \
@@ -307,8 +329,9 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
           scm_hashq_ref (tjit_ip_counter_table, s_ip, SCM_INUM0);       \
                                                                         \
         if (is_hot_loop (s_ip, count))                                  \
-          start_recording (&tjit_state, ip + jump, ip,                  \
-                           &tjit_loop_start, &tjit_loop_end);           \
+          start_recording (&tjit_state->vm_state, ip + jump, ip,        \
+                           &tjit_state->loop_start,                     \
+                           &tjit_state->loop_end);                      \
         else                                                            \
           increment_ip_counter (count, s_ip);                           \
                                                                         \
@@ -321,8 +344,8 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
   do {                                                                  \
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
                                                                         \
-    scm_t_uint32 *start_ip = (scm_t_uint32 *) tjit_loop_start;          \
-    scm_t_uint32 *end_ip = (scm_t_uint32 *) tjit_loop_end;              \
+    scm_t_uint32 *start_ip = (scm_t_uint32 *) tjit_state->loop_start;   \
+    scm_t_uint32 *end_ip = (scm_t_uint32 *) tjit_state->loop_end;       \
                                                                         \
     /* Avoid looking up fragment of looping-side-trace itself. */       \
     int link_found =                                                    \
@@ -341,8 +364,8 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
         opcode = *ip & 0xff;                                            \
                                                                         \
         /* Store current bytecode. */                                   \
-        for (i = 0; i < op_sizes[opcode]; ++i, ++tjit_bc_idx)           \
-          tjit_bytecode[tjit_bc_idx] = ip[i];                           \
+        for (i = 0; i < op_sizes[opcode]; ++i, ++tjit_state->bc_idx)    \
+          tjit_state->bytecode[tjit_state->bc_idx] = ip[i];             \
                                                                         \
         /* Copy local contents to vector. */                            \
         num_locals = FRAME_LOCALS_COUNT ();                             \
@@ -350,31 +373,38 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
         for (i = 0; i < num_locals; ++i)                                \
           scm_c_vector_set_x (locals, i, SP_REF (i));                   \
                                                                         \
-        tjit_traces =                                                   \
-          record (thread, s_ip, vp->fp, locals, tjit_traces);           \
+        tjit_state->traces =                                            \
+          record (thread, s_ip, vp->fp, locals, tjit_state->traces);    \
       }                                                                 \
                                                                         \
     /* Stop recording when IP reached to the end or found a link. */    \
     if (ip == end_ip || link_found)                                     \
       {                                                                 \
         SYNC_IP ();                                                     \
-        tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,                \
-               tjit_parent_fragment_id, tjit_parent_exit_id, s_ip,      \
+        tjitc (tjit_state->bytecode,                                    \
+               &tjit_state->bc_idx, tjit_state->traces,                 \
+               tjit_state->parent_fragment_id,                          \
+               tjit_state->parent_exit_id, s_ip,                        \
                link_found ? SCM_BOOL_F : SCM_BOOL_T);                   \
         CACHE_SP ();                                                    \
         ++tjit_trace_id;                                                \
-        stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
-                        &tjit_parent_fragment_id,                       \
-                        &tjit_parent_exit_id);                          \
+        stop_recording (&tjit_state->vm_state,                          \
+                        &tjit_state->traces,                            \
+                        &tjit_state->bc_idx,                            \
+                        &tjit_state->parent_fragment_id,                \
+                        &tjit_state->parent_exit_id);                   \
       }                                                                 \
-    else if (SCM_I_INUM (tjit_max_record) < tjit_bc_idx)                \
+    else if (SCM_I_INUM (tjit_max_record) < tjit_state->bc_idx)         \
       {                                                                 \
         /* XXX: Log the abort for too long trace. */                    \
-        SCM s_loop_start_ip = SCM_I_MAKINUM (tjit_loop_start);          \
+        SCM s_loop_start_ip =                                           \
+          SCM_I_MAKINUM (tjit_state->loop_start);                       \
         increment_compilation_failure (s_loop_start_ip);                \
-        stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
-                        &tjit_parent_fragment_id,                       \
-                        &tjit_parent_exit_id);                          \
+        stop_recording (&tjit_state->vm_state,                          \
+                        &tjit_state->traces,                            \
+                        &tjit_state->bc_idx,                            \
+                        &tjit_state->parent_fragment_id,                \
+                        &tjit_state->parent_exit_id);                   \
       }                                                                 \
   } while (0)
 

@@ -21,9 +21,22 @@
 
 #include <libguile.h>
 
-enum {
-  SCM_TJIT_STATE_INTERPRET,
-  SCM_TJIT_STATE_RECORD,
+enum scm_tjit_vm_state
+  {
+    SCM_TJIT_VM_STATE_INTERPRET,
+    SCM_TJIT_VM_STATE_RECORD,
+  };
+
+struct scm_tjit_state
+{
+  enum scm_tjit_vm_state vm_state; /* current vm state */
+  scm_t_uintptr loop_start; /* IP to start a loop */
+  scm_t_uintptr loop_end;   /* IP to end a loop */
+  scm_t_uint32 bc_idx;      /* current index of traced bytecode */
+  scm_t_uint32 *bytecode;   /* buffer to contain traced bytecode */
+  SCM traces;               /* scheme list to contain recorded trace. */
+  int parent_fragment_id;   /* fragment ID of parent trace, or 0 for root*/
+  int parent_exit_id;       /* exit id of parent trace, or 0 for root */
 };
 
 typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
@@ -69,6 +82,8 @@ SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM x, SCM y);
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);
+
+SCM_INTERNAL struct scm_tjit_state *scm_make_tjit_state (void);
 
 #endif /* _SCM_VM_MJIT_H_ */
 

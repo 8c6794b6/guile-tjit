@@ -213,13 +213,13 @@
 #ifdef VM_TJIT
 # if BUILD_VM_LIGHTNING == 1
 #  define TJIT_MERGE(n)                                         \
-  if (tjit_state == SCM_TJIT_STATE_RECORD)                      \
+  if (tjit_state->vm_state == SCM_TJIT_VM_STATE_RECORD)         \
     {                                                           \
       SCM_TJIT_MERGE ();                                        \
     }
 #  define TJIT_ENTER(n)                                                 \
   do {                                                                  \
-    if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)                \
+    if (n < 0 && tjit_state->vm_state == SCM_TJIT_VM_STATE_INTERPRET)   \
       {                                                                 \
         SCM_TJIT_ENTER (n);                                             \
         NEXT (0);                                                       \
@@ -511,30 +511,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   register scm_t_uint32 op;
 
 #ifdef VM_TJIT
-  /* Current tracing state. */
-  size_t tjit_state = SCM_TJIT_STATE_INTERPRET;
-
-  /* Instruction pointer to start a loop. */
-  scm_t_uintptr tjit_loop_start = NULL;
-
-  /* Instruction pointer to end a loop. */
-  scm_t_uintptr tjit_loop_end = NULL;
-
-  /* Current index of traced bytecode. */
-  scm_t_uint32 tjit_bc_idx = 0;
-
-  /* Buffer to contain traced bytecode. */
-  scm_t_uint32 *tjit_bytecode = tjit_bytecode_buffer ();
-
-  /* Scheme list to contain recorded trace. */
-  SCM tjit_traces = SCM_EOL;
-
-  /* Fragment ID of parent trace, or 0 for root trace. */
-  int tjit_parent_fragment_id = 0;
-
-  /* If tjit_parent_id is not NULL, exit id of parent trace. */
-  int tjit_parent_exit_id = 0;
-
+  struct scm_tjit_state *tjit_state = scm_make_tjit_state ();
 #endif
 
 #ifdef HAVE_LABELS_AS_VALUES
