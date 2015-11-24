@@ -251,12 +251,10 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
         SCM locals, struct scm_tjit_state *state)
 {
   SCM trace = SCM_EOL;
-  SCM s_fp = scm_from_pointer ((void *) fp, NULL);
   SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (fp));
 
   trace = scm_inline_cons (thread, locals, trace);
   trace = scm_inline_cons (thread, s_ra, trace);
-  trace = scm_inline_cons (thread, s_fp, trace);
   trace = scm_inline_cons (thread, s_ip, trace);
 
   state->traces = scm_inline_cons (thread, trace, state->traces);

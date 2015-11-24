@@ -877,7 +877,7 @@ referenced by dst and src value at runtime."
           (hashq-set! snapshots old-snapshot-id snapshot)
           (variable-set! snapshot-id new-snapshot-id)
           ret)))
-    (define (convert-one op ip fp ra locals rest)
+    (define (convert-one op ip ra locals rest)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (proc)
@@ -939,7 +939,7 @@ referenced by dst and src value at runtime."
       ;; register information to linked code.
       ;;
       (match trace
-        (((op ip fp ra locals) . ())
+        (((op ip ra locals) . ())
          (let ((last-op (if loop?
                             (lambda ()
                               `(loop ,@(reverse (map cdr vars))))
@@ -949,9 +949,9 @@ referenced by dst and src value at runtime."
                                           0
                                           locals)))
                                  _)))))
-           (convert-one op ip fp ra locals last-op)))
-        (((op ip fp ra locals) . rest)
-         (convert-one op ip fp ra locals rest))
+           (convert-one op ip ra locals last-op)))
+        (((op ip ra locals) . rest)
+         (convert-one op ip ra locals rest))
         (last-op
          (or (and (procedure? last-op)
                   (last-op))
@@ -964,7 +964,7 @@ referenced by dst and src value at runtime."
 ;;; Local accumulator
 ;;;
 
-(define (accumulate-locals sp-offset fp-offset ops)
+(define (accumulate-locals sp-offset fp-offset traces)
   ;; Makes past-frame with locals in lower frames.
   ;;
   ;; Lower frame data is saved at the time of accumulation. Otherwise, if
@@ -1081,16 +1081,16 @@ referenced by dst and src value at runtime."
            st)
           (_
            (nyi st (car op)))))))
-    (define (acc st ops)
-      (match ops
-        (((op _ _ _ locals) . rest)
+    (define (acc st traces)
+      (match traces
+        (((op _ _ locals) . rest)
          (acc (acc-one st op locals) rest))
         (()
          st)))
     (let ((local-indices (sort (hash-fold (lambda (k v acc)
                                             (cons k acc))
                                           '()
-                                          (acc ret ops))
+                                          (acc ret traces))
                                >))
           (sp-offsets/vec (list->vector (reverse! sp-offsets)))
           (fp-offsets/vec (list->vector (reverse! fp-offsets))))

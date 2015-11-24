@@ -90,7 +90,7 @@
             trace-id (length ip-x-ops) lowest)
     (let lp ((traces ip-x-ops) (level (- lowest)))
       (match traces
-        (((op ip fp ra locals) . traces)
+        (((op ip ra locals) . traces)
          (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
            (if (tjit-dump-locals? (tjit-dump-option))
                (format #t "~48a; ~a~%" op-val locals)

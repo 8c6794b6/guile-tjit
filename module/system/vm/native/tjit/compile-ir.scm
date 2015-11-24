@@ -118,8 +118,9 @@
            (reverse! acc)))))
 
     (let* ((args (map make-var (reverse local-indices)))
-           (initial-ip (cadr (car trace)))
-           (initial-locals (list-ref (car trace) 4))
+           (initial-trace (car trace))
+           (initial-ip (cadr initial-trace))
+           (initial-locals (cadddr initial-trace))
            (initial-nlocals (vector-length initial-locals))
            (parent-snapshot-locals (match parent-snapshot
                                      (($ $snapshot _ _ _ _ locals) locals)
