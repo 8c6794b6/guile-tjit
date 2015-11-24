@@ -100,25 +100,23 @@ static int tjit_trace_id = 1;
  */
 
 static inline SCM
-tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
-       int parent_fragment_id, int parent_exit_id, SCM linked_ip,
-       SCM loop_p)
+tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p)
 {
   SCM s_id, s_bytecode, s_bc_idx;
   SCM s_parent_fragment_id, s_parent_exit_id;
   SCM result;
 
-  if (scm_is_null (traces))
+  if (scm_is_null (state->traces))
     return SCM_UNSPECIFIED;
 
   s_id = SCM_I_MAKINUM (tjit_trace_id);
-  s_bytecode = scm_from_pointer (bytecode, NULL);
-  s_bc_idx = SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32));
-  s_parent_fragment_id = SCM_I_MAKINUM (parent_fragment_id);
-  s_parent_exit_id = SCM_I_MAKINUM (parent_exit_id);
+  s_bytecode = scm_from_pointer (state->bytecode, NULL);
+  s_bc_idx = SCM_I_MAKINUM (state->bc_idx * sizeof (scm_t_uint32));
+  s_parent_fragment_id = SCM_I_MAKINUM (state->parent_fragment_id);
+  s_parent_exit_id = SCM_I_MAKINUM (state->parent_exit_id);
 
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_8 (tjitc_var, s_id, s_bytecode, s_bc_idx, traces,
+  result = scm_call_8 (tjitc_var, s_id, s_bytecode, s_bc_idx, state->traces,
                        s_parent_fragment_id, s_parent_exit_id, linked_ip,
                        loop_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
@@ -127,25 +125,22 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
 }
 
 static inline void
-start_recording (enum scm_tjit_vm_state *state,
-                 scm_t_uint32 *start, scm_t_uint32 *end,
-                 scm_t_uintptr *loop_start, scm_t_uintptr *loop_end)
+start_recording (struct scm_tjit_state *state,
+                 scm_t_uint32 *start, scm_t_uint32 *end)
 {
-  *state = SCM_TJIT_VM_STATE_RECORD;
-  *loop_start = (scm_t_uintptr) start;
-  *loop_end = (scm_t_uintptr) end;
+  state->vm_state = SCM_TJIT_VM_STATE_RECORD;
+  state->loop_start = (scm_t_uintptr) start;
+  state->loop_end = (scm_t_uintptr) end;
 }
 
 static inline void
-stop_recording (enum scm_tjit_vm_state *state,
-                SCM *traces, scm_t_uint32 *bc_idx,
-                int *parent_fragment_id, int *exit_id)
+stop_recording (struct scm_tjit_state *state)
 {
-  *state = SCM_TJIT_VM_STATE_INTERPRET;
-  *traces = SCM_EOL;
-  *bc_idx = 0;
-  *parent_fragment_id = 0;
-  *exit_id = 0;
+  state->vm_state = SCM_TJIT_VM_STATE_INTERPRET;
+  state->traces = SCM_EOL;
+  state->bc_idx = 0;
+  state->parent_fragment_id = 0;
+  state->parent_exit_id = 0;
 }
 
 static inline SCM
@@ -166,16 +161,14 @@ static inline int
 is_hot_exit (SCM ip, SCM count)
 {
   return (tjit_hot_exit < count &&
-          scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0) < tjit_max_retries);
+          scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0) <
+          tjit_max_retries);
 }
 
 static inline void
 call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
              scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
-             enum scm_tjit_vm_state *state,
-             scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
-             int *parent_fragment_id, int *parent_exit_id,
-             scm_t_uint32 *nlocals_out)
+             struct scm_tjit_state *state, scm_t_uint32 *nlocals_out)
 {
   scm_t_native_code f;
   scm_t_uint32 nlocals;
@@ -223,9 +216,9 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
       if (start == end)
         end = previous_ip;
 
-      *parent_fragment_id = (int) SCM_I_INUM (fragment_id);
-      *parent_exit_id = (int) SCM_I_INUM (exit_id);
-      start_recording (state, start, end, loop_start, loop_end);
+      state->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
+      state->parent_exit_id = (int) SCM_I_INUM (exit_id);
+      start_recording (state, start, end);
     }
 
   *nlocals_out = nlocals;
@@ -253,9 +246,9 @@ increment_compilation_failure (SCM ip)
   scm_hashq_set_x (tjit_failed_ip_table, ip, retries);
 }
 
-static inline SCM
+static inline void
 record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
-        SCM locals, SCM traces)
+        SCM locals, struct scm_tjit_state *state)
 {
   SCM trace = SCM_EOL;
   SCM s_fp = scm_from_pointer ((void *) fp, NULL);
@@ -266,7 +259,7 @@ record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
   trace = scm_inline_cons (thread, s_fp, trace);
   trace = scm_inline_cons (thread, s_ip, trace);
 
-  return scm_inline_cons (thread, trace, traces);
+  state->traces = scm_inline_cons (thread, trace, state->traces);
 }
 
 struct scm_tjit_state *scm_make_tjit_state (void)
@@ -308,12 +301,7 @@ struct scm_tjit_state *scm_make_tjit_state (void)
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
         call_native (s_ip, ip, fragment, thread, vp, registers,         \
-                     &tjit_state->vm_state,                             \
-                     &tjit_state->loop_start,                           \
-                     &tjit_state->loop_end,                             \
-                     &tjit_state->parent_fragment_id,                   \
-                     &tjit_state->parent_exit_id,                       \
-                     &nlocals);                                         \
+                     tjit_state, &nlocals);                             \
                                                                         \
         /* Update `sp' and `ip' in C code. */                           \
         CACHE_REGISTER ();                                              \
@@ -329,9 +317,7 @@ struct scm_tjit_state *scm_make_tjit_state (void)
           scm_hashq_ref (tjit_ip_counter_table, s_ip, SCM_INUM0);       \
                                                                         \
         if (is_hot_loop (s_ip, count))                                  \
-          start_recording (&tjit_state->vm_state, ip + jump, ip,        \
-                           &tjit_state->loop_start,                     \
-                           &tjit_state->loop_end);                      \
+          start_recording (tjit_state, ip + jump, ip);                  \
         else                                                            \
           increment_ip_counter (count, s_ip);                           \
                                                                         \
@@ -373,38 +359,25 @@ struct scm_tjit_state *scm_make_tjit_state (void)
         for (i = 0; i < num_locals; ++i)                                \
           scm_c_vector_set_x (locals, i, SP_REF (i));                   \
                                                                         \
-        tjit_state->traces =                                            \
-          record (thread, s_ip, vp->fp, locals, tjit_state->traces);    \
+        record (thread, s_ip, vp->fp, locals, tjit_state);              \
       }                                                                 \
                                                                         \
     /* Stop recording when IP reached to the end or found a link. */    \
     if (ip == end_ip || link_found)                                     \
       {                                                                 \
         SYNC_IP ();                                                     \
-        tjitc (tjit_state->bytecode,                                    \
-               &tjit_state->bc_idx, tjit_state->traces,                 \
-               tjit_state->parent_fragment_id,                          \
-               tjit_state->parent_exit_id, s_ip,                        \
+        tjitc (tjit_state, s_ip,                                        \
                link_found ? SCM_BOOL_F : SCM_BOOL_T);                   \
         CACHE_SP ();                                                    \
         ++tjit_trace_id;                                                \
-        stop_recording (&tjit_state->vm_state,                          \
-                        &tjit_state->traces,                            \
-                        &tjit_state->bc_idx,                            \
-                        &tjit_state->parent_fragment_id,                \
-                        &tjit_state->parent_exit_id);                   \
+        stop_recording (tjit_state);                                    \
       }                                                                 \
     else if (SCM_I_INUM (tjit_max_record) < tjit_state->bc_idx)         \
       {                                                                 \
         /* XXX: Log the abort for too long trace. */                    \
-        SCM s_loop_start_ip =                                           \
-          SCM_I_MAKINUM (tjit_state->loop_start);                       \
+        SCM s_loop_start_ip = SCM_I_MAKINUM (tjit_state->loop_start);   \
         increment_compilation_failure (s_loop_start_ip);                \
-        stop_recording (&tjit_state->vm_state,                          \
-                        &tjit_state->traces,                            \
-                        &tjit_state->bc_idx,                            \
-                        &tjit_state->parent_fragment_id,                \
-                        &tjit_state->parent_exit_id);                   \
+        stop_recording (tjit_state);                                    \
       }                                                                 \
   } while (0)
 
@@ -602,6 +575,8 @@ scm_bootstrap_vm_tjit(void)
   void *buffer;
   size_t bytes;
 
+  GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
+
   bytecode_buffer_fluid = scm_make_fluid ();
   bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
   buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
@@ -612,8 +587,6 @@ scm_bootstrap_vm_tjit(void)
   tjit_fragment_table = scm_c_make_hash_table (31);
   tjit_root_trace_table = scm_c_make_hash_table (31);
   tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));
-
-  GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
 }
 
 void
