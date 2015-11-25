@@ -39,12 +39,15 @@
   #:use-module (system vm vm)
   #:use-module (srfi srfi-9)
   #:export (tjit-ip-counter
+            tjit-call-counter
             tjit-fragment-table
             tjit-root-trace-table
             tjit-failed-ip-table
 
             tjit-hot-loop
             set-tjit-hot-loop!
+            tjit-hot-call
+            set-tjit-hot-call!
             tjit-hot-exit
             set-tjit-hot-exit!
             tjit-max-retries
@@ -217,9 +220,11 @@ fields to @code{#f}."
 Statistical times will be constantly @code{#f} unless @code{tjit-dump-time?}
 option was set to true."
   (let* ((hot-loop (tjit-hot-loop))
+         (hot-call (tjit-hot-call))
          (hot-exit (tjit-hot-exit))
          (num-loops 0)
          (num-hot-loops 0)
+         (num-hot-calls 0)
          (dump-time (tjit-dump-time? (tjit-dump-option)))
          (total-time (if dump-time 0 #f))
          (init-time (if dump-time 0 #f))
@@ -233,6 +238,11 @@ option was set to true."
                    (set! num-hot-loops (+ num-hot-loops 1))))
                '()
                (tjit-ip-counter))
+    (hash-fold (lambda (k v acc)
+                 (when (< hot-call v)
+                   (set! num-hot-calls (+ num-hot-calls 1))))
+               '()
+               (tjit-call-counter))
     (when dump-time
       (fold-tjit-time-logs
        (lambda (k v acc)
@@ -245,9 +255,11 @@ option was set to true."
             (set! asm-time (+ asm-time a)))))
        #f))
     (list `(hot-loop . ,hot-loop)
+          `(hot-call . ,hot-call)
           `(hot-exit . ,hot-exit)
           `(num-loops . ,num-loops)
           `(num-hot-loops . ,num-hot-loops)
+          `(num-hot-calls . ,num-hot-calls)
           `(num-fragments . ,num-fragments)
           `(init-time . ,init-time)
           `(scm-time . ,scm-time)

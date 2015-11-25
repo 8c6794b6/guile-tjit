@@ -255,7 +255,7 @@
 
 ;; This procedure is called from C code in "libguile/vm-tjit.c".
 (define (tjitc trace-id bytecode-ptr bytecode-len envs
-               parent-ip parent-exit-id linked-ip loop?)
+               parent-ip parent-exit-id linked-ip loop? rec?)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
   (define (traced-ops bytecode-ptr bytecode-len envs)
@@ -325,7 +325,7 @@
           (increment-compilation-failure entry-ip))
         (let-values (((locals snapshots scm ops)
                       (trace->primlist trace-id fragment parent-exit-id loop?
-                                       ip-x-ops)))
+                                       rec? ip-x-ops)))
           (when (and (tjit-dump-jitc? dump-option)
                      (or ops (tjit-dump-abort? dump-option)))
             (show-one-line sline fragment))

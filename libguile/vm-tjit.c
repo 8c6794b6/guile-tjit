@@ -28,6 +28,9 @@
 /* Number of iterations to decide a hot loop. */
 static SCM tjit_hot_loop = SCM_I_MAKINUM (60);
 
+/* Number of calls to make a procedure hot. */
+static SCM tjit_hot_call = SCM_I_MAKINUM (20);
+
 /* Number of exits to decide a side exit is hot. */
 static SCM tjit_hot_exit = SCM_I_MAKINUM (10);
 
@@ -37,32 +40,8 @@ static SCM tjit_max_record = SCM_I_MAKINUM (6000);
 /* Maximum count of retries for failed compilation. */
 static SCM tjit_max_retries = SCM_I_MAKINUM (2);
 
-
-/*
- * Constants
- */
-
-#define OP1(a) 1
-#define OP2(a, b) 2
-#define OP3(a, b, c) 3
-#define OP4(a, b, c, d) 4
-#define OP5(a, b, c, d, e) 5
-#define OP_DST 0
-#define NOP 0
-
-static const int op_sizes[256] = {
-#define OP_SIZE(opcode, tag, name, meta) meta,
-  FOR_EACH_VM_OPERATION (OP_SIZE)
-#undef OP_SIZE
-};
-
-#undef OP1
-#undef OP2
-#undef OP3
-#undef OP4
-#undef OP5
-#undef OP_DST
-#undef NOP
+/* Number of recursive procedure call to unroll. */
+static SCM tjit_num_unrolls = SCM_I_MAKINUM (3);
 
 
 /*
@@ -71,7 +50,10 @@ static const int op_sizes[256] = {
 
 /* Hash table to hold iteration counts for loops. Key is bytecode IP,
    value is current count. */
-static SCM tjit_ip_counter_table;
+static SCM tjit_jump_counter_table;
+
+/* Hash table to hold counts for call. */
+static SCM tjit_call_counter_table;
 
 /* Hash table to hold IPs of failed traces. Key is bytecode IP, value is
    number of failed compilation. */
@@ -100,7 +82,13 @@ static int tjit_trace_id = 1;
  */
 
 static inline SCM
-tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p)
+to_hex (SCM n)
+{
+  return scm_number_to_string (n, SCM_I_MAKINUM (16));
+}
+
+static inline SCM
+tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p, SCM rec_p)
 {
   SCM s_id, s_bytecode, s_bc_idx;
   SCM s_parent_fragment_id, s_parent_exit_id;
@@ -116,9 +104,9 @@ tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p)
   s_parent_exit_id = SCM_I_MAKINUM (state->parent_exit_id);
 
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_8 (tjitc_var, s_id, s_bytecode, s_bc_idx, state->traces,
+  result = scm_call_9 (tjitc_var, s_id, s_bytecode, s_bc_idx, state->traces,
                        s_parent_fragment_id, s_parent_exit_id, linked_ip,
-                       loop_p);
+                       loop_p, rec_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 
   return result;
@@ -126,9 +114,11 @@ tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p)
 
 static inline void
 start_recording (struct scm_tjit_state *state,
-                 scm_t_uint32 *start, scm_t_uint32 *end)
+                 scm_t_uint32 *start, scm_t_uint32 *end,
+                 enum scm_tjit_trace_type trace_type)
 {
   state->vm_state = SCM_TJIT_VM_STATE_RECORD;
+  state->trace_type = trace_type;
   state->loop_start = (scm_t_uintptr) start;
   state->loop_end = (scm_t_uintptr) end;
 }
@@ -141,28 +131,16 @@ stop_recording (struct scm_tjit_state *state)
   state->bc_idx = 0;
   state->parent_fragment_id = 0;
   state->parent_exit_id = 0;
+  state->nunrolled = 0;
 }
 
-static inline SCM
-to_hex (SCM n)
+static inline void
+increment_compilation_failure (SCM ip)
 {
-  return scm_number_to_string (n, SCM_I_MAKINUM (16));
-}
-
-static inline int
-is_hot_loop (SCM ip, SCM count)
-{
-  return (tjit_hot_loop < count &&
-          scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0) <
-          tjit_max_retries);
-}
-
-static inline int
-is_hot_exit (SCM ip, SCM count)
-{
-  return (tjit_hot_exit < count &&
-          scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0) <
-          tjit_max_retries);
+  SCM retries;
+  retries = scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0);
+  retries = SCM_PACK (SCM_UNPACK (retries) + INUM_STEP);
+  scm_hashq_set_x (tjit_failed_ip_table, ip, retries);
 }
 
 static inline void
@@ -201,7 +179,7 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
        the message. */
     count = SCM_INUM0;
 
-  if (is_hot_exit (s_next_ip, count))
+  if (SCM_TJIT_IS_HOT (tjit_hot_exit, s_next_ip, count))
     {
       scm_t_uint32 *start = vp->ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
@@ -218,7 +196,7 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
 
       state->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
       state->parent_exit_id = (int) SCM_I_INUM (exit_id);
-      start_recording (state, start, end);
+      start_recording (state, start, end, SCM_TJIT_TRACE_JUMP);
     }
 
   *nlocals_out = nlocals;
@@ -228,22 +206,6 @@ static inline scm_t_uint32*
 tjit_bytecode_buffer (void)
 {
   return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
-}
-
-static inline void
-increment_ip_counter (SCM count, SCM ip)
-{
-  SCM new_count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
-  scm_hashq_set_x (tjit_ip_counter_table, ip, new_count);
-}
-
-static inline void
-increment_compilation_failure (SCM ip)
-{
-  SCM retries;
-  retries = scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0);
-  retries = SCM_PACK (SCM_UNPACK (retries) + INUM_STEP);
-  scm_hashq_set_x (tjit_failed_ip_table, ip, retries);
 }
 
 static inline void
@@ -266,6 +228,7 @@ struct scm_tjit_state *scm_make_tjit_state (void)
     scm_gc_malloc (sizeof (struct scm_tjit_state), "tjitstate");
 
   t->vm_state = SCM_TJIT_VM_STATE_INTERPRET;
+  t->trace_type = SCM_TJIT_TRACE_JUMP;
   t->loop_start = 0;
   t->loop_end = 0;
   t->bc_idx = 0;
@@ -273,6 +236,7 @@ struct scm_tjit_state *scm_make_tjit_state (void)
   t->traces = SCM_EOL;
   t->parent_fragment_id = 0;
   t->parent_exit_id = 0;
+  t->nunrolled = 0;
 
   return t;
 }
@@ -287,11 +251,11 @@ struct scm_tjit_state *scm_make_tjit_state (void)
   by "libguile/vm.c". Following two macros share common variables
   defined in "libguile/vm-engine.h", such as thread, vp, ip, ... etc. */
 
-#define SCM_TJIT_ENTER(jump)                                            \
+#define SCM_TJIT_ENTER(JUMP, HOT_IP, END_IP, TTYPE, TABLE, REF)         \
   do {                                                                  \
     SCM s_ip, fragment;                                                 \
                                                                         \
-    s_ip = SCM_I_MAKINUM (ip + jump);                                   \
+    s_ip = SCM_I_MAKINUM (ip + JUMP);                                   \
     fragment = scm_hashq_ref (tjit_root_trace_table, s_ip, SCM_BOOL_F); \
                                                                         \
     if (scm_is_true (fragment))                                         \
@@ -311,16 +275,16 @@ struct scm_tjit_state *scm_make_tjit_state (void)
       }                                                                 \
     else                                                                \
       {                                                                 \
-        SCM count =                                                     \
-          scm_hashq_ref (tjit_ip_counter_table, s_ip, SCM_INUM0);       \
+        SCM s_hot_ip = SCM_I_MAKINUM (HOT_IP);                          \
+        SCM count = scm_hashq_ref (TABLE, s_hot_ip, SCM_INUM0);         \
                                                                         \
-        if (is_hot_loop (s_ip, count))                                  \
-          start_recording (tjit_state, ip + jump, ip);                  \
+        if (SCM_TJIT_IS_HOT (REF, s_hot_ip, count))                     \
+          start_recording (tjit_state, ip + JUMP, END_IP, TTYPE);       \
         else                                                            \
-          increment_ip_counter (count, s_ip);                           \
+          SCM_TJIT_INCREMENT (TABLE, s_hot_ip, count);                  \
                                                                         \
         /* Next IP is jump destination specified in bytecode. */        \
-        ip += jump;                                                     \
+        ip += JUMP;                                                     \
       }                                                                 \
   } while (0)
 
@@ -337,10 +301,15 @@ struct scm_tjit_state *scm_make_tjit_state (void)
                                   SCM_BOOL_F))                          \
       && ip != start_ip;                                                \
                                                                         \
+    int dr_done =                                                       \
+      ip == start_ip                                                    \
+      && tjit_state->trace_type == SCM_TJIT_TRACE_CALL                  \
+      && tjit_state->nunrolled == SCM_I_INUM (tjit_num_unrolls);        \
+                                                                        \
     /* Record bytecode IP, FP, and locals. When link was found,      */ \
     /* current record is side trace, and the current bytecode IP is  */ \
     /* already recorded by root trace.                               */ \
-    if (!link_found)                                                    \
+    if (!link_found && !dr_done)                                        \
       {                                                                 \
         SCM locals;                                                     \
         int opcode, i, num_locals;                                      \
@@ -360,21 +329,46 @@ struct scm_tjit_state *scm_make_tjit_state (void)
         record (thread, s_ip, vp->fp, locals, tjit_state);              \
       }                                                                 \
                                                                         \
-    /* Stop recording when IP reached to the end or found a link. */    \
-    if (ip == end_ip || link_found)                                     \
+    switch (tjit_state->trace_type)                                     \
       {                                                                 \
-        SYNC_IP ();                                                     \
-        tjitc (tjit_state, s_ip,                                        \
-               link_found ? SCM_BOOL_F : SCM_BOOL_T);                   \
-        CACHE_SP ();                                                    \
-        ++tjit_trace_id;                                                \
-        stop_recording (tjit_state);                                    \
+      case SCM_TJIT_TRACE_JUMP:                                         \
+        if (ip == end_ip || link_found)                                 \
+          {                                                             \
+            SCM s_link_found = link_found ? SCM_BOOL_F : SCM_BOOL_T;    \
+            SYNC_IP ();                                                 \
+            tjitc (tjit_state, s_ip, s_link_found, SCM_BOOL_F);         \
+            CACHE_SP ();                                                \
+            ++tjit_trace_id;                                            \
+            stop_recording (tjit_state);                                \
+          }                                                             \
+        break;                                                          \
+      case SCM_TJIT_TRACE_CALL:                                         \
+        if (dr_done)                                                    \
+          {                                                             \
+            SYNC_IP ();                                                 \
+            tjitc (tjit_state, s_ip, SCM_BOOL_T, SCM_BOOL_T);           \
+            CACHE_SP ();                                                \
+            ++tjit_trace_id;                                            \
+            stop_recording (tjit_state);                                \
+          }                                                             \
+        else if (ip == start_ip)                                        \
+          ++(tjit_state->nunrolled);                                    \
+        else if (ip == end_ip)                                          \
+          {                                                             \
+            /* XXX: Hot non-recursive procedure call. Worth to       */ \
+            /* compile, but currently marked as failure and ignored. */ \
+            increment_compilation_failure (SCM_I_MAKINUM (start_ip));   \
+            stop_recording (tjit_state);                                \
+          }                                                             \
+        break;                                                          \
+      default:                                                          \
+        break;                                                          \
       }                                                                 \
-    else if (SCM_I_INUM (tjit_max_record) < tjit_state->bc_idx)         \
+                                                                        \
+    if (SCM_I_INUM (tjit_max_record) < tjit_state->bc_idx)              \
       {                                                                 \
-        /* XXX: Log the abort for too long trace. */                    \
-        SCM s_loop_start_ip = SCM_I_MAKINUM (tjit_state->loop_start);   \
-        increment_compilation_failure (s_loop_start_ip);                \
+        /* Trace too long, aborting. */                                 \
+        increment_compilation_failure (SCM_I_MAKINUM (start_ip));       \
         stop_recording (tjit_state);                                    \
       }                                                                 \
   } while (0)
@@ -388,7 +382,15 @@ SCM_DEFINE (scm_tjit_ip_counter, "tjit-ip-counter", 0, 0, 0, (void),
             "Hash table to count number of jumped visits, per IP.")
 #define FUNC_NAME s_scm_tjit_ip_counter
 {
-  return tjit_ip_counter_table;
+  return tjit_jump_counter_table;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_tjit_call_counter, "tjit-call-counter", 0, 0, 0, (void),
+            "Hash table to count number of calls, per IP.")
+#define FUNC_NAME s_scm_tjit_call_counter
+{
+  return tjit_call_counter_table;
 }
 #undef FUNC_NAME
 
@@ -433,6 +435,27 @@ SCM_DEFINE (scm_set_tjit_hot_loop_x, "set-tjit-hot-loop!", 1, 0, 0,
     SCM_MISC_ERROR ("Unknown hot loop: ~a", scm_list_1 (count));
 
   tjit_hot_loop = count;
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_tjit_hot_call, "tjit-hot-call", 0, 0, 0, (void),
+            "Number of calls to decide procedure is hot.")
+#define FUNC_NAME s_scm_tjit_hot_call
+{
+  return tjit_hot_call;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_set_tjit_hot_call_x, "set-tjit-hot-call!", 1, 0, 0,
+            (SCM count),
+            "Set number of calls to decide procedure is hot")
+#define FUNC_NAME s_scm_set_tjit_hot_call_x
+{
+  if (SCM_I_NINUMP (count) || count < 0)
+    SCM_MISC_ERROR ("Unknown hot call: ~a", scm_list_1 (count));
+
+  tjit_hot_call = count;
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -580,7 +603,8 @@ scm_bootstrap_vm_tjit(void)
   buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
   scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
 
-  tjit_ip_counter_table = scm_c_make_hash_table (31);
+  tjit_jump_counter_table = scm_c_make_hash_table (31);
+  tjit_call_counter_table = scm_c_make_hash_table (31);
   tjit_failed_ip_table = scm_c_make_hash_table (31);
   tjit_fragment_table = scm_c_make_hash_table (31);
   tjit_root_trace_table = scm_c_make_hash_table (31);

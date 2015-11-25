@@ -27,16 +27,24 @@ enum scm_tjit_vm_state
     SCM_TJIT_VM_STATE_RECORD,
   };
 
+enum scm_tjit_trace_type
+  {
+    SCM_TJIT_TRACE_JUMP, /* backward jump */
+    SCM_TJIT_TRACE_CALL, /* procedure call */
+  };
+
 struct scm_tjit_state
 {
   enum scm_tjit_vm_state vm_state; /* current vm state */
+  enum scm_tjit_trace_type trace_type; /* current trace type */
   scm_t_uintptr loop_start; /* IP to start a loop */
   scm_t_uintptr loop_end;   /* IP to end a loop */
   scm_t_uint32 bc_idx;      /* current index of traced bytecode */
   scm_t_uint32 *bytecode;   /* buffer to contain traced bytecode */
-  SCM traces;               /* scheme list to contain recorded trace. */
+  SCM traces;               /* scheme list to contain recorded trace */
   int parent_fragment_id;   /* fragment ID of parent trace, or 0 for root*/
   int parent_exit_id;       /* exit id of parent trace, or 0 for root */
+  int nunrolled;            /* current number of unrolled recursion */
 };
 
 typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
@@ -44,11 +52,14 @@ typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
                                   scm_i_jmp_buf *registers);
 
 SCM_API SCM scm_tjit_ip_counter (void);
+SCM_API SCM scm_tjit_call_counter (void);
 SCM_API SCM scm_tjit_fragment_table (void);
 SCM_API SCM scm_tjit_root_trace_table (void);
 SCM_API SCM scm_tjit_failed_ip_table (void);
 SCM_API SCM scm_tjit_hot_loop (void);
 SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
+SCM_API SCM scm_tjit_hot_call (void);
+SCM_API SCM scm_set_tjit_hot_call_x (SCM count);
 SCM_API SCM scm_tjit_hot_exit (void);
 SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
 SCM_API SCM scm_tjit_max_retries (void);
@@ -84,6 +95,43 @@ SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);
 
 SCM_INTERNAL struct scm_tjit_state *scm_make_tjit_state (void);
+
+/*
+ * Constants
+ */
+
+#define OP1(a) 1
+#define OP2(a, b) 2
+#define OP3(a, b, c) 3
+#define OP4(a, b, c, d) 4
+#define OP5(a, b, c, d, e) 5
+#define OP_DST 0
+#define NOP 0
+
+static const int op_sizes[256] = {
+#define OP_SIZE(opcode, tag, name, meta) meta,
+  FOR_EACH_VM_OPERATION (OP_SIZE)
+#undef OP_SIZE
+};
+
+#undef OP1
+#undef OP2
+#undef OP3
+#undef OP4
+#undef OP5
+#undef OP_DST
+#undef NOP
+
+#define SCM_TJIT_IS_HOT(ref, ip, count)                            \
+  (ref < count                                                     \
+   && scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0) <        \
+   tjit_max_retries)
+
+#define SCM_TJIT_INCREMENT(table, ip, count)                            \
+  do {                                                                  \
+    SCM new_count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);          \
+    scm_hashq_set_x (table, ip, new_count);                             \
+  } while (0)
 
 #endif /* _SCM_VM_MJIT_H_ */
 
