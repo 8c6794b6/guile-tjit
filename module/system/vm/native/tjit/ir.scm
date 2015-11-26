@@ -843,7 +843,8 @@ referenced by dst and src value at runtime."
 ;; XXX: fmul
 ;; XXX: fdiv
 
-(define (trace->ir trace escape loop? initial-snapshot-id snapshots
+(define (trace->ir traces escape loop? downrec?
+                   initial-snapshot-id snapshots
                    parent-snapshot past-frame vars
                    initial-sp-offset initial-fp-offset handle-interrupts?)
   (let* ((bytecode-index (make-variable 0))
@@ -934,21 +935,47 @@ referenced by dst and src value at runtime."
       ;; procedure for looping the body of Scheme IR emitted in
       ;; `make-scm'.
       ;;
-      ;; Side trace or loop-less root trace are apturing variables with
-      ;; `take-snapshot!' at the end, so that the machine code can pass the
-      ;; register information to linked code.
+      ;; Side trace or loop-less root trace are capturing variables
+      ;; with `take-snapshot!' at the end, so that the machine code
+      ;; can pass the register information to linked code.
       ;;
+      (define (gen-last-op op ip ra locals)
+        (define (downrec-locals proc)
+          (let lp ((n 0) (end (vector-length locals)) (acc '()))
+            (let ((i (- end proc n 1)))
+              (if (< i 0)
+                  (list->vector acc)
+                  (let* ((i (- end proc n 1))
+                         (e (vector-ref locals i)))
+                    (lp (+ n 1) end (cons e acc)))))))
+        (cond
+         (downrec?
+          (match op
+            (('call proc _)
+             (lambda ()
+               `(let ((_ ,(take-snapshot-with-locals!
+                           *ip-key-downrec*
+                           0
+                           (downrec-locals proc))))
+                  (loop ,@(reverse (map cdr vars))))))
+            (('call-label . _)
+             ;; XXX: TODO.
+             (escape #f))
+            (_
+             (escape #f))))
+         (loop?
+          (lambda ()
+            `(loop ,@(reverse (map cdr vars)))))
+         (else
+          (lambda ()
+            `(let ((_ ,(take-snapshot-with-locals!
+                        *ip-key-jump-to-linked-code*
+                        0
+                        locals)))
+               _)))))
       (match trace
         (((op ip ra locals) . ())
-         (let ((last-op (if loop?
-                            (lambda ()
-                              `(loop ,@(reverse (map cdr vars))))
-                            (lambda ()
-                              `(let ((_ ,(take-snapshot-with-locals!
-                                          *ip-key-jump-to-linked-code*
-                                          0
-                                          locals)))
-                                 _)))))
+         (let ((last-op (gen-last-op op ip ra locals)))
            (convert-one op ip ra locals last-op)))
         (((op ip ra locals) . rest)
          (convert-one op ip ra locals rest))
@@ -957,7 +984,7 @@ referenced by dst and src value at runtime."
                   (last-op))
              (error "trace->ir: last arg was not a procedure" last-op)))))
 
-    (convert trace)))
+    (convert traces)))
 
 
 ;;;

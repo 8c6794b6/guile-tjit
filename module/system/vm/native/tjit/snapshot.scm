@@ -53,8 +53,10 @@
 
             snapshot-jump-to-linked-code?
             snapshot-set-loop-info?
+            snapshot-downrec?
             *ip-key-jump-to-linked-code*
             *ip-key-set-loop-info!*
+            *ip-key-downrec*
 
             $past-frame
             make-past-frame
@@ -389,9 +391,13 @@
 
 (define *ip-key-jump-to-linked-code* 0)
 (define *ip-key-set-loop-info!* 1)
+(define *ip-key-downrec* 2)
 
 (define (snapshot-jump-to-linked-code? snapshot)
   (= (snapshot-ip snapshot) *ip-key-jump-to-linked-code*))
 
 (define (snapshot-set-loop-info? snapshot)
   (= (snapshot-ip snapshot) *ip-key-set-loop-info!*))
+
+(define (snapshot-downrec? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-downrec*))

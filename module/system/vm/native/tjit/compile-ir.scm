@@ -54,7 +54,7 @@
 ;;; Traced bytecode to ANF IR compiler
 ;;;
 
-(define (compile-ir fragment exit-id loop? rec? trace)
+(define (compile-ir fragment exit-id loop? downrec? trace)
   (define-syntax root-trace?
     (identifier-syntax (not fragment)))
   (define (get-initial-snapshot-id)
@@ -201,6 +201,7 @@
                       (trace->ir trace
                                  escape
                                  loop?
+                                 downrec?
                                  snapshot-id
                                  snapshots
                                  parent-snapshot
@@ -261,9 +262,7 @@
                                      (emit))))))
                  patch))))))
 
-      (let ((ir (if rec?
-                    #f
-                    (call-with-escape-continuation make-ir))))
+      (let ((ir (call-with-escape-continuation make-ir)))
         (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
                (sort (hash-fold acons '() snapshots)
                      (lambda (a b) (< (car a) (car b)))))
@@ -273,7 +272,7 @@
           (values indices vars snapshots ir
                   (variable-ref handle-interrupts?)))))))
 
-(define (trace->primlist trace-id fragment exit-id loop? rec? trace)
+(define (trace->primlist trace-id fragment exit-id loop? downrec? trace)
   "Compiles TRACE to primlist.
 
 If the trace to be compiles is a side trace, expects FRAGMENT as from parent
@@ -283,7 +282,7 @@ to indicate whether the trace contains loop or not."
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
   (let-values (((locals vars snapshots ir handle-interrupts?)
-                (compile-ir fragment exit-id loop? rec? trace)))
+                (compile-ir fragment exit-id loop? downrec? trace)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log trace-id)))
         (set-tjit-time-log-ops! log (get-internal-run-time))))

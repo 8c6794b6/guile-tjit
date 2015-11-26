@@ -58,7 +58,7 @@
   (let ((results (map run-tjit-test paths)))
     (cond
      ((and (every not results)
-           (< 0 (assq-ref (tjit-stats) 'num-hot-loops)))
+           (< 0 (assq-ref (tjit-stats) 'num-fragments)))
       (exit 0))
      (else
       (format #t "vm-regular: ~a~%vm-tjit:    ~a~%"

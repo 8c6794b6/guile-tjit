@@ -80,6 +80,7 @@
             vm-sync-sp
             vm-sync-fp
             vm-handle-interrupts
+            vm-expand-stack
             unbox-scm))
 
 (define (make-negative-pointer addr)
@@ -204,6 +205,9 @@
 (define %scm-async-tick
   (dynamic-pointer "scm_async_tick" (dynamic-link)))
 
+(define %scm-vm-expand-stack
+  (dynamic-pointer "scm_do_vm_expand_stack" (dynamic-link)))
+
 (define-syntax-rule (scm-frame-return-address dst vp->fp)
   (jit-ldr dst vp->fp))
 
@@ -270,22 +274,6 @@
       (jit-str %sp src)
       (jit-stxi (make-signed-pointer (* n %word-size)) %sp src)))
 
-(define-syntax-rule (vm-thread-pending-asyncs dst)
-  (jit-ldxi dst %thread (imm #x104)))
-
-(define-syntax-rule (vm-handle-interrupts asm-arg)
-  (let ((next (jit-forward)))
-    (vm-thread-pending-asyncs r0)
-    (jump (jit-bmci r0 (imm 1)) next)
-    (for-each store-volatile (asm-volatiles asm-arg))
-    (jit-prepare)
-    (jit-pushargr r0)
-    (jit-calli %scm-async-tick)
-    (load-vp r0)
-    (vm-cache-sp r0)
-    (for-each load-volatile (asm-volatiles asm-arg))
-    (jit-link next)))
-
 (define (store-volatile src)
   (jit-stxi (volatile-offset src) %fp (gpr src)))
 
@@ -314,6 +302,73 @@
     (memory-set! dst r0))
    (else
     (error "retval-to-gpr-or-mem: unknown dst" dst))))
+
+;;; XXX: Offsets for fields in C structs where manually taken with
+;;; observing output from `objdump'. It would be nice if the offsets
+;;; were derived in programmatic manner. Have not tested on
+;;; architecture other than Linux x86-64.
+
+(define-syntax-rule (vm-thread-pending-asyncs dst)
+  (jit-ldxi dst %thread (imm #x104)))
+
+(define-syntax-rule (vm-sp-min-since-gc dst vp)
+  (jit-ldxi dst vp (imm #x28)))
+
+(define-syntax-rule (vm-set-sp-min-since-gc! vp src)
+  (jit-stxi (imm #x28) vp src))
+
+(define-syntax-rule (vm-sp-stack-limit dst vp)
+  (jit-ldxi dst vp (imm #x18)))
+
+(define-syntax-rule (vm-sp-stack-size dst vp)
+  (jit-ldxi dst vp (imm #x30)))
+
+(define-syntax-rule (vm-handle-interrupts asm-arg)
+  (let ((next (jit-forward))
+        (volatiles (asm-volatiles asm-arg)))
+    (vm-thread-pending-asyncs r0)
+    (jump (jit-bmci r0 (imm 1)) next)
+    (for-each store-volatile volatiles)
+    (jit-prepare)
+    (jit-pushargr r0)
+    (jit-calli %scm-async-tick)
+    (load-vp r0)
+    (vm-cache-sp r0)
+    (for-each load-volatile volatiles)
+    (jit-link next)))
+
+(define-syntax-rule (vm-expand-stack asm-arg size)
+  (let ((volatiles (asm-volatiles asm-arg))
+        (vp r0)
+        (tmp r1)
+        (set-min-since-gc (jit-forward))
+        (sync-sp (jit-forward))
+        (next (jit-forward)))
+
+    (jit-subi %sp %sp (imm (* (abs size) %word-size)))
+    (load-vp vp)
+    (vm-sp-min-since-gc tmp vp)
+    (jump (jit-bger %sp tmp) sync-sp)
+    (vm-sp-stack-limit tmp vp)
+    (jump (jit-bger %sp tmp) set-min-since-gc)
+
+    (for-each store-volatile volatiles)
+    (jit-prepare)
+    (jit-pushargr vp)
+    (jit-pushargr %sp)
+    (jit-calli %scm-vm-expand-stack)
+    (for-each load-volatile volatiles)
+    (load-vp vp)
+    (vm-cache-sp vp)
+    (jump next)
+
+    (jit-link set-min-since-gc)
+    (vm-set-sp-min-since-gc! vp %sp)
+
+    (jit-link sync-sp)
+    (vm-sync-sp %sp)
+
+    (jit-link next)))
 
 
 ;;;

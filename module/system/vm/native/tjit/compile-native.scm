@@ -291,14 +291,14 @@ are local index number."
 ;;;
 
 (define (compile-native primlist entry-ip locals snapshots fragment
-                        parent-exit-id linked-ip trace-id)
+                        parent-exit-id linked-ip trace-id downrec?)
   (with-jit-state
    (jit-prolog)
    (let-values
        (((trampoline loop-label loop-locals loop-vars fp-offset
                      gen-bailouts)
          (compile-entry primlist entry-ip locals snapshots fragment
-                        parent-exit-id linked-ip trace-id)))
+                        parent-exit-id linked-ip trace-id downrec?)))
      (let ((epilog-label (jit-label)))
        (jit-patch epilog-label)
        (jit-retr %retval)
@@ -355,7 +355,7 @@ are local index number."
                    loop-address trampoline)))))))
 
 (define (compile-entry primlist entry-ip locals snapshots fragment
-                       parent-exit-id linked-ip trace-id)
+                       parent-exit-id linked-ip trace-id downrec?)
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log trace-id)))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
@@ -422,10 +422,10 @@ are local index number."
 
     ;; Assemble the primitives.
     (compile-primlist primlist entry-ip snapshots fp-offset fragment
-                      trampoline linked-ip trace-id)))
+                      trampoline linked-ip trace-id downrec?)))
 
 (define (compile-primlist primlist entry-ip snapshots fp-offset fragment
-                          trampoline linked-ip trace-id)
+                          trampoline linked-ip trace-id downrec?)
   (define (compile-ops asm ops acc)
     (let lp ((ops ops) (loop-locals #f) (loop-vars #f) (acc acc))
       (match ops
@@ -434,6 +434,8 @@ are local index number."
           ((hashq-ref snapshots snapshot-id)
            => (lambda (snapshot)
                 (cond
+                 ((snapshot-downrec? snapshot)
+                  (lp ops loop-locals loop-vars acc))
                  ((snapshot-set-loop-info? snapshot)
                   (match snapshot
                     (($ $snapshot _ _ _ _ local-x-types)
@@ -467,6 +469,42 @@ are local index number."
            (error "op not found" op-name))))
         (()
          (values loop-locals loop-vars acc)))))
+  (define (compile-loop asm loop gen-bailouts handle-interrupts?
+                        loop-locals loop-vars)
+    (if (null? loop)
+        (values #f gen-bailouts)
+        (let ((loop-label (jit-label)))
+          (jit-note "loop" 0)
+          (when handle-interrupts?
+            (vm-handle-interrupts asm))
+          (let-values
+              (((unused-loop-locals unused-loop-vars gen-bailouts)
+                (compile-ops asm loop gen-bailouts)))
+            (when downrec?
+              (let* ((last-index (- (hash-count (const #t) snapshots) 1))
+                     (last-snapshot (hashq-ref snapshots last-index))
+                     (last-sp-offset (snapshot-sp-offset last-snapshot))
+                     (last-fp-offset (snapshot-fp-offset last-snapshot))
+                     (last-nlocals (snapshot-nlocals last-snapshot)))
+                (vm-expand-stack asm last-sp-offset)
+                (shift-fp (- last-fp-offset last-nlocals 2))
+                (let lp ((locals (snapshot-locals last-snapshot))
+                         (vars (snapshot-variables last-snapshot)))
+                  (match (list locals vars)
+                    ((((local . type) . locals) (var . vars))
+                     (store-frame (- local last-sp-offset) type var)
+                     (lp locals vars))
+                    (_
+                     (let lp ((dsts loop-vars)
+                              (srcs (snapshot-variables last-snapshot)))
+                       (match (list dsts srcs)
+                         (((dst . dsts) (src . srcs))
+                          (move dst src)
+                          (lp dsts srcs))
+                         (_
+                          (values)))))))))
+            (jump loop-label)
+            (values loop-label gen-bailouts)))))
   (match primlist
     (($ $primlist entry loop mem-idx env handle-interrupts?)
      (let*-values (((end-address) (or (and=> fragment
@@ -477,19 +515,8 @@ are local index number."
                    ((loop-locals loop-vars gen-bailouts)
                     (compile-ops asm entry '()))
                    ((loop-label gen-bailouts)
-                    (if (null? loop)
-                        (values #f gen-bailouts)
-                        (let ((loop-label (jit-label)))
-                          (jit-note "loop" 0)
-                          ;; Call scm_async_tick when heap objects were used in
-                          ;; compiled native code.
-                          (when handle-interrupts?
-                            (vm-handle-interrupts asm))
-                          (let-values
-                              (((a b gen-bailouts)
-                                (compile-ops asm loop gen-bailouts)))
-                            (jump loop-label)
-                            (values loop-label gen-bailouts))))))
+                    (compile-loop asm loop gen-bailouts handle-interrupts?
+                                  loop-locals loop-vars)))
        (values trampoline loop-label loop-locals loop-vars fp-offset
                gen-bailouts)))
     (_

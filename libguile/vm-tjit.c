@@ -28,8 +28,8 @@
 /* Number of iterations to decide a hot loop. */
 static SCM tjit_hot_loop = SCM_I_MAKINUM (60);
 
-/* Number of calls to make a procedure hot. */
-static SCM tjit_hot_call = SCM_I_MAKINUM (20);
+/* Number of calls to decide a hot procedure call. */
+static SCM tjit_hot_call = SCM_I_MAKINUM (12);
 
 /* Number of exits to decide a side exit is hot. */
 static SCM tjit_hot_exit = SCM_I_MAKINUM (10);
@@ -40,7 +40,7 @@ static SCM tjit_max_record = SCM_I_MAKINUM (6000);
 /* Maximum count of retries for failed compilation. */
 static SCM tjit_max_retries = SCM_I_MAKINUM (2);
 
-/* Number of recursive procedure call to unroll. */
+/* Number of recursive procedure calls to unroll. */
 static SCM tjit_num_unrolls = SCM_I_MAKINUM (3);
 
 
@@ -88,7 +88,7 @@ to_hex (SCM n)
 }
 
 static inline SCM
-tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p, SCM rec_p)
+tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p, SCM downrec_p)
 {
   SCM s_id, s_bytecode, s_bc_idx;
   SCM s_parent_fragment_id, s_parent_exit_id;
@@ -106,7 +106,7 @@ tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p, SCM rec_p)
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
   result = scm_call_9 (tjitc_var, s_id, s_bytecode, s_bc_idx, state->traces,
                        s_parent_fragment_id, s_parent_exit_id, linked_ip,
-                       loop_p, rec_p);
+                       loop_p, downrec_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 
   return result;
@@ -583,6 +583,12 @@ SCM
 scm_do_inline_cons (scm_i_thread *thread, SCM x, SCM y)
 {
   return scm_inline_cons (thread, x, y);
+}
+
+void
+scm_do_vm_expand_stack (struct scm_vm *vp, union scm_vm_stack_element *new_sp)
+{
+  vm_expand_stack (vp, new_sp);
 }
 
 

@@ -255,7 +255,7 @@
 
 ;; This procedure is called from C code in "libguile/vm-tjit.c".
 (define (tjitc trace-id bytecode-ptr bytecode-len envs
-               parent-ip parent-exit-id linked-ip loop? rec?)
+               parent-ip parent-exit-id linked-ip loop? downrec?)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
   (define (traced-ops bytecode-ptr bytecode-len envs)
@@ -285,7 +285,7 @@
   (define-syntax-rule (increment-compilation-failure ip)
     (let ((count (hashq-ref (tjit-failed-ip-table) ip 0)))
       (hashq-set! (tjit-failed-ip-table) ip (+ count 1))))
-  (define-syntax-rule (show-one-line sline fragment)
+  (define-syntax-rule (show-one-line sline fragment downrec?)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
                                  (or (and fragment (fragment-id fragment))
@@ -296,7 +296,9 @@
                          ""
                          (format #f " -> ~a"
                                  (fragment-id (get-root-trace linked-ip))))))
-      (format #t ";;; trace ~a: ~a~a~a~%" trace-id sline exit-pair linked-id)))
+      (format #t ";;; trace ~a: ~a~a~a~a~%"
+              trace-id sline exit-pair linked-id
+              (if downrec? " - downrec" ""))))
 
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
@@ -324,11 +326,11 @@
           (debug 1 ";;; trace ~a: linker.scm matched, aborted ~%" trace-id)
           (increment-compilation-failure entry-ip))
         (let-values (((locals snapshots scm ops)
-                      (trace->primlist trace-id fragment parent-exit-id loop?
-                                       rec? ip-x-ops)))
+                      (trace->primlist trace-id fragment parent-exit-id
+                                       loop? downrec? ip-x-ops)))
           (when (and (tjit-dump-jitc? dump-option)
                      (or ops (tjit-dump-abort? dump-option)))
-            (show-one-line sline fragment))
+            (show-one-line sline fragment downrec?))
           (when (and (tjit-dump-bytecode? dump-option)
                      (or ops (tjit-dump-abort? dump-option)))
             (dump-bytecode trace-id ip-x-ops))
@@ -345,7 +347,7 @@
             (let-values (((code size adjust loop-address trampoline)
                           (compile-native ops entry-ip locals snapshots
                                           fragment parent-exit-id linked-ip
-                                          trace-id)))
+                                          trace-id downrec?)))
               (when (tjit-dump-disassemble? dump-option)
                 (dump-disassembler trace-id
                                    entry-ip
