@@ -661,6 +661,12 @@ static const scm_t_uint32 vm_builtin_call_with_current_continuation_code[] = {
 };
 
 
+int
+scm_i_vm_is_boot_continuation_code (scm_t_uint32 *ip)
+{
+  return ip == vm_boot_continuation_code;
+}
+
 static SCM
 scm_vm_builtin_ref (unsigned idx)
 {

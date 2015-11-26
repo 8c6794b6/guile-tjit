@@ -361,8 +361,7 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 
   /* Skip initial boot frame, if any.  This is possible if the frame
      originates from a captured continuation.  */
-  if (SCM_PROGRAM_P (scm_c_frame_closure (kind, &frame))
-      && SCM_PROGRAM_IS_BOOT (scm_c_frame_closure (kind, &frame))
+  if (scm_i_vm_is_boot_continuation_code (frame.ip)
       && !scm_c_frame_previous (kind, &frame))
     return SCM_BOOL_F;
 

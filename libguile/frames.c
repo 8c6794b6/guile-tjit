@@ -388,11 +388,8 @@ scm_c_frame_previous (enum scm_vm_frame_kind kind, struct scm_frame *frame)
   frame->sp_offset = stack_top - new_sp;
   frame->ip = SCM_FRAME_RETURN_ADDRESS (this_fp);
 
-  {
-    SCM proc = scm_c_frame_closure (kind, frame);
-    if (SCM_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
-      goto again;
-  }
+  if (scm_i_vm_is_boot_continuation_code (frame->ip))
+    goto again;
 
   return 1;
 }

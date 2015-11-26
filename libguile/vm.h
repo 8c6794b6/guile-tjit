@@ -106,6 +106,7 @@ SCM_INTERNAL SCM scm_i_vm_capture_stack (union scm_vm_stack_element *stack_top,
 SCM_INTERNAL int scm_i_vm_cont_to_frame (SCM cont, struct scm_frame *frame);
 SCM_INTERNAL void scm_i_vm_cont_print (SCM x, SCM port,
                                        scm_print_state *pstate);
+SCM_INTERNAL int scm_i_vm_is_boot_continuation_code (scm_t_uint32 *ip);
 SCM_INTERNAL void scm_bootstrap_vm (void);
 SCM_INTERNAL void scm_init_vm (void);
 
