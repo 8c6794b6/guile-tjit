@@ -463,36 +463,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   if (SCM_UNLIKELY (resume))
     NEXT (0);
 
- apply:
-  while (!SCM_PROGRAM_P (FP_REF (0)))
-    {
-      SCM proc = FP_REF (0);
-
-      if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
-        {
-          FP_SET (0, SCM_STRUCT_PROCEDURE (proc));
-          continue;
-        }
-      if (SCM_HAS_TYP7 (proc, scm_tc7_smob) && SCM_SMOB_APPLICABLE_P (proc))
-        {
-          scm_t_uint32 n = FRAME_LOCALS_COUNT();
-
-          /* Shuffle args up.  (FIXME: no real need to shuffle; just set
-             IP and go. ) */
-          ALLOC_FRAME (n + 1);
-          while (n--)
-            FP_SET (n + 1, FP_REF (n));
-
-          FP_SET (0, SCM_SMOB_DESCRIPTOR (proc).apply_trampoline);
-          continue;
-        }
-
-      SYNC_IP();
-      vm_error_wrong_type_apply (proc);
-    }
-
-  /* Let's go! */
-  ip = SCM_PROGRAM_CODE (FP_REF (0));
+  if (SCM_LIKELY (SCM_PROGRAM_P (FP_REF (0))))
+    ip = SCM_PROGRAM_CODE (FP_REF (0));
+  else
+    ip = (scm_t_uint32 *) vm_apply_non_program_code;
 
   APPLY_HOOK ();
 
@@ -568,10 +542,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (nlocals);
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
-        goto apply;
-
-      ip = SCM_PROGRAM_CODE (FP_REF (0));
+      if (SCM_LIKELY (SCM_PROGRAM_P (FP_REF (0))))
+        ip = SCM_PROGRAM_CODE (FP_REF (0));
+      else
+        ip = (scm_t_uint32 *) vm_apply_non_program_code;
 
       APPLY_HOOK ();
 
@@ -632,10 +606,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (nlocals);
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
-        goto apply;
-
-      ip = SCM_PROGRAM_CODE (FP_REF (0));
+      if (SCM_LIKELY (SCM_PROGRAM_P (FP_REF (0))))
+        ip = SCM_PROGRAM_CODE (FP_REF (0));
+      else
+        ip = (scm_t_uint32 *) vm_apply_non_program_code;
 
       APPLY_HOOK ();
 
@@ -689,10 +663,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (n + 1);
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
-        goto apply;
-
-      ip = SCM_PROGRAM_CODE (FP_REF (0));
+      if (SCM_LIKELY (SCM_PROGRAM_P (FP_REF (0))))
+        ip = SCM_PROGRAM_CODE (FP_REF (0));
+      else
+        ip = (scm_t_uint32 *) vm_apply_non_program_code;
 
       APPLY_HOOK ();
 
@@ -931,10 +905,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       for (i = 0; i < list_len; i++, list = SCM_CDR (list))
         FP_SET (list_idx - 1 + i, SCM_CAR (list));
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (FP_REF (0))))
-        goto apply;
-
-      ip = SCM_PROGRAM_CODE (FP_REF (0));
+      if (SCM_LIKELY (SCM_PROGRAM_P (FP_REF (0))))
+        ip = SCM_PROGRAM_CODE (FP_REF (0));
+      else
+        ip = (scm_t_uint32 *) vm_apply_non_program_code;
 
       APPLY_HOOK ();
 
@@ -977,10 +951,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           SP_SET (1, SP_REF (0));
           SP_SET (0, cont);
 
-          if (SCM_UNLIKELY (!SCM_PROGRAM_P (SP_REF (1))))
-            goto apply;
-
-          ip = SCM_PROGRAM_CODE (SP_REF (1));
+          if (SCM_LIKELY (SCM_PROGRAM_P (SP_REF (1))))
+            ip = SCM_PROGRAM_CODE (SP_REF (1));
+          else
+            ip = (scm_t_uint32 *) vm_apply_non_program_code;
 
           APPLY_HOOK ();
 
@@ -3299,7 +3273,45 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (142, unused_142, NULL, NOP)
+  /* apply-non-program _:24
+   *
+   * Used by the VM as a trampoline to apply non-programs.
+   */
+  VM_DEFINE_OP (142, apply_non_program, "apply-non-program", OP1 (X32))
+    {
+      SCM proc = FP_REF (0);
+
+      while (!SCM_PROGRAM_P (proc))
+        {
+          if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
+            {
+              proc = SCM_STRUCT_PROCEDURE (proc);
+              FP_SET (0, proc);
+              continue;
+            }
+          if (SCM_HAS_TYP7 (proc, scm_tc7_smob) && SCM_SMOB_APPLICABLE_P (proc))
+            {
+              scm_t_uint32 n = FRAME_LOCALS_COUNT();
+
+              /* Shuffle args up.  (FIXME: no real need to shuffle; just set
+                 IP and go. ) */
+              ALLOC_FRAME (n + 1);
+              while (n--)
+                FP_SET (n + 1, FP_REF (n));
+
+              proc = SCM_SMOB_DESCRIPTOR (proc).apply_trampoline;
+              FP_SET (0, proc);
+              continue;
+            }
+
+          SYNC_IP();
+          vm_error_wrong_type_apply (proc);
+        }
+
+      ip = SCM_PROGRAM_CODE (proc);
+      NEXT (0);
+    }
+
   VM_DEFINE_OP (143, unused_143, NULL, NOP)
   VM_DEFINE_OP (144, unused_144, NULL, NOP)
   VM_DEFINE_OP (145, unused_145, NULL, NOP)

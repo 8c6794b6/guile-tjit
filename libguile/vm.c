@@ -630,6 +630,10 @@ static const scm_t_uint32 vm_boot_continuation_code[] = {
   SCM_PACK_OP_24 (halt, 0)
 };
 
+static const scm_t_uint32 vm_apply_non_program_code[] = {
+  SCM_PACK_OP_24 (apply_non_program, 0)
+};
+
 static const scm_t_uint32 vm_builtin_apply_code[] = {
   SCM_PACK_OP_24 (assert_nargs_ge, 3),
   SCM_PACK_OP_24 (tail_apply, 0), /* proc in r1, args from r2 */
