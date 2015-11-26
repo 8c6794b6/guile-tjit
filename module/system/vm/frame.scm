@@ -277,9 +277,7 @@
                 (if n
                     (match (vector-ref defs n)
                       (#(name def-offset slot representation)
-                       ;; Binding 0 is the closure, and is not present
-                       ;; in arity-definitions.
-                       (cons (make-binding (1+ n) name slot representation)
+                       (cons (make-binding n name slot representation)
                              (lp (1+ n)))))
                     '()))))
           (lp (1+ n) (- offset (vector-ref parsed n)))))))

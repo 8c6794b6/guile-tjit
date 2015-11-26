@@ -472,7 +472,9 @@
            (emit-label asm label)
            (set! frame-size (lookup-nlocals label allocation))
            (emit-begin-kw-arity asm req opt rest kw-indices allow-other-keys?
-                                frame-size alt)))
+                                frame-size alt)
+           ;; All arities define a closure binding in slot 0.
+           (emit-definition asm 'closure 0 'scm)))
         (($ $kargs names vars ($ $continue k src exp))
          (emit-label asm label)
          (for-each (lambda (name var)
