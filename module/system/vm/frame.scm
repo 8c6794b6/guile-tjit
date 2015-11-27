@@ -312,6 +312,28 @@
                      (binding-representation binding))))
 
 
+(define* (frame-procedure-name frame #:key
+                               (info (find-program-debug-info
+                                      (frame-instruction-pointer frame))))
+  (cond
+   (info => program-debug-info-name)
+   ;; We can only try to get the name from the closure if we know that
+   ;; slot 0 corresponds to the frame's procedure.  This isn't possible
+   ;; to know in general.  If the frame has already begun executing and
+   ;; the closure binding is dead, it could have been replaced with any
+   ;; other random value, or an unboxed value.  Even if we're catching
+   ;; the frame at its application, before it has started running, if
+   ;; the callee is well-known and has only one free variable, closure
+   ;; optimization could have chosen to represent its closure as that
+   ;; free variable, and that free variable might be some other program,
+   ;; or even an unboxed value.  It would be an error to try to get the
+   ;; procedure name of some procedure that doesn't correspond to the
+   ;; one being applied.  (Free variables are currently always boxed but
+   ;; that could change in the future.)
+   ((primitive-code? (frame-instruction-pointer frame))
+    (procedure-name (frame-local-ref frame 0 'scm)))
+   (else #f)))
+
 ;; This function is always called to get some sort of representation of the
 ;; frame to present to the user, so let's do the logical thing and dispatch to
 ;; frame-call-representation.
@@ -388,9 +410,7 @@
        (else
         '())))
     (cons
-     (or (and=> info program-debug-info-name)
-         (and (procedure? closure) (procedure-name closure))
-         closure)
+     (frame-procedure-name frame #:info info)
      (cond
       ((find-program-arity ip)
        => (lambda (arity)

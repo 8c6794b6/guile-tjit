@@ -893,12 +893,11 @@ for key @var{k}, then invoke @var{thunk}."
           (define (default-printer)
             (format port "Throw to key `~a' with args `~s'." key args))
 
-          (if frame
-              (let ((proc (frame-procedure frame)))
-                (print-location frame port)
-                (format port "In procedure ~a:\n"
-                        (or (false-if-exception (procedure-name proc))
-                            proc))))
+          (when frame
+            (print-location frame port)
+            (let ((name (false-if-exception (frame-procedure-name frame))))
+              (when name
+                (format port "In procedure ~a:\n" name))))
 
           (print-location frame port)
           (catch #t
