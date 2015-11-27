@@ -380,8 +380,17 @@
         (frame-local-ref frame i 'scm))
        ((find-slot i bindings)
         => (lambda (binding)
-             (frame-local-ref frame (binding-slot binding)
-                              (binding-representation binding))))
+             (let ((val (frame-local-ref frame (binding-slot binding)
+                                         (binding-representation binding))))
+               ;; It could be that there's a value that isn't clobbered
+               ;; by a call but that isn't live after a call either.  In
+               ;; that case, if GC runs during the call, the value will
+               ;; be collected, and on the stack it will be replaced
+               ;; with the unspecified value.  Assume that clobbering
+               ;; values is more likely than passing the unspecified
+               ;; value as an argument, and replace unspecified with _,
+               ;; as if the binding were not available.
+               (if (unspecified? val) '_ val))))
        (else
         '_)))
     (define (application-arguments)
