@@ -645,11 +645,6 @@ With an argument, select a frame by index, then show it."
       (format #t "No such frame.~%"))))
    (else (print-frame cur #:index index))))
 
-(define-stack-command (procedure repl)
-  "procedure
-Print the procedure for the selected frame."
-  (repl-print repl (frame-procedure cur)))
-
 (define-stack-command (locals repl #:key (width (terminal-width)))
   "locals
 Show local variables.
