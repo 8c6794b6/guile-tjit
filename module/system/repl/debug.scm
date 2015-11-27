@@ -24,6 +24,7 @@
   #:use-module (system base language)
   #:use-module (system vm vm)
   #:use-module (system vm frame)
+  #:use-module (system vm debug)
   #:use-module (ice-9 rdelim)
   #:use-module (ice-9 pretty-print)
   #:use-module (ice-9 format)
@@ -94,12 +95,13 @@
     (format port fmt val))
   
   (format port "~aRegisters:~%" per-line-prefix)
-  (print "ip = #x~x" (frame-instruction-pointer frame))
-  (when (program? (frame-procedure frame))
-    (let ((code (program-code (frame-procedure frame))))
-      (format port " (#x~x~@d)" code
-              (- (frame-instruction-pointer frame) code))))
-  (newline port)
+  (let ((ip (frame-instruction-pointer frame)))
+    (print "ip = #x~x" ip)
+    (let ((info (find-program-debug-info ip)))
+      (when info
+        (let ((addr (program-debug-info-addr info)))
+          (format port " (#x~x + ~d * 4)" addr (/ (- ip addr) 4)))))
+    (newline port))
   (print "sp = ~a\n" (frame-stack-pointer frame))
   (print "fp = ~a\n" (frame-address frame)))
 
