@@ -144,19 +144,6 @@ scm_c_frame_closure (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
   return SCM_BOOL_F;
 }
 
-SCM_DEFINE (scm_frame_procedure, "frame-procedure", 1, 0, 0,
-	    (SCM frame),
-	    "")
-#define FUNC_NAME s_scm_frame_procedure
-{
-  SCM_VALIDATE_VM_FRAME (1, frame);
-
-  /* FIXME: Retrieve procedure from address?  */
-  return scm_c_frame_closure (SCM_VM_FRAME_KIND (frame),
-                              SCM_VM_FRAME_DATA (frame));
-}
-#undef FUNC_NAME
-
 static SCM frame_procedure_name_var;
 
 static void

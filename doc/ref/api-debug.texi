@@ -177,10 +177,10 @@ Return the previous frame of @var{frame}, or @code{#f} if
 @var{frame} is the first frame in its stack.
 @end deffn
 
-@deffn {Scheme Procedure} frame-procedure frame
-@deffnx {C Function} scm_frame_procedure (frame)
-Return the procedure for @var{frame}, or @code{#f} if no
-procedure is associated with @var{frame}.
+@deffn {Scheme Procedure} frame-procedure-name frame
+@deffnx {C Function} scm_frame_procedure_name (frame)
+Return the name of the procedure being applied in @var{frame}, as a
+symbol, or @code{#f} if the procedure has no name.
 @end deffn
 
 @deffn {Scheme Procedure} frame-arguments frame

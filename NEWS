@@ -6,7 +6,28 @@ Please send Guile bug reports to bug-guile@gnu.org.
 
 
 
-Changes in 2.1.1 (changes since the 2.0.x series):
+Changes in 2.1.2 (changes since the 2.1.1 alpha release):
+
+* Incompatible changes
+
+** Remove frame-procedure
+
+Several optimizations in Guile make `frame-procedure' an interface that
+we can no longer support.  For background, `frame-procedure' used to
+return the value at slot 0 in a frame, which usually corresponds to the
+SCM value of the procedure being applied.  However it could be that this
+slot is re-used for some other value, because the closure was not needed
+in the function.  Such a re-use might even be for an untagged value, in
+which case treating slot 0 as a SCM value is quite dangerous.  It's also
+possible that so-called "well-known" closures (closures whose callers
+are all known) are optimized in such a way that slot 0 is not a
+procedure but some optimized representation of the procedure's free
+variables.  Instead, developers building debugging tools that would like
+access to `frame-procedure' are invited to look at the source for the
+`(system vm frame)' for alternate interfaces.
+
+
+Changes in 2.1.x (changes since the 2.0.x series):
 
 * Notable changes
 

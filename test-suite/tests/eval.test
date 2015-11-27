@@ -365,8 +365,8 @@
     ;; stack.
     (let* ((stack (make-tagged-trimmed-stack tag '(#t)))
            (frames (stack->frames stack))
-           (num (count (lambda (frame) (eq? (frame-procedure frame)
-                                       substring))
+           (num (count (lambda (frame) (eq? (frame-procedure-name frame)
+                                            'substring))
                        frames)))
       (= num 1)))
 
