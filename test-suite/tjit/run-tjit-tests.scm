@@ -19,7 +19,7 @@
 (use-modules (srfi srfi-1)
              (system vm vm)
              (system vm loader)
-             (system vm native tjit)
+             (system vm native tjit tjitc)
              (system base compile)
              (system base language))
 

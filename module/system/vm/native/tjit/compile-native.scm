@@ -424,6 +424,31 @@ are local index number."
     (compile-primlist primlist entry-ip snapshots fp-offset fragment
                       trampoline linked-ip trace-id downrec?)))
 
+(define (adjust-downrec-stack asm snapshots dsts)
+  (let* ((last-index (- (hash-count (const #t) snapshots) 1))
+         (last-snapshot (hashq-ref snapshots last-index))
+         (last-sp-offset (snapshot-sp-offset last-snapshot))
+         (last-fp-offset (snapshot-fp-offset last-snapshot))
+         (last-nlocals (snapshot-nlocals last-snapshot))
+         (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
+    (vm-expand-stack asm last-sp-offset)
+    (shift-fp (- (+ last-sp-offset last-nlocals) initial-nlocals))
+    (let lp ((locals (snapshot-locals last-snapshot))
+             (vars (snapshot-variables last-snapshot)))
+      (match (list locals vars)
+        ((((local . type) . locals) (var . vars))
+         (store-frame (- local last-sp-offset) type var)
+         (lp locals vars))
+        (_
+         (let lp ((dsts dsts)
+                  (srcs (snapshot-variables last-snapshot)))
+           (match (list dsts srcs)
+             (((dst . dsts) (src . srcs))
+              (move dst src)
+              (lp dsts srcs))
+             (_
+              (values)))))))))
+
 (define (compile-primlist primlist entry-ip snapshots fp-offset fragment
                           trampoline linked-ip trace-id downrec?)
   (define (compile-ops asm ops acc)
@@ -481,30 +506,7 @@ are local index number."
               (((unused-loop-locals unused-loop-vars gen-bailouts)
                 (compile-ops asm loop gen-bailouts)))
             (when downrec?
-              (let* ((last-index (- (hash-count (const #t) snapshots) 1))
-                     (last-snapshot (hashq-ref snapshots last-index))
-                     (last-sp-offset (snapshot-sp-offset last-snapshot))
-                     (last-fp-offset (snapshot-fp-offset last-snapshot))
-                     (last-nlocals (snapshot-nlocals last-snapshot))
-                     (initial-nlocals (snapshot-nlocals
-                                       (hashq-ref snapshots 0))))
-                (vm-expand-stack asm last-sp-offset)
-                (shift-fp (- (+ last-sp-offset last-nlocals) initial-nlocals))
-                (let lp ((locals (snapshot-locals last-snapshot))
-                         (vars (snapshot-variables last-snapshot)))
-                  (match (list locals vars)
-                    ((((local . type) . locals) (var . vars))
-                     (store-frame (- local last-sp-offset) type var)
-                     (lp locals vars))
-                    (_
-                     (let lp ((dsts loop-vars)
-                              (srcs (snapshot-variables last-snapshot)))
-                       (match (list dsts srcs)
-                         (((dst . dsts) (src . srcs))
-                          (move dst src)
-                          (lp dsts srcs))
-                         (_
-                          (values)))))))))
+              (adjust-downrec-stack asm snapshots loop-vars))
             (jump loop-label)
             (values loop-label gen-bailouts)))))
   (match primlist

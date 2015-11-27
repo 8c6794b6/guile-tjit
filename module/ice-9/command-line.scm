@@ -33,7 +33,7 @@
 
 (define-module (ice-9 command-line)
   #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine!)
-  #:autoload (system vm native tjit) (init-vm-tjit)
+  #:autoload (system vm native tjit tjitc) (init-vm-tjit)
   #:export (compile-shell-switches
             version-etc
             *GPLv3+*

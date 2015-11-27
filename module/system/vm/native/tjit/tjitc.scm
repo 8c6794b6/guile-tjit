@@ -25,7 +25,7 @@
 ;;;
 ;;; Code:
 
-(define-module (system vm native tjit)
+(define-module (system vm native tjit tjitc)
   #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
@@ -263,9 +263,9 @@
              (offset 0)
              (traces (reverse! traces)))
       (match traces
-        ((env . traces)
+        ((trace . traces)
          (let-values (((len elt) (disassemble-one bytecode offset)))
-           (lp (cons (cons elt env) acc) (+ offset len) traces)))
+           (lp (cons (cons elt trace) acc) (+ offset len) traces)))
         (()
          (reverse! acc)))))
   (define (module-to-skip? ip)

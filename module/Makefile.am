@@ -352,7 +352,7 @@ SOURCES =					\
   system/vm/native/tjit/fragment.scm		\
   system/vm/native/tjit/compile-ir.scm		\
   system/vm/native/tjit/compile-native.scm	\
-  system/vm/native/tjit.scm			\
+  system/vm/native/tjit/tjitc.scm		\
 						\
   system/xref.scm				\
 						\
