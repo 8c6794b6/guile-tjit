@@ -1088,11 +1088,6 @@ separately, we discuss them all together here:
 @table @code
 @item #:vm
 The VM to instrument. Defaults to the current thread's VM.
-@item #:closure?
-For traps that depend on the current frame's procedure, this argument
-specifies whether to trap on the only the specific procedure given, or
-on any closure that has the given procedure's code. Defaults to
-@code{#f}.
 @item #:current-frame
 For traps that enable more hooks depending on their dynamic context,
 this argument gives the current frame that the trap is running in.
@@ -1107,12 +1102,12 @@ To have access to these procedures, you'll need to have imported the
 @end lisp
 
 @deffn {Scheme Procedure} trap-at-procedure-call proc handler @
-       [#:vm] [#:closure?]
+       [#:vm]
 A trap that calls @var{handler} when @var{proc} is applied.
 @end deffn                
 
 @deffn {Scheme Procedure} trap-in-procedure proc @
-       enter-handler exit-handler [#:current-frame] [#:vm] [#:closure?]
+       enter-handler exit-handler [#:current-frame] [#:vm]
 A trap that calls @var{enter-handler} when control enters @var{proc},
 and @var{exit-handler} when control leaves @var{proc}.
 
@@ -1140,13 +1135,13 @@ An abort.
 @end deffn
 
 @deffn {Scheme Procedure} trap-instructions-in-procedure proc @
-       next-handler exit-handler [#:current-frame] [#:vm] [#:closure?]
+       next-handler exit-handler [#:current-frame] [#:vm]
 A trap that calls @var{next-handler} for every instruction executed in
 @var{proc}, and @var{exit-handler} when execution leaves @var{proc}.
 @end deffn
 
 @deffn {Scheme Procedure} trap-at-procedure-ip-in-range proc range @
-       handler [#:current-frame] [#:vm] [#:closure?]
+       handler [#:current-frame] [#:vm]
 A trap that calls @var{handler} when execution enters a range of
 instructions in @var{proc}. @var{range} is a simple of pairs,
 @code{((@var{start} . @var{end}) ...)}. The @var{start} addresses are
@@ -1169,7 +1164,7 @@ exit.
 @end deffn
 
 @deffn {Scheme Procedure} trap-in-dynamic-extent proc @
-       enter-handler return-handler abort-handler [#:vm] [#:closure?]
+       enter-handler return-handler abort-handler [#:vm]
 A more traditional dynamic-wind trap, which fires @var{enter-handler}
 when control enters @var{proc}, @var{return-handler} on a normal return,
 and @var{abort-handler} on a nonlocal exit.
@@ -1178,14 +1173,14 @@ Note that rewinds are not handled, so there is no rewind handler.
 @end deffn
 
 @deffn {Scheme Procedure} trap-calls-in-dynamic-extent proc @
-       apply-handler return-handler [#:current-frame] [#:vm] [#:closure?]
+       apply-handler return-handler [#:current-frame] [#:vm]
 A trap that calls @var{apply-handler} every time a procedure is applied,
 and @var{return-handler} for returns, but only during the dynamic extent
 of an application of @var{proc}.
 @end deffn
 
 @deffn {Scheme Procedure} trap-instructions-in-dynamic-extent proc @
-       next-handler [#:current-frame] [#:vm] [#:closure?]
+       next-handler [#:current-frame] [#:vm]
 A trap that calls @var{next-handler} for all retired instructions within
 the dynamic extent of a call to @var{proc}.
 @end deffn
