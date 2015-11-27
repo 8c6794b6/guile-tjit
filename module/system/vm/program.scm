@@ -44,7 +44,7 @@
 
             print-program
 
-            primitive?))
+            primitive-code?))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_programs")
@@ -195,28 +195,25 @@ of integers."
 ;; the name "program-arguments" is taken by features.c...
 (define* (program-arguments-alist prog #:optional ip)
   "Returns the signature of the given procedure in the form of an association list."
-  (cond
-   ((primitive? prog)
-    (match (procedure-minimum-arity prog)
-      (#f #f)
-      ((nreq nopt rest?)
-       (let ((start (primitive-call-ip prog)))
-         ;; Assume that there is only one IP for the call.
-         (and (or (not ip) (= start ip))
-              (arity->arguments-alist
-               prog
-               (list 0 0 nreq nopt rest? '(#f . ()))))))))
-   ((program? prog)
-    (or-map (lambda (arity)
-              (and (or (not ip)
-                       (and (<= (arity-low-pc arity) ip)
-                            (< ip (arity-high-pc arity))))
-                   (arity-arguments-alist arity)))
-            (or (find-program-arities (program-code prog)) '())))
-   (else
-    (let ((arity (program-arity prog ip)))
-      (and arity
-           (arity->arguments-alist prog arity))))))
+  (let ((code (program-code prog)))
+    (cond
+     ((primitive-code? code)
+      (match (procedure-minimum-arity prog)
+        (#f #f)
+        ((nreq nopt rest?)
+         (let ((start (primitive-call-ip prog)))
+           ;; Assume that there is only one IP for the call.
+           (and (or (not ip) (= start ip))
+                (arity->arguments-alist
+                 prog
+                 (list 0 0 nreq nopt rest? '(#f . ()))))))))
+     (else
+      (or-map (lambda (arity)
+                (and (or (not ip)
+                         (and (<= (arity-low-pc arity) ip)
+                              (< ip (arity-high-pc arity))))
+                     (arity-arguments-alist arity)))
+              (or (find-program-arities code) '()))))))
 
 (define* (program-lambda-list prog #:optional ip)
   "Returns the signature of the given procedure in the form of an argument list."
@@ -252,14 +249,12 @@ lists."
         (arity->arguments-alist
          prog
          (list 0 0 nreq nopt rest? '(#f . ())))))))
-  (cond
-   ((primitive? prog) (fallback))
-   ((program? prog)
-    (let ((arities (find-program-arities (program-code prog))))
-      (if arities
-          (map arity-arguments-alist arities)
-          (fallback))))
-   (else (error "expected a program" prog))))
+  (let* ((code (program-code prog))
+         (arities (and (not (primitive-code? code))
+                       (find-program-arities code))))
+    (if arities
+        (map arity-arguments-alist arities)
+        (fallback))))
 
 (define* (print-program #:optional program (port (current-output-port))
                         #:key (addr (program-code program))

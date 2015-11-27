@@ -144,19 +144,21 @@ SCM_DEFINE (scm_program_p, "program?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_primitive_p, "primitive?", 1, 0, 0,
-	    (SCM obj),
+SCM_DEFINE (scm_primitive_code_p, "primitive-code?", 1, 0, 0,
+	    (SCM code),
 	    "")
-#define FUNC_NAME s_scm_primitive_p
+#define FUNC_NAME s_scm_primitive_code_p
 {
-  return scm_from_bool (SCM_PRIMITIVE_P (obj));
+  const scm_t_uint32 * ptr = (const scm_t_uint32 *) scm_to_uintptr_t (code);
+
+  return scm_from_bool (scm_i_primitive_code_p (ptr));
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_primitive_call_ip, "primitive-call-ip", 1, 0, 0,
 	    (SCM prim),
 	    "")
-#define FUNC_NAME s_scm_primitive_p
+#define FUNC_NAME s_scm_primitive_call_ip
 {
   SCM_MAKE_VALIDATE (1, prim, PRIMITIVE_P);
 

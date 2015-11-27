@@ -402,7 +402,7 @@
                                        (arity-keyword-args arity)
                                        (arity-has-rest? arity)
                                        1))))
-      ((and (primitive? closure)
+      ((and (primitive-code? ip)
             (program-arguments-alist closure ip))
        => (lambda (args)
             (match args

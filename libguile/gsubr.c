@@ -251,6 +251,17 @@ create_subr (int define, const char *name,
   return ret;
 }
 
+int
+scm_i_primitive_code_p (const scm_t_uint32 *code)
+{
+  if (code < subr_stub_code)
+    return 0;
+  if (code > subr_stub_code + (sizeof(subr_stub_code) / sizeof(scm_t_uint32)))
+    return 0;
+
+  return 1;
+}
+
 /* Given a program that is a primitive, determine its minimum arity.
    This is possible because each primitive's code is 4 32-bit words
    long, and they are laid out contiguously in an ordered pattern.  */
@@ -260,9 +271,7 @@ scm_i_primitive_arity (SCM prim, int *req, int *opt, int *rest)
   const scm_t_uint32 *code = SCM_PROGRAM_CODE (prim);
   unsigned idx, nargs, base, next;
 
-  if (code < subr_stub_code)
-    return 0;
-  if (code > subr_stub_code + (sizeof(subr_stub_code) / sizeof(scm_t_uint32)))
+  if (!scm_i_primitive_code_p (code))
     return 0;
 
   idx = (code - subr_stub_code) / 4;

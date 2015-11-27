@@ -327,10 +327,13 @@
       (set-buffer! state buffer)
       (set-buffer-pos! state (1+ pos)))
      (else
-      (let ((proc (frame-procedure frame)))
-        (write-sample-and-continue (if (primitive? proc)
-                                       (procedure-name proc)
-                                       (frame-instruction-pointer frame))))))))
+      (let ((ip (frame-instruction-pointer frame)))
+        (write-sample-and-continue
+         (if (primitive-code? ip)
+             ;; Grovel and get the primitive name from the gsubr, which
+             ;; we know to be in slot 0.
+             (procedure-name (frame-local-ref frame 0 'scm))
+             ip)))))))
 
 (define (reset-sigprof-timer usecs)
   ;; Guile's setitimer binding is terrible.
@@ -376,11 +379,11 @@
     (unless (inside-profiler? state)
       (accumulate-time state (get-internal-run-time))
 
-      (let* ((key (let ((proc (frame-procedure frame)))
-                    (cond
-                     ((primitive? proc) (procedure-name proc))
-                     ((program? proc) (program-code proc))
-                     (else proc))))
+      ;; We know local 0 is a SCM value: the c
+      (let* ((ip (frame-instruction-pointer frame))
+             (key (if (primitive-code? ip)
+                      (procedure-name (frame-local-ref frame 0 'scm))
+                      ip))
              (handle (hashv-create-handle! (call-counts state) key 0)))
         (set-cdr! handle (1+ (cdr handle))))
 
@@ -594,11 +597,13 @@ it represents different functions with the same name."
 none is available."
   (when (statprof-active?)
     (error "Can't call statprof-proc-call-data while profiler is running."))
-  (hashv-ref (stack-samples->procedure-data state)
-             (cond
-              ((primitive? proc) (procedure-name proc))
-              ((program? proc) (program-code proc))
-              (else (program-code proc)))))
+  (unless (program? proc)
+    (error "statprof-call-data only works for VM programs"))
+  (let* ((code (program-code proc))
+         (key (if (primitive-code? code)
+                  (procedure-name proc)
+                  code)))
+    (hashv-ref (stack-samples->procedure-data state) key)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Stats
