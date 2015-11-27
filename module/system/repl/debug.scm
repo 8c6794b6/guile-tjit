@@ -34,7 +34,7 @@
             make-debug debug?
             debug-frames debug-index debug-error-message
             terminal-width
-            print-registers print-locals print-frame print-frames frame->module
+            print-registers print-locals print-frame print-frames
             stack->vector narrow-stack->vector
             frame->stack-vector))
 
@@ -163,33 +163,6 @@
                          #:last-source last-source)
             (lp (+ i inc)
                 (frame-source frame)))))))
-
-;; Ideally here we would have something much more syntactic, in that a set! to a
-;; local var that is not settable would raise an error, and export etc forms
-;; would modify the module in question: but alack, this is what we have now.
-;; Patches welcome!
-(define (frame->module frame)
-  (let ((proc (frame-procedure frame)))
-    (if #f
-        ;; FIXME: program-module does not exist.
-        (let* ((mod (or (program-module proc) (current-module)))
-               (mod* (make-module)))
-          (module-use! mod* mod)
-          (for-each
-           (lambda (binding)
-             (let* ((x (frame-local-ref frame (binding-slot binding)
-                                        (binding-representation binding)))
-                    (var (if (variable? x) x (make-variable x))))
-               (format #t
-                       "~:[Read-only~;Mutable~] local variable ~a = ~70:@y\n"
-                       (not (variable? x))
-                       (binding-name binding)
-                       (if (variable-bound? var) (variable-ref var) var))
-               (module-add! mod* (binding-name binding) var)))
-           (frame-bindings frame))
-          mod*)
-        (current-module))))
-
 
 (define (stack->vector stack)
   (let* ((len (stack-length stack))
