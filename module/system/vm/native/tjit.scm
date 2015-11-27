@@ -254,22 +254,20 @@
 ;;;
 
 ;; This procedure is called from C code in "libguile/vm-tjit.c".
-(define (tjitc trace-id bytecode-ptr bytecode-len envs
-               parent-ip parent-exit-id linked-ip loop? downrec?)
+(define (tjitc trace-id bytecode traces parent-ip parent-exit-id linked-ip
+               loop? downrec?)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
-  (define (traced-ops bytecode-ptr bytecode-len envs)
-    (let ((bytecode (pointer->bytevector bytecode-ptr bytecode-len))
-          (end (/ bytecode-len 4)))
-      (let lp ((acc '())
-               (offset 0)
-               (envs (reverse! envs)))
-        (match envs
-          ((env . envs)
-           (let-values (((len elt) (disassemble-one bytecode offset)))
-             (lp (cons (cons elt env) acc) (+ offset len) envs)))
-          (()
-           (reverse! acc))))))
+  (define (traced-ops bytecode traces)
+    (let lp ((acc '())
+             (offset 0)
+             (traces (reverse! traces)))
+      (match traces
+        ((env . traces)
+         (let-values (((len elt) (disassemble-one bytecode offset)))
+           (lp (cons (cons elt env) acc) (+ offset len) traces)))
+        (()
+         (reverse! acc)))))
   (define (module-to-skip? ip)
     (string-match
      (string-append "("
@@ -304,8 +302,15 @@
     (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
       (put-tjit-time-log! trace-id log)))
 
-  (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
-         (entry-ip (cadr (car ip-x-ops)))
+  (let* ((ip-x-ops (catch #t
+                     (lambda ()
+                       (traced-ops bytecode traces))
+                     (lambda msgs
+                       (debug 1 ";;; ~s~%" msgs)
+                       '())))
+         (entry-ip (if (null? ip-x-ops)
+                       0
+                       (cadr (car ip-x-ops))))
          (verbosity (lightning-verbosity))
          (fragment (get-fragment parent-ip))
          (sline (addr->source-line entry-ip))
@@ -319,47 +324,50 @@
       (format #t ";;; loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
 
-    (if (module-to-skip? entry-ip)
-        ;; XXX: Workaround for modules causing segfault at the time of
-        ;; bytecode compilation with `vm-tjit'.
-        (begin
-          (debug 1 ";;; trace ~a: linker.scm matched, aborted ~%" trace-id)
+    (cond
+     ((module-to-skip? entry-ip)
+      ;; XXX: Workaround for modules causing segfault at the time of
+      ;; bytecode compilation with `vm-tjit'.
+      (debug 1 ";;; trace ~a: IP found in skipped modules ~%" trace-id)
+      (increment-compilation-failure entry-ip))
+     ((null? ip-x-ops)
+      (debug 1 ";;; trace ~a: error in disassembly~%" trace-id))
+     (else
+      (let-values (((locals snapshots scm ops)
+                    (trace->primlist trace-id fragment parent-exit-id
+                                     loop? downrec? ip-x-ops)))
+        (when (and (tjit-dump-jitc? dump-option)
+                   (or ops (tjit-dump-abort? dump-option)))
+          (show-one-line sline fragment downrec?))
+        (when (and (tjit-dump-bytecode? dump-option)
+                   (or ops (tjit-dump-abort? dump-option)))
+          (dump-bytecode trace-id ip-x-ops))
+        (when (and (tjit-dump-scm? dump-option)
+                   (or ops (tjit-dump-abort? dump-option)))
+          (dump-scm trace-id scm))
+        (cond
+         ((not ops)
+          (debug 1 ";;; trace ~a: aborted~%" trace-id)
           (increment-compilation-failure entry-ip))
-        (let-values (((locals snapshots scm ops)
-                      (trace->primlist trace-id fragment parent-exit-id
-                                       loop? downrec? ip-x-ops)))
-          (when (and (tjit-dump-jitc? dump-option)
-                     (or ops (tjit-dump-abort? dump-option)))
-            (show-one-line sline fragment downrec?))
-          (when (and (tjit-dump-bytecode? dump-option)
-                     (or ops (tjit-dump-abort? dump-option)))
-            (dump-bytecode trace-id ip-x-ops))
-          (when (and (tjit-dump-scm? dump-option)
-                     (or ops (tjit-dump-abort? dump-option)))
-            (dump-scm trace-id scm))
-          (cond
-           ((not ops)
-            (debug 1 ";;; trace ~a: aborted~%" trace-id)
-            (increment-compilation-failure entry-ip))
-           (else
-            (when (tjit-dump-ops? dump-option)
-              (dump-primlist trace-id ops snapshots))
-            (let-values (((code size adjust loop-address trampoline)
-                          (compile-native ops entry-ip locals snapshots
-                                          fragment parent-exit-id linked-ip
-                                          trace-id downrec?)))
-              (when (tjit-dump-disassemble? dump-option)
-                (dump-disassembler trace-id
-                                   entry-ip
-                                   code
-                                   size
-                                   adjust
-                                   loop-address
-                                   snapshots
-                                   trampoline)))))
-          (when (tjit-dump-time? dump-option)
-            (let ((log (get-tjit-time-log trace-id)))
-              (set-tjit-time-log-end! log (get-internal-run-time))))))))
+         (else
+          (when (tjit-dump-ops? dump-option)
+            (dump-primlist trace-id ops snapshots))
+          (let-values (((code size adjust loop-address trampoline)
+                        (compile-native ops entry-ip locals snapshots
+                                        fragment parent-exit-id linked-ip
+                                        trace-id downrec?)))
+            (when (tjit-dump-disassemble? dump-option)
+              (dump-disassembler trace-id
+                                 entry-ip
+                                 code
+                                 size
+                                 adjust
+                                 loop-address
+                                 snapshots
+                                 trampoline)))))
+        (when (tjit-dump-time? dump-option)
+          (let ((log (get-tjit-time-log trace-id)))
+            (set-tjit-time-log-end! log (get-internal-run-time)))))))))
 
 
 ;;;

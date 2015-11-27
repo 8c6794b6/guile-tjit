@@ -90,21 +90,24 @@ to_hex (SCM n)
 static inline SCM
 tjitc (struct scm_tjit_state *state, SCM linked_ip, SCM loop_p, SCM downrec_p)
 {
-  SCM s_id, s_bytecode, s_bc_idx;
+  SCM s_id, s_bytecode, s_bytecode_ptr;
   SCM s_parent_fragment_id, s_parent_exit_id;
   SCM result;
+  size_t bytecode_len;
 
   if (scm_is_null (state->traces))
     return SCM_UNSPECIFIED;
 
   s_id = SCM_I_MAKINUM (tjit_trace_id);
-  s_bytecode = scm_from_pointer (state->bytecode, NULL);
-  s_bc_idx = SCM_I_MAKINUM (state->bc_idx * sizeof (scm_t_uint32));
+  s_bytecode_ptr = scm_from_pointer (state->bytecode, NULL);
+  bytecode_len = state->bc_idx * sizeof (scm_t_uint32);
+  s_bytecode = scm_c_take_gc_bytevector ((signed char *) state->bytecode,
+                                         bytecode_len, s_bytecode_ptr);
   s_parent_fragment_id = SCM_I_MAKINUM (state->parent_fragment_id);
   s_parent_exit_id = SCM_I_MAKINUM (state->parent_exit_id);
 
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_9 (tjitc_var, s_id, s_bytecode, s_bc_idx, state->traces,
+  result = scm_call_8 (tjitc_var, s_id, s_bytecode, state->traces,
                        s_parent_fragment_id, s_parent_exit_id, linked_ip,
                        loop_p, downrec_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
