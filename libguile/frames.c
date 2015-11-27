@@ -43,9 +43,17 @@ scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
 {
   scm_puts_unlocked ("#<frame ", port);
   scm_uintprint (SCM_UNPACK (frame), 16, port);
-  scm_putc_unlocked (' ', port);
-  scm_write (scm_frame_procedure (frame), port);
-  /* don't write args, they can get us into trouble. */
+  if (scm_module_system_booted_p)
+    {
+      SCM name = scm_frame_procedure_name (frame);
+
+      if (scm_is_true (name))
+        {
+          scm_putc_unlocked (' ', port);
+          scm_write (name, port);
+        }
+    }
+  /* Don't write args, they can be ridiculously long. */
   scm_puts_unlocked (">", port);
 }
 
