@@ -3468,7 +3468,20 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (3);
     }
 
-  VM_DEFINE_OP (160, unused_160, NULL, NOP)
+  /* current-thread dst:24
+   *
+   * Write the current thread into DST.
+   */
+  VM_DEFINE_OP (160, current_thread, "current-thread", OP1 (X8_S24) | OP_DST)
+    {
+      scm_t_uint32 dst;
+
+      UNPACK_24 (op, dst);
+      SP_SET (dst, thread->handle);
+
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (161, unused_161, NULL, NOP)
   VM_DEFINE_OP (162, unused_162, NULL, NOP)
   VM_DEFINE_OP (163, unused_163, NULL, NOP)

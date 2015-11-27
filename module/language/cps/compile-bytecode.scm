@@ -140,6 +140,8 @@
          (emit-make-closure asm (from-sp dst) k nfree))
         (($ $primcall 'current-module)
          (emit-current-module asm (from-sp dst)))
+        (($ $primcall 'current-thread)
+         (emit-current-thread asm (from-sp dst)))
         (($ $primcall 'cached-toplevel-box (scope name bound?))
          (emit-cached-toplevel-box asm (from-sp dst)
                                    (constant scope) (constant name)

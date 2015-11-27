@@ -550,6 +550,16 @@ minimum, and maximum."
 
 
 ;;;
+;;; Threads.  We don't currently track threads as an object type.
+;;;
+
+(define-simple-types
+  ((current-thread) &all-types))
+
+
+
+
+;;;
 ;;; Prompts.  (Nothing to do.)
 ;;;
 

@@ -116,6 +116,7 @@
             emit-unwind
             (emit-push-fluid* . emit-push-fluid)
             emit-pop-fluid
+            emit-current-thread
             (emit-fluid-ref* . emit-fluid-ref)
             (emit-fluid-set* . emit-fluid-set)
             (emit-string-length* . emit-string-length)

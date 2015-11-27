@@ -62,6 +62,7 @@
             &module
             &struct
             &string
+            &thread
             &bytevector
             &closure
 
@@ -169,6 +170,9 @@
 
   ;; Indicates that an expression depends on the current module.
   &module
+
+  ;; Indicates that an expression depends on the current thread.
+  &thread
 
   ;; Indicates that an expression depends on the value of a struct
   ;; field.  The effect field indicates the specific field, or zero for
@@ -284,6 +288,12 @@ is or might be a read or a write to the same location as A."
   ((fluid-set! f v)                (&write-object &fluid)      &type-check)
   ((push-fluid f v)                (&write-object &fluid)      &type-check)
   ((pop-fluid)                     (&write-object &fluid)      &type-check))
+
+;; Threads.  Calls cause &all-effects, which reflects the fact that any
+;; call can capture a partial continuation and reinstate it on another
+;; thread.
+(define-primitive-effects
+  ((current-thread)                (&read-object &thread)))
 
 ;; Prompts.
 (define-primitive-effects
