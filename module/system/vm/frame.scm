@@ -364,8 +364,7 @@
 (define* (frame-call-representation frame #:key top-frame?)
   (let* ((ip (frame-instruction-pointer frame))
          (info (find-program-debug-info ip))
-         (nlocals (frame-num-locals frame))
-         (closure (frame-procedure frame)))
+         (nlocals (frame-num-locals frame)))
     (define (find-slot i bindings)
       (match bindings
         (() #f)
@@ -410,7 +409,7 @@
        (else
         '())))
     (cons
-     (frame-procedure-name frame #:info info)
+     (or (frame-procedure-name frame #:info info) '_)
      (cond
       ((find-program-arity ip)
        => (lambda (arity)
@@ -423,7 +422,7 @@
                                        (arity-has-rest? arity)
                                        1))))
       ((and (primitive-code? ip)
-            (program-arguments-alist closure ip))
+            (program-arguments-alist (frame-local-ref frame 0 'scm) ip))
        => (lambda (args)
             (match args
               ((('required . req)
