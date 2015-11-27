@@ -44,6 +44,7 @@ TESTS = \
 	t-call-04.scm \
 	t-deoptimize-01.scm \
 	t-rec-01.scm \
+	t-rec-02.scm \
 	t-escape-01.scm \
 	t-flonum-01.scm \
 	t-flonum-02.scm \

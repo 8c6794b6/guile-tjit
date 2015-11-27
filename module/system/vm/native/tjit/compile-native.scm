@@ -485,9 +485,11 @@ are local index number."
                      (last-snapshot (hashq-ref snapshots last-index))
                      (last-sp-offset (snapshot-sp-offset last-snapshot))
                      (last-fp-offset (snapshot-fp-offset last-snapshot))
-                     (last-nlocals (snapshot-nlocals last-snapshot)))
+                     (last-nlocals (snapshot-nlocals last-snapshot))
+                     (initial-nlocals (snapshot-nlocals
+                                       (hashq-ref snapshots 0))))
                 (vm-expand-stack asm last-sp-offset)
-                (shift-fp (- last-fp-offset last-nlocals 2))
+                (shift-fp (- (+ last-sp-offset last-nlocals) initial-nlocals))
                 (let lp ((locals (snapshot-locals last-snapshot))
                          (vars (snapshot-variables last-snapshot)))
                   (match (list locals vars)

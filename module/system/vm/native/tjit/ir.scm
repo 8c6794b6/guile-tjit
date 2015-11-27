@@ -860,16 +860,16 @@ referenced by dst and src value at runtime."
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i)))
          (snapshot-id (make-variable initial-snapshot-id)))
-    (define (take-snapshot-with-locals! ip dst-offset locals)
+    (define (take-snapshot-with-locals! ip dst-offset locals sp-offset min-sp)
       (let-values (((ret snapshot)
                     (take-snapshot ip
                                    dst-offset
                                    locals
                                    vars
                                    (variable-ref snapshot-id)
-                                   last-sp-offset
+                                   sp-offset
                                    last-fp-offset
-                                   (variable-ref min-sp-offset)
+                                   min-sp
                                    (variable-ref max-sp-offset)
                                    parent-snapshot
                                    past-frame)))
@@ -940,24 +940,29 @@ referenced by dst and src value at runtime."
       ;; can pass the register information to linked code.
       ;;
       (define (gen-last-op op ip ra locals)
-        (define (downrec-locals proc)
+        (define (downrec-locals proc nlocals)
           (let lp ((n 0) (end (vector-length locals)) (acc '()))
-            (let ((i (- end proc n 1)))
-              (if (< i 0)
-                  (list->vector acc)
-                  (let* ((i (- end proc n 1))
-                         (e (vector-ref locals i)))
-                    (lp (+ n 1) end (cons e acc)))))))
+            (if (= n nlocals)
+                (list->vector acc)
+                (let* ((i (- end proc n 1))
+                       (e (vector-ref locals i)))
+                  (lp (+ n 1) end (cons e acc))))))
         (cond
          (downrec?
           (match op
-            (('call proc _)
+            (('call proc nlocals)
              (lambda ()
-               `(let ((_ ,(take-snapshot-with-locals!
-                           *ip-key-downrec*
-                           0
-                           (downrec-locals proc))))
-                  (loop ,@(reverse (map cdr vars))))))
+               (let* ((initial-snapshot (hashq-ref snapshots 0))
+                      (initial-nlocals (snapshot-nlocals initial-snapshot))
+                      (next-sp (- last-fp-offset proc nlocals))
+                      (next-sp-offset (+ next-sp initial-nlocals)))
+                 `(let ((_ ,(take-snapshot-with-locals!
+                             *ip-key-downrec*
+                             0
+                             (downrec-locals proc nlocals)
+                             next-sp-offset
+                             next-sp-offset)))
+                    (loop ,@(reverse (map cdr vars)))))))
             (('call-label . _)
              ;; XXX: TODO.
              (escape #f))
@@ -971,7 +976,9 @@ referenced by dst and src value at runtime."
             `(let ((_ ,(take-snapshot-with-locals!
                         *ip-key-jump-to-linked-code*
                         0
-                        locals)))
+                        locals
+                        last-sp-offset
+                        (variable-ref min-sp-offset))))
                _)))))
       (match trace
         (((op ip ra locals) . ())
