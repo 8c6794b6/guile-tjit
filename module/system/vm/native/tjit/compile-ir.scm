@@ -57,44 +57,38 @@
                    initial-snapshot-id snapshots
                    parent-snapshot past-frame vars
                    initial-sp-offset initial-fp-offset handle-interrupts?)
-  (let* ((bytecode-index (make-variable 0))
-         (min-sp-offset (make-variable (min initial-sp-offset 0)))
-         (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0)))
-         (max-sp-offset (make-variable (get-max-sp-offset initial-sp-offset
-                                                          initial-fp-offset
-                                                          initial-nlocals)))
+  (let* ((initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0)))
          (last-sp-offset (let* ((sp-offsets (past-frame-sp-offsets past-frame))
                                 (i (- (vector-length sp-offsets) 1)))
                            (vector-ref sp-offsets i)))
          (last-fp-offset (let* ((fp-offsets (past-frame-fp-offsets past-frame))
                                 (i (- (vector-length fp-offsets) 1)))
-                           (vector-ref fp-offsets i)))
-         (snapshot-id (make-variable initial-snapshot-id)))
-    (define (take-snapshot-with-locals! ip dst-offset locals sp-offset min-sp)
+                           (vector-ref fp-offsets i))))
+    (define (take-snapshot-in-entry! ir ip dst-offset locals sp-offset
+                                     min-sp)
       (let-values (((ret snapshot)
                     (take-snapshot ip
                                    dst-offset
                                    locals
                                    vars
-                                   (variable-ref snapshot-id)
+                                   (ir-snapshot-id ir)
                                    sp-offset
                                    last-fp-offset
                                    min-sp
-                                   (variable-ref max-sp-offset)
+                                   (ir-max-sp-offset ir)
                                    parent-snapshot
                                    past-frame)))
-        (let* ((old-snapshot-id (variable-ref snapshot-id))
-               (new-snapshot-id (+ old-snapshot-id 1)))
-          (hashq-set! snapshots old-snapshot-id snapshot)
-          (variable-set! snapshot-id new-snapshot-id)
+        (let ((old-id (ir-snapshot-id ir)))
+          (hashq-set! (ir-snapshots ir) old-id snapshot)
+          (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
-    (define (convert-one op ip ra locals rest)
+    (define (convert-one ir op ip ra locals rest)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (proc)
              (let ((next
                     (lambda ()
-                      (let* ((old-index (variable-ref bytecode-index))
+                      (let* ((old-index (ir-bytecode-index ir))
                              (sp-offsets (past-frame-sp-offsets past-frame))
                              (sp-offset (vector-ref sp-offsets old-index))
                              (fp-offsets (past-frame-fp-offsets past-frame))
@@ -103,32 +97,19 @@
                              (max-offset (get-max-sp-offset sp-offset
                                                             fp-offset
                                                             nlocals)))
-                        (variable-set! bytecode-index (+ 1 old-index))
-                        (when (< sp-offset (variable-ref min-sp-offset))
-                          (variable-set! min-sp-offset sp-offset))
-                        (when (< (variable-ref max-sp-offset) max-offset)
-                          (variable-set! max-sp-offset max-offset)))
-                      (convert rest))))
+                        (set-ir-bytecode-index! ir (+ old-index 1))
+                        (when (< sp-offset (ir-min-sp-offset ir))
+                          (set-ir-min-sp-offset! ir sp-offset))
+                        (when (< (ir-max-sp-offset ir) max-offset)
+                          (set-ir-max-sp-offset! ir max-offset)))
+                      (convert ir rest))))
                (apply proc
-                      snapshots
-                      snapshot-id
-                      parent-snapshot
-                      past-frame
-                      locals
-                      vars
-                      min-sp-offset
-                      max-sp-offset
-                      ip
-                      ra
-                      handle-interrupts?
-                      bytecode-index
-                      next
-                      escape
-                      (cdr op)))))
+                      ir past-frame handle-interrupts? next escape
+                      ip ra locals (cdr op)))))
        (else
         (debug 2 "*** IR: NYI ~a~%" (car op))
         (escape #f))))
-    (define (convert trace)
+    (define (convert ir trace)
       ;; Last operation is wrapped in a thunk, to assign snapshot ID
       ;; in last expression after taking snapshots from guards in
       ;; traced operations.
@@ -142,7 +123,7 @@
       ;; can pass the register information to linked code.
       ;;
       (define (gen-last-op op ip ra locals)
-        (define (downrec-locals proc nlocals)
+        (define (dr-locals proc nlocals)
           (let lp ((n 0) (end (vector-length locals)) (acc '()))
             (if (= n nlocals)
                 (list->vector acc)
@@ -158,12 +139,12 @@
                       (initial-nlocals (snapshot-nlocals initial-snapshot))
                       (next-sp (- last-fp-offset proc nlocals))
                       (next-sp-offset (+ next-sp initial-nlocals)))
-                 `(let ((_ ,(take-snapshot-with-locals!
-                             *ip-key-downrec*
-                             0
-                             (downrec-locals proc nlocals)
-                             next-sp-offset
-                             next-sp-offset)))
+                 `(let ((_ ,(take-snapshot-in-entry! ir
+                                                     *ip-key-downrec*
+                                                     0
+                                                     (dr-locals proc nlocals)
+                                                     next-sp-offset
+                                                     next-sp-offset)))
                     (loop ,@(reverse (map cdr vars)))))))
             (('call-label . _)
              ;; XXX: TODO.
@@ -175,31 +156,40 @@
             `(loop ,@(reverse (map cdr vars)))))
          (else
           (lambda ()
-            `(let ((_ ,(take-snapshot-with-locals!
-                        *ip-key-jump-to-linked-code*
-                        0
-                        locals
-                        last-sp-offset
-                        (variable-ref min-sp-offset))))
+            `(let ((_ ,(take-snapshot-in-entry! ir
+                                                *ip-key-jump-to-linked-code*
+                                                0
+                                                locals
+                                                last-sp-offset
+                                                (ir-min-sp-offset ir))))
                _)))))
       (match trace
         (((op ip ra locals) . ())
          (let ((last-op (gen-last-op op ip ra locals)))
-           (convert-one op ip ra locals last-op)))
+           (convert-one ir op ip ra locals last-op)))
         (((op ip ra locals) . rest)
-         (convert-one op ip ra locals rest))
+         (convert-one ir op ip ra locals rest))
         (last-op
          (or (and (procedure? last-op)
                   (last-op))
              (error "trace->ir: last arg was not a procedure" last-op)))))
 
-    (convert traces)))
+    (let ((ir (make-ir snapshots
+                       initial-snapshot-id
+                       parent-snapshot
+                       vars
+                       (min initial-sp-offset 0)
+                       (get-max-sp-offset initial-sp-offset
+                                          initial-fp-offset
+                                          initial-nlocals)
+                       0)))
+      (convert ir traces))))
 
 (define (compile-ir fragment exit-id loop? downrec? trace)
   (define-syntax root-trace?
     (identifier-syntax (not fragment)))
   (define (get-initial-snapshot-id)
-    ;; For root trace, initial snapshot already added in `make-ir'.
+    ;; For root trace, initial snapshot already added in `make-anf'.
     (if root-trace? 1 0))
   (define (get-initial-sp-offset parent-snapshot)
     ;; Initial offset of root trace is constantly 0. Initial offset of side
@@ -232,7 +222,8 @@
       (let*-values (((ret snapshot)
                      (take-snapshot ip
                                     dst-offset
-                                    locals vars
+                                    locals
+                                    vars
                                     snapshot-id
                                     initial-sp-offset
                                     initial-fp-offset
@@ -337,7 +328,7 @@
               (()
                exp-body)))))
 
-      (define (make-ir escape)
+      (define (make-anf escape)
         (let ((emit (lambda ()
                       (trace->ir trace
                                  escape
@@ -403,7 +394,7 @@
                                      (emit))))))
                  patch))))))
 
-      (let ((ir (call-with-escape-continuation make-ir)))
+      (let ((ir (call-with-escape-continuation make-anf)))
         (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
                (sort (hash-fold acons '() snapshots)
                      (lambda (a b) (< (car a) (car b)))))
@@ -427,9 +418,10 @@ to indicate whether the trace contains loop or not."
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log trace-id)))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
-    (let* ((parent-snapshot (and fragment
-                                 (hashq-ref (fragment-snapshots fragment)
-                                            exit-id)))
+    (let* ((parent-snapshot (if fragment
+                                (hashq-ref (fragment-snapshots fragment)
+                                           exit-id)
+                                #f))
            (initial-snapshot (hashq-ref snapshots 0))
            (primlist (if ir
                          (ir->primlist parent-snapshot

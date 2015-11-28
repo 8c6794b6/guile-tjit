@@ -27,22 +27,58 @@
 (define-module (system vm native tjit ir)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
-  #:export (make-var
+  #:export (make-ir
+            ir-snapshots set-ir-snapshots!
+            ir-snapshot-id set-ir-snapshot-id!
+            ir-min-sp-offset set-ir-min-sp-offset!
+            ir-max-sp-offset set-ir-max-sp-offset!
+            ir-bytecode-index set-ir-bytecode-index!
+            ir-vars
+
+            make-var
             make-vars
             get-max-sp-offset
             take-snapshot
             with-frame-ref
             *ir-procedures*
+            *local-accumulator*
             accumulate-locals))
 
 ;;;
 ;;; Auxiliary, exported
 ;;;
+
+(define-record-type <ir>
+  (make-ir snapshots snapshot-id parent-snapshot vars
+           min-sp-offset max-sp-offset bytecode-index)
+  ir?
+
+  ;; Hash table containing snapshots.
+  (snapshots ir-snapshots set-ir-snapshots!)
+
+  ;; Current snapshot ID.
+  (snapshot-id ir-snapshot-id set-ir-snapshot-id!)
+
+  ;; Snapshot from parent trace, if any.
+  (parent-snapshot ir-parent-snapshot)
+
+  ;; List of symbols for variables.
+  (vars ir-vars)
+
+  ;; Current minimum SP offset.
+  (min-sp-offset ir-min-sp-offset set-ir-min-sp-offset!)
+
+  ;; Current maximum SP offset.
+  (max-sp-offset ir-max-sp-offset set-ir-max-sp-offset!)
+
+  ;; Current bytecode index.
+  (bytecode-index ir-bytecode-index set-ir-bytecode-index!))
 
 (define (make-var index)
   (string->symbol (string-append "v" (number->string index))))
@@ -103,16 +139,16 @@
     `(let ((,var (%fref ,idx ,type)))
        ,(next args)))))
 
-
-;;;
-;;; Auxiliary
-;;;
-
 (define *ir-procedures*
   (make-hash-table 255))
 
 (define *local-accumulator*
   (make-hash-table 255))
+
+
+;;;
+;;; Auxiliary, internal
+;;;
 
 (define-syntax define-ir-syntax-parameters
   (syntax-rules ()
@@ -124,18 +160,12 @@
        ...))))
 
 (define-ir-syntax-parameters
-  snapshots
-  snapshot-id
-  parent-snapshot
+  ir
   past-frame
-  locals
-  vars
-  min-sp-offset
-  max-sp-offset
   ip
   ra
+  locals
   handle-interrupts?
-  bytecode-index
   next
   escape)
 
@@ -172,26 +202,17 @@ referenced by dst and src value at runtime."
        (define-ir (name arg ...) . body)))
     ((_ (name arg ...) . body)
      (let ((proc
-            (lambda (%snapshots
-                     %snapshot-id %parent-snapshot %past-frame
-                     %locals %vars %min-sp-offset %max-sp-offset
-                     %ip %ra %handle-interrupts? %bytecode-index %next %escape
-                     arg ...)
+            (lambda (%ir %past-frame %handle-interrupts? %next %escape
+                     %ip %ra %locals arg ...)
               (syntax-parameterize
-                  ((snapshots (identifier-syntax %snapshots))
-                   (snapshot-id (identifier-syntax %snapshot-id))
-                   (parent-snapshot (identifier-syntax %parent-snapshot))
+                  ((ir (identifier-syntax %ir))
                    (past-frame (identifier-syntax %past-frame))
-                   (locals (identifier-syntax %locals))
-                   (vars (identifier-syntax %vars))
-                   (min-sp-offset (identifier-syntax %min-sp-offset))
-                   (max-sp-offset (identifier-syntax %max-sp-offset))
-                   (ip (identifier-syntax %ip))
-                   (ra (identifier-syntax %ra))
-                   (bytecode-index (identifier-syntax %bytecode-index))
                    (handle-interrupts? (identifier-syntax %handle-interrupts?))
                    (next (identifier-syntax %next))
-                   (escape (identifier-syntax %escape)))
+                   (escape (identifier-syntax %escape))
+                   (ip (identifier-syntax %ip))
+                   (ra (identifier-syntax %ra))
+                   (locals (identifier-syntax %locals)))
                 . body))))
        (hashq-set! *ir-procedures* 'name proc)))))
 
@@ -219,31 +240,32 @@ referenced by dst and src value at runtime."
   (vector-ref locals n))
 
 (define-syntax-rule (var-ref n)
-  (assq-ref vars (+ n (current-sp-offset))))
+  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
 
 (define-syntax-rule (current-sp-offset)
   (vector-ref (past-frame-sp-offsets past-frame)
-              (variable-ref bytecode-index)))
+              (ir-bytecode-index ir)))
 
 (define-syntax-rule (current-fp-offset)
   (vector-ref (past-frame-fp-offsets past-frame)
-              (variable-ref bytecode-index)))
+              (ir-bytecode-index ir)))
 
 (define-syntax-rule (take-snapshot! ip dst-offset)
   (let-values (((ret snapshot)
                 (take-snapshot ip
                                dst-offset
                                locals
-                               vars
-                               (variable-ref snapshot-id)
+                               (ir-vars ir)
+                               (ir-snapshot-id ir)
                                (current-sp-offset)
                                (current-fp-offset)
-                               (variable-ref min-sp-offset)
-                               (variable-ref max-sp-offset)
-                               parent-snapshot
+                               (ir-min-sp-offset ir)
+                               (ir-max-sp-offset ir)
+                               (ir-parent-snapshot ir)
                                past-frame)))
-    (hashq-set! snapshots (variable-ref snapshot-id) snapshot)
-    (variable-set! snapshot-id (+ (variable-ref snapshot-id) 1))
+    (let ((old-id (ir-snapshot-id ir)))
+      (hashq-set! (ir-snapshots ir) old-id snapshot)
+      (set-ir-snapshot-id! ir (+ old-id 1)))
     ret))
 
 ;; XXX: Tag more types.
@@ -341,7 +363,7 @@ referenced by dst and src value at runtime."
          (max-local-index (+ stack-size sp-offset))
          (load-from-previous-frame
           (lambda ()
-            (let lp ((vars (reverse vars)))
+            (let lp ((vars (reverse (ir-vars ir))))
               (match vars
                 (((n . var) . vars)
                  (cond
