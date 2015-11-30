@@ -309,8 +309,8 @@
 ;;; Snapshot
 ;;;
 
-(define (make-snapshot id sp-offset fp-offset lowest-offset nlocals
-                       locals parent-snapshot indices past-frame ip)
+(define (make-snapshot id sp-offset fp-offset nlocals locals
+                       parent-snapshot indices past-frame ip)
   (define-syntax-rule (local-ref i)
     (vector-ref locals i))
   (define initial-offset
@@ -319,11 +319,6 @@
     (and=> parent-snapshot snapshot-locals))
   (define (parent-snapshot-local-ref i)
     (and parent-snapshot (assq-ref parent-locals i)))
-  (define (shift-lowest acc)
-    (map (match-lambda
-          ((n . local)
-           `(,(- n lowest-offset) . ,local)))
-         acc))
   (let lp ((is indices) (acc '()))
     (match is
       ((i . is)

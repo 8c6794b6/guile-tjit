@@ -54,12 +54,14 @@
 ;;; Traced bytecode to ANF IR compiler
 ;;;
 
-(define (trace->ir tj ir traces escape past-frame handle-interrupts?)
+(define (trace->ir tj ir traces escape handle-interrupts?)
   (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
-         (last-sp-offset (let* ((sp-offsets (past-frame-sp-offsets past-frame))
+         (last-sp-offset (let* ((sp-offsets (past-frame-sp-offsets
+                                             (tj-past-frame tj)))
                                 (i (- (vector-length sp-offsets) 1)))
                            (vector-ref sp-offsets i)))
-         (last-fp-offset (let* ((fp-offsets (past-frame-fp-offsets past-frame))
+         (last-fp-offset (let* ((fp-offsets (past-frame-fp-offsets
+                                             (tj-past-frame tj)))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i))))
     (define (take-snapshot-in-entry! ir ip dst-offset locals sp-offset
@@ -75,7 +77,7 @@
                                    min-sp
                                    (ir-max-sp-offset ir)
                                    (tj-parent-snapshot tj)
-                                   past-frame)))
+                                   (tj-past-frame tj))))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
@@ -87,9 +89,11 @@
              (let ((next
                     (lambda ()
                       (let* ((old-index (ir-bytecode-index ir))
-                             (sp-offsets (past-frame-sp-offsets past-frame))
+                             (sp-offsets (past-frame-sp-offsets
+                                          (ir-past-frame ir)))
                              (sp-offset (vector-ref sp-offsets old-index))
-                             (fp-offsets (past-frame-fp-offsets past-frame))
+                             (fp-offsets (past-frame-fp-offsets
+                                          (ir-past-frame ir)))
                              (fp-offset (vector-ref fp-offsets old-index))
                              (nlocals (vector-length locals))
                              (max-offset (get-max-sp-offset sp-offset
@@ -102,7 +106,7 @@
                           (set-ir-max-sp-offset! ir max-offset)))
                       (convert ir rest))))
                (apply proc
-                      ir past-frame handle-interrupts? next escape
+                      ir handle-interrupts? next escape
                       ip ra locals (cdr op)))))
        (else
         (debug 2 "*** IR: NYI ~a~%" (car op))
@@ -177,26 +181,10 @@
   (define (get-initial-snapshot-id)
     ;; For root trace, initial snapshot already added in `make-anf'.
     (if root-trace? 1 0))
-  (define (get-initial-sp-offset parent-snapshot)
-    ;; Initial offset of root trace is constantly 0. Initial offset of side
-    ;; trace is where parent trace left, using offset value from SNAPSHOT.
-    (match parent-snapshot
-      (($ $snapshot _ sp-offset) sp-offset)
-      (_ 0)))
-  (define (get-initial-fp-offset parent-snapshot)
-    ;; Initial offset of root trace is constantly 0. Initial offset of side
-    ;; trace is where parent trace left, using offset value from SNAPSHOT.
-    (match parent-snapshot
-      (($ $snapshot _ _ fp-offset) fp-offset)
-      (_ 0)))
-
   (let* ((parent-snapshot (tj-parent-snapshot tj))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
-         (past-frame (accumulate-locals initial-sp-offset
-                                        initial-fp-offset
-                                        trace))
-         (local-indices (past-frame-local-indices past-frame))
+         (local-indices (past-frame-local-indices (tj-past-frame tj)))
          (vars (make-vars local-indices))
          (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
@@ -216,13 +204,12 @@
                                                        initial-fp-offset
                                                        (vector-length locals))
                                     parent-snapshot
-                                    past-frame)))
+                                    (tj-past-frame tj))))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
 
-    (define (make-vars-from-parent vars
-                                   locals-from-parent
+    (define (make-vars-from-parent vars locals-from-parent
                                    sp-offset-from-parent)
       (let lp ((vars vars) (acc '()))
         (match vars
@@ -324,9 +311,9 @@
                                           (get-max-sp-offset initial-sp-offset
                                                              initial-fp-offset
                                                              initial-nlocals)
-                                          0)))
-                        (trace->ir tj ir trace escape past-frame
-                                   handle-interrupts?)))))
+                                          0
+                                          (tj-past-frame tj))))
+                        (trace->ir tj ir trace escape handle-interrupts?)))))
           (cond
            (root-trace?
             (let* ((arg-indices (filter (lambda (n)
@@ -335,12 +322,11 @@
                    (snapshot (make-snapshot 0
                                             0
                                             0
-                                            0
                                             initial-nlocals
                                             initial-locals
                                             #f
                                             arg-indices
-                                            past-frame
+                                            (tj-past-frame tj)
                                             initial-ip))
                    (_ (hashq-set! snapshots 0 snapshot))
                    (snap (take-snapshot! *ip-key-set-loop-info!*
