@@ -117,9 +117,13 @@
   (let ((vec (make-vector *branch-size-with-edit* #f)))
     (when edit (vector-set! vec *edit-index* edit))
     vec))
-(define (clone-branch-and-set branch i elt)
+(define-inlinable (clone-branch-and-set branch i elt)
   (let ((new (new-branch #f)))
-    (when branch (vector-move-left! branch 0 *branch-size* new 0))
+    (when branch
+      (let lp ((n 0))
+        (when (< n *branch-size*)
+          (vector-set! new n (vector-ref branch n))
+          (lp (1+ n)))))
     (vector-set! new i elt)
     new))
 (define-inlinable (assert-readable! root-edit)
@@ -136,7 +140,7 @@
         (and (not (vector-ref branch i))
              (lp (1+ i))))))
 
-(define (round-down min shift)
+(define-inlinable (round-down min shift)
   (logand min (lognot (1- (ash 1 shift)))))
 
 (define empty-intset (make-intset 0 *leaf-bits* #f))
