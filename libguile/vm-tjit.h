@@ -72,17 +72,15 @@ SCM_API SCM scm_tjit_make_retval (scm_i_thread *thread,
 
 SCM_API void scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp);
 SCM_API void scm_tjit_dump_locals (SCM trace_id, int n,
-                                   union scm_vm_stack_element *fp);
+                                   union scm_vm_stack_element *sp,
+                                   struct scm_vm *vp);
 
 /* Fields in record-type `fragment', from:
    "module/system/vm/native/tjit/parameters.scm". */
 #define SCM_FRAGMENT_ID(T)             SCM_STRUCT_SLOT_REF (T, 0)
 #define SCM_FRAGMENT_CODE(T)           SCM_STRUCT_SLOT_REF (T, 1)
 #define SCM_FRAGMENT_EXIT_COUNTS(T)    SCM_STRUCT_SLOT_REF (T, 2)
-#define SCM_FRAGMENT_ENTRY_IP(T)       SCM_STRUCT_SLOT_REF (T, 3)
-#define SCM_FRAGMENT_PARENT_ID(T)      SCM_STRUCT_SLOT_REF (T, 4)
-#define SCM_FRAGMENT_PARENT_EXIT_ID(T) SCM_STRUCT_SLOT_REF (T, 5)
-#define SCM_FRAGMENT_LOOP_ADDRESS(T)   SCM_STRUCT_SLOT_REF (T, 6)
+#define SCM_FRAGMENT_DOWNREC_P(T)      SCM_STRUCT_SLOT_REF (T, 3)
 
 #define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
 #define SCM_TJIT_RETVAL_FRAGMENT_ID(R) SCM_CELL_OBJECT (R, 1)
@@ -96,7 +94,6 @@ SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);
 
-SCM_INTERNAL struct scm_tjit_state *scm_make_tjit_state (void);
 
 /*
  * Constants
@@ -143,6 +140,32 @@ static const int op_sizes[256] = {
     ++tjit_trace_id;                      \
     stop_recording (tj);                  \
   } while (0)
+
+#define SCM_TJIT_RECORD()                                               \
+  do {                                                                  \
+    int opcode, i, num_locals;                                          \
+    SCM locals, trace;                                                  \
+    SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (vp->fp));       \
+                                                                        \
+    opcode = *ip & 0xff;                                                \
+                                                                        \
+    /* Store current bytecode. */                                       \
+    for (i = 0; i < op_sizes[opcode]; ++i, ++tj->bc_idx)                \
+      tj->bytecode[tj->bc_idx] = ip[i];                                 \
+                                                                        \
+    /* Copy local contents to vector. */                                \
+    num_locals = FRAME_LOCALS_COUNT ();                                 \
+    locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);             \
+    for (i = 0; i < num_locals; ++i)                                    \
+      scm_c_vector_set_x (locals, i, SP_REF (i));                       \
+                                                                        \
+    trace = scm_inline_cons (thread, locals, SCM_EOL);                  \
+    trace = scm_inline_cons (thread, s_ra, trace);                      \
+    trace = scm_inline_cons (thread, SCM_I_MAKINUM (ip), trace);        \
+                                                                        \
+    tj->traces = scm_inline_cons (thread, trace, tj->traces);           \
+                                                                        \
+  } while (0);
 
 #endif /* _SCM_VM_MJIT_H_ */
 

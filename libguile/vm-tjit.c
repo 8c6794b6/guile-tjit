@@ -205,27 +205,8 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
   *nlocals_out = nlocals;
 }
 
-static inline scm_t_uint32*
-tjit_bytecode_buffer (void)
-{
-  return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
-}
-
-static inline void
-record (scm_i_thread *thread, SCM s_ip, union scm_vm_stack_element *fp,
-        SCM locals, struct scm_tjit_state *state)
-{
-  SCM trace = SCM_EOL;
-  SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (fp));
-
-  trace = scm_inline_cons (thread, locals, trace);
-  trace = scm_inline_cons (thread, s_ra, trace);
-  trace = scm_inline_cons (thread, s_ip, trace);
-
-  state->traces = scm_inline_cons (thread, trace, state->traces);
-}
-
-struct scm_tjit_state *scm_make_tjit_state (void)
+static inline struct scm_tjit_state*
+scm_make_tjit_state (void)
 {
   struct scm_tjit_state *t =
     scm_gc_malloc (sizeof (struct scm_tjit_state), "tjitstate");
@@ -235,7 +216,8 @@ struct scm_tjit_state *scm_make_tjit_state (void)
   t->loop_start = 0;
   t->loop_end = 0;
   t->bc_idx = 0;
-  t->bytecode = tjit_bytecode_buffer ();
+  t->bytecode =
+    (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
   t->traces = SCM_EOL;
   t->parent_fragment_id = 0;
   t->parent_exit_id = 0;
@@ -265,8 +247,8 @@ struct scm_tjit_state *scm_make_tjit_state (void)
       {                                                                 \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
-        call_native (s_ip, ip, fragment, thread, vp, registers,         \
-                     tj, &nlocals);                                     \
+        call_native (s_ip, ip, fragment, thread, vp, registers, tj,     \
+                     &nlocals);                                         \
                                                                         \
         /* Update `sp' and `ip' in C code. */                           \
         CACHE_REGISTER ();                                              \
@@ -297,55 +279,52 @@ struct scm_tjit_state *scm_make_tjit_state (void)
                                                                         \
     scm_t_uint32 *start_ip = (scm_t_uint32 *) tj->loop_start;           \
     scm_t_uint32 *end_ip = (scm_t_uint32 *) tj->loop_end;               \
+    SCM fragment = scm_hashq_ref (tjit_root_trace_table, s_ip,          \
+                                  SCM_BOOL_F);                          \
                                                                         \
     /* Avoid looking up fragment of looping-side-trace itself. */       \
-    int link_found =                                                    \
-      scm_is_true (scm_hashq_ref (tjit_root_trace_table, s_ip,          \
-                                  SCM_BOOL_F))                          \
-      && ip != start_ip;                                                \
-                                                                        \
-    int dr_done =                                                       \
-      ip == start_ip                                                    \
-      && tj->trace_type == SCM_TJIT_TRACE_CALL                          \
-      && tj->nunrolled == SCM_I_INUM (tjit_num_unrolls);                \
-                                                                        \
-    /* Record bytecode IP, FP, and locals. When link was found,      */ \
-    /* current record is side trace, and the current bytecode IP is  */ \
-    /* already recorded by root trace.                               */ \
-    if (!link_found && !dr_done)                                        \
-      {                                                                 \
-        SCM locals;                                                     \
-        int opcode, i, num_locals;                                      \
-                                                                        \
-        opcode = *ip & 0xff;                                            \
-                                                                        \
-        /* Store current bytecode. */                                   \
-        for (i = 0; i < op_sizes[opcode]; ++i, ++tj->bc_idx)            \
-          tj->bytecode[tj->bc_idx] = ip[i];                             \
-                                                                        \
-        /* Copy local contents to vector. */                            \
-        num_locals = FRAME_LOCALS_COUNT ();                             \
-        locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);         \
-        for (i = 0; i < num_locals; ++i)                                \
-          scm_c_vector_set_x (locals, i, SP_REF (i));                   \
-                                                                        \
-        record (thread, s_ip, vp->fp, locals, tj);                      \
-      }                                                                 \
+    int link_found = scm_is_true (fragment) && ip != start_ip;          \
+    int link_downrec = link_found                                       \
+      && scm_is_true (SCM_FRAGMENT_DOWNREC_P (fragment));               \
                                                                         \
     switch (tj->trace_type)                                             \
       {                                                                 \
       case SCM_TJIT_TRACE_JUMP:                                         \
-        if (ip == end_ip || link_found)                                 \
+        if (link_found)                                                 \
           {                                                             \
-            SCM s_link_found = link_found ? SCM_BOOL_F : SCM_BOOL_T;    \
-            SCM_TJITC (s_ip, s_link_found, SCM_BOOL_F);                 \
+            if (scm_is_true (SCM_FRAGMENT_DOWNREC_P (fragment)))        \
+              {                                                         \
+                /* Side trace linked to down-recursion. Switch trace */ \
+                /* type and continue recording.                      */ \
+                tj->trace_type = SCM_TJIT_TRACE_CALL;                   \
+                SCM_TJIT_RECORD ();                                     \
+              }                                                         \
+            else                                                        \
+              SCM_TJITC (s_ip, SCM_BOOL_F, SCM_BOOL_F);                 \
           }                                                             \
+        else if (ip == end_ip)                                          \
+          {                                                             \
+            SCM_TJIT_RECORD ();                                         \
+            SCM_TJITC (s_ip, SCM_BOOL_T, SCM_BOOL_F);                   \
+          }                                                             \
+        else                                                            \
+          SCM_TJIT_RECORD ();                                           \
         break;                                                          \
+                                                                        \
       case SCM_TJIT_TRACE_CALL:                                         \
-        if (dr_done)                                                    \
-          SCM_TJITC (s_ip, SCM_BOOL_T, SCM_BOOL_T);                     \
-        else if (ip == start_ip)                                        \
-          ++(tj->nunrolled);                                            \
+        if (ip == start_ip || link_downrec)                             \
+          {                                                             \
+            if (tj->nunrolled == SCM_I_INUM (tjit_num_unrolls))         \
+              {                                                         \
+                SCM s_loop_p = link_downrec ? SCM_BOOL_F : SCM_BOOL_T;  \
+                SCM_TJITC (s_ip, s_loop_p, SCM_BOOL_T);                 \
+              }                                                         \
+            else                                                        \
+              {                                                         \
+                SCM_TJIT_RECORD ();                                     \
+                ++(tj->nunrolled);                                      \
+              }                                                         \
+          }                                                             \
         else if (ip == end_ip)                                          \
           {                                                             \
             /* XXX: Hot non-recursive procedure call. Worth to       */ \
@@ -353,7 +332,10 @@ struct scm_tjit_state *scm_make_tjit_state (void)
             increment_compilation_failure (SCM_I_MAKINUM (start_ip));   \
             stop_recording (tj);                                        \
           }                                                             \
+        else                                                            \
+          SCM_TJIT_RECORD ();                                           \
         break;                                                          \
+                                                                        \
       default:                                                          \
         break;                                                          \
       }                                                                 \
@@ -524,7 +506,8 @@ scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp)
 }
 
 void
-scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp)
+scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp,
+                      struct scm_vm *vp)
 {
   int i;
   SCM port = scm_current_output_port ();
@@ -533,6 +516,8 @@ scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp)
   scm_display (trace_id, port);
   scm_puts (": sp=", port);
   scm_display (to_hex (SCM_I_MAKINUM (sp)), port);
+  scm_puts (" fp=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (vp->fp)), port);
   scm_puts (" ra=", port);
   scm_display (to_hex (SCM_I_MAKINUM (sp[n].as_ptr)), port);
   scm_puts (" dl=", port);

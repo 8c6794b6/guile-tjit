@@ -51,10 +51,10 @@
             set-snapshot-code!
             snapshot-ip
 
-            snapshot-jump-to-linked-code?
+            snapshot-link?
             snapshot-set-loop-info?
             snapshot-downrec?
-            *ip-key-jump-to-linked-code*
+            *ip-key-link*
             *ip-key-set-loop-info!*
             *ip-key-downrec*
 
@@ -384,12 +384,12 @@
 ;;; IP Keys
 ;;;
 
-(define *ip-key-jump-to-linked-code* 0)
+(define *ip-key-link* 0)
 (define *ip-key-set-loop-info!* 1)
 (define *ip-key-downrec* 2)
 
-(define (snapshot-jump-to-linked-code? snapshot)
-  (= (snapshot-ip snapshot) *ip-key-jump-to-linked-code*))
+(define (snapshot-link? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-link*))
 
 (define (snapshot-set-loop-info? snapshot)
   (= (snapshot-ip snapshot) *ip-key-set-loop-info!*))

@@ -154,9 +154,9 @@
 ;; "libguile/vm-tjit.h" with "SCM_FRAGMENT" prefix are referring the fields.
 ;;
 (define-record-type <fragment>
-  (%make-fragment id code exit-counts entry-ip parent-id parent-exit-id
-                  loop-address loop-locals loop-vars snapshots
-                  trampoline fp-offset end-address)
+  (%make-fragment id code exit-counts downrec? entry-ip
+                  parent-id parent-exit-id loop-address loop-locals loop-vars
+                  snapshots trampoline fp-offset end-address)
   fragment?
 
   ;; Trace id number.
@@ -167,6 +167,9 @@
 
   ;; Hash-table containing number of exits taken, per exit-id.
   (exit-counts fragment-exit-counts)
+
+  ;; Flag to tell whether the trace is down-recursion or not.
+  (downrec? fragment-downrec?)
 
   ;; Entry bytecode IP.
   (entry-ip fragment-entry-ip)

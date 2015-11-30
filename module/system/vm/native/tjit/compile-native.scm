@@ -277,7 +277,7 @@ are local index number."
            (lp rest))))
         (() (values))))))
 
-(define (adjust-downrec-stack asm snapshots dsts)
+(define (adjust-downrec-stack asm loop? snapshots dsts)
   (let* ((last-index (- (hash-count (const #t) snapshots) 1))
          (last-snapshot (hashq-ref snapshots last-index))
          (last-sp-offset (snapshot-sp-offset last-snapshot))
@@ -285,7 +285,9 @@ are local index number."
          (last-nlocals (snapshot-nlocals last-snapshot))
          (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
     (vm-expand-stack asm last-sp-offset)
-    (shift-fp (- (+ last-sp-offset last-nlocals) initial-nlocals))
+    (shift-fp (if loop?
+                  (- (+ last-sp-offset last-nlocals) initial-nlocals)
+                  last-sp-offset))
     (let lp ((locals (snapshot-locals last-snapshot))
              (vars (snapshot-variables last-snapshot)))
       (match (list locals vars)
@@ -357,6 +359,7 @@ are local index number."
                           (make-fragment (tj-id tj)
                                          code
                                          exit-counts
+                                         (tj-downrec? tj)
                                          (tj-entry-ip tj)
                                          parent-id
                                          (tj-parent-exit-id tj)
@@ -446,8 +449,8 @@ are local index number."
     (compile-body tj primops snapshots fp-offset trampoline)))
 
 (define (compile-body tj primops snapshots fp-offset trampoline)
-  (define (compile-ops asm ops acc)
-    (let lp ((ops ops) (loop-locals #f) (loop-vars #f) (acc acc))
+  (define (compile-ops asm ops loop-vars acc)
+    (let lp ((ops ops) (loop-locals #f) (loop-vars loop-vars) (acc acc))
       (match ops
         ((('%snap snapshot-id . args) . ops)
          (cond
@@ -455,6 +458,18 @@ are local index number."
            => (lambda (snapshot)
                 (cond
                  ((snapshot-downrec? snapshot)
+                  (let-values (((loop? dsts)
+                                (if (tj-parent-fragment tj)
+                                    (let ((linked-fragment
+                                           (get-root-trace
+                                            (tj-linked-ip tj))))
+                                      (values #f
+                                              (fragment-loop-vars
+                                               linked-fragment)))
+                                    (values #t loop-vars))))
+                    (compile-downrec tj asm loop? snapshot
+                                     (snapshot-nlocals (hashq-ref snapshots 0))
+                                     dsts))
                   (lp ops loop-locals loop-vars acc))
                  ((snapshot-set-loop-info? snapshot)
                   (match snapshot
@@ -462,7 +477,7 @@ are local index number."
                      (lp ops local-x-types args acc))
                     (else
                      (error "snapshot loop info not found"))))
-                 ((snapshot-jump-to-linked-code? snapshot)
+                 ((snapshot-link? snapshot)
                   (compile-link tj asm args snapshot)
                   (lp ops loop-locals loop-vars acc))
                  (else
@@ -499,9 +514,7 @@ are local index number."
             (vm-handle-interrupts asm))
           (let-values
               (((unused-loop-locals unused-loop-vars gen-bailouts)
-                (compile-ops asm loop gen-bailouts)))
-            (when (tj-downrec? tj)
-              (adjust-downrec-stack asm snapshots loop-vars))
+                (compile-ops asm loop loop-vars gen-bailouts)))
             (jump loop-label)
             (values loop-label gen-bailouts)))))
   (match primops
@@ -514,7 +527,7 @@ are local index number."
                                fragment-end-address)))
                    ((asm) (make-asm env end-address))
                    ((loop-locals loop-vars gen-bailouts)
-                    (compile-ops asm entry '()))
+                    (compile-ops asm entry #f '()))
                    ((loop-label gen-bailouts)
                     (compile-loop asm loop gen-bailouts handle-interrupts?
                                   loop-locals loop-vars)))
@@ -588,6 +601,8 @@ are local index number."
                 (jit-pushargi (scm-i-makinumi (tj-id tj)))
                 (jit-pushargi (imm nlocals))
                 (jit-pushargr %sp)
+                (load-vp %retval)
+                (jit-pushargr %retval)
                 (jit-calli %scm-tjit-dump-locals)
                 (jit-movr %retval %thread)))))
          (_
@@ -640,3 +655,30 @@ are local index number."
        (jumpi (fragment-loop-address linked-fragment)))
       (_
        (error "compile-link: not a snapshot" snapshot)))))
+
+(define (compile-downrec tj asm loop? snapshot initial-nlocals dsts)
+  (let* ((last-sp-offset (snapshot-sp-offset snapshot))
+         (last-fp-offset (snapshot-fp-offset snapshot))
+         (last-nlocals (snapshot-nlocals snapshot)))
+    (vm-expand-stack asm last-sp-offset)
+    (shift-fp (if loop?
+                  (- (+ last-sp-offset last-nlocals) initial-nlocals)
+                  last-sp-offset))
+    (let lp ((locals (snapshot-locals snapshot))
+             (vars (snapshot-variables snapshot)))
+      (match (list locals vars)
+        ((((local . type) . locals) (var . vars))
+         (store-frame (- local last-sp-offset) type var)
+         (lp locals vars))
+        (_
+         (let lp ((dsts dsts)
+                  (srcs (snapshot-variables snapshot)))
+           (match (list dsts srcs)
+             (((dst . dsts) (src . srcs))
+              (move dst src)
+              (lp dsts srcs))
+             (_
+              (values)))))))
+    (when (not loop?)
+      (let ((linked-fragment (get-root-trace (tj-linked-ip tj))))
+        (jumpi (fragment-loop-address linked-fragment))))))

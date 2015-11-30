@@ -138,7 +138,11 @@
             (('call proc nlocals)
              (lambda ()
                (let* ((next-sp (- last-fp-offset proc nlocals))
-                      (next-sp-offset (+ next-sp initial-nlocals)))
+                      (sp-shift (if (tj-parent-fragment tj)
+                                    (length (fragment-loop-locals
+                                             (tj-parent-fragment tj)))
+                                    initial-nlocals))
+                      (next-sp-offset (+ next-sp sp-shift)))
                  `(let ((_ ,(take-snapshot-in-entry! ir
                                                      *ip-key-downrec*
                                                      0
@@ -157,7 +161,7 @@
          (else
           (lambda ()
             `(let ((_ ,(take-snapshot-in-entry! ir
-                                                *ip-key-jump-to-linked-code*
+                                                *ip-key-link*
                                                 0
                                                 locals
                                                 last-sp-offset

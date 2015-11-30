@@ -80,6 +80,7 @@ TESTS = \
 	t-pairs-08.scm \
 	t-rec-01.scm \
 	t-rec-02.scm \
+	t-rec-03.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \
