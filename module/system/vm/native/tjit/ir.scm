@@ -921,7 +921,7 @@ referenced by dst and src value at runtime."
   (define-syntax-rule (ret)
     (values sp-offset fp-offset sp-offsets fp-offsets))
   (define (nyi st op)
-    (debug 1 "ir:accumulate-locals: NYI ~a~%" op)
+    (debug 1 "scan-locals: NYI ~a~%" op)
     (ret))
     ;; Lookup accumulating procedure stored in *local-accumulator* and apply
     ;; the procedure when found.

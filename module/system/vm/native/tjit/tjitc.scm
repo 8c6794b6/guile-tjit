@@ -135,7 +135,7 @@
     (_
      (values))))
 
-(define (dump-primlist trace-id plist snapshots)
+(define (dump-primops trace-id plist snapshots)
   (define (mark-op op)
     (case (car op)
       ((%return
@@ -223,7 +223,7 @@
         (()
          idx))))
   (match plist
-    (($ $primlist entry loop)
+    (($ $primops entry loop)
      (format #t ";;; trace ~a: primops:~%" trace-id)
      (let ((idx (dump-list 0 entry)))
        (when (not (null? loop))
@@ -322,7 +322,7 @@
   (define-syntax-rule (increment-compilation-failure ip)
     (let ((count (hashq-ref (tjit-failed-ip-table) ip 0)))
       (hashq-set! (tjit-failed-ip-table) ip (+ count 1))))
-  (define-syntax-rule (show-one-line sline fragment downrec?)
+  (define-syntax-rule (show-one-line sline fragment)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
                                  (or (and fragment (fragment-id fragment))
@@ -390,24 +390,24 @@
                              loop?
                              downrec?)))
             (let-values (((snapshots anf ops)
-                          (compile-primlist tj traces)))
-              (let-syntax ((d (syntax-rules ()
-                                ((_ test exp)
-                                 (when (and (test dump-option)
-                                            (or ops
-                                                (tjit-dump-abort? dump-option)))
-                                   exp)))))
-                (d tjit-dump-jitc?
-                   (show-one-line sline parent-fragment downrec?))
-                (d tjit-dump-bytecode? (dump-bytecode trace-id traces))
-                (d tjit-dump-anf? (dump-anf trace-id anf)))
+                          (compile-primops tj traces)))
+              (let-syntax ((dump
+                            (syntax-rules ()
+                              ((_ test exp)
+                               (when (and (test dump-option)
+                                          (or ops
+                                              (tjit-dump-abort? dump-option)))
+                                 exp)))))
+                (dump tjit-dump-jitc? (show-one-line sline parent-fragment))
+                (dump tjit-dump-bytecode? (dump-bytecode trace-id traces))
+                (dump tjit-dump-anf? (dump-anf trace-id anf)))
               (cond
                ((not ops)
                 (debug 1 ";;; trace ~a: aborted~%" trace-id)
                 (increment-compilation-failure entry-ip))
                (else
                 (when (tjit-dump-ops? dump-option)
-                  (dump-primlist trace-id ops snapshots))
+                  (dump-primops trace-id ops snapshots))
                 (let-values (((code size adjust loop-address trampoline)
                               (compile-native tj ops snapshots)))
                   (when (tjit-dump-disassemble? dump-option)
@@ -420,8 +420,9 @@
                                        snapshots
                                        trampoline)))))
               (when (tjit-dump-time? dump-option)
-                (let ((log (get-tjit-time-log trace-id)))
-                  (set-tjit-time-log-end! log (get-internal-run-time))))))))))))
+                (let ((log (get-tjit-time-log trace-id))
+                      (t (get-internal-run-time)))
+                  (set-tjit-time-log-end! log t)))))))))))
 
 
 ;;;

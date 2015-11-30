@@ -316,12 +316,12 @@ are local index number."
 ;;; The Native Code Compiler
 ;;;
 
-(define (compile-native tj primlist snapshots)
+(define (compile-native tj primops snapshots)
   (with-jit-state
    (jit-prolog)
    (let-values
        (((trampoline loop-label loop-locals loop-vars fp-offset gen-bailouts)
-         (compile-entry tj primlist snapshots)))
+         (compile-entry tj primops snapshots)))
      (let ((epilog-label (jit-label)))
        (jit-patch epilog-label)
        (jit-retr %retval)
@@ -378,7 +378,7 @@ are local index number."
            (values code (jit-code-size) (pointer-address ptr)
                    loop-address trampoline)))))))
 
-(define (compile-entry tj primlist snapshots)
+(define (compile-entry tj primops snapshots)
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
@@ -393,7 +393,7 @@ are local index number."
           ;; number returned from parameter `(tjit-max-spills)'.
           (if (not fragment)
               (let ((max-spills (tjit-max-spills))
-                    (nspills (primlist-nspills primlist)))
+                    (nspills (primops-nspills primops)))
                 (when (< max-spills nspills)
                   ;; XXX: Escape from this procedure, increment compilation
                   ;; failure for this entry-ip.
@@ -443,9 +443,9 @@ are local index number."
                 (tj-parent-exit-id tj))))))
 
     ;; Assemble the primitives.
-    (compile-primlist tj primlist snapshots fp-offset trampoline)))
+    (compile-body tj primops snapshots fp-offset trampoline)))
 
-(define (compile-primlist tj primlist snapshots fp-offset trampoline)
+(define (compile-body tj primops snapshots fp-offset trampoline)
   (define (compile-ops asm ops acc)
     (let lp ((ops ops) (loop-locals #f) (loop-vars #f) (acc acc))
       (match ops
@@ -504,8 +504,8 @@ are local index number."
               (adjust-downrec-stack asm snapshots loop-vars))
             (jump loop-label)
             (values loop-label gen-bailouts)))))
-  (match primlist
-    (($ $primlist entry loop mem-idx env handle-interrupts?)
+  (match primops
+    (($ $primops entry loop mem-idx env handle-interrupts?)
      (let*-values (((fragment) (tj-parent-fragment tj))
                    ((end-address)
                     (or (and=> fragment
@@ -521,7 +521,7 @@ are local index number."
        (values trampoline loop-label loop-locals loop-vars fp-offset
                gen-bailouts)))
     (_
-     (error "compile-primlist: not a $primlist" primlist))))
+     (error "compile-body: not a $primops" primops))))
 
 (define (compile-bailout tj asm snapshot trampoline args)
   (lambda (end-address)

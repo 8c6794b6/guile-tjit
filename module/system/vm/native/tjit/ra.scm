@@ -37,35 +37,35 @@
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
-  #:export ($primlist
-            primlist?
-            primlist-entry
-            primlist-loop
-            primlist-nspills
-            ir->primlist))
+  #:export ($primops
+            primops?
+            primops-entry
+            primops-loop
+            primops-nspills
+            ir->primops))
 
 ;;;
 ;;; Record type
 ;;;
 
 ;; Record type to hold lists of primitives.
-(define-record-type $primlist
-  (make-primlist entry loop nspills env handle-interrupts?)
-  primlist?
+(define-record-type $primops
+  (make-primops entry loop nspills env handle-interrupts?)
+  primops?
   ;; List of primitives for entry clause.
-  (entry primlist-entry)
+  (entry primops-entry)
 
   ;; List of primitives for loop body.
-  (loop primlist-loop)
+  (loop primops-loop)
 
   ;; Number of spilled variables.
-  (nspills primlist-nspills)
+  (nspills primops-nspills)
 
   ;; Hash-table containing variable information.
-  (env primlist-env)
+  (env primops-env)
 
   ;; Flag for whether to call async tick.
-  (handle-interrupts? primlist-handle-interrupts?))
+  (handle-interrupts? primops-handle-interrupts?))
 
 
 ;;;
@@ -261,8 +261,8 @@
 ;;; IR to Primitive List
 ;;;
 
-(define (ir->primlist parent-snapshot initial-snapshot vars handle-interrupts?
-                      snapshots term)
+(define (ir->primops parent-snapshot initial-snapshot vars handle-interrupts?
+                     snapshots term)
   (let ((initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
@@ -329,7 +329,7 @@
                                           snapshot-idx)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
-           (make-primlist entry-ops
+           (make-primops entry-ops
                           loop-ops
                           (variable-ref mem-idx)
                           env
@@ -364,13 +364,13 @@
                       (variable-set! mem-idx (+ n 1))))
                    (_
                     (debug 1
-                           "XXX ir->primlist: var ~a at local ~a, type ~a~%"
+                           "XXX ir->primops: var ~a at local ~a, type ~a~%"
                            var local type)))
                  (lp vars locals))
                 (_
                  (values)))))
            (_
-            (debug 2 ";;; ir->primlist: perhaps loop-less root trace~%")))
+            (debug 2 ";;; ir->primops: perhaps loop-less root trace~%")))
          (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
                 (sort-variables-in-env env))
          (let-values (((patch-ops snapshot-idx)
@@ -379,10 +379,10 @@
                                          0)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
-           (make-primlist patch-ops
+           (make-primops patch-ops
                           '()
                           (variable-ref mem-idx)
                           env
                           handle-interrupts?)))
         (_
-         (error "ir->primlist: malformed term" term))))))
+         (error "ir->primops: malformed term" term))))))

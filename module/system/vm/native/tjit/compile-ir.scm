@@ -47,7 +47,7 @@
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
-  #:export (compile-primlist))
+  #:export (compile-primops))
 
 
 ;;;
@@ -175,7 +175,7 @@
              (error "trace->ir: last arg was not a procedure" last-op)))))
     (convert ir traces)))
 
-(define (compile-ir tj trace)
+(define (compile-anf tj trace)
   (define root-trace?
     (not (tj-parent-fragment tj)))
   (define (get-initial-snapshot-id)
@@ -374,22 +374,22 @@
                            local-indices-from-parent)))
           (values vars snapshots anf (variable-ref handle-interrupts?)))))))
 
-(define (compile-primlist tj trace)
-  "Compiles TRACE to primlist with TJ and TRACE."
+(define (compile-primops tj trace)
+  "Compiles TRACE to primops with TJ and TRACE."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
   (let-values (((vars snapshots anf handle-interrupts?)
-                (compile-ir tj trace)))
+                (compile-anf tj trace)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (tj-id tj))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
-    (let ((primlist (if anf
-                        (ir->primlist (tj-parent-snapshot tj)
-                                      (hashq-ref snapshots 0)
-                                      vars
-                                      handle-interrupts?
-                                      snapshots
-                                      anf)
-                        #f)))
-      (values snapshots anf primlist))))
+    (let ((primops (if anf
+                       (ir->primops (tj-parent-snapshot tj)
+                                    (hashq-ref snapshots 0)
+                                    vars
+                                    handle-interrupts?
+                                    snapshots
+                                    anf)
+                       #f)))
+      (values snapshots anf primops))))
