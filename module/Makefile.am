@@ -346,6 +346,7 @@ SOURCES =					\
   system/vm/native/tjit/variables.scm		\
   system/vm/native/tjit/parameters.scm		\
   system/vm/native/tjit/snapshot.scm		\
+  system/vm/native/tjit/state.scm		\
   system/vm/native/tjit/assembler.scm		\
   system/vm/native/tjit/ir.scm			\
   system/vm/native/tjit/ra.scm			\

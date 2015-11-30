@@ -47,6 +47,7 @@
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit variables)
   #:export (compile-native))
 
@@ -276,6 +277,31 @@ are local index number."
            (lp rest))))
         (() (values))))))
 
+(define (adjust-downrec-stack asm snapshots dsts)
+  (let* ((last-index (- (hash-count (const #t) snapshots) 1))
+         (last-snapshot (hashq-ref snapshots last-index))
+         (last-sp-offset (snapshot-sp-offset last-snapshot))
+         (last-fp-offset (snapshot-fp-offset last-snapshot))
+         (last-nlocals (snapshot-nlocals last-snapshot))
+         (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
+    (vm-expand-stack asm last-sp-offset)
+    (shift-fp (- (+ last-sp-offset last-nlocals) initial-nlocals))
+    (let lp ((locals (snapshot-locals last-snapshot))
+             (vars (snapshot-variables last-snapshot)))
+      (match (list locals vars)
+        ((((local . type) . locals) (var . vars))
+         (store-frame (- local last-sp-offset) type var)
+         (lp locals vars))
+        (_
+         (let lp ((dsts dsts)
+                  (srcs (snapshot-variables last-snapshot)))
+           (match (list dsts srcs)
+             (((dst . dsts) (src . srcs))
+              (move dst src)
+              (lp dsts srcs))
+             (_
+              (values)))))))))
+
 (define (dump-bailout ip exit-id code)
   (let ((verbosity (lightning-verbosity)))
     (when (and verbosity (<= 4 verbosity))
@@ -290,15 +316,12 @@ are local index number."
 ;;; The Native Code Compiler
 ;;;
 
-(define (compile-native primlist entry-ip locals snapshots fragment
-                        parent-exit-id linked-ip trace-id downrec?)
+(define (compile-native tj primlist snapshots)
   (with-jit-state
    (jit-prolog)
    (let-values
-       (((trampoline loop-label loop-locals loop-vars fp-offset
-                     gen-bailouts)
-         (compile-entry primlist entry-ip locals snapshots fragment
-                        parent-exit-id linked-ip trace-id downrec?)))
+       (((trampoline loop-label loop-locals loop-vars fp-offset gen-bailouts)
+         (compile-entry tj primlist snapshots)))
      (let ((epilog-label (jit-label)))
        (jit-patch epilog-label)
        (jit-retr %retval)
@@ -311,10 +334,11 @@ are local index number."
          (let* ((ptr (jit-emit))
                 (exit-counts (make-hash-table))
                 (loop-address (and loop-label (jit-address loop-label)))
-                (end-address (or (and fragment
-                                      (fragment-end-address fragment))
+                (end-address (or (and=> (tj-parent-fragment tj)
+                                        fragment-end-address)
                                  (jit-address epilog-label)))
-                (parent-id (or (and fragment (fragment-id fragment))
+                (parent-id (or (and=> (tj-parent-fragment tj)
+                                      fragment-id)
                                0)))
            (make-bytevector-executable! code)
 
@@ -327,39 +351,39 @@ are local index number."
                      gen-bailouts)
 
            ;; Same entry-ip could be used when side exit 0 was
-           ;; taken for multiple times. Using trace-id as hash
+           ;; taken for multiple times. Using trace ID as hash
            ;; table key.
-           (put-fragment! trace-id (make-fragment trace-id
-                                                  code
-                                                  exit-counts
-                                                  entry-ip
-                                                  parent-id
-                                                  parent-exit-id
-                                                  loop-address
-                                                  loop-locals
-                                                  loop-vars
-                                                  snapshots
-                                                  trampoline
-                                                  fp-offset
-                                                  end-address))
+           (put-fragment! (tj-id tj)
+                          (make-fragment (tj-id tj)
+                                         code
+                                         exit-counts
+                                         (tj-entry-ip tj)
+                                         parent-id
+                                         (tj-parent-exit-id tj)
+                                         loop-address
+                                         loop-locals
+                                         loop-vars
+                                         snapshots
+                                         trampoline
+                                         fp-offset
+                                         end-address))
            (debug 4 ";;; jit-print:~%~a~%" (jit-print))
            ;; When this trace is a side trace, replace the native code
            ;; of trampoline in parent fragment.
-           (when fragment
-             (let ((trampoline (fragment-trampoline fragment))
-                   (snapshot (hashq-ref (fragment-snapshots fragment)
-                                        parent-exit-id)))
-               (trampoline-set! trampoline parent-exit-id ptr)
-               (set-snapshot-code! snapshot code)))
+           (let ((fragment (tj-parent-fragment tj)))
+             (when fragment
+               (let ((trampoline (fragment-trampoline fragment)))
+                 (trampoline-set! trampoline (tj-parent-exit-id tj) ptr)
+                 (set-snapshot-code! (tj-parent-snapshot tj) code))))
            (values code (jit-code-size) (pointer-address ptr)
                    loop-address trampoline)))))))
 
-(define (compile-entry primlist entry-ip locals snapshots fragment
-                       parent-exit-id linked-ip trace-id downrec?)
+(define (compile-entry tj primlist snapshots)
   (when (tjit-dump-time? (tjit-dump-option))
-    (let ((log (get-tjit-time-log trace-id)))
+    (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
   (let* ((trampoline (make-trampoline (hash-count (const #t) snapshots)))
+         (fragment (tj-parent-fragment tj))
          (fp-offset
           ;; Root trace allocates spaces for spilled variables, 1 word
           ;; to store `registers' from argument, and space to save
@@ -400,57 +424,28 @@ are local index number."
 
       ;; Store values passed from parent trace when it's not used by this
       ;; side trace.
-      (cond
-       ((hashq-ref (fragment-snapshots fragment) parent-exit-id)
-        => (match-lambda
-             (($ $snapshot _ sp-offset _ _ local-x-types exit-variables)
-              (let* ((snap0 (hashq-ref snapshots 0))
-                     (locals (snapshot-locals snap0))
-                     (vars (snapshot-variables snap0))
-                     (references (make-hash-table)))
-                (let lp ((locals locals) (vars vars))
-                  (match (list locals vars)
-                    ((((local . _) . locals) (var . vars))
-                     (hashq-set! references local var)
-                     (lp locals vars))
-                    (_
-                     (values))))
-                (maybe-store local-x-types exit-variables references 0)))))
-       (else
-        (error "compile-native: snapshot not found in parent trace"
-               parent-exit-id)))))
+      (match (tj-parent-snapshot tj)
+        (($ $snapshot _ sp-offset _ _ local-x-types exit-variables)
+         (let* ((snap0 (hashq-ref snapshots 0))
+                (locals (snapshot-locals snap0))
+                (vars (snapshot-variables snap0))
+                (references (make-hash-table)))
+           (let lp ((locals locals) (vars vars))
+             (match (list locals vars)
+               ((((local . _) . locals) (var . vars))
+                (hashq-set! references local var)
+                (lp locals vars))
+               (_
+                (values))))
+           (maybe-store local-x-types exit-variables references 0)))
+        (_
+         (error "compile-native: snapshot not found in parent trace"
+                (tj-parent-exit-id tj))))))
 
     ;; Assemble the primitives.
-    (compile-primlist primlist entry-ip snapshots fp-offset fragment
-                      trampoline linked-ip trace-id downrec?)))
+    (compile-primlist tj primlist snapshots fp-offset trampoline)))
 
-(define (adjust-downrec-stack asm snapshots dsts)
-  (let* ((last-index (- (hash-count (const #t) snapshots) 1))
-         (last-snapshot (hashq-ref snapshots last-index))
-         (last-sp-offset (snapshot-sp-offset last-snapshot))
-         (last-fp-offset (snapshot-fp-offset last-snapshot))
-         (last-nlocals (snapshot-nlocals last-snapshot))
-         (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
-    (vm-expand-stack asm last-sp-offset)
-    (shift-fp (- (+ last-sp-offset last-nlocals) initial-nlocals))
-    (let lp ((locals (snapshot-locals last-snapshot))
-             (vars (snapshot-variables last-snapshot)))
-      (match (list locals vars)
-        ((((local . type) . locals) (var . vars))
-         (store-frame (- local last-sp-offset) type var)
-         (lp locals vars))
-        (_
-         (let lp ((dsts dsts)
-                  (srcs (snapshot-variables last-snapshot)))
-           (match (list dsts srcs)
-             (((dst . dsts) (src . srcs))
-              (move dst src)
-              (lp dsts srcs))
-             (_
-              (values)))))))))
-
-(define (compile-primlist primlist entry-ip snapshots fp-offset fragment
-                          trampoline linked-ip trace-id downrec?)
+(define (compile-primlist tj primlist snapshots fp-offset trampoline)
   (define (compile-ops asm ops acc)
     (let lp ((ops ops) (loop-locals #f) (loop-vars #f) (acc acc))
       (match ops
@@ -468,11 +463,11 @@ are local index number."
                     (else
                      (error "snapshot loop info not found"))))
                  ((snapshot-jump-to-linked-code? snapshot)
-                  (compile-link args snapshot asm linked-ip fragment)
+                  (compile-link tj asm args snapshot)
                   (lp ops loop-locals loop-vars acc))
                  (else
                   (let ((out-code (trampoline-ref trampoline snapshot-id))
-                        (gen-bailout (compile-bailout asm trace-id snapshot
+                        (gen-bailout (compile-bailout tj asm snapshot
                                                       trampoline args)))
                     (set-asm-out-code! asm out-code)
                     (let ((exit (jit-forward)))
@@ -505,16 +500,18 @@ are local index number."
           (let-values
               (((unused-loop-locals unused-loop-vars gen-bailouts)
                 (compile-ops asm loop gen-bailouts)))
-            (when downrec?
+            (when (tj-downrec? tj)
               (adjust-downrec-stack asm snapshots loop-vars))
             (jump loop-label)
             (values loop-label gen-bailouts)))))
   (match primlist
     (($ $primlist entry loop mem-idx env handle-interrupts?)
-     (let*-values (((end-address) (or (and=> fragment
-                                             fragment-end-address)
-                                      (and=> (get-root-trace linked-ip)
-                                             fragment-end-address)))
+     (let*-values (((fragment) (tj-parent-fragment tj))
+                   ((end-address)
+                    (or (and=> fragment
+                               fragment-end-address)
+                        (and=> (get-root-trace (tj-linked-ip tj))
+                               fragment-end-address)))
                    ((asm) (make-asm env end-address))
                    ((loop-locals loop-vars gen-bailouts)
                     (compile-ops asm entry '()))
@@ -526,7 +523,7 @@ are local index number."
     (_
      (error "compile-primlist: not a $primlist" primlist))))
 
-(define (compile-bailout asm trace-id snapshot trampoline args)
+(define (compile-bailout tj asm snapshot trampoline args)
   (lambda (end-address)
     (let ((ip (snapshot-ip snapshot))
           (id (snapshot-id snapshot)))
@@ -570,7 +567,7 @@ are local index number."
           (jit-prepare)
           (jit-pushargr %thread)
           (jit-pushargi (scm-i-makinumi id))
-          (jit-pushargi (scm-i-makinumi trace-id))
+          (jit-pushargi (scm-i-makinumi (tj-id tj)))
           (jit-pushargi (scm-i-makinumi nlocals))
           (jit-calli %scm-tjit-make-retval)
           (jit-retval %retval)
@@ -588,7 +585,7 @@ are local index number."
               (when (tjit-dump-locals? dump-option)
                 (jit-movr %thread %retval)
                 (jit-prepare)
-                (jit-pushargi (scm-i-makinumi trace-id))
+                (jit-pushargi (scm-i-makinumi (tj-id tj)))
                 (jit-pushargi (imm nlocals))
                 (jit-pushargr %sp)
                 (jit-calli %scm-tjit-dump-locals)
@@ -609,8 +606,8 @@ are local index number."
            (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline id ptr)))))))
 
-(define (compile-link args snapshot asm linked-ip fragment)
-  (let* ((linked-fragment (get-root-trace linked-ip))
+(define (compile-link tj asm args snapshot)
+  (let* ((linked-fragment (get-root-trace (tj-linked-ip tj)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot
       (($ $snapshot sid sp-offset fp-offset _ local-x-types)
@@ -636,7 +633,7 @@ are local index number."
          (shift-sp sp-offset))
 
        ;; Shift FP for loop-less root trace.
-       (when (not fragment)
+       (when (not (tj-parent-fragment tj))
          (shift-fp fp-offset))
 
        ;; Jump to the beginning of linked trace.

@@ -34,6 +34,7 @@
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
   #:export (make-ir
+            <ir>
             ir-snapshots set-ir-snapshots!
             ir-snapshot-id set-ir-snapshot-id!
             ir-min-sp-offset set-ir-min-sp-offset!

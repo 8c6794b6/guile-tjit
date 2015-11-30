@@ -46,18 +46,16 @@
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit snapshot)
-  #:export (trace->primlist))
+  #:use-module (system vm native tjit state)
+  #:export (compile-primlist))
 
 
 ;;;
 ;;; Traced bytecode to ANF IR compiler
 ;;;
 
-(define (trace->ir traces escape loop? downrec?
-                   initial-snapshot-id snapshots
-                   parent-snapshot past-frame vars
-                   initial-sp-offset initial-fp-offset handle-interrupts?)
-  (let* ((initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0)))
+(define (trace->ir tj ir traces escape past-frame handle-interrupts?)
+  (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
          (last-sp-offset (let* ((sp-offsets (past-frame-sp-offsets past-frame))
                                 (i (- (vector-length sp-offsets) 1)))
                            (vector-ref sp-offsets i)))
@@ -70,13 +68,13 @@
                     (take-snapshot ip
                                    dst-offset
                                    locals
-                                   vars
+                                   (ir-vars ir)
                                    (ir-snapshot-id ir)
                                    sp-offset
                                    last-fp-offset
                                    min-sp
                                    (ir-max-sp-offset ir)
-                                   parent-snapshot
+                                   (tj-parent-snapshot tj)
                                    past-frame)))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
@@ -131,13 +129,11 @@
                        (e (vector-ref locals i)))
                   (lp (+ n 1) end (cons e acc))))))
         (cond
-         (downrec?
+         ((tj-downrec? tj)
           (match op
             (('call proc nlocals)
              (lambda ()
-               (let* ((initial-snapshot (hashq-ref snapshots 0))
-                      (initial-nlocals (snapshot-nlocals initial-snapshot))
-                      (next-sp (- last-fp-offset proc nlocals))
+               (let* ((next-sp (- last-fp-offset proc nlocals))
                       (next-sp-offset (+ next-sp initial-nlocals)))
                  `(let ((_ ,(take-snapshot-in-entry! ir
                                                      *ip-key-downrec*
@@ -145,15 +141,15 @@
                                                      (dr-locals proc nlocals)
                                                      next-sp-offset
                                                      next-sp-offset)))
-                    (loop ,@(reverse (map cdr vars)))))))
+                    (loop ,@(reverse (map cdr (ir-vars ir))))))))
             (('call-label . _)
              ;; XXX: TODO.
              (escape #f))
             (_
              (escape #f))))
-         (loop?
+         ((tj-loop? tj)
           (lambda ()
-            `(loop ,@(reverse (map cdr vars)))))
+            `(loop ,@(reverse (map cdr (ir-vars ir))))))
          (else
           (lambda ()
             `(let ((_ ,(take-snapshot-in-entry! ir
@@ -173,21 +169,11 @@
          (or (and (procedure? last-op)
                   (last-op))
              (error "trace->ir: last arg was not a procedure" last-op)))))
+    (convert ir traces)))
 
-    (let ((ir (make-ir snapshots
-                       initial-snapshot-id
-                       parent-snapshot
-                       vars
-                       (min initial-sp-offset 0)
-                       (get-max-sp-offset initial-sp-offset
-                                          initial-fp-offset
-                                          initial-nlocals)
-                       0)))
-      (convert ir traces))))
-
-(define (compile-ir fragment exit-id loop? downrec? trace)
-  (define-syntax root-trace?
-    (identifier-syntax (not fragment)))
+(define (compile-ir tj trace)
+  (define root-trace?
+    (not (tj-parent-fragment tj)))
   (define (get-initial-snapshot-id)
     ;; For root trace, initial snapshot already added in `make-anf'.
     (if root-trace? 1 0))
@@ -204,9 +190,7 @@
       (($ $snapshot _ _ fp-offset) fp-offset)
       (_ 0)))
 
-  (let* ((parent-snapshot
-          (and fragment
-               (hashq-ref (fragment-snapshots fragment) exit-id)))
+  (let* ((parent-snapshot (tj-parent-snapshot tj))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
          (past-frame (accumulate-locals initial-sp-offset
@@ -298,7 +282,7 @@
                 ;;
                 ((let ((parent-type (type-from-parent n))
                        (snapshot-type (type-from-snapshot n)))
-                   (and (not loop?)
+                   (and (not (tj-loop? tj))
                         (or (and parent-type
                                  snapshot-type
                                  (eq? parent-type snapshot-type))
@@ -330,18 +314,19 @@
 
       (define (make-anf escape)
         (let ((emit (lambda ()
-                      (trace->ir trace
-                                 escape
-                                 loop?
-                                 downrec?
-                                 snapshot-id
-                                 snapshots
-                                 parent-snapshot
-                                 past-frame
-                                 vars
-                                 initial-sp-offset
-                                 initial-fp-offset
-                                 handle-interrupts?))))
+                      (let* ((initial-nlocals
+                              (snapshot-nlocals (hashq-ref snapshots 0)))
+                             (ir (make-ir snapshots
+                                          snapshot-id
+                                          (tj-parent-snapshot tj)
+                                          vars
+                                          (min initial-sp-offset 0)
+                                          (get-max-sp-offset initial-sp-offset
+                                                             initial-fp-offset
+                                                             initial-nlocals)
+                                          0)))
+                        (trace->ir tj ir trace escape past-frame
+                                   handle-interrupts?)))))
           (cond
            (root-trace?
             (let* ((arg-indices (filter (lambda (n)
@@ -370,7 +355,7 @@
                         (loop (lambda ,args
                                 ,(emit))))
                  entry)))
-           (loop?
+           ((tj-loop? tj)
             (let ((args-from-vars (reverse! (map cdr vars)))
                   (snap (take-snapshot! initial-ip
                                         0
@@ -394,41 +379,31 @@
                                      (emit))))))
                  patch))))))
 
-      (let ((ir (call-with-escape-continuation make-anf)))
+      (let ((anf (call-with-escape-continuation make-anf)))
         (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
                (sort (hash-fold acons '() snapshots)
                      (lambda (a b) (< (car a) (car b)))))
         (let ((indices (if root-trace?
                            local-indices
                            local-indices-from-parent)))
-          (values indices vars snapshots ir
-                  (variable-ref handle-interrupts?)))))))
+          (values vars snapshots anf (variable-ref handle-interrupts?)))))))
 
-(define (trace->primlist trace-id fragment exit-id loop? downrec? trace)
-  "Compiles TRACE to primlist.
-
-If the trace to be compiles is a side trace, expects FRAGMENT as from parent
-trace, and EXIT-ID is the hot exit id from the parent trace. LOOP? is a boolean
-to indicate whether the trace contains loop or not."
+(define (compile-primlist tj trace)
+  "Compiles TRACE to primlist with TJ and TRACE."
   (when (tjit-dump-time? (tjit-dump-option))
-    (let ((log (get-tjit-time-log trace-id)))
+    (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
-  (let-values (((locals vars snapshots ir handle-interrupts?)
-                (compile-ir fragment exit-id loop? downrec? trace)))
+  (let-values (((vars snapshots anf handle-interrupts?)
+                (compile-ir tj trace)))
     (when (tjit-dump-time? (tjit-dump-option))
-      (let ((log (get-tjit-time-log trace-id)))
+      (let ((log (get-tjit-time-log (tj-id tj))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
-    (let* ((parent-snapshot (if fragment
-                                (hashq-ref (fragment-snapshots fragment)
-                                           exit-id)
-                                #f))
-           (initial-snapshot (hashq-ref snapshots 0))
-           (primlist (if ir
-                         (ir->primlist parent-snapshot
-                                       initial-snapshot
-                                       vars
-                                       handle-interrupts?
-                                       snapshots
-                                       ir)
-                         #f)))
-      (values locals snapshots ir primlist))))
+    (let ((primlist (if anf
+                        (ir->primlist (tj-parent-snapshot tj)
+                                      (hashq-ref snapshots 0)
+                                      vars
+                                      handle-interrupts?
+                                      snapshots
+                                      anf)
+                        #f)))
+      (values snapshots anf primlist))))

@@ -59,7 +59,7 @@
             tjit-dump-ops?
             tjit-dump-locals?
             tjit-dump-jitc?
-            tjit-dump-scm?
+            tjit-dump-anf?
             tjit-dump-time?
             tjit-dump-exit?
             parse-tjit-dump-flags
@@ -102,7 +102,7 @@
   (ops tjit-dump-ops? set-tjit-dump-ops!)
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-locals? set-tjit-dump-locals!)
-  (scm tjit-dump-scm? set-tjit-dump-scm!)
+  (scm tjit-dump-anf? set-tjit-dump-anf!)
   (time tjit-dump-time? set-tjit-dump-time!)
   (exit tjit-dump-exit? set-tjit-dump-exit!))
 
@@ -140,24 +140,22 @@ fields to @code{#f}."
     (let lp ((cs (string->list str)))
       (let-syntax ((flags (syntax-rules ()
                             ((_ (char setter) ...)
-                             (if (null? cs)
-                                 o
-                                 (let ((c (car cs))
-                                       (cs (cdr cs)))
-                                   (cond
-                                    ((char=? c char)
-                                     (setter o #t)
-                                     (lp cs))
-                                    ...
-                                    (else
-                                     (lp cs)))))))))
+                             (cond
+                              ((null? cs)
+                               o)
+                              ((char=? (car cs) char)
+                               (setter o #t)
+                               (lp (cdr cs)))
+                              ...
+                              (else
+                               (lp (cdr cs))))))))
         (flags (#\a set-tjit-dump-abort!)
                (#\b set-tjit-dump-bytecode!)
                (#\d set-tjit-dump-disassemble!)
                (#\j set-tjit-dump-jitc!)
                (#\l set-tjit-dump-locals!)
                (#\o set-tjit-dump-ops!)
-               (#\s set-tjit-dump-scm!)
+               (#\s set-tjit-dump-anf!)
                (#\t set-tjit-dump-time!)
                (#\x set-tjit-dump-exit!))))))
 
