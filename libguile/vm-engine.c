@@ -213,14 +213,14 @@
 #ifdef VM_TJIT
 # if BUILD_VM_LIGHTNING == 1
 #  define VM_TJIT_MERGE(n)                                      \
-  if (tjit_state->vm_state == SCM_TJIT_VM_STATE_RECORD)         \
+  if (tj->vm_state == SCM_TJIT_VM_STATE_RECORD)                 \
     {                                                           \
       SCM_TJIT_MERGE ();                                        \
     }
 #  define VM_TJIT_JUMP(n)                                               \
   do {                                                                  \
     if (n < 0                                                           \
-        && tjit_state->vm_state == SCM_TJIT_VM_STATE_INTERPRET)         \
+        && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)                 \
       {                                                                 \
         SCM_TJIT_ENTER (n, ip + n, ip,                                  \
                         SCM_TJIT_TRACE_JUMP,                            \
@@ -234,7 +234,7 @@
 #  define VM_TJIT_CALL(old_ip)                                          \
   do {                                                                  \
     if (ip < old_ip                                                     \
-        && tjit_state->vm_state == SCM_TJIT_VM_STATE_INTERPRET)         \
+        && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)                 \
       {                                                                 \
         SCM_TJIT_ENTER (0, ip, SCM_FRAME_RETURN_ADDRESS (vp->fp),       \
                         SCM_TJIT_TRACE_CALL,                            \
@@ -532,7 +532,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   register scm_t_uint32 op;
 
 #ifdef VM_TJIT
-  struct scm_tjit_state *tjit_state = scm_make_tjit_state ();
+  struct scm_tjit_state *tj = scm_make_tjit_state ();
 #endif
 
 #ifdef HAVE_LABELS_AS_VALUES

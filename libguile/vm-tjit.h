@@ -135,6 +135,15 @@ static const int op_sizes[256] = {
     scm_hashq_set_x (table, ip, new_count);                             \
   } while (0)
 
+#define SCM_TJITC(ip, loop_p, downrec_p) \
+  do {                                    \
+    SYNC_IP ();                           \
+    tjitc (tj, ip, loop_p, downrec_p);    \
+    CACHE_SP ();                          \
+    ++tjit_trace_id;                      \
+    stop_recording (tj);                  \
+  } while (0)
+
 #endif /* _SCM_VM_MJIT_H_ */
 
 /*

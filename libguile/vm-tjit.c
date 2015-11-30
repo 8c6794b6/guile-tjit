@@ -266,7 +266,7 @@ struct scm_tjit_state *scm_make_tjit_state (void)
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
         call_native (s_ip, ip, fragment, thread, vp, registers,         \
-                     tjit_state, &nlocals);                             \
+                     tj, &nlocals);                                     \
                                                                         \
         /* Update `sp' and `ip' in C code. */                           \
         CACHE_REGISTER ();                                              \
@@ -282,7 +282,7 @@ struct scm_tjit_state *scm_make_tjit_state (void)
         SCM count = scm_hashq_ref (TABLE, s_hot_ip, SCM_INUM0);         \
                                                                         \
         if (SCM_TJIT_IS_HOT (REF, s_hot_ip, count))                     \
-          start_recording (tjit_state, ip + JUMP, END_IP, TTYPE);       \
+          start_recording (tj, ip + JUMP, END_IP, TTYPE);               \
         else                                                            \
           SCM_TJIT_INCREMENT (TABLE, s_hot_ip, count);                  \
                                                                         \
@@ -295,8 +295,8 @@ struct scm_tjit_state *scm_make_tjit_state (void)
   do {                                                                  \
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
                                                                         \
-    scm_t_uint32 *start_ip = (scm_t_uint32 *) tjit_state->loop_start;   \
-    scm_t_uint32 *end_ip = (scm_t_uint32 *) tjit_state->loop_end;       \
+    scm_t_uint32 *start_ip = (scm_t_uint32 *) tj->loop_start;           \
+    scm_t_uint32 *end_ip = (scm_t_uint32 *) tj->loop_end;               \
                                                                         \
     /* Avoid looking up fragment of looping-side-trace itself. */       \
     int link_found =                                                    \
@@ -306,8 +306,8 @@ struct scm_tjit_state *scm_make_tjit_state (void)
                                                                         \
     int dr_done =                                                       \
       ip == start_ip                                                    \
-      && tjit_state->trace_type == SCM_TJIT_TRACE_CALL                  \
-      && tjit_state->nunrolled == SCM_I_INUM (tjit_num_unrolls);        \
+      && tj->trace_type == SCM_TJIT_TRACE_CALL                          \
+      && tj->nunrolled == SCM_I_INUM (tjit_num_unrolls);                \
                                                                         \
     /* Record bytecode IP, FP, and locals. When link was found,      */ \
     /* current record is side trace, and the current bytecode IP is  */ \
@@ -320,8 +320,8 @@ struct scm_tjit_state *scm_make_tjit_state (void)
         opcode = *ip & 0xff;                                            \
                                                                         \
         /* Store current bytecode. */                                   \
-        for (i = 0; i < op_sizes[opcode]; ++i, ++tjit_state->bc_idx)    \
-          tjit_state->bytecode[tjit_state->bc_idx] = ip[i];             \
+        for (i = 0; i < op_sizes[opcode]; ++i, ++tj->bc_idx)            \
+          tj->bytecode[tj->bc_idx] = ip[i];                             \
                                                                         \
         /* Copy local contents to vector. */                            \
         num_locals = FRAME_LOCALS_COUNT ();                             \
@@ -329,50 +329,40 @@ struct scm_tjit_state *scm_make_tjit_state (void)
         for (i = 0; i < num_locals; ++i)                                \
           scm_c_vector_set_x (locals, i, SP_REF (i));                   \
                                                                         \
-        record (thread, s_ip, vp->fp, locals, tjit_state);              \
+        record (thread, s_ip, vp->fp, locals, tj);                      \
       }                                                                 \
                                                                         \
-    switch (tjit_state->trace_type)                                     \
+    switch (tj->trace_type)                                             \
       {                                                                 \
       case SCM_TJIT_TRACE_JUMP:                                         \
         if (ip == end_ip || link_found)                                 \
           {                                                             \
             SCM s_link_found = link_found ? SCM_BOOL_F : SCM_BOOL_T;    \
-            SYNC_IP ();                                                 \
-            tjitc (tjit_state, s_ip, s_link_found, SCM_BOOL_F);         \
-            CACHE_SP ();                                                \
-            ++tjit_trace_id;                                            \
-            stop_recording (tjit_state);                                \
+            SCM_TJITC (s_ip, s_link_found, SCM_BOOL_F);                 \
           }                                                             \
         break;                                                          \
       case SCM_TJIT_TRACE_CALL:                                         \
         if (dr_done)                                                    \
-          {                                                             \
-            SYNC_IP ();                                                 \
-            tjitc (tjit_state, s_ip, SCM_BOOL_T, SCM_BOOL_T);           \
-            CACHE_SP ();                                                \
-            ++tjit_trace_id;                                            \
-            stop_recording (tjit_state);                                \
-          }                                                             \
+          SCM_TJITC (s_ip, SCM_BOOL_T, SCM_BOOL_T);                     \
         else if (ip == start_ip)                                        \
-          ++(tjit_state->nunrolled);                                    \
+          ++(tj->nunrolled);                                            \
         else if (ip == end_ip)                                          \
           {                                                             \
             /* XXX: Hot non-recursive procedure call. Worth to       */ \
             /* compile, but currently marked as failure and ignored. */ \
             increment_compilation_failure (SCM_I_MAKINUM (start_ip));   \
-            stop_recording (tjit_state);                                \
+            stop_recording (tj);                                        \
           }                                                             \
         break;                                                          \
       default:                                                          \
         break;                                                          \
       }                                                                 \
                                                                         \
-    if (SCM_I_INUM (tjit_max_record) < tjit_state->bc_idx)              \
+    if (SCM_I_INUM (tjit_max_record) < tj->bc_idx)                      \
       {                                                                 \
         /* Trace too long, aborting. */                                 \
         increment_compilation_failure (SCM_I_MAKINUM (start_ip));       \
-        stop_recording (tjit_state);                                    \
+        stop_recording (tj);                                            \
       }                                                                 \
   } while (0)
 
