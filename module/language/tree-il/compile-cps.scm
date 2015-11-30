@@ -1012,6 +1012,16 @@ integer."
                                                    (make-lexical-ref src 'v v)))
                               (make-lexical-ref src 'v v)))))
 
+       ;; Lower (logand x (lognot y)) to (logsub x y).  We do it here
+       ;; instead of in CPS because it gets rid of the lognot entirely;
+       ;; if type folding can't prove Y to be an exact integer, then DCE
+       ;; would have to leave it in the program for its possible
+       ;; effects.
+       (($ <primcall> src 'logand (x ($ <primcall> _ 'lognot (y))))
+        (make-primcall src 'logsub (list x y)))
+       (($ <primcall> src 'logand (($ <primcall> _ 'lognot (y)) x))
+        (make-primcall src 'logsub (list x y)))
+
        (($ <prompt> src escape-only? tag body
            ($ <lambda> hsrc hmeta
               ($ <lambda-case> _ hreq #f hrest #f () hsyms hbody #f)))

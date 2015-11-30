@@ -152,6 +152,7 @@
             (emit-logand* . emit-logand)
             (emit-logior* . emit-logior)
             (emit-logxor* . emit-logxor)
+            (emit-logsub* . emit-logsub)
             (emit-make-vector* . emit-make-vector)
             (emit-make-vector/immediate* . emit-make-vector/immediate)
             (emit-vector-length* . emit-vector-length)

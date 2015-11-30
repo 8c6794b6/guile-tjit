@@ -3482,7 +3482,27 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (161, unused_161, NULL, NOP)
+  /* logsub dst:8 a:8 b:8
+   *
+   * Place the bitwise AND of A and the bitwise NOT of B into DST.
+   */
+  VM_DEFINE_OP (161, logsub, "logsub", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      ARGS2 (x, y);
+
+      if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
+        {
+          scm_t_signed_bits a, b;
+
+          a = SCM_I_INUM (x);
+          b = SCM_I_INUM (y);
+
+          RETURN (SCM_I_MAKINUM (a & ~b));
+        }
+
+      RETURN_EXP (scm_logand (x, scm_lognot (y)));
+    }
+
   VM_DEFINE_OP (162, unused_162, NULL, NOP)
   VM_DEFINE_OP (163, unused_163, NULL, NOP)
   VM_DEFINE_OP (164, unused_164, NULL, NOP)

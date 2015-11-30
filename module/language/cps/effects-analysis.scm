@@ -465,6 +465,7 @@ is or might be a read or a write to the same location as A."
   ((logand . _)                    &type-check)
   ((logior . _)                    &type-check)
   ((logxor . _)                    &type-check)
+  ((logsub . _)                    &type-check)
   ((lognot . _)                    &type-check)
   ((logtest a b)                   &type-check)
   ((logbit? a b)                   &type-check)

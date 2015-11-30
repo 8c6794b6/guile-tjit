@@ -1212,6 +1212,31 @@ minimum, and maximum."
            (logand-min (&min a) (&min b))
            (logand-max (&max a) (&max b))))
 
+(define-simple-type-checker (logsub &exact-integer &exact-integer))
+(define-type-inferrer (logsub a b result)
+  (define (logsub-bounds min-a max-a min-b max-b)
+    (cond
+     ((negative? max-b)
+      ;; Sign bit always set on B, so result will never be negative.
+      ;; If A might be negative (all leftmost bits 1), we don't know
+      ;; how positive the result might be.
+      (values 0 (if (negative? min-a) +inf.0 max-a)))
+     ((negative? min-b)
+      ;; Sign bit might be set on B.
+      (values min-a (if (negative? min-a) +inf.0 max-a)))
+     ((negative? min-a)
+      ;; Sign bit never set on B -- result will have the sign of A.
+      (values min-a (if (negative? max-a) -1 max-a)))
+     (else
+      ;; Sign bit never set on A and never set on B -- the nice case.
+      (values 0 max-a))))
+  (restrict! a &exact-integer -inf.0 +inf.0)
+  (restrict! b &exact-integer -inf.0 +inf.0)
+  (call-with-values (lambda ()
+                      (logsub-bounds (&min a) (&max a) (&min b) (&max b)))
+    (lambda (min max)
+      (define! result &exact-integer min max))))
+
 (define-simple-type-checker (logior &exact-integer &exact-integer))
 (define-type-inferrer (logior a b result)
   ;; Saturate all bits of val.
