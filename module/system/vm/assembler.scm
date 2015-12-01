@@ -363,9 +363,6 @@
   (high-pc arity-high-pc set-arity-high-pc!)
   (definitions arity-definitions set-arity-definitions!))
 
-(eval-when (expand)
-  (define-syntax *block-size* (identifier-syntax 32)))
-
 ;;; An assembler collects all of the words emitted during assembly, and
 ;;; also maintains ancillary information such as the constant table, a
 ;;; relocation list, and so on.
@@ -375,7 +372,7 @@
 ;;; the bytevector as a whole instead of conditionalizing each access.
 ;;;
 (define-record-type <asm>
-  (make-asm cur idx start prev written
+  (make-asm buf pos start
             labels relocs
             word-size endianness
             constants inits
@@ -386,10 +383,10 @@
 
   ;; We write bytecode into what is logically a growable vector,
   ;; implemented as a list of blocks.  asm-cur is the current block, and
-  ;; asm-idx is the current index into that block, in 32-bit units.
+  ;; asm-pos is the current index into that block, in 32-bit units.
   ;;
-  (cur asm-cur set-asm-cur!)
-  (idx asm-idx set-asm-idx!)
+  (buf asm-buf set-asm-buf!)
+  (pos asm-pos set-asm-pos!)
 
   ;; asm-start is an absolute position, indicating the offset of the
   ;; beginning of an instruction (in u32 units).  It is updated after
@@ -400,15 +397,6 @@
   ;; program.
   ;;
   (start asm-start set-asm-start!)
-
-  ;; The list of previously written blocks.
-  ;;
-  (prev asm-prev set-asm-prev!)
-
-  ;; The number of u32 words written in asm-prev, which is the same as
-  ;; the offset of the current block.
-  ;;
-  (written asm-written set-asm-written!)
 
   ;; An alist of symbol -> position pairs, indicating the labels defined
   ;; in this compilation unit.
@@ -465,15 +453,12 @@
   ;;
   (slot-maps asm-slot-maps set-asm-slot-maps!))
 
-(define-inline (fresh-block)
-  (make-u32vector *block-size*))
-
 (define* (make-assembler #:key (word-size (target-word-size))
                          (endianness (target-endianness)))
   "Create an assembler for a given target @var{word-size} and
 @var{endianness}, falling back to appropriate values for the configured
 target."
-  (make-asm (fresh-block) 0 0 '() 0
+  (make-asm (make-u32vector 1000) 0 0
             (make-hash-table) '()
             word-size endianness
             vlist-null '()
@@ -484,28 +469,20 @@ target."
   "Add a string to the section name table (shstrtab)."
   (string-table-intern! (asm-shstrtab asm) string))
 
-(define-inline (asm-pos asm)
-  "The offset of the next word to be written into the code buffer, in
-32-bit units."
-  (+ (asm-idx asm) (asm-written asm)))
-
-(define (allocate-new-block asm)
-  "Close off the current block, and arrange for the next word to be
-written to a fresh block."
-  (let ((new (fresh-block)))
-    (set-asm-prev! asm (cons (asm-cur asm) (asm-prev asm)))
-    (set-asm-written! asm (asm-pos asm))
-    (set-asm-cur! asm new)
-    (set-asm-idx! asm 0)))
+(define (grow-buffer! asm)
+  "Grow the code buffer of the asm."
+  (let* ((buf (asm-buf asm))
+         (len (bytevector-length buf))
+         (new (make-u32vector (ash len -1) 0)))
+    (bytevector-copy! buf 0 new 0 len)
+    (set-asm-buf! asm new)
+    #f))
 
 (define-inline (emit asm u32)
   "Emit one 32-bit word into the instruction stream.  Assumes that there
-is space for the word, and ensures that there is space for the next
-word."
-  (u32-set! (asm-cur asm) (asm-idx asm) u32)
-  (set-asm-idx! asm (1+ (asm-idx asm)))
-  (if (= (asm-idx asm) *block-size*)
-      (allocate-new-block asm)))
+is space for the word."
+  (u32-set! (asm-buf asm) (asm-pos asm) u32)
+  (set-asm-pos! asm (1+ (asm-pos asm))))
 
 (define-inline (make-reloc type label base word)
   "Make an internal relocation of type @var{type} referencing symbol
@@ -674,7 +651,12 @@ later by the linker."
                         (map (lambda (word) (pack-tail-word #'asm word))
                              (syntax->datum #'(word* ...)))))
            #'(lambda (asm formal0 ... formal* ... ...)
-               (unless (asm? asm) (error "not an asm"))
+               (let lp ()
+                 (let ((words (length '(word0 word* ...))))
+                   (unless (<= (* 4 (+ (asm-pos asm) words))
+                               (bytevector-length (asm-buf asm)))
+                     (grow-buffer! asm)
+                     (lp))))
                code0 ...
                code* ... ...
                (reset-asm-start! asm))))))))
@@ -1630,20 +1612,14 @@ The offsets are expected to be expressed in words."
   "Link the .rtl-text section, swapping the endianness of the bytes if
 needed."
   (let ((buf (make-u32vector (asm-pos asm))))
-    (let lp ((pos 0) (prev (reverse (asm-prev asm))))
-      (if (null? prev)
-          (let ((byte-size (* (asm-idx asm) 4)))
-            (bytevector-copy! (asm-cur asm) 0 buf pos byte-size)
-            (unless (eq? (asm-endianness asm) (native-endianness))
-              (swap-bytes! buf))
-            (make-object asm '.rtl-text
-                         buf
-                         (process-relocs buf (asm-relocs asm)
-                                         (asm-labels asm))
-                         (process-labels (asm-labels asm))))
-          (let ((len (* *block-size* 4)))
-            (bytevector-copy! (car prev) 0 buf pos len)
-            (lp (+ pos len) (cdr prev)))))))
+    (bytevector-copy! (asm-buf asm) 0 buf 0 (bytevector-length buf))
+    (unless (eq? (asm-endianness asm) (native-endianness))
+      (swap-bytes! buf))
+    (make-object asm '.rtl-text
+                 buf
+                 (process-relocs buf (asm-relocs asm)
+                                 (asm-labels asm))
+                 (process-labels (asm-labels asm)))))
 
 
 
