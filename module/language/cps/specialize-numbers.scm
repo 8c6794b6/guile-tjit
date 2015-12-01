@@ -81,11 +81,18 @@
         ($continue kunbox-b src
           ($primcall 'scm->f64 (a)))))))
 
-(define (specialize-u64-binop cps k src op a b)
+(define* (specialize-u64-binop cps k src op a b #:key
+                               (unbox-a 'scm->u64)
+                               (unbox-b 'scm->u64))
   (let ((uop (match op
                ('add 'uadd)
                ('sub 'usub)
-               ('mul 'umul))))
+               ('mul 'umul)
+               ('logand 'ulogand)
+               ('logior 'ulogior)
+               ('logsub 'ulogsub)
+               ('rsh 'ursh)
+               ('lsh 'ulsh))))
     (with-cps cps
       (letv u64-a u64-b result)
       (letk kbox ($kargs ('result) (result)
@@ -96,10 +103,10 @@
                     ($primcall uop (u64-a u64-b)))))
       (letk kunbox-b ($kargs ('u64-a) (u64-a)
                        ($continue kop src
-                         ($primcall 'scm->u64 (b)))))
+                         ($primcall unbox-b (b)))))
       (build-term
         ($continue kunbox-b src
-          ($primcall 'scm->u64 (a)))))))
+          ($primcall unbox-a (a)))))))
 
 (define (specialize-u64-comparison cps kf kt src op a b)
   (let ((op (symbol-append 'u64- op)))
@@ -152,6 +159,79 @@
                  cps))
                types))))))
       (($ $kargs names vars
+          ($ $continue k src ($ $primcall 'ash (a b))))
+       (match (intmap-ref cps k)
+         (($ $kargs (_) (result))
+          (call-with-values (lambda ()
+                              (lookup-post-type types label result 0))
+            (lambda (type min max)
+              (call-with-values (lambda ()
+                                  (lookup-pre-type types label b))
+                (lambda (b-type b-min b-max)
+                  (values
+                   (cond
+                    ((or (not (eqv? type &exact-integer))
+                         (not (<= 0 min max #xffffffffffffffff))
+                         (not (u64-operand? a))
+                         (not (eqv? b-type &exact-integer))
+                         (< b-min 0 b-max)
+                         (<= b-min -64)
+                         (<= 64 b-max))
+                     cps)
+                    ((and (< b-min 0) (= b-min b-max))
+                     (with-cps cps
+                       (let$ body
+                             (with-cps-constants ((bits (- b-min)))
+                               ($ (specialize-u64-binop k src 'rsh a bits))))
+                       (setk label ($kargs names vars ,body))))
+                    ((< b-min 0)
+                     (with-cps cps
+                       (let$ body
+                             (with-cps-constants ((zero 0))
+                               (letv bits)
+                               (let$ body
+                                     (specialize-u64-binop k src 'rsh a bits))
+                               (letk kneg ($kargs ('bits) (bits) ,body))
+                               (build-term
+                                 ($continue kneg src
+                                   ($primcall 'sub (zero b))))))
+                       (setk label ($kargs names vars ,body))))
+                    (else
+                     (with-cps cps
+                       (let$ body (specialize-u64-binop k src 'lsh a b))
+                       (setk label ($kargs names vars ,body)))))
+                   types))))))))
+      (($ $kargs names vars
+          ($ $continue k src
+             ($ $primcall (and op (or 'logand 'logior 'logsub)) (a b))))
+       (match (intmap-ref cps k)
+         (($ $kargs (_) (result))
+          (call-with-values (lambda ()
+                              (lookup-post-type types label result 0))
+            (lambda (type min max)
+              (values
+               (cond
+                ((and (eqv? type &exact-integer)
+                      (<= 0 min max #xffffffffffffffff))
+                 ;; If we know the result is a u64, then any
+                 ;; out-of-range bits won't affect the result and so we
+                 ;; can project the operands onto u64.
+                 (with-cps cps
+                   (let$ body
+                         (specialize-u64-binop k src op a b
+                                               #:unbox-a
+                                               (if (u64-operand? a)
+                                                   'scm->u64
+                                                   'scm->u64/truncate)
+                                               #:unbox-b
+                                               (if (u64-operand? b)
+                                                   'scm->u64
+                                                   'scm->u64/truncate)))
+                   (setk label ($kargs names vars ,body))))
+                (else
+                 cps))
+               types))))))
+      (($ $kargs names vars
           ($ $continue k src
              ($ $branch kt ($ $primcall (and op (or '< '<= '= '>= '>)) (a b)))))
        (values
@@ -184,7 +264,7 @@
 ;; include an unbox operation.
 (define (compute-specializable-vars cps body preds defs
                                     exp-result-unboxable?
-                                    unbox-op)
+                                    unbox-ops)
   ;; Compute a map of VAR->LABEL... indicating the set of labels that
   ;; define VAR with unboxable values, given the set of vars
   ;; UNBOXABLE-VARS which is known already to be unboxable.
@@ -238,7 +318,7 @@
        (match (intmap-ref cps label)
          (($ $kargs _ _ ($ $continue k _ exp))
           (match exp
-            (($ $primcall (? (lambda (op) (eq? op unbox-op))) (var))
+            (($ $primcall (? (lambda (op) (memq op unbox-ops))) (var))
              (intset-add unbox-uses var))
             (($ $values vars)
              (match (intmap-ref cps k)
@@ -271,7 +351,7 @@
            ($ $const (and (? number?) (? inexact?) (? real?))))
        #t)
       (_ #f)))
-  (compute-specializable-vars cps body preds defs exp-result-f64? 'scm->f64))
+  (compute-specializable-vars cps body preds defs exp-result-f64? '(scm->f64)))
 
 ;; Compute vars whose definitions are all exact integers in the u64
 ;; range and whose uses include an unbox operation.
@@ -285,7 +365,8 @@
        #t)
       (_ #f)))
 
-  (compute-specializable-vars cps body preds defs exp-result-u64? 'scm->u64))
+  (compute-specializable-vars cps body preds defs exp-result-u64?
+                              '(scm->u64 'scm->u64/truncate)))
 
 (define (compute-phi-vars cps preds)
   (intmap-fold (lambda (label preds phis)
