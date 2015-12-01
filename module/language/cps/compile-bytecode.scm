@@ -204,6 +204,8 @@
          (emit-f64->scm asm (from-sp dst) (from-sp (slot src))))
         (($ $primcall 'scm->u64 (src))
          (emit-scm->u64 asm (from-sp dst) (from-sp (slot src))))
+        (($ $primcall 'scm->u64/truncate (src))
+         (emit-scm->u64/truncate asm (from-sp dst) (from-sp (slot src))))
         (($ $primcall 'load-u64 (src))
          (emit-load-u64 asm (from-sp dst) (constant src)))
         (($ $primcall 'u64->scm (src))

@@ -733,8 +733,14 @@ minimum, and maximum."
   (check-type scm &exact-integer 0 #xffffffffffffffff))
 (define-type-inferrer (scm->u64 scm result)
   (restrict! scm &exact-integer 0 #xffffffffffffffff)
-  (define! result &u64 (max (&min scm) 0) (min (&max scm) #xffffffffffffffff)))
+  (define! result &u64 (max (&min scm) 0) (min (&max scm) &u64-max)))
 (define-type-aliases scm->u64 load-u64)
+
+(define-type-checker (scm->u64/truncate scm)
+  (check-type scm &exact-integer &range-min &range-max))
+(define-type-inferrer (scm->u64/truncate scm result)
+  (restrict! scm &exact-integer &range-min &range-max)
+  (define! result &u64 0 &u64-max))
 
 (define-type-checker (u64->scm u64)
   #t)
@@ -1190,6 +1196,25 @@ minimum, and maximum."
              (min -- -+ ++ +-)
              (max -- -+ ++ +-))))
 
+(define-simple-type-checker (ursh &u64 &u64))
+(define-type-inferrer (ursh a b result)
+  (restrict! a &u64 0 &u64-max)
+  (restrict! b &u64 0 &u64-max)
+  (define! result &u64
+    (ash (&min a) (- (&max b)))
+    (ash (&max a) (- (&min b)))))
+
+(define-simple-type-checker (ulsh &u64 &u64))
+(define-type-inferrer (ulsh a b result)
+  (restrict! a &u64 0 &u64-max)
+  (restrict! b &u64 0 &u64-max)
+  (if (and (< (&max b) 64)
+           (<= (ash (&max a) (&max b)) &u64-max))
+      ;; No overflow; we can be precise.
+      (define! result &u64 (ash (&min a) (&min b)) (ash (&max a) (&max b)))
+      ;; Otherwise assume the whole range.
+      (define! result &u64 0 &u64-max)))
+
 (define (next-power-of-two n)
   (let lp ((out 1))
     (if (< n out)
@@ -1211,6 +1236,12 @@ minimum, and maximum."
   (define! result &exact-integer
            (logand-min (&min a) (&min b))
            (logand-max (&max a) (&max b))))
+
+(define-simple-type-checker (ulogand &u64 &u64))
+(define-type-inferrer (ulogand a b result)
+  (restrict! a &u64 0 &u64-max)
+  (restrict! b &u64 0 &u64-max)
+  (define! result &u64 0 (max (&max a) (&max b))))
 
 (define-simple-type-checker (logsub &exact-integer &exact-integer))
 (define-type-inferrer (logsub a b result)
@@ -1237,6 +1268,12 @@ minimum, and maximum."
     (lambda (min max)
       (define! result &exact-integer min max))))
 
+(define-simple-type-checker (ulogsub &u64 &u64))
+(define-type-inferrer (ulogsub a b result)
+  (restrict! a &u64 0 &u64-max)
+  (restrict! b &u64 0 &u64-max)
+  (define! result &u64 0 (&max a)))
+
 (define-simple-type-checker (logior &exact-integer &exact-integer))
 (define-type-inferrer (logior a b result)
   ;; Saturate all bits of val.
@@ -1257,6 +1294,14 @@ minimum, and maximum."
   (define! result &exact-integer
            (logior-min (&min a) (&min b))
            (logior-max (&max a) (&max b))))
+
+(define-simple-type-checker (ulogior &u64 &u64))
+(define-type-inferrer (ulogior a b result)
+  (restrict! a &u64 0 &u64-max)
+  (restrict! b &u64 0 &u64-max)
+  (define! result &u64
+    (max (&min a) (&min b))
+    (1- (next-power-of-two (logior (&max a) (&max b))))))
 
 ;; For our purposes, treat logxor the same as logior.
 (define-type-aliases logior logxor)

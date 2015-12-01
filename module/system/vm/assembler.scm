@@ -153,6 +153,11 @@
             (emit-logior* . emit-logior)
             (emit-logxor* . emit-logxor)
             (emit-logsub* . emit-logsub)
+            (emit-ulogand* . emit-ulogand)
+            (emit-ulogior* . emit-ulogior)
+            (emit-ulogsub* . emit-ulogsub)
+            (emit-ursh* . emit-ursh)
+            (emit-ulsh* . emit-ulsh)
             (emit-make-vector* . emit-make-vector)
             (emit-make-vector/immediate* . emit-make-vector/immediate)
             (emit-vector-length* . emit-vector-length)
@@ -173,6 +178,7 @@
             emit-load-f64
             (emit-f64->scm* . emit-f64->scm)
             (emit-scm->u64* . emit-scm->u64)
+            (emit-scm->u64/truncate* . emit-scm->u64/truncate)
             emit-load-u64
             (emit-u64->scm* . emit-u64->scm)
             (emit-scm->s64* . emit-scm->s64)

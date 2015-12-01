@@ -800,9 +800,10 @@ are comparable with eqv?.  A tmp slot may be used."
                                'bv-f32-ref 'bv-f64-ref
                                'fadd 'fsub 'fmul 'fdiv))
               (intmap-add representations var 'f64))
-             (($ $primcall (or 'scm->u64 'load-u64
+             (($ $primcall (or 'scm->u64 'scm->u64/truncate 'load-u64
                                'bv-length 'vector-length 'string-length
                                'uadd 'usub 'umul
+                               'ulogand 'ulogior 'ulogsub 'ursh 'ulsh
                                'uadd/immediate 'usub/immediate 'umul/immediate
                                'bv-u8-ref 'bv-u16-ref 'bv-u32-ref 'bv-u64-ref))
               (intmap-add representations var 'u64))

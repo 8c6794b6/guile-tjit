@@ -3503,12 +3503,112 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       RETURN_EXP (scm_logand (x, scm_lognot (y)));
     }
 
-  VM_DEFINE_OP (162, unused_162, NULL, NOP)
-  VM_DEFINE_OP (163, unused_163, NULL, NOP)
-  VM_DEFINE_OP (164, unused_164, NULL, NOP)
-  VM_DEFINE_OP (165, unused_165, NULL, NOP)
-  VM_DEFINE_OP (166, unused_166, NULL, NOP)
-  VM_DEFINE_OP (167, unused_167, NULL, NOP)
+  /* ulogand dst:8 a:8 b:8
+   *
+   * Place the bitwise AND of the u64 values in A and B into DST.
+   */
+  VM_DEFINE_OP (162, ulogand, "ulogand", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+
+      UNPACK_8_8_8 (op, dst, a, b);
+
+      SP_SET_U64 (dst, SP_REF_U64 (a) & SP_REF_U64 (b));
+
+      NEXT (1);
+    }
+
+  /* ulogior dst:8 a:8 b:8
+   *
+   * Place the bitwise inclusive OR of the u64 values in A and B into
+   * DST.
+   */
+  VM_DEFINE_OP (163, ulogior, "ulogior", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+
+      UNPACK_8_8_8 (op, dst, a, b);
+
+      SP_SET_U64 (dst, SP_REF_U64 (a) | SP_REF_U64 (b));
+
+      NEXT (1);
+    }
+
+  /* ulogsub dst:8 a:8 b:8
+   *
+   * Place the (A & ~B) of the u64 values A and B into DST.
+   */
+  VM_DEFINE_OP (164, ulogsub, "ulogsub", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+
+      UNPACK_8_8_8 (op, dst, a, b);
+
+      SP_SET_U64 (dst, SP_REF_U64 (a) & ~SP_REF_U64 (b));
+
+      NEXT (1);
+    }
+
+  /* ursh dst:8 a:8 b:8
+   *
+   * Shift the u64 value in A right by B bits, and place the result in
+   * DST.  Only the lower 6 bits of B are used.
+   */
+  VM_DEFINE_OP (165, ursh, "ursh", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+
+      UNPACK_8_8_8 (op, dst, a, b);
+
+      SP_SET_U64 (dst, SP_REF_U64 (a) >> (SP_REF_U64 (b) & 63));
+
+      NEXT (1);
+    }
+
+  /* ulsh dst:8 a:8 b:8
+   *
+   * Shift the u64 value in A left by B bits, and place the result in
+   * DST.  Only the lower 6 bits of B are used.
+   */
+  VM_DEFINE_OP (166, ulsh, "ulsh", OP1 (X8_S8_S8_S8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+
+      UNPACK_8_8_8 (op, dst, a, b);
+
+      SP_SET_U64 (dst, SP_REF_U64 (a) << (SP_REF_U64 (b) & 63));
+
+      NEXT (1);
+    }
+
+  /* scm->u64/truncate dst:12 src:12
+   *
+   * Unpack an exact integer from SRC and place it in the unsigned
+   * 64-bit register DST, truncating any high bits.  If the number in
+   * SRC is negative, all the high bits will be set.
+   */
+  VM_DEFINE_OP (167, scm_to_u64_truncate, "scm->u64/truncate", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      SCM x;
+
+      UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
+      x = SP_REF (src);
+
+      if (SCM_I_INUMP (x))
+        SP_SET_U64 (dst, (scm_t_uint64) SCM_I_INUM (x));
+      else
+        {
+          SYNC_IP ();
+          SP_SET_U64 (dst,
+                      scm_to_uint64
+                      (scm_logand (x, scm_from_uint64 ((scm_t_uint64) -1))));
+        }
+
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (168, unused_168, NULL, NOP)
   VM_DEFINE_OP (169, unused_169, NULL, NOP)
   VM_DEFINE_OP (170, unused_170, NULL, NOP)
