@@ -22,7 +22,10 @@
 
 
 GOBJECTS = $(SOURCES:%.scm=%.go)
-GUILE_WARNINGS = -Wunbound-variable -Warity-mismatch -Wformat
+# No warnings for the bootstrap build.  Run
+#   make GUILE_WARNINGS="-Wunbound-variable -Warity-mismatch -Wformat"
+# to get the normal set of warnings.
+GUILE_WARNINGS =
 GUILE_OPTIMIZATIONS = -O1
 nobase_noinst_DATA = $(GOBJECTS) ice-9/eval.go
 CLEANFILES = $(GOBJECTS) ice-9/eval.go ice-9/psyntax-pp.go
