@@ -473,6 +473,8 @@ is or might be a read or a write to the same location as A."
   ((ulogsub . _))
   ((ursh . _))
   ((ulsh . _))
+  ((ursh/immediate . _))
+  ((ulsh/immediate . _))
   ((logtest a b)                   &type-check)
   ((logbit? a b)                   &type-check)
   ((sqrt _)                        &type-check)

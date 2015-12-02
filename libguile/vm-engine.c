@@ -3609,8 +3609,38 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (168, unused_168, NULL, NOP)
-  VM_DEFINE_OP (169, unused_169, NULL, NOP)
+  /* ursh/immediate dst:8 a:8 b:8
+   *
+   * Shift the u64 value in A right by the immediate B bits, and place
+   * the result in DST.  Only the lower 6 bits of B are used.
+   */
+  VM_DEFINE_OP (168, ursh_immediate, "ursh/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+
+      UNPACK_8_8_8 (op, dst, a, b);
+
+      SP_SET_U64 (dst, SP_REF_U64 (a) >> (b & 63));
+
+      NEXT (1);
+    }
+
+  /* ulsh/immediate dst:8 a:8 b:8
+   *
+   * Shift the u64 value in A left by the immediate B bits, and place
+   * the result in DST.  Only the lower 6 bits of B are used.
+   */
+  VM_DEFINE_OP (169, ulsh_immediate, "ulsh/immediate", OP1 (X8_S8_S8_C8) | OP_DST)
+    {
+      scm_t_uint8 dst, a, b;
+
+      UNPACK_8_8_8 (op, dst, a, b);
+
+      SP_SET_U64 (dst, SP_REF_U64 (a) << (b & 63));
+
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (170, unused_170, NULL, NOP)
   VM_DEFINE_OP (171, unused_171, NULL, NOP)
   VM_DEFINE_OP (172, unused_172, NULL, NOP)

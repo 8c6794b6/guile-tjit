@@ -33,6 +33,9 @@
 
 (define (specialize-primcalls conts)
   (let ((constants (compute-constant-values conts)))
+    (define (u6? var)
+      (let ((val (intmap-ref constants var (lambda (_) #f))))
+        (and (exact-integer? val) (<= 0 val 63))))
     (define (u8? var)
       (let ((val (intmap-ref constants var (lambda (_) #f))))
         (and (exact-integer? val) (<= 0 val 255))))
@@ -64,6 +67,8 @@
         (('usub x (? u8? y)) (build-exp ($primcall 'usub/immediate (x y))))
         (('umul x (? u8? y)) (build-exp ($primcall 'umul/immediate (x y))))
         (('umul (? u8? x) y) (build-exp ($primcall 'umul/immediate (y x))))
+        (('ursh x (? u6? y)) (build-exp ($primcall 'ursh/immediate (x y))))
+        (('ulsh x (? u6? y)) (build-exp ($primcall 'ulsh/immediate (x y))))
         (('scm->f64 (? f64?)) (rename 'load-f64))
         (('scm->u64 (? u64?)) (rename 'load-u64))
         (('scm->u64/truncate (? u64?)) (rename 'load-u64))

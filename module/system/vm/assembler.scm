@@ -158,6 +158,8 @@
             (emit-ulogsub* . emit-ulogsub)
             (emit-ursh* . emit-ursh)
             (emit-ulsh* . emit-ulsh)
+            (emit-ursh/immediate* . emit-ursh/immediate)
+            (emit-ulsh/immediate* . emit-ulsh/immediate)
             (emit-make-vector* . emit-make-vector)
             (emit-make-vector/immediate* . emit-make-vector/immediate)
             (emit-vector-length* . emit-vector-length)

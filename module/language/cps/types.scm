@@ -1203,6 +1203,7 @@ minimum, and maximum."
   (define! result &u64
     (ash (&min a) (- (&max b)))
     (ash (&max a) (- (&min b)))))
+(define-type-aliases ursh ursh/immediate)
 
 (define-simple-type-checker (ulsh &u64 &u64))
 (define-type-inferrer (ulsh a b result)
@@ -1214,6 +1215,7 @@ minimum, and maximum."
       (define! result &u64 (ash (&min a) (&min b)) (ash (&max a) (&max b)))
       ;; Otherwise assume the whole range.
       (define! result &u64 0 &u64-max)))
+(define-type-aliases ulsh ulsh/immediate)
 
 (define (next-power-of-two n)
   (let lp ((out 1))
