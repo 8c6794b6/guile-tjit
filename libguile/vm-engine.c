@@ -379,7 +379,7 @@
       }                                                                 \
   }
 
-#define BR_U64_ARITHMETIC(crel,srel)                                    \
+#define BR_U64_ARITHMETIC(crel)                                         \
   {                                                                     \
     scm_t_uint32 a, b;                                                  \
     scm_t_uint64 x, y;                                                  \
@@ -3279,7 +3279,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (146, br_if_u64_ee, "br-if-u64-=", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
-      BR_U64_ARITHMETIC (==, scm_num_eq_p);
+      BR_U64_ARITHMETIC (==);
     }
 
   /* br-if-< a:12 b:12 invert:1 _:7 offset:24
@@ -3289,12 +3289,12 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (147, br_if_u64_lt, "br-if-u64-<", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
-      BR_U64_ARITHMETIC (<, scm_less_p);
+      BR_U64_ARITHMETIC (<);
     }
 
   VM_DEFINE_OP (148, br_if_u64_le, "br-if-u64-<=", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
-      BR_U64_ARITHMETIC (<=, scm_leq_p);
+      BR_U64_ARITHMETIC (<=);
     }
 
   /* uadd dst:8 a:8 b:8
@@ -3593,7 +3593,6 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM x;
 
       UNPACK_12_12 (op, dst, src);
-      SYNC_IP ();
       x = SP_REF (src);
 
       if (SCM_I_INUMP (x))
