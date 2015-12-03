@@ -64,8 +64,7 @@
                                              (tj-past-frame tj)))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i))))
-    (define (take-snapshot-in-entry! ir ip dst-offset locals sp-offset
-                                     min-sp)
+    (define (take-snapshot-in-entry! ir ip dst-offset locals sp-offset min-sp)
       (let-values (((ret snapshot)
                     (take-snapshot ip
                                    dst-offset
@@ -153,6 +152,20 @@
             (('call-label . _)
              ;; XXX: TODO.
              (escape #f))
+            (_
+             (escape #f))))
+         ((tj-uprec? tj)
+          (match op
+            (('return-values n)
+             (lambda ()
+               (let* ((next-sp-offset last-sp-offset))
+                 `(let ((_ ,(take-snapshot-in-entry! ir
+                                                     *ip-key-uprec*
+                                                     0
+                                                     locals
+                                                     next-sp-offset
+                                                     (ir-min-sp-offset ir))))
+                    (loop ,@(reverse (map cdr (ir-vars ir))))))))
             (_
              (escape #f))))
          ((tj-loop? tj)
@@ -321,7 +334,9 @@
           (cond
            (root-trace?
             (let* ((arg-indices (filter (lambda (n)
-                                          (<= 0 n))
+                                          (if (tj-uprec? tj)
+                                              (<= 0 n (- initial-nlocals 1))
+                                              (<= 0 n)))
                                         (reverse local-indices)))
                    (snapshot (make-snapshot 0
                                             0

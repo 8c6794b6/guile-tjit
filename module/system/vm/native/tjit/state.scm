@@ -37,13 +37,14 @@
             tj-parent-snapshot
             tj-past-frame
             tj-loop?
-            tj-downrec?))
+            tj-downrec?
+            tj-uprec?))
 
 (define-record-type $tj
   (make-tj id entry-ip linked-ip
            parent-exit-id parent-fragment parent-snapshot
            past-frame
-           loop? downrec?)
+           loop? downrec? uprec?)
   tj?
 
   ;; Trace ID of this compilation.
@@ -71,4 +72,7 @@
   (loop? tj-loop?)
 
   ;; Flag for down recursion trace.
-  (downrec? tj-downrec?))
+  (downrec? tj-downrec?)
+
+  ;; Flag for up recursion trace.
+  (uprec? tj-uprec?))

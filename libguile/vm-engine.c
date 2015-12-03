@@ -219,8 +219,7 @@
     }
 #  define VM_TJIT_JUMP(n)                                               \
   do {                                                                  \
-    if (n < 0                                                           \
-        && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)                 \
+    if (n < 0 && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)           \
       {                                                                 \
         SCM_TJIT_ENTER (n, ip + n, ip,                                  \
                         SCM_TJIT_TRACE_JUMP,                            \
@@ -233,8 +232,7 @@
   } while (0)
 #  define VM_TJIT_CALL(old_ip)                                          \
   do {                                                                  \
-    if (ip < old_ip                                                     \
-        && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)                 \
+    if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
       {                                                                 \
         SCM_TJIT_ENTER (0, ip, SCM_FRAME_RETURN_ADDRESS (vp->fp),       \
                         SCM_TJIT_TRACE_CALL,                            \
@@ -245,6 +243,32 @@
     else                                                                \
       NEXT (0);                                                         \
   } while (0)
+#  define VM_TJIT_TAIL_CALL(old_ip)                                     \
+  do {                                                                  \
+    if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
+      {                                                                 \
+        SCM_TJIT_ENTER (0, ip, old_ip,                                  \
+                        SCM_TJIT_TRACE_JUMP,                            \
+                        tjit_jump_counter_table,                        \
+                        tjit_hot_call);                                 \
+        NEXT (0);                                                       \
+      }                                                                 \
+    else                                                                \
+      NEXT (0);                                                         \
+  } while (0)
+#  define VM_TJIT_RETURN(n)                             \
+  do {                                                  \
+    if (tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)    \
+      {                                                 \
+        SCM_TJIT_ENTER (0, ip, 0,                       \
+                        SCM_TJIT_TRACE_RETURN,          \
+                        tjit_return_counter_table,      \
+                        tjit_hot_call);                 \
+        NEXT (0);                                       \
+      }                                                 \
+    else                                                \
+      NEXT (0);                                         \
+  } while (0);                                          \
 
 # endif
 #endif
@@ -258,6 +282,13 @@
 #ifndef VM_TJIT_CALL
 # define VM_TJIT_CALL(old_ip) NEXT (0)
 #endif
+#ifndef VM_TJIT_TAIL_CALL
+# define VM_TJIT_TAIL_CALL(old_ip) NEXT (0)
+#endif
+#ifndef VM_TJIT_RETURN
+# define VM_TJIT_RETURN(n) NEXT (0)
+#endif
+
 
 #ifdef HAVE_LABELS_AS_VALUES
 # define BEGIN_DISPATCH_SWITCH /* */
@@ -696,7 +727,12 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (3, tail_call, "tail-call", OP1 (X8_C24))
     {
       scm_t_uint32 nlocals;
-      
+
+#ifdef VM_TJIT
+      scm_t_uint32 *old_ip;
+      old_ip = ip;
+#endif
+
       UNPACK_24 (op, nlocals);
 
       VM_HANDLE_INTERRUPTS;
@@ -710,7 +746,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      NEXT (0);
+      VM_TJIT_TAIL_CALL (old_ip);
     }
 
   /* tail-call-label nlocals:24 label:32
@@ -846,7 +882,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       POP_CONTINUATION_HOOK (old_fp);
 
-      NEXT (0);
+      VM_TJIT_RETURN (0);
     }
 
 
@@ -4007,6 +4043,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 #undef VM_TJIT_MERGE
 #undef VM_TJIT_JUMP
 #undef VM_TJIT_CALL
+#undef VM_TJIT_TAIL_CALL
+#undef VM_TJIT_RETURN
 
 /*
 (defun renumber-ops ()

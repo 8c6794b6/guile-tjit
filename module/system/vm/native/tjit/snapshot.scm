@@ -54,9 +54,11 @@
             snapshot-link?
             snapshot-set-loop-info?
             snapshot-downrec?
+            snapshot-uprec?
             *ip-key-link*
             *ip-key-set-loop-info!*
             *ip-key-downrec*
+            *ip-key-uprec*
 
             $past-frame
             make-past-frame
@@ -387,6 +389,7 @@
 (define *ip-key-link* 0)
 (define *ip-key-set-loop-info!* 1)
 (define *ip-key-downrec* 2)
+(define *ip-key-uprec* 3)
 
 (define (snapshot-link? snapshot)
   (= (snapshot-ip snapshot) *ip-key-link*))
@@ -396,3 +399,6 @@
 
 (define (snapshot-downrec? snapshot)
   (= (snapshot-ip snapshot) *ip-key-downrec*))
+
+(define (snapshot-uprec? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-uprec*))

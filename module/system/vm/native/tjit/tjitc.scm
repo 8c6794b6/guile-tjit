@@ -255,15 +255,15 @@
   '((system vm assembler)
     (system vm linker)))
 
-(define (traced-ops bytecode traces initial-sp-offset initial-fp-offset)
+(define (traced-ops bytecode traces sp-offset fp-offset)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
   (let lp ((acc '())
            (offset 0)
            (traces (reverse! traces))
            (st (make-hash-table))
-           (sp-offset initial-sp-offset)
-           (fp-offset initial-fp-offset)
+           (sp-offset sp-offset)
+           (fp-offset fp-offset)
            (sp-offsets '())
            (fp-offsets '()))
     (match traces
@@ -306,7 +306,7 @@
 
 ;; This procedure is called from C code in "libguile/vm-tjit.c".
 (define (tjitc trace-id bytecode traces parent-ip parent-exit-id linked-ip
-               loop? downrec?)
+               loop? downrec? uprec?)
   (define (module-to-skip? ip)
     (string-match
      (string-append "("
@@ -335,7 +335,18 @@
                                  (fragment-id (get-root-trace linked-ip))))))
       (format #t ";;; trace ~a: ~a~a~a~a~%"
               trace-id sline exit-pair linked-id
-              (if downrec? " - downrec" ""))))
+              (cond
+               (downrec? " - downrec")
+               (uprec? " - uprec")
+               (else "")))))
+
+  ;; XXX: Workaround for freed SCM values during compilation.
+  ;;
+  ;; Better to explicitly specify the SCM values want to preserved from garbage
+  ;; collection during compilation. At the moment, GC is disabled here and
+  ;; enabled at the end of this procedure.
+  ;;
+  (gc-disable)
 
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
@@ -362,15 +373,6 @@
              (verbosity (lightning-verbosity))
              (sline (addr->source-line entry-ip))
              (dump-option (tjit-dump-option)))
-
-        (when (and verbosity (<= 3 verbosity))
-          (format #t ":;; entry-ip:       ~x~%" entry-ip)
-          (format #t ";;; parent-ip:      ~x~%" parent-ip)
-          (format #t ";;; linked-ip:      ~x~%" linked-ip)
-          (format #t ";;; parent-exit-id: ~a~%" parent-exit-id)
-          (format #t ";;; loop?:          ~a~%" loop?)
-          (and parent-fragment (dump-fragment parent-fragment)))
-
         (cond
          ((module-to-skip? entry-ip)
           ;; XXX: Workaround for modules causing segfault at the time of
@@ -388,26 +390,29 @@
                              parent-snapshot
                              past-frame
                              loop?
-                             downrec?)))
+                             downrec?
+                             uprec?)))
             (let-values (((snapshots anf ops)
                           (compile-primops tj traces)))
-              (let-syntax ((dump
-                            (syntax-rules ()
-                              ((_ test exp)
-                               (when (and (test dump-option)
-                                          (or ops
-                                              (tjit-dump-abort? dump-option)))
-                                 exp)))))
-                (dump tjit-dump-jitc? (show-one-line sline parent-fragment))
-                (dump tjit-dump-bytecode? (dump-bytecode trace-id traces))
-                (dump tjit-dump-anf? (dump-anf trace-id anf)))
+              (define-syntax dump
+                (syntax-rules ()
+                  ((_ test exp)
+                   (when (and (test dump-option)
+                              (or ops
+                                  (tjit-dump-abort? dump-option)))
+                     exp))))
+              (dump tjit-dump-jitc? (show-one-line sline parent-fragment))
+              (dump tjit-dump-bytecode? (dump-bytecode trace-id traces))
+              (dump tjit-dump-anf? (dump-anf trace-id anf))
+              (dump tjit-dump-ops? (dump-primops trace-id ops snapshots))
               (cond
                ((not ops)
                 (debug 1 ";;; trace ~a: aborted~%" trace-id)
                 (increment-compilation-failure entry-ip))
+               (uprec?
+                (debug 1 ";;; trace ~a: NYI up recursion~%" trace-id)
+                (increment-compilation-failure entry-ip))
                (else
-                (when (tjit-dump-ops? dump-option)
-                  (dump-primops trace-id ops snapshots))
                 (let-values (((code size adjust loop-address trampoline)
                               (compile-native tj ops snapshots)))
                   (when (tjit-dump-disassemble? dump-option)
@@ -422,7 +427,8 @@
               (when (tjit-dump-time? dump-option)
                 (let ((log (get-tjit-time-log trace-id))
                       (t (get-internal-run-time)))
-                  (set-tjit-time-log-end! log t)))))))))))
+                  (set-tjit-time-log-end! log t))))))))))
+  (gc-enable))
 
 
 ;;;

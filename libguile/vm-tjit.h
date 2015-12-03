@@ -29,8 +29,9 @@ enum scm_tjit_vm_state
 
 enum scm_tjit_trace_type
   {
-    SCM_TJIT_TRACE_JUMP, /* backward jump */
-    SCM_TJIT_TRACE_CALL, /* procedure call */
+    SCM_TJIT_TRACE_JUMP,    /* backward jump */
+    SCM_TJIT_TRACE_CALL,    /* procedure call */
+    SCM_TJIT_TRACE_RETURN,  /* procedure return */
   };
 
 struct scm_tjit_state
@@ -53,6 +54,7 @@ typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
 
 SCM_API SCM scm_tjit_ip_counter (void);
 SCM_API SCM scm_tjit_call_counter (void);
+SCM_API SCM scm_tjit_return_counter (void);
 SCM_API SCM scm_tjit_fragment_table (void);
 SCM_API SCM scm_tjit_root_trace_table (void);
 SCM_API SCM scm_tjit_failed_ip_table (void);
@@ -81,6 +83,7 @@ SCM_API void scm_tjit_dump_locals (SCM trace_id, int n,
 #define SCM_FRAGMENT_CODE(T)           SCM_STRUCT_SLOT_REF (T, 1)
 #define SCM_FRAGMENT_EXIT_COUNTS(T)    SCM_STRUCT_SLOT_REF (T, 2)
 #define SCM_FRAGMENT_DOWNREC_P(T)      SCM_STRUCT_SLOT_REF (T, 3)
+#define SCM_FRAGMENT_UPREC_P(T)        SCM_STRUCT_SLOT_REF (T, 4)
 
 #define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
 #define SCM_TJIT_RETVAL_FRAGMENT_ID(R) SCM_CELL_OBJECT (R, 1)
@@ -120,52 +123,6 @@ static const int op_sizes[256] = {
 #undef OP5
 #undef OP_DST
 #undef NOP
-
-#define SCM_TJIT_IS_HOT(ref, ip, count)                            \
-  (ref < count                                                     \
-   && scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0) <        \
-   tjit_max_retries)
-
-#define SCM_TJIT_INCREMENT(table, ip, count)                            \
-  do {                                                                  \
-    SCM new_count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);          \
-    scm_hashq_set_x (table, ip, new_count);                             \
-  } while (0)
-
-#define SCM_TJITC(ip, loop_p, downrec_p) \
-  do {                                    \
-    SYNC_IP ();                           \
-    tjitc (tj, ip, loop_p, downrec_p);    \
-    CACHE_SP ();                          \
-    ++tjit_trace_id;                      \
-    stop_recording (tj);                  \
-  } while (0)
-
-#define SCM_TJIT_RECORD()                                               \
-  do {                                                                  \
-    int opcode, i, num_locals;                                          \
-    SCM locals, trace;                                                  \
-    SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (vp->fp));       \
-                                                                        \
-    opcode = *ip & 0xff;                                                \
-                                                                        \
-    /* Store current bytecode. */                                       \
-    for (i = 0; i < op_sizes[opcode]; ++i, ++tj->bc_idx)                \
-      tj->bytecode[tj->bc_idx] = ip[i];                                 \
-                                                                        \
-    /* Copy local contents to vector. */                                \
-    num_locals = FRAME_LOCALS_COUNT ();                                 \
-    locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);             \
-    for (i = 0; i < num_locals; ++i)                                    \
-      scm_c_vector_set_x (locals, i, SP_REF (i));                       \
-                                                                        \
-    trace = scm_inline_cons (thread, locals, SCM_EOL);                  \
-    trace = scm_inline_cons (thread, s_ra, trace);                      \
-    trace = scm_inline_cons (thread, SCM_I_MAKINUM (ip), trace);        \
-                                                                        \
-    tj->traces = scm_inline_cons (thread, trace, tj->traces);           \
-                                                                        \
-  } while (0);
 
 #endif /* _SCM_VM_MJIT_H_ */
 
