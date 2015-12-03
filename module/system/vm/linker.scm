@@ -394,12 +394,10 @@ symbol, as present in @var{symtab}."
             (target (linker-symbol-address symbol)))
        (case (linker-reloc-type reloc)
          ((rel32/4)
-          (let ((diff (- target offset)))
+          (let ((diff (+ (- target offset) (linker-reloc-addend reloc))))
             (unless (zero? (modulo diff 4))
               (error "Bad offset" reloc symbol offset))
-            (bytevector-s32-set! bv offset
-                                 (+ (/ diff 4) (linker-reloc-addend reloc))
-                                 endianness)))
+            (bytevector-s32-set! bv offset (/ diff 4) endianness)))
          ((rel32/1)
           (let ((diff (- target offset)))
             (bytevector-s32-set! bv offset

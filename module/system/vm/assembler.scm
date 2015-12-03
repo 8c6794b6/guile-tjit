@@ -291,20 +291,6 @@
       ((pack-flags f1 f2) (logior (if f1 (ash 1 0) 0)
                                   (if f2 (ash 1 1) 0))))))
 
-;;; Helpers to read and write 32-bit units in a buffer.
-
-(define-inline (u32-ref buf n)
-  (bytevector-u32-native-ref buf (* n 4)))
-
-(define-inline (u32-set! buf n val)
-  (bytevector-u32-native-set! buf (* n 4) val))
-
-(define-inline (s32-ref buf n)
-  (bytevector-s32-native-ref buf (* n 4)))
-
-(define-inline (s32-set! buf n val)
-  (bytevector-s32-native-set! buf (* n 4) val))
-
 
 
 
@@ -366,20 +352,19 @@
             slot-maps)
   asm?
 
-  ;; We write bytecode into what is logically a growable vector,
-  ;; implemented as a list of blocks.  asm-cur is the current block, and
-  ;; asm-pos is the current index into that block, in 32-bit units.
+  ;; We write bytecode into a bytevector, growing the bytevector as
+  ;; needed.  asm-cur is that bytevector, and asm-pos is the byte offset
+  ;; into the vector at which the next word should be written.
   ;;
   (buf asm-buf set-asm-buf!)
   (pos asm-pos set-asm-pos!)
 
-  ;; asm-start is an absolute position, indicating the offset of the
-  ;; beginning of an instruction (in u32 units).  It is updated after
-  ;; writing all the words for one primitive instruction.  It models the
-  ;; position of the instruction pointer during execution, given that
-  ;; the VM updates the IP only at the end of executing the instruction,
-  ;; and is thus useful for computing offsets between two points in a
-  ;; program.
+  ;; asm-start is an absolute position, indicating the byte offset of
+  ;; the beginning of an instruction.  It is updated after writing all
+  ;; the words for one primitive instruction.  It models the position of
+  ;; the instruction pointer during execution, given that the VM updates
+  ;; the IP only at the end of executing the instruction, and is thus
+  ;; useful for computing offsets between two points in a program.
   ;;
   (start asm-start set-asm-start!)
 
@@ -466,8 +451,8 @@ target."
 (define-inline (emit asm u32)
   "Emit one 32-bit word into the instruction stream.  Assumes that there
 is space for the word."
-  (u32-set! (asm-buf asm) (asm-pos asm) u32)
-  (set-asm-pos! asm (1+ (asm-pos asm))))
+  (bytevector-u32-native-set! (asm-buf asm) (asm-pos asm) u32)
+  (set-asm-pos! asm (+ (asm-pos asm) 4)))
 
 (define-inline (make-reloc type label base word)
   "Make an internal relocation of type @var{type} referencing symbol
@@ -596,7 +581,7 @@ later by the linker."
           (emit asm 0))
          ((LO32 label offset)
           (record-far-label-reference asm label
-                                      (* offset (/ (asm-word-size asm) 4)))
+                                      (* offset (asm-word-size asm)))
           (emit asm 0))
          ((C8_C24 a b)
           (emit asm (pack-u8-u24 a b)))
@@ -638,7 +623,7 @@ later by the linker."
            #'(lambda (asm formal0 ... formal* ... ...)
                (let lp ()
                  (let ((words (length '(word0 word* ...))))
-                   (unless (<= (* 4 (+ (asm-pos asm) words))
+                   (unless (<= (+ (asm-pos asm) (* 4 words))
                                (bytevector-length (asm-buf asm)))
                      (grow-buffer! asm)
                      (lp))))
@@ -1201,7 +1186,7 @@ returned instead."
 (define-macro-assembler (definition asm name slot representation)
   (let* ((arity (car (meta-arities (car (asm-meta asm)))))
          (def (vector name slot representation
-                      (* (- (asm-start asm) (arity-low-pc arity)) 4))))
+                      (- (asm-start asm) (arity-low-pc arity)))))
     (set-arity-definitions! arity (cons def (arity-definitions arity)))))
 
 (define-macro-assembler (cache-current-module! asm module scope)
@@ -1550,23 +1535,29 @@ relocations for references to symbols defined outside the text section."
   (fold
    (lambda (reloc tail)
      (match reloc
-       ((type label base word)
+       ((type label base offset)
         (let ((abs (hashq-ref labels label))
-              (dst (+ base word)))
+              (dst (+ base offset)))
           (case type
             ((s32)
              (if abs
                  (let ((rel (- abs base)))
-                   (s32-set! buf dst rel)
+                   (unless (zero? (logand rel #x3))
+                     (error "reloc not in 32-bit units!"))
+                   (bytevector-s32-native-set! buf dst (ash rel -2))
                    tail)
-                 (cons (make-linker-reloc 'rel32/4 (* dst 4) word label)
+                 (cons (make-linker-reloc 'rel32/4 dst offset label)
                        tail)))
             ((x8-s24)
              (unless abs
                (error "unbound near relocation" reloc))
              (let ((rel (- abs base))
-                   (u32 (u32-ref buf dst)))
-               (u32-set! buf dst (pack-u8-s24 (logand u32 #xff) rel))
+                   (u32 (bytevector-u32-native-ref buf dst)))
+               (unless (zero? (logand rel #x3))
+                 (error "reloc not in 32-bit units!"))
+               (bytevector-u32-native-set! buf dst
+                                           (pack-u8-s24 (logand u32 #xff)
+                                                        (ash rel -2)))
                tail))
             (else (error "bad relocation kind" reloc)))))))
    '()
@@ -1576,7 +1567,7 @@ relocations for references to symbols defined outside the text section."
   "Define linker symbols for the label-offset map in @var{labels}.
 The offsets are expected to be expressed in words."
   (hash-map->list (lambda (label loc)
-                    (make-linker-symbol label (* loc 4)))
+                    (make-linker-symbol label loc))
                   labels))
 
 (define (swap-bytes! buf)
@@ -1596,7 +1587,7 @@ The offsets are expected to be expressed in words."
 (define (link-text-object asm)
   "Link the .rtl-text section, swapping the endianness of the bytes if
 needed."
-  (let ((buf (make-u32vector (asm-pos asm))))
+  (let ((buf (make-bytevector (asm-pos asm))))
     (bytevector-copy! (asm-buf asm) 0 buf 0 (bytevector-length buf))
     (unless (eq? (asm-endianness asm) (native-endianness))
       (swap-bytes! buf))
@@ -1646,7 +1637,7 @@ needed."
                         (list (make-linker-reloc 'abs32/1 0 0 '.rtl-text))
                         '() #:type SHT_PROGBITS #:flags SHF_ALLOC))
           (((pos proc-slot . map) . maps)
-           (bytevector-u32-set! bv header-pos (* pos 4) endianness)
+           (bytevector-u32-set! bv header-pos pos endianness)
            (bytevector-u32-set! bv (+ header-pos 4) map-pos endianness)
            (let write-bytes ((map-pos map-pos)
                              (map map)
@@ -1753,9 +1744,9 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                             #:name name
                             ;; Symbol value and size are measured in
                             ;; bytes, not u32s.
-                            #:value (* 4 (meta-low-pc meta))
-                            #:size (* 4 (- (meta-high-pc meta)
-                                           (meta-low-pc meta)))
+                            #:value (meta-low-pc meta)
+                            #:size (- (meta-high-pc meta)
+                                      (meta-low-pc meta))
                             #:type STT_FUNC
                             #:visibility STV_HIDDEN
                             #:shndx (elf-section-index text-section)))))
@@ -1870,8 +1861,8 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
   (define (write-header pos low-pc high-pc offset flags nreq nopt nlocals)
     (unless (<= (+ nreq nopt) nlocals)
       (error "forgot to emit definition instructions?"))
-    (bytevector-u32-set! headers pos (* low-pc 4) (asm-endianness asm))
-    (bytevector-u32-set! headers (+ pos 4) (* high-pc 4) (asm-endianness asm))
+    (bytevector-u32-set! headers pos low-pc (asm-endianness asm))
+    (bytevector-u32-set! headers (+ pos 4) high-pc (asm-endianness asm))
     (bytevector-u32-set! headers (+ pos 8) offset (asm-endianness asm))
     (bytevector-u32-set! headers (+ pos 12) flags (asm-endianness asm))
     (bytevector-u32-set! headers (+ pos 16) nreq (asm-endianness asm))
@@ -2018,7 +2009,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                     (and tail
                          (not (find-tail is-documentation? (cdr tail)))
                          (string? (cdar tail))
-                         (cons (* 4 (meta-low-pc meta)) (cdar tail)))))
+                         (cons (meta-low-pc meta) (cdar tail)))))
                 (reverse (asm-meta asm))))
   (let* ((endianness (asm-endianness asm))
          (docstrings (find-docstrings))
@@ -2084,7 +2075,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
     (filter-map (lambda (meta)
                   (let ((props (props-without-name-or-docstring meta)))
                     (and (pair? props)
-                         (cons (* 4 (meta-low-pc meta)) props))))
+                         (cons (meta-low-pc meta) props))))
                 (reverse (asm-meta asm))))
   (let* ((endianness (asm-endianness asm))
          (procprops (find-procprops))
@@ -2145,14 +2136,14 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
             (else
              '()))
          (low-pc ,(meta-label meta))
-         (high-pc ,(* 4 (- (meta-high-pc meta) (meta-low-pc meta)))))))
+         (high-pc ,(- (meta-high-pc meta) (meta-low-pc meta))))))
 
   (define (make-compile-unit-die asm)
     `(compile-unit
       (@ (producer ,(string-append "Guile " (version)))
          (language ,(asm-language asm))
          (low-pc .rtl-text)
-         (high-pc ,(* 4 (asm-pos asm)))
+         (high-pc ,(asm-pos asm))
          (stmt-list 0))
       ,@(map meta->subprogram-die (reverse (asm-meta asm)))))
 
@@ -2200,6 +2191,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
       ;; from 10 to 255, so 246 values.
       (define base -4)
       (define range 15)
+      (define min-inc 4) ; Minimum PC increment.
 
       (let lp ((sources (asm-sources asm)) (out '()))
         (match sources
@@ -2225,7 +2217,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
            (put-u32 line-port 0) ; Length; will patch later.
            (put-u16 line-port 2) ; DWARF 2 format.
            (put-u32 line-port 0) ; Prologue length; will patch later.
-           (put-u8 line-port 4) ; Minimum instruction length: 4 bytes.
+           (put-u8 line-port min-inc) ; Minimum instruction length: 4 bytes.
            (put-u8 line-port 1) ; Default is-stmt: true.
 
            (put-s8 line-port base) ; Line base.  See the DWARF standard.
@@ -2297,12 +2289,14 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                   (add-reloc! 'abs64/1)
                   (put-u64 line-port 0))))
              (define (end-sequence pc)
-               (let ((pc-inc (- (asm-pos asm) pc)))
+               (let ((pc-inc (/ (- (asm-pos asm) pc) min-inc)))
                  (put-u8 line-port 2)   ; advance-pc
                  (put-uleb128 line-port pc-inc))
                (extended-op 1 0))
              (define (advance-pc pc-inc line-inc)
-               (let ((spec (+ (- line-inc base) (* pc-inc range) 10)))
+               (let ((spec (+ (- line-inc base)
+                              (* (/ pc-inc min-inc) range)
+                              10)))
                  (cond
                   ((or (< line-inc base) (>= line-inc (+ base range)))
                    (advance-line line-inc)
@@ -2311,11 +2305,11 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                    (put-u8 line-port spec))
                   ((< spec 500)
                    (put-u8 line-port 8) ; const-advance-pc
-                   (advance-pc (- pc-inc (floor/ (- 255 10) range))
+                   (advance-pc (- pc-inc (* (floor/ (- 255 10) range) min-inc))
                                line-inc))
                   (else
                    (put-u8 line-port 2) ; advance-pc
-                   (put-uleb128 line-port pc-inc)
+                   (put-uleb128 line-port (/ pc-inc min-inc))
                    (advance-pc 0 line-inc)))))
              (define (advance-line inc)
                (put-u8 line-port 3)
