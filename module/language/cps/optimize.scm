@@ -108,6 +108,8 @@
   (hoist-loop-invariant-code #:licm? #t)
   (eliminate-common-subexpressions #:cse? #t)
   (eliminate-dead-code #:eliminate-dead-code? #t)
+  ;; Running simplify here enables rotate-loops to do a better job.
+  (simplify #:simplify? #t)
   (rotate-loops #:rotate-loops? #t)
   (simplify #:simplify? #t)
   (specialize-primcalls #:specialize-primcalls? #t))
