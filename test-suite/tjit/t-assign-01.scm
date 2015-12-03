@@ -1,7 +1,7 @@
-(define (loop)
+(define (loop limit incr)
   (let lp ((n 0) (acc 0))
-    (if (< n #e1e5)
-        (lp (+ n 1) (+ acc n))
+    (if (< n limit)
+        (lp (+ n 1) (+ acc incr))
         acc)))
 
-(loop)
+(loop #e1e5 1)

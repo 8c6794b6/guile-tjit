@@ -42,32 +42,6 @@
     stop_recording (tj);                  \
   } while (0)
 
-#define SCM_TJIT_RECORD()                                               \
-  do {                                                                  \
-    int opcode, i, num_locals;                                          \
-    SCM locals, trace;                                                  \
-    SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (vp->fp));       \
-                                                                        \
-    opcode = *ip & 0xff;                                                \
-                                                                        \
-    /* Store current bytecode. */                                       \
-    for (i = 0; i < op_sizes[opcode]; ++i, ++tj->bc_idx)                \
-      tj->bytecode[tj->bc_idx] = ip[i];                                 \
-                                                                        \
-    /* Copy local contents to vector. */                                \
-    num_locals = FRAME_LOCALS_COUNT ();                                 \
-    locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);             \
-    for (i = 0; i < num_locals; ++i)                                    \
-      scm_c_vector_set_x (locals, i, SP_REF (i));                       \
-                                                                        \
-    trace = scm_inline_cons (thread, locals, SCM_EOL);                  \
-    trace = scm_inline_cons (thread, s_ra, trace);                      \
-    trace = scm_inline_cons (thread, SCM_I_MAKINUM (ip), trace);        \
-                                                                        \
-    tj->traces = scm_inline_cons (thread, trace, tj->traces);           \
-                                                                        \
-  } while (0);
-
 #define SCM_DOWNREC_P(fragmeng)                     \
   scm_is_true (SCM_FRAGMENT_DOWNREC_P (fragment))
 
@@ -204,6 +178,33 @@ abort_recording (struct scm_tjit_state *tj, scm_t_uint32 *ip)
   retries = SCM_PACK (SCM_UNPACK (retries) + INUM_STEP);
   scm_hashq_set_x (tjit_failed_ip_table, s_ip, retries);
   stop_recording (tj);
+}
+
+static inline void
+record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
+        scm_t_uint32 *ip, union scm_vm_stack_element *sp)
+{
+  int opcode, i, num_locals;
+  SCM locals, trace;
+  SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (vp->fp));
+
+  opcode = *ip & 0xff;
+
+  /* Store current bytecode. */
+  for (i = 0; i < op_sizes[opcode]; ++i, ++tj->bc_idx)
+    tj->bytecode[tj->bc_idx] = ip[i];
+
+  /* Copy local contents to vector. */
+  num_locals = FRAME_LOCALS_COUNT ();
+  locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);
+  for (i = 0; i < num_locals; ++i)
+    scm_c_vector_set_x (locals, i, sp[i].as_scm);
+
+  trace = scm_inline_cons (thread, locals, SCM_EOL);
+  trace = scm_inline_cons (thread, s_ra, trace);
+  trace = scm_inline_cons (thread, SCM_I_MAKINUM (ip), trace);
+
+  tj->traces = scm_inline_cons (thread, trace, tj->traces);
 }
 
 static inline void
@@ -352,23 +353,23 @@ scm_make_tjit_state (void)
             if (SCM_DOWNREC_P (fragment))                               \
               {                                                         \
                 tj->trace_type = SCM_TJIT_TRACE_CALL;                   \
-                SCM_TJIT_RECORD ();                                     \
+                record (tj, thread, vp, ip, sp);                        \
               }                                                         \
             else if (SCM_UPREC_P (fragment))                            \
               {                                                         \
                 tj->trace_type = SCM_TJIT_TRACE_RETURN;                 \
-                SCM_TJIT_RECORD ();                                     \
+                record (tj, thread, vp, ip, sp);                        \
               }                                                         \
             else                                                        \
               SCM_TJITC (s_ip, SCM_BOOL_F);                             \
           }                                                             \
         else if (ip == end_ip)                                          \
           {                                                             \
-            SCM_TJIT_RECORD ();                                         \
+            record (tj, thread, vp, ip, sp);                            \
             SCM_TJITC (s_ip, SCM_BOOL_T);                               \
           }                                                             \
         else                                                            \
-          SCM_TJIT_RECORD ();                                           \
+          record (tj, thread, vp, ip, sp);                              \
         break;                                                          \
                                                                         \
       case SCM_TJIT_TRACE_CALL:                                         \
@@ -378,7 +379,7 @@ scm_make_tjit_state (void)
               SCM_TJITC (s_ip, link_found ? SCM_BOOL_F : SCM_BOOL_T);   \
             else                                                        \
               {                                                         \
-                SCM_TJIT_RECORD ();                                     \
+                record (tj, thread, vp, ip, sp);                        \
                 ++(tj->nunrolled);                                      \
               }                                                         \
           }                                                             \
@@ -387,7 +388,7 @@ scm_make_tjit_state (void)
           /* but currently marked as failure and ignored.            */ \
           abort_recording (tj, start_ip);                               \
         else                                                            \
-          SCM_TJIT_RECORD ();                                           \
+          record (tj, thread, vp, ip, sp);                              \
         break;                                                          \
                                                                         \
       case SCM_TJIT_TRACE_RETURN:                                       \
@@ -397,12 +398,12 @@ scm_make_tjit_state (void)
               SCM_TJITC (s_ip, link_found ? SCM_BOOL_F : SCM_BOOL_T);   \
             else                                                        \
               {                                                         \
-                SCM_TJIT_RECORD ();                                     \
+                record (tj, thread, vp, ip, sp);                        \
                 ++(tj->nunrolled);                                      \
               }                                                         \
           }                                                             \
         else                                                            \
-          SCM_TJIT_RECORD ();                                           \
+          record (tj, thread, vp, ip, sp);                              \
         break;                                                          \
                                                                         \
       default:                                                          \

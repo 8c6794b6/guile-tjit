@@ -544,7 +544,6 @@ referenced by dst and src value at runtime."
 ;; XXX: br-if-tc7
 ;; XXX: br-if-eq
 ;; XXX: br-if-eqv
-;; XXX: br-if-equal
 ;; XXX: br-if-logtest
 ;; XXX: br-if-<=
 
@@ -558,6 +557,7 @@ referenced by dst and src value at runtime."
        ,(next))))
 
 ;; XXX: long-mov
+;; XXX: long-fmov
 ;; XXX: box
 
 ;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'.
@@ -734,14 +734,14 @@ referenced by dst and src value at runtime."
       (debug 3 "XXX: add ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
-(define-ir (add1 (local dst) (local src))
+(define-ir (add/immediate (local dst) (local src) (const imm))
   (let ((rdst (local-ref dst))
         (rsrc (local-ref src))
         (vdst (var-ref dst))
         (vsrc (var-ref src)))
     (cond
      ((fixnum? rsrc)
-      `(let ((,vdst (%add ,vsrc 1)))
+      `(let ((,vdst (%add ,vsrc ,imm)))
          ,(next)))
      (else
       (debug 3 "XXX: add1 ~a ~a" rdst rsrc)
@@ -765,14 +765,14 @@ referenced by dst and src value at runtime."
       (debug 3 "XXX: sub ~a ~a ~a~%" rdst ra rb)
       (escape #f)))))
 
-(define-ir (sub1 (local dst) (local src))
+(define-ir (sub/immediate (local dst) (local src) (const imm))
   (let ((rdst (local-ref dst))
         (rsrc (local-ref src))
         (vdst (var-ref dst))
         (vsrc (var-ref src)))
     (cond
      ((fixnum? rsrc)
-      `(let ((,vdst (%sub ,vsrc 1)))
+      `(let ((,vdst (%sub ,vsrc ,imm)))
          ,(next)))
      (else
       (debug 3 "XXX: sub1 ~a ~a~%" rdst rsrc)
@@ -886,9 +886,45 @@ referenced by dst and src value at runtime."
 ;; XXX: fmul
 ;; XXX: fdiv
 
+;; XXX: apply-non-program
+
+;; XXX: scm->u64
+;; XXX: u64->scm
+
+;; XXX: bv-length
+
+;; XXX: br-if-u64-=
+;; XXX: br-if-u64-<
+;; XXX: br-if-u64-<=
+
+;; XXX: uadd
+;; XXX: usub
+;; XXX: umul
+;; XXX: uadd/immediate
+;; XXX: usub/immediate
+;; XXX: umul/immediate
+
+;; XXX: load-f64
+;; XXX: load-u64
+
+;; XXX: scm->s64
+;; XXX: s64->scm
+;; XXX: load-s64
+
+;; XXX: current-thread
+
+;; XXX: logsub
+
+;; XXX: ulogand
+;; XXX: ulogior
+;; XXX: ulogsub
+;; XXX: ursh
+;; XXX: ulsh
+;; XXX: scm->u64/truncate
+
 
 ;;;
-;;; Local accumulator
+;;; Local scanner
 ;;;
 
 (define (scan-locals st sp-offset fp-offset sp-offsets fp-offsets op locals)
