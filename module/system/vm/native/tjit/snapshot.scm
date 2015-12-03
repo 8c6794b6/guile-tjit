@@ -91,7 +91,9 @@
             unbound?
             type-of
             pretty-type
-            &undefined)
+            &undefined
+
+            stack-element)
   #:re-export (&exact-integer
                &flonum
                &complex
@@ -314,7 +316,7 @@
 (define (make-snapshot id sp-offset fp-offset nlocals locals
                        parent-snapshot indices past-frame ip)
   (define-syntax-rule (local-ref i)
-    (vector-ref locals i))
+    (stack-element locals i))
   (define initial-offset
     (or (and=> parent-snapshot snapshot-sp-offset)))
   (define parent-locals
@@ -357,8 +359,8 @@
         ;; snapshot is from the caller of the inlined procedure, saving local in
         ;; upper frame. Looking up locals from newest locals in past-frame.
         ((past-frame-local-ref past-frame i)
-         => (match-lambda ((_ . local)
-                           (add-local local))))
+         => (match-lambda ((_ . ptr)
+                           (add-local (resolve-stack-element ptr)))))
 
         ;; Side trace could start from the middle of inlined procedure, locals
         ;; in past frame may not have enough information to recover locals in
@@ -402,3 +404,28 @@
 
 (define (snapshot-uprec? snapshot)
   (= (snapshot-ip snapshot) *ip-key-uprec*))
+
+
+;;;
+;;; Stack element
+;;;
+
+(define (stack-element locals n)
+  (let ((elem (vector-ref locals n)))
+    (resolve-stack-element elem)))
+
+(define (resolve-stack-element ptr)
+  ;; XXX: Poor workaround for filtering out non-SCM stack element.
+  ;;
+  ;; Test for immediate small integer and possibly heap object. Proper way to do
+  ;; this is to add element type in argument of thi sprocedure. Such element
+  ;; type could be gathered by `(@@ (system vm native tjit ir) scan-locals)'.
+  ;;
+  (if (and (pointer? ptr)
+           (let ((addr (pointer-address ptr)))
+             (or (and (zero? (modulo (- addr 2) 4))
+                      (< (ash addr -2) most-positive-fixnum)
+                      (< most-negative-fixnum (ash addr -2)))
+                 (< #x10000 addr))))
+      (pointer->scm ptr)
+      #f))

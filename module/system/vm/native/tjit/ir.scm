@@ -255,7 +255,7 @@ referenced by dst and src value at runtime."
   (identifier-syntax 3))
 
 (define-syntax-rule (local-ref n)
-  (vector-ref locals n))
+  (stack-element locals n))
 
 (define-syntax-rule (var-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
@@ -480,9 +480,14 @@ referenced by dst and src value at runtime."
          (rb (local-ref b))
          (va (var-ref a))
          (vb (var-ref b))
-         (dest (if (= ra rb)
-                   (if invert? offset br-op-size)
-                   (if invert? br-op-size offset))))
+         (dest (if (and (number? ra)
+                        (number? rb))
+                   (if (= ra rb)
+                       (if invert? offset br-op-size)
+                       (if invert? br-op-size offset))
+                   (begin
+                     (debug 1 ";;; XXX: br-if-=: got ~s ~s~%" ra rb)
+                     (escape #f)))))
     (cond
      ((and (fixnum? ra) (fixnum? rb))
       `(let ((_ ,(take-snapshot! ip dest)))
@@ -527,7 +532,7 @@ referenced by dst and src value at runtime."
             (lambda ()
               (local-ref test))
             (lambda msgs
-              (debug 0 "XXX: br-if-null: ~a~%" msgs)
+              (debug 1 "XXX: br-if-null: ~a~%" msgs)
               (escape #f))))
          (vtest (var-ref test))
          (dest (if (null? rtest)
@@ -571,7 +576,12 @@ referenced by dst and src value at runtime."
   (let ((vdst (var-ref dst))
         (vsrc (var-ref src))
         (rsrc (and (< src (vector-length locals))
-                   (variable-ref (local-ref src)))))
+                   (let ((var (local-ref src)))
+                     (if (variable? var)
+                         (variable-ref var)
+                         (begin
+                           (debug 1 ";;; box-ref: got ~s~%" var)
+                           (escape #f)))))))
     `(let ((,vdst (%cref ,vsrc 1)))
        ,(with-unboxing next rsrc vdst))))
 
@@ -579,7 +589,12 @@ referenced by dst and src value at runtime."
   (let* ((vdst (var-ref dst))
          (vsrc (var-ref src))
          (rdst (and (< dst (vector-length locals))
-                    (variable-ref (local-ref dst))))
+                    (let ((var (local-ref dst)))
+                      (if (variable? var)
+                          (variable-ref var)
+                          (begin
+                            (debug 1 ";;; box-set!: got ~s~%" var)
+                            (escape #f))))))
          (r0 (make-tmpvar 0))
          (emit-next (lambda (tmp)
                       `(let ((_ (%cset ,vdst 1 ,tmp)))
@@ -822,23 +837,6 @@ referenced by dst and src value at runtime."
 ;; XXX: vector-ref
 ;; XXX: vector-ref/immediate
 ;; XXX: vector-set!
-
-(define-ir (vector-set! dst idx src)
- (let ((rdst (local-ref dst))
-       (rsrc (local-ref src))
-       (ridx (local-ref idx))
-       (vdst (var-ref dst))
-       (vsrc (var-ref src))
-       (vidx (var-ref idx)))
-   (cond
-    ((and (vector? rsrc) (fixnum? ridx))
-     `(let ((_ (%vector-set! ,vdst ,vsrc ,vidx)))
-        ,(next)))
-    (else
-     (debug 3 "*** ir.scm:convert: NYI vector-set! ~a ~a ~a~%"
-            rdst rsrc ridx)
-     (escape #f)))))
-
 ;; XXX: vector-set!/immediate
 
 

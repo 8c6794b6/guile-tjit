@@ -260,7 +260,7 @@
           (define (type-from-snapshot n)
             (let ((i (- n (snapshot-sp-offset snapshot0))))
               (and (< -1 i (vector-length initial-locals))
-                   (type-of (vector-ref initial-locals i)))))
+                   (type-of (stack-element initial-locals i)))))
           (define (type-from-parent n)
             (assq-ref parent-snapshot-locals n))
           (let lp ((vars (reverse vars)))
@@ -300,7 +300,7 @@
                  (lp vars))
                 (else
                  (let* ((i (- n (snapshot-sp-offset snapshot0)))
-                        (local (vector-ref initial-locals i))
+                        (local (stack-element initial-locals i))
                         (type (type-of local)))
                    (debug 3 ";;;   local:          ~a~%" local)
                    (debug 3 ";;;   type:           ~a~%" type)

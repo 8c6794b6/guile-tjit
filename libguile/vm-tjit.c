@@ -198,7 +198,7 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
   num_locals = FRAME_LOCALS_COUNT ();
   locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);
   for (i = 0; i < num_locals; ++i)
-    scm_c_vector_set_x (locals, i, sp[i].as_scm);
+    scm_c_vector_set_x (locals, i, scm_from_pointer (sp[i].as_ptr, NULL));
 
   trace = scm_inline_cons (thread, locals, SCM_EOL);
   trace = scm_inline_cons (thread, s_ra, trace);

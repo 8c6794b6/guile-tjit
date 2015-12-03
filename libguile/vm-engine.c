@@ -882,7 +882,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       POP_CONTINUATION_HOOK (old_fp);
 
-      VM_TJIT_RETURN (0);
+      /* VM_TJIT_RETURN (0); */
+      NEXT (0);
     }
 
 
