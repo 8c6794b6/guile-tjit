@@ -3640,11 +3640,99 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  VM_DEFINE_OP (170, unused_170, NULL, NOP)
-  VM_DEFINE_OP (171, unused_171, NULL, NOP)
-  VM_DEFINE_OP (172, unused_172, NULL, NOP)
-  VM_DEFINE_OP (173, unused_173, NULL, NOP)
-  VM_DEFINE_OP (174, unused_174, NULL, NOP)
+#define BR_U64_SCM_COMPARISON(x, y, unboxed, boxed)                     \
+  do {                                                                  \
+    scm_t_uint32 a, b;                                                  \
+    scm_t_uint64 x;                                                     \
+    SCM y_scm;                                                          \
+                                                                        \
+    UNPACK_24 (op, a);                                                  \
+    UNPACK_24 (ip[1], b);                                               \
+    x = SP_REF_U64 (a);                                                 \
+    y_scm = SP_REF (b);                                                 \
+                                                                        \
+    if (SCM_I_INUMP (y_scm))                                            \
+      {                                                                 \
+        scm_t_signed_bits y = SCM_I_INUM (y_scm);                       \
+                                                                        \
+        if ((ip[2] & 0x1) ? !(unboxed) : (unboxed))                     \
+          {                                                             \
+            scm_t_int32 offset = ip[2];                                 \
+            offset >>= 8; /* Sign-extending shift. */                   \
+            if (offset <= 0)                                            \
+              VM_HANDLE_INTERRUPTS;                                     \
+            NEXT (offset);                                              \
+          }                                                             \
+        NEXT (3);                                                       \
+      }                                                                 \
+    else                                                                \
+      {                                                                 \
+        SCM res;                                                        \
+        SYNC_IP ();                                                     \
+        res = boxed (scm_from_uint64 (x), y_scm);                       \
+        CACHE_SP ();                                                    \
+        if ((ip[2] & 0x1) ? scm_is_false (res) : scm_is_true (res))     \
+          {                                                             \
+            scm_t_int32 offset = ip[2];                                 \
+            offset >>= 8; /* Sign-extending shift. */                   \
+            if (offset <= 0)                                            \
+              VM_HANDLE_INTERRUPTS;                                     \
+            NEXT (offset);                                              \
+          }                                                             \
+        NEXT (3);                                                       \
+      }                                                                 \
+  } while (0)
+
+  /* br-if-u64-=-scm a:24 _:8 b:24 invert:1 _:7 offset:24
+   *
+   * If the U64 value in A is = to the SCM value in B, add OFFSET, a
+   * signed 24-bit number, to the current instruction pointer.
+   */
+  VM_DEFINE_OP (170, br_if_u64_ee_scm, "br-if-u64-=-scm", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_SCM_COMPARISON(x, y, y >= 0 && (scm_t_uint64) y == x, scm_num_eq_p);
+    }
+
+  /* br-if-u64-<-scm a:24 _:8 b:24 invert:1 _:7 offset:24
+   *
+   * If the U64 value in A is < than the SCM value in B, add OFFSET, a
+   * signed 24-bit number, to the current instruction pointer.
+   */
+  VM_DEFINE_OP (171, br_if_u64_lt_scm, "br-if-u64-<-scm", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_SCM_COMPARISON(x, y, y >= 0 && (scm_t_uint64) y > x, scm_less_p);
+    }
+
+  /* br-if-u64-=-scm a:24 _:8 b:24 invert:1 _:7 offset:24
+   *
+   * If the U64 value in A is <= than the SCM value in B, add OFFSET, a
+   * signed 24-bit number, to the current instruction pointer.
+   */
+  VM_DEFINE_OP (172, br_if_u64_le_scm, "br-if-u64-<=-scm", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_SCM_COMPARISON(x, y, y >= 0 && (scm_t_uint64) y >= x, scm_leq_p);
+    }
+
+  /* br-if-u64->-scm a:24 _:8 b:24 invert:1 _:7 offset:24
+   *
+   * If the U64 value in A is > than the SCM value in B, add OFFSET, a
+   * signed 24-bit number, to the current instruction pointer.
+   */
+  VM_DEFINE_OP (173, br_if_u64_gt_scm, "br-if-u64->-scm", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_SCM_COMPARISON(x, y, y < 0 || (scm_t_uint64) y < x, scm_gr_p);
+    }
+
+  /* br-if-u64->=-scm a:24 _:8 b:24 invert:1 _:7 offset:24
+   *
+   * If the U64 value in A is >= than the SCM value in B, add OFFSET, a
+   * signed 24-bit number, to the current instruction pointer.
+   */
+  VM_DEFINE_OP (174, br_if_u64_ge_scm, "br-if-u64->=-scm", OP3 (X8_S24, X8_S24, B1_X7_L24))
+    {
+      BR_U64_SCM_COMPARISON(x, y, y <= 0 || (scm_t_uint64) y <= x, scm_geq_p);
+    }
+
   VM_DEFINE_OP (175, unused_175, NULL, NOP)
   VM_DEFINE_OP (176, unused_176, NULL, NOP)
   VM_DEFINE_OP (177, unused_177, NULL, NOP)

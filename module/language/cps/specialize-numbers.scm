@@ -122,6 +122,17 @@
         ($continue kunbox-b src
           ($primcall 'scm->u64 (a)))))))
 
+(define (specialize-u64-scm-comparison cps kf kt src op a-u64 b-scm)
+  (let ((op (symbol-append 'u64- op '-scm)))
+    (with-cps cps
+      (letv u64)
+      (letk kop ($kargs ('u64) (u64)
+                  ($continue kf src
+                    ($branch kt ($primcall op (u64 b-scm))))))
+      (build-term
+        ($continue kop src
+          ($primcall 'scm->u64 (a-u64)))))))
+
 (define (specialize-operations cps)
   (define (visit-cont label cont cps types)
     (define (operand-in-range? var &type &min &max)
@@ -235,11 +246,20 @@
           ($ $continue k src
              ($ $branch kt ($ $primcall (and op (or '< '<= '= '>= '>)) (a b)))))
        (values
-        (if (and (u64-operand? a) (u64-operand? b))
-            (with-cps cps
-              (let$ body (specialize-u64-comparison k kt src op a b))
-              (setk label ($kargs names vars ,body)))
-            cps)
+        (if (u64-operand? a)
+            (let ((specialize (if (u64-operand? b)
+                                  specialize-u64-comparison
+                                  specialize-u64-scm-comparison)))
+              (with-cps cps
+                (let$ body (specialize k kt src op a b))
+                (setk label ($kargs names vars ,body))))
+            (if (u64-operand? b)
+                (let ((op (match op
+                            ('< '>) ('<= '>=) ('= '=) ('>= '<=) ('> '<))))
+                  (with-cps cps
+                    (let$ body (specialize-u64-scm-comparison k kt src op b a))
+                    (setk label ($kargs names vars ,body))))
+                cps))
         types))
       (_ (values cps types))))
 

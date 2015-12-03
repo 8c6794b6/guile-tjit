@@ -196,6 +196,8 @@ address of that offset."
           'br-if-char 'br-if-eq 'br-if-eqv
           'br-if-= 'br-if-< 'br-if-<= 'br-if-> 'br-if->=
           'br-if-u64-= 'br-if-u64-< 'br-if-u64-<=
+          'br-if-u64-<-scm 'br-if-u64-<=-scm 'br-if-u64-=-scm
+          'br-if-u64->-scm 'br-if-u64->=-scm
           'br-if-logtest) _ ... target)
      (list "-> ~A" (vector-ref labels (- (+ offset target) start))))
     (('br-if-tc7 slot invert? tc7 target)
@@ -298,7 +300,9 @@ address of that offset."
                    br-if-true br-if-null br-if-nil br-if-pair br-if-struct
                    br-if-char br-if-tc7 br-if-eq br-if-eqv
                    br-if-= br-if-< br-if-<= br-if-> br-if->= br-if-logtest
-                   br-if-u64-= br-if-u64-< br-if-u64-<=)
+                   br-if-u64-= br-if-u64-< br-if-u64-<=
+                   br-if-u64-<-scm br-if-u64-<=-scm br-if-u64-=-scm
+                   br-if-u64->-scm br-if-u64->=-scm)
                   (match arg
                     ((_ ... target)
                      (add-label! (+ offset target) "L"))))

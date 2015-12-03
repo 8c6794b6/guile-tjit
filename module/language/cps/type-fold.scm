@@ -109,6 +109,7 @@
     ((= >= >) (values #t #f))
     (else (values #f #f))))
 (define-branch-folder-alias u64-< <)
+(define-branch-folder-alias u64-<-scm <)
 
 (define-binary-branch-folder (<= type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
@@ -116,6 +117,7 @@
     ((>) (values #t #f))
     (else (values #f #f))))
 (define-branch-folder-alias u64-<= <=)
+(define-branch-folder-alias u64-<=-scm <=)
 
 (define-binary-branch-folder (= type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
@@ -123,6 +125,7 @@
     ((< >) (values #t #f))
     (else (values #f #f))))
 (define-branch-folder-alias u64-= =)
+(define-branch-folder-alias u64-=-scm =)
 
 (define-binary-branch-folder (>= type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
@@ -130,6 +133,7 @@
     ((<) (values #t #f))
     (else (values #f #f))))
 (define-branch-folder-alias u64->= >=)
+(define-branch-folder-alias u64->=-scm >=)
 
 (define-binary-branch-folder (> type0 min0 max0 type1 min1 max1)
   (case (compare-ranges type0 min0 max0 type1 min1 max1)
@@ -137,6 +141,7 @@
     ((= <= <) (values #t #f))
     (else (values #f #f))))
 (define-branch-folder-alias u64-> >)
+(define-branch-folder-alias u64->-scm >)
 
 (define-binary-branch-folder (logtest type0 min0 max0 type1 min1 max1)
   (define (logand-min a b)

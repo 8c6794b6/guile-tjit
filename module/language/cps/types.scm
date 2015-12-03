@@ -840,17 +840,20 @@ minimum, and maximum."
       (infer-integer-ranges)
       (infer-real-ranges)))
 
+(define-syntax-rule (true-comparison-restrictions op a b a-type b-type)
+  (call-with-values
+      (lambda ()
+        (restricted-comparison-ranges op
+                                      (&type a) (&min a) (&max a)
+                                      (&type b) (&min b) (&max b)))
+    (lambda (min0 max0 min1 max1)
+      (restrict! a a-type min0 max0)
+      (restrict! b b-type min1 max1))))
+
 (define-syntax-rule (define-comparison-inferrer (op inverse))
   (define-predicate-inferrer (op a b true?)
     (when (zero? (logand (logior (&type a) (&type b)) (lognot &number)))
-      (call-with-values
-          (lambda ()
-            (restricted-comparison-ranges (if true? 'op 'inverse)
-                                          (&type a) (&min a) (&max a)
-                                          (&type b) (&min b) (&max b)))
-        (lambda (min0 max0 min1 max1)
-          (restrict! a &real min0 max0)
-          (restrict! b &real min1 max1))))))
+      (true-comparison-restrictions (if true? 'op 'inverse) a b &real &real))))
 
 (define-simple-type-checker (< &real &real))
 (define-comparison-inferrer (< >=))
@@ -871,6 +874,34 @@ minimum, and maximum."
           (max (min (&max a) (&max b))))
       (restrict! a &u64 min max)
       (restrict! b &u64 min max))))
+
+(define-simple-type-checker (u64-=-scm &u64 &real))
+(define-predicate-inferrer (u64-=-scm a b true?)
+  (when (and true? (zero? (logand (&type b) (lognot &real))))
+    (let ((min (max (&min a) (&min b)))
+          (max (min (&max a) (&max b))))
+      (restrict! a &u64 min max)
+      (restrict! b &real min max))))
+
+(define-simple-type-checker (u64-<-scm &u64 &real))
+(define-predicate-inferrer (u64-<-scm a b true?)
+  (when (and true? (zero? (logand (&type b) (lognot &real))))
+    (true-comparison-restrictions '< a b &u64 &real)))
+
+(define-simple-type-checker (u64-<=-scm &u64 &real))
+(define-predicate-inferrer (u64-<=-scm a b true?)
+  (when (and true? (zero? (logand (&type b) (lognot &real))))
+    (true-comparison-restrictions '<= a b &u64 &real)))
+
+(define-simple-type-checker (u64->=-scm &u64 &real))
+(define-predicate-inferrer (u64->=-scm a b true?)
+  (when (and true? (zero? (logand (&type b) (lognot &real))))
+    (true-comparison-restrictions '>= a b &u64 &real)))
+
+(define-simple-type-checker (u64->-scm &u64 &real))
+(define-predicate-inferrer (u64->-scm a b true?)
+  (when (and true? (zero? (logand (&type b) (lognot &real))))
+    (true-comparison-restrictions '> a b &u64 &real)))
 
 (define (infer-u64-comparison-ranges op min0 max0 min1 max1)
   (match op

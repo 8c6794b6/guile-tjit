@@ -98,6 +98,11 @@
             emit-br-if-u64-=
             emit-br-if-u64-<
             emit-br-if-u64-<=
+            emit-br-if-u64-<-scm
+            emit-br-if-u64-<=-scm
+            emit-br-if-u64-=-scm
+            emit-br-if-u64->=-scm
+            emit-br-if-u64->-scm
             (emit-mov* . emit-mov)
             (emit-fmov* . emit-fmov)
             (emit-box* . emit-box)
