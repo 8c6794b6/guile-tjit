@@ -51,7 +51,8 @@
             take-snapshot
             with-frame-ref
             *ir-procedures*
-            scan-locals))
+            *element-type-scanners*
+            *index-scanners*))
 
 ;;;
 ;;; Auxiliary, exported
@@ -86,6 +87,7 @@
 
   ;; Past frame.
   (past-frame ir-past-frame))
+
 
 (define (make-var index)
   (string->symbol (string-append "v" (number->string index))))
@@ -152,8 +154,15 @@
     (debug 1 "XXX: with-frame-ref: var=~a type=~a~%" var type)
     `(let ((,var #f))
        ,(next args)))
-   ((= type &flonum)
-    `(let ((,var (%fref/f ,idx)))
+   ((dynamic-link? type)
+    `(let ((,var ,(dynamic-link-offset type)))
+       ,(next args)))
+   ((return-address? type)
+    `(let ((,var ,(pointer-address (return-address-ip type))))
+       ,(next args)))
+   ((or (= type &flonum)
+        (= type &f64))
+    `(let ((,var (%fref/f ,idx ,type)))
        ,(next args)))
    (else
     `(let ((,var (%fref ,idx ,type)))
@@ -167,7 +176,10 @@
 ;;; Auxiliary, internal
 ;;;
 
-(define *local-accumulator*
+(define *index-scanners*
+  (make-hash-table 255))
+
+(define *element-type-scanners*
   (make-hash-table 255))
 
 (define-syntax define-ir-syntax-parameters
@@ -180,28 +192,52 @@
        ...))))
 
 (define-ir-syntax-parameters
-  ir
-  ip
-  ra
-  locals
-  handle-interrupts?
-  next
-  escape)
+  ir ip ra locals handle-interrupts? next escape)
 
-(define-syntax define-accum
-  (syntax-rules (local const)
-    "Macro to define local accumulator procedure.
+(define-syntax put-index!
+  (syntax-rules ()
+    ((_ pf offset arg)
+     (let ((indices (assq-set! (past-frame-local-indices pf)
+                               (+ arg offset) #t)))
+       (set-past-frame-local-indices! pf indices)))))
 
-First argument passed to the procedure is a hash-table for accumulating local,
-key is local index and value is #t. Second argument is current offset during the
-accumulation."
-    ((_ st sp-offset)
-     st)
-    ((_ st sp-offset (local arg) . rest)
-     (begin (hashq-set! st (+ arg sp-offset) #t)
-            (define-accum st sp-offset . rest)))
-    ((_ st sp-offset (const arg) . rest)
-     (define-accum st sp-offset . rest))))
+(define-syntax put-element-type!
+  (syntax-rules ()
+    ((_ pf offset arg type)
+     (let ((types (assq-set! (past-frame-types pf) (+ arg offset) type)))
+       (set-past-frame-types! pf types)))))
+
+(define-syntax gen-put-index
+  (syntax-rules (const)
+    ((_ pf sp-offset)
+     pf)
+    ((_ pf sp-offset (const arg) . rest)
+     (gen-put-index pf sp-offset . rest))
+    ((_ pf sp-offset (other arg) . rest)
+     (begin
+       (put-index! pf sp-offset arg)
+       (gen-put-index pf sp-offset . rest)))))
+
+(define-syntax gen-put-element-type
+  (syntax-rules (any scm u64 f64 const)
+    ((_ pf sp-offset)
+     pf)
+    ((_ pf sp-offset (scm arg) . rest)
+     (begin
+       (put-element-type! pf sp-offset arg 'scm)
+       (gen-put-element-type pf sp-offset . rest)))
+    ((_ pf sp-offset (u64 arg) . rest)
+     (begin
+       (put-element-type! pf sp-offset arg 'u64)
+       (gen-put-element-type pf sp-offset . rest)))
+    ((_ pf sp-offset (f64 arg) . rest)
+     (begin
+       (put-element-type! pf sp-offset arg 'f64)
+       (gen-put-element-type pf sp-offset . rest)))
+    ((_ pf sp-offset (any arg) . rest)
+     (gen-put-element-type pf sp-offset . rest))
+    ((_ pf sp-offset (const arg) . rest)
+     (gen-put-element-type pf sp-offset . rest))))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -215,14 +251,21 @@ will define two procedures: one for IR compilation taking two arguments, and
 another procedure for accumulator taking two arguments and saving index
 referenced by dst and src value at runtime."
     ((_ (name (flag arg) ...) . body)
-     (let ((acc (lambda (st sp-offset arg ...)
-                  (define-accum st sp-offset (flag arg) ...))))
-       (hashq-set! *local-accumulator* 'name acc)
+     (let ((index-proc (lambda (pf sp-offset arg ...)
+                         (gen-put-index pf sp-offset (flag arg) ...)))
+           (type-proc (lambda (pf sp-offset arg ...)
+                        ;; (debug 1 ";;; ~20@s: ~s~%" 'name
+                        ;;        (sort (past-frame-types pf)
+                        ;;              (lambda (a b)
+                        ;;                (< (car a) (car b)))))
+                        (gen-put-element-type pf sp-offset (flag arg) ...))))
+       (hashq-set! *index-scanners* 'name index-proc)
+       (hashq-set! *element-type-scanners* 'name type-proc)
        (define-ir (name arg ...) . body)))
     ((_ (name arg ...) . body)
      (let ((proc
             (lambda (%ir %handle-interrupts? %next %escape
-                     %ip %ra %locals arg ...)
+                         %ip %ra %locals arg ...)
               (syntax-parameterize
                   ((ir (identifier-syntax %ir))
                    (handle-interrupts? (identifier-syntax %handle-interrupts?))
@@ -254,12 +297,6 @@ referenced by dst and src value at runtime."
 (define-syntax br-op-size
   (identifier-syntax 3))
 
-(define-syntax-rule (local-ref n)
-  (stack-element locals n))
-
-(define-syntax-rule (var-ref n)
-  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
-
 (define-syntax-rule (current-sp-offset)
   (vector-ref (past-frame-sp-offsets (ir-past-frame ir))
               (ir-bytecode-index ir)))
@@ -267,6 +304,14 @@ referenced by dst and src value at runtime."
 (define-syntax-rule (current-fp-offset)
   (vector-ref (past-frame-fp-offsets (ir-past-frame ir))
               (ir-bytecode-index ir)))
+
+(define-syntax-rule (local-ref n)
+  (let ((t (past-frame-type-ref (ir-past-frame ir)
+                                (+ n (current-sp-offset)))))
+    (stack-element locals n t)))
+
+(define-syntax-rule (var-ref n)
+  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
 
 (define-syntax-rule (take-snapshot! ip dst-offset)
   (let-values (((ret snapshot)
@@ -319,6 +364,9 @@ referenced by dst and src value at runtime."
     (debug 1 "XXX: with-unboxing: ~a ~a~%" val var)
     (escape #f))))
 
+(define-syntax-rule (expand-stack nlocals)
+  (expand-past-frame (ir-past-frame ir) (current-sp-offset) nlocals))
+
 
 ;;; *** Call and return
 
@@ -337,10 +385,9 @@ referenced by dst and src value at runtime."
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
-         (rra (cons (+ sp-offset fp)
-                    (make-return-address (make-pointer (+ ip (* 2 4))))))
-         (rdl (cons (+ sp-offset fp 1)
-                    (make-dynamic-link proc)))
+         (dst-ptr (make-pointer (+ ip (* 2 4))))
+         (rra (cons (+ sp-offset fp) (make-return-address dst-ptr)))
+         (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
          (vra (var-ref fp))
          (vdl (var-ref (+ fp 1)))
          (vproc (var-ref (- fp 1)))
@@ -357,10 +404,10 @@ referenced by dst and src value at runtime."
 
 ;; XXX: call-label
 (define-ir (call-label proc nlocals label)
-  (next))
+  (escape #f))
 
-;; XXX: tail-call
 (define-ir (tail-call nlocals)
+  ;; XXX: Add guard for callee procedure IP.
   (next))
 
 ;; XXX: tail-call-label
@@ -379,7 +426,7 @@ referenced by dst and src value at runtime."
          (sp-offset (current-sp-offset))
          (min-local-index (+ (- stack-size proc 1) sp-offset 2))
          (max-local-index (+ stack-size sp-offset))
-         (load-from-previous-frame
+         (load-previous-frame
           (lambda ()
             (let lp ((vars (reverse (ir-vars ir))))
               (match vars
@@ -389,11 +436,16 @@ referenced by dst and src value at runtime."
                    (lp vars))
                   ((< min-local-index n max-local-index)
                    (let* ((i (- n sp-offset))
-                          (val (if (< -1 i (vector-length locals))
-                                   (local-ref i)
-                                   (escape #f)))
-                          (type (type-of val))
-                          (idx n))
+                          (elem (past-frame-type-ref (ir-past-frame ir) n))
+                          (type (cond
+                                 ((eq? 'f64 elem) &f64)
+                                 ((eq? 'u64 elem) &u64)
+                                 ((eq? 's64 elem) &s64)
+                                 ((eq? 'scm elem)
+                                  (type-of (stack-element locals i elem)))
+                                 (else
+                                  (debug 1 "XXX: receive: type ~s~%" elem)
+                                  (escape #f)))))
                      ;; Ignoring `unspecified' values when loading from previous
                      ;; frame. Those values might came from dead slots in stack
                      ;; which were overwritten by gc. See `scm_i_vm_mark_stack'
@@ -404,7 +456,7 @@ referenced by dst and src value at runtime."
                      ;;
                      (if (eq? type &unspecified)
                          (lp vars)
-                         (with-frame-ref lp vars var type idx))))
+                         (with-frame-ref lp vars var type n))))
                   (else
                    (lp vars))))
                 (()
@@ -413,7 +465,7 @@ referenced by dst and src value at runtime."
        ,(if (<= (current-fp-offset) 0)
             (next)
             `(let ((_ ,(take-snapshot! ip 0)))
-               ,(load-from-previous-frame))))))
+               ,(load-previous-frame))))))
 
 (define-ir (receive-values proc allow-extra? nvalues)
   (escape #f))
@@ -459,6 +511,7 @@ referenced by dst and src value at runtime."
 (define-ir (assert-nargs-ee/locals expected nlocals)
   (let* ((stack-size (vector-length locals))
          (undefined (pointer->scm (make-pointer #x904))))
+    (expand-stack nlocals)
     (let lp ((n nlocals))
       (if (< 0 n)
           `(let ((,(var-ref (- n 1)) ,undefined))
@@ -473,50 +526,8 @@ referenced by dst and src value at runtime."
 ;;; *** Branching instructions
 
 (define-ir (br (const offset))
+  ;; Nothing to emit for br.
   (next))
-
-(define-ir (br-if-= (local a) (local b) (const invert?) (const offset))
-  (let* ((ra (local-ref a))
-         (rb (local-ref b))
-         (va (var-ref a))
-         (vb (var-ref b))
-         (dest (if (and (number? ra)
-                        (number? rb))
-                   (if (= ra rb)
-                       (if invert? offset br-op-size)
-                       (if invert? br-op-size offset))
-                   (begin
-                     (debug 1 ";;; XXX: br-if-=: got ~s ~s~%" ra rb)
-                     (escape #f)))))
-    (cond
-     ((and (fixnum? ra) (fixnum? rb))
-      `(let ((_ ,(take-snapshot! ip dest)))
-         (let ((_ ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))))
-           ,(next))))
-     (else
-      (debug 3 "*** ir:convert = ~a ~a~%" ra rb)
-      (escape #f)))))
-
-(define-ir (br-if-< (local a) (local b) (const invert?) (const offset))
-  (let* ((ra (local-ref a))
-         (rb (local-ref b))
-         (va (var-ref a))
-         (vb (var-ref b))
-         (dest (if (< ra rb)
-                   (if invert? offset br-op-size)
-                   (if invert? br-op-size offset))))
-    (cond
-     ((and (fixnum? ra) (fixnum? rb))
-      `(let ((_ ,(take-snapshot! ip dest)))
-         (let ((_ ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))))
-           ,(next))))
-     ((and (flonum? ra) (flonum? rb))
-      `(let ((_ ,(take-snapshot! ip dest)))
-         (let ((_ ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))))
-           ,(next))))
-     (else
-      (debug 3 "ir:convert < ~a ~a~%" ra rb)
-      (escape #f)))))
 
 ;; XXX: br-if-true
 
@@ -524,7 +535,7 @@ referenced by dst and src value at runtime."
 ;; avoiding the compilation of traces in "system/vm/linker.scm" could be
 ;; removed. So this IR should relate to the cause of segfault in linker.scm
 ;; somehow.
-(define-ir (br-if-null (local test) (const invert) (const offset))
+(define-ir (br-if-null (scm test) (const invert) (const offset))
   (let* ((rtest
           ;; XXX: Workaround for out-of-range error from `vector-ref' when
           ;; invoking REPL with `--tjit-dump=j' option.
@@ -550,16 +561,59 @@ referenced by dst and src value at runtime."
 ;; XXX: br-if-eq
 ;; XXX: br-if-eqv
 ;; XXX: br-if-logtest
-;; XXX: br-if-<=
 
+(define-syntax define-br-binary-body
+  (syntax-rules ()
+    ((_ name a b invert? offset scm-op ra rb va vb dest . body)
+     (let* ((ra (local-ref a))
+            (rb (local-ref b))
+            (va (var-ref a))
+            (vb (var-ref b))
+            (dest (if (and (number? ra)
+                           (number? rb))
+                      (if (scm-op ra rb)
+                          (if invert? offset br-op-size)
+                          (if invert? br-op-size offset))
+                      (begin
+                        (debug 1 ";;; XXX: ~s: got ~s ~s~%" 'name ra rb)
+                        (escape #f)))))
+       . body))))
+
+(define-syntax define-br-binary
+  (syntax-rules ()
+    ((_  name scm-op fx-op-t fx-op-f fl-op-t fl-op-f)
+     (define-ir (name (scm a) (scm b) (const invert?) (const offset))
+       (define-br-binary-body name a b invert? offset scm-op ra rb va vb dest
+         (cond
+          ((and (fixnum? ra) (fixnum? rb))
+           `(let ((_ ,(take-snapshot! ip dest)))
+              (let ((_ ,(if (scm-op ra rb)
+                            `(fx-op-t ,va ,vb)
+                            `(fx-op-f ,va ,vb))))
+                ,(next))))
+          ((and (flonum? ra) (flonum? rb))
+           `(let ((_ ,(take-snapshot! ip dest)))
+              (let ((_ ,(if (scm-op ra rb)
+                            `(fl-op-t ,va ,vb)
+                            `(fl-op-f ,va ,vb))))
+                ,(next))))
+          (else
+           (debug 1 "XXX: ~a ~a ~a~%" 'name ra rb)
+           (escape #f))))))))
+
+(define-br-binary br-if-= = %eq %ne %feq %fne)
+(define-br-binary br-if-< < %lt %ge %flt %fge)
+(define-br-binary br-if-<= <= %le %gt %fle %fgt)
 
 ;;; *** Lexical binding instructions
 
-(define-ir (mov (local dst) (local src))
-  (let ((vdst (var-ref dst))
-        (vsrc (var-ref src)))
-    `(let ((,vdst ,vsrc))
-       ,(next))))
+;; XXX: Assuming both `dst' and `src' have `scm' stack element type. If not,
+;; stack element type resolution may return incorrect result. To properly
+;; resolve stack element types, may need to traverse bytecode operations
+;; backward.
+(define-ir (mov (scm dst) (scm src))
+  `(let ((,(var-ref dst) ,(var-ref src)))
+     ,(next)))
 
 ;; XXX: long-mov
 ;; XXX: long-fmov
@@ -571,8 +625,9 @@ referenced by dst and src value at runtime."
 ;; and delayed to side exit code.
 ;;
 ;; XXX: Add test for nested boxes.
+;; XXX: Add test for box contents not being other type than scm (no u64, no f64).
 
-(define-ir (box-ref (local dst) (local src))
+(define-ir (box-ref (scm dst) (scm src))
   (let ((vdst (var-ref dst))
         (vsrc (var-ref src))
         (rsrc (and (< src (vector-length locals))
@@ -580,12 +635,12 @@ referenced by dst and src value at runtime."
                      (if (variable? var)
                          (variable-ref var)
                          (begin
-                           (debug 1 ";;; box-ref: got ~s~%" var)
+                           (debug 1 "XXX: box-ref: got ~s~%" var)
                            (escape #f)))))))
     `(let ((,vdst (%cref ,vsrc 1)))
        ,(with-unboxing next rsrc vdst))))
 
-(define-ir (box-set! (local dst) (local src))
+(define-ir (box-set! (scm dst) (scm src))
   (let* ((vdst (var-ref dst))
          (vsrc (var-ref src))
          (rdst (and (< dst (vector-length locals))
@@ -593,7 +648,7 @@ referenced by dst and src value at runtime."
                       (if (variable? var)
                           (variable-ref var)
                           (begin
-                            (debug 1 ";;; box-set!: got ~s~%" var)
+                            (debug 1 "XXX: box-set!: got ~s~%" var)
                             (escape #f))))))
          (r0 (make-tmpvar 0))
          (emit-next (lambda (tmp)
@@ -608,18 +663,18 @@ referenced by dst and src value at runtime."
 
 ;;; *** Immediates and statically allocated non-immediates
 
-(define-ir (make-short-immediate (local dst) (const low-bits))
+(define-ir (make-short-immediate (scm dst) (const low-bits))
   ;; XXX: `make-short-immediate' could be used for other value than small
   ;; integer, e.g: '(). Check type from value of `low-bits' and choose
   ;; the type appropriately.
   `(let ((,(var-ref dst) ,(ash low-bits -2)))
      ,(next)))
 
-(define-ir (make-long-immediate (local dst) (const low-bits))
+(define-ir (make-long-immediate (scm dst) (const low-bits))
   `(let ((,(var-ref dst) ,(ash low-bits -2)))
      ,(next)))
 
-(define-ir (make-long-long-immediate (local dst)
+(define-ir (make-long-long-immediate (scm dst)
                                      (const high-bits)
                                      (const low-bits))
   `(let ((,(var-ref dst) ,(ash (logior (ash high-bits 32) low-bits) -2)))
@@ -627,7 +682,7 @@ referenced by dst and src value at runtime."
 
 ;; XXX: make-non-immediate
 
-(define-ir (static-ref (local dst) (const offset))
+(define-ir (static-ref (scm dst) (const offset))
   ;; XXX: Needs type check.
   `(let ((,(var-ref dst) ,(dereference-scm (+ ip (* 4 offset)))))
      ,(next)))
@@ -642,7 +697,7 @@ referenced by dst and src value at runtime."
 ;; XXX: resolve
 ;; XXX: define!
 
-(define-ir (toplevel-box (local dst)
+(define-ir (toplevel-box (scm dst)
                          (const var-offset)
                          (const mod-offset)
                          (const sym-offset)
@@ -683,7 +738,7 @@ referenced by dst and src value at runtime."
 ;; expects current thread as first argument. The value of current thread is not
 ;; stored in frame but in non-volatile register, and currently there is no way
 ;; to tell the register value as a variable from IR to assembler.
-(define-interrupt-ir (cons (local dst) (local x) (local y))
+(define-interrupt-ir (cons (scm dst) (scm x) (scm y))
   (let* ((vdst (var-ref dst))
          (vx (var-ref x))
          (vy (var-ref y))
@@ -701,7 +756,7 @@ referenced by dst and src value at runtime."
                    (with-boxing emit-y lx vx r0))))
     (emit-x)))
 
-(define-ir (car (local dst) (local src))
+(define-ir (car (scm dst) (scm src))
   (let ((rdst (local-ref dst))
         (rsrc (local-ref src))
         (vdst (var-ref dst))
@@ -713,7 +768,7 @@ referenced by dst and src value at runtime."
        ,(let ((rcar (car rsrc)))
           (with-unboxing next rcar vdst)))))
 
-(define-ir (cdr (local dst) (local src))
+(define-ir (cdr (scm dst) (scm src))
   (let ((rdst (local-ref dst))
         (rsrc (local-ref src))
         (vdst (var-ref dst))
@@ -731,9 +786,8 @@ referenced by dst and src value at runtime."
 
 ;;; *** Numeric operations
 
-(define-ir (add (local dst) (local a) (local b))
-  (let ((rdst (local-ref dst))
-        (ra (local-ref a))
+(define-ir (add (scm dst) (scm a) (scm b))
+  (let ((ra (local-ref a))
         (rb (local-ref b))
         (vdst (var-ref dst))
         (va (var-ref a))
@@ -746,12 +800,11 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%fadd ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "XXX: add ~a ~a ~a~%" rdst ra rb)
+      (debug 1 "XXX: add ~a ~a ~a~%" (local-ref dst) ra rb)
       (escape #f)))))
 
-(define-ir (add/immediate (local dst) (local src) (const imm))
-  (let ((rdst (local-ref dst))
-        (rsrc (local-ref src))
+(define-ir (add/immediate (scm dst) (scm src) (const imm))
+  (let ((rsrc (local-ref src))
         (vdst (var-ref dst))
         (vsrc (var-ref src)))
     (cond
@@ -759,12 +812,11 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%add ,vsrc ,imm)))
          ,(next)))
      (else
-      (debug 3 "XXX: add1 ~a ~a" rdst rsrc)
+      (debug 1 "XXX: add/immediate ~a ~a" (local-ref dst) rsrc)
       (escape #f)))))
 
-(define-ir (sub (local dst) (local a) (local b))
-  (let ((rdst (local-ref dst))
-        (ra (local-ref a))
+(define-ir (sub (scm dst) (scm a) (scm b))
+  (let ((ra (local-ref a))
         (rb (local-ref b))
         (vdst (var-ref dst))
         (va (var-ref a))
@@ -777,12 +829,11 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%fsub ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "XXX: sub ~a ~a ~a~%" rdst ra rb)
+      (debug 1 "XXX: sub ~a ~a ~a~%" (local-ref dst) ra rb)
       (escape #f)))))
 
-(define-ir (sub/immediate (local dst) (local src) (const imm))
-  (let ((rdst (local-ref dst))
-        (rsrc (local-ref src))
+(define-ir (sub/immediate (scm dst) (scm src) (const imm))
+  (let ((rsrc (local-ref src))
         (vdst (var-ref dst))
         (vsrc (var-ref src)))
     (cond
@@ -790,12 +841,11 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%sub ,vsrc ,imm)))
          ,(next)))
      (else
-      (debug 3 "XXX: sub1 ~a ~a~%" rdst rsrc)
+      (debug 1 "XXX: sub/immediate ~a ~a~%" (local-ref dst) rsrc)
       (escape #f)))))
 
-(define-ir (mul (local dst) (local a) (local b))
-  (let ((rdst (local-ref dst))
-        (ra (local-ref a))
+(define-ir (mul (scm dst) (scm a) (scm b))
+  (let ((ra (local-ref a))
         (rb (local-ref b))
         (vdst (var-ref dst))
         (va (var-ref a))
@@ -805,16 +855,15 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%fmul ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "XXX: mul ~a ~a ~a~%" rdst ra rb)
+      (debug 1 "XXX: mul ~a ~a ~a~%" (local-ref dst) ra rb)
       (escape #f)))))
 
 ;; XXX: div
 ;; XXX: quo
 ;; XXX: rem
 
-(define-ir (mod (local dst) (local a) (local b))
-  (let ((rdst (local-ref dst))
-        (ra (local-ref a))
+(define-ir (mod (scm dst) (scm a) (scm b))
+  (let ((ra (local-ref a))
         (rb (local-ref b))
         (vdst (var-ref dst))
         (va (var-ref a))
@@ -824,7 +873,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%mod ,va ,vb)))
          ,(next)))
      (else
-      (debug 3 "XXX: mod ~a ~a ~a~%" rdst ra rb)
+      (debug 1 "XXX: mod ~a ~a ~a~%" (local-ref dst) ra rb)
       (escape #f)))))
 
 ;; XXX: ash
@@ -879,15 +928,29 @@ referenced by dst and src value at runtime."
 
 ;; XXX: scm->f64
 ;; XXX: f64->scm
-;; XXX: fadd
+
+(define-syntax define-f64-binary-arith
+  (syntax-rules ()
+    ((_ name op)
+     (define-ir (name (f64 dst) (f64 a) (f64 b))
+       `(let ((,(var-ref dst) (op ,(var-ref a) ,(var-ref b))))
+          ,(next))))))
+
+(define-f64-binary-arith fadd %fadd)
+
 ;; XXX: fsub
 ;; XXX: fmul
 ;; XXX: fdiv
 
 ;; XXX: apply-non-program
 
-;; XXX: scm->u64
-;; XXX: u64->scm
+(define-ir (scm->u64 (u64 dst) (scm src))
+  `(let ((,(var-ref dst) ,(var-ref src)))
+     ,(next)))
+
+(define-ir (u64->scm (scm dst) (u64 src))
+  `(let ((,(var-ref dst) ,(var-ref src)))
+     ,(next)))
 
 ;; XXX: bv-length
 
@@ -903,7 +966,10 @@ referenced by dst and src value at runtime."
 ;; XXX: umul/immediate
 
 ;; XXX: load-f64
-;; XXX: load-u64
+
+(define-ir (load-u64 (u64 dst) (const high-bits) (const low-bits))
+  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
+     ,(next)))
 
 ;; XXX: scm->s64
 ;; XXX: s64->scm
@@ -920,125 +986,22 @@ referenced by dst and src value at runtime."
 ;; XXX: ulsh
 ;; XXX: scm->u64/truncate
 
+;; XXX: ursh/immediate
+;; XXX: ulsh/immediate
 
-;;;
-;;; Local scanner
-;;;
+(define-syntax define-br-binary-u64-scm
+  (syntax-rules ()
+    ((_ name scm-op fx-op-t fx-op-f)
+     (define-ir (name (u64 a) (scm b) (const invert?) (const offset))
+       (define-br-binary-body name a b invert? offset scm-op ra rb va vb dest
+        `(let ((_ ,(take-snapshot! ip dest)))
+           (let ((_ ,(if (scm-op ra rb)
+                         `(fx-op-t ,va ,vb)
+                         `(fx-op-f ,va ,vb))))
+             ,(next))))))))
 
-(define (scan-locals st sp-offset fp-offset sp-offsets fp-offsets op locals)
-  ;; Compute local index in op.
-  ;;
-  ;; Lower frame data is saved at the time of accumulation.  If one of
-  ;; the guard operation appeared soon after bytecode sequence
-  ;; `return' or `receive', snapshot does not know the value of locals
-  ;; in lower frame. When recorded bytecode contains `return' before
-  ;; `call', snapshot will recover a frame higher than the one used to
-  ;; enter the native call.
-  ;;
-  ;; The stack grows down.
-  ;;
-  (define-syntax-rule (push-sp-offset! n)
-    (set! sp-offset (- sp-offset n)))
-  (define-syntax-rule (pop-sp-offset! n)
-    (set! sp-offset (+ sp-offset n)))
-  (define-syntax-rule (push-fp-offset! n)
-    (set! fp-offset (- fp-offset n)))
-  (define-syntax-rule (pop-fp-offset! n)
-    (set! fp-offset (+ fp-offset n)))
-  (define-syntax-rule (save-sp-offset!)
-    (set! sp-offsets (cons sp-offset sp-offsets)))
-  (define-syntax-rule (save-fp-offset!)
-    (set! fp-offsets (cons fp-offset fp-offsets)))
-  (define-syntax add!
-    (syntax-rules ()
-      ((_ st i ...)
-       (begin
-         (hashq-set! st (+ i sp-offset) #t) ...
-         st))))
-  (define-syntax-rule (ret)
-    (values sp-offset fp-offset sp-offsets fp-offsets))
-  (define (nyi st op)
-    (debug 1 "scan-locals: NYI ~a~%" op)
-    (ret))
-    ;; Lookup accumulating procedure stored in *local-accumulator* and apply
-    ;; the procedure when found.
-    ;;
-    ;; VM operations which moves frame pointer are not stored in
-    ;; *local-accumulator* and treated specially.
-    ;;
-    ;; `return' will accumulate indices of proc, returned value, VM frame
-    ;; dynamic link, and VM frame return address.
-    ;;
-    ;; `call' and `call-label' will accumulate indices of proc, VM frame
-    ;; dynamic link, and VM frame return address, then push the local sp-offset.
-    ;;
-    ;; `receive' and `receive-value' will pop the local sp-offset before
-    ;; accumulating index of the local containing the callee procedure.
-    ;;
-
-  (cond
-   ((hashq-ref *local-accumulator* (car op))
-    => (lambda (proc)
-         (let ((st (apply proc st sp-offset (cdr op))))
-           (save-sp-offset!)
-           (save-fp-offset!)
-           (ret))))
-   (else
-    (match op
-      (('call proc nlocals)
-       (let* ((stack-size (vector-length locals))
-              (sp-proc (- stack-size proc 1)))
-         (add! st sp-proc (+ sp-proc 1) (+ sp-proc 2))
-         (save-sp-offset!)
-         (save-fp-offset!)
-         (push-fp-offset! proc)
-         (push-sp-offset! (- (+ proc nlocals) stack-size))
-         (ret)))
-      (('call-label proc nlocals _)
-       (let ((stack-size (vector-length locals)))
-         (add! st proc (- proc 1) (- proc 2))
-         (save-sp-offset!)
-         (save-fp-offset!)
-         (push-fp-offset! proc)
-         (push-sp-offset! (- (+ proc nlocals) stack-size))
-         (ret)))
-      (('tail-call nlocals)
-       (let ((stack-size (vector-length locals)))
-         (add! st (- stack-size 1))
-         (save-sp-offset!)
-         (save-fp-offset!)
-         (ret)))
-      (('receive dst proc nlocals)
-       (let* ((stack-size (vector-length locals))
-              (fp (- stack-size proc)))
-         (add! st (- stack-size dst 1) (- stack-size proc 2))
-         (save-sp-offset!)
-         (pop-sp-offset! (- stack-size nlocals))
-         (pop-fp-offset! proc)
-         (save-fp-offset!)
-         (ret)))
-      ;; XXX: NYI receive-values
-      ;; (('receive-values proc _ _)
-      ;;  (add! st proc))
-      (('return-values nlocals)
-       (let ((stack-size (vector-length locals)))
-         (add! st stack-size (+ stack-size 1))
-         (let lp ((n nlocals))
-           (when (<= 2 n)
-             (add! st (- stack-size n))
-             (lp (- n 1))))
-         (save-sp-offset!)
-         (pop-sp-offset! (- stack-size nlocals))
-         (save-fp-offset!)
-         (ret)))
-      (('assert-nargs-ee/locals expected nlocals)
-       (push-sp-offset! nlocals)
-       (let lp ((n nlocals))
-         (when (< 0 n)
-           (add! st (- n 1))
-           (lp (- n 1))))
-       (save-sp-offset!)
-       (save-fp-offset!)
-       (ret))
-      (_
-       (nyi st (car op)))))))
+(define-br-binary-u64-scm br-if-u64-=-scm = %eq %ne)
+(define-br-binary-u64-scm br-if-u64-<-scm < %lt %ge)
+;; XXX: br-if-u64-<=-scm
+(define-br-binary-u64-scm br-if-u64->-scm > %gt %le)
+;; XXX: br-if-u64->=-scm

@@ -77,7 +77,7 @@
   (debug 3 ";;; load-frame: local:~a type:~a dst:~a~%"
          local (pretty-type type) dst)
   (sp-ref r0 local)
-  (unbox-scm dst r0 type #f))
+  (unbox-stack-element dst r0 type #f))
 
 (define (store-frame local type src)
   (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
@@ -128,7 +128,17 @@
       (memory-ref/f f0 src)
       (scm-from-double r0 f0)
       (sp-set! local r0))))
-   ((memq type (list &box &procedure &pair))
+   ((eq? type &f64)
+    (cond
+     ((constant? src)
+      (jit-movi-d f0 (constant src))
+      (sp-set!/f local f0))
+     ((fpr? src)
+      (sp-set!/f local (fpr src)))
+     ((memory? src)
+      (memory-ref/f f0 src)
+      (sp-set!/f local f0))))
+   ((memq type (list &box &procedure &pair &u64))
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))

@@ -192,7 +192,6 @@
                         (not (fpr? assigned)))
                    (and (= type double)
                         (not (gpr? assigned)))))
-          (debug 1 ";;; get-dst-type!: same type assigned to dst~%")
           assigned)
          ((= type int)
           (get-gpr! dst))

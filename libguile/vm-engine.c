@@ -479,7 +479,7 @@
         offset >>= 8; /* Sign-extending shift. */                       \
         if (offset <= 0)                                                \
           VM_HANDLE_INTERRUPTS;                                         \
-        NEXT (offset);                                                  \
+        VM_TJIT_JUMP (offset);                                          \
       }                                                                 \
     NEXT (3);                                                           \
   }
@@ -3784,7 +3784,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
             offset >>= 8; /* Sign-extending shift. */                   \
             if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
-            NEXT (offset);                                              \
+            VM_TJIT_JUMP (offset);                                      \
           }                                                             \
         NEXT (3);                                                       \
       }                                                                 \
@@ -3800,7 +3800,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
             offset >>= 8; /* Sign-extending shift. */                   \
             if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
-            NEXT (offset);                                              \
+            VM_TJIT_JUMP (offset);                                      \
           }                                                             \
         NEXT (3);                                                       \
       }                                                                 \

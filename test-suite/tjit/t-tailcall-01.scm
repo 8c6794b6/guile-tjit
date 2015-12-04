@@ -1,3 +1,5 @@
+;; Simple tail-call with named let.
+
 (define (sum-tailcall n)
   (let lp ((n n) (acc 0))
     (if (= 0 n)

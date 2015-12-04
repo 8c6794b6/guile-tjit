@@ -44,6 +44,7 @@
             tjit-fragment-table
             tjit-root-trace-table
             tjit-failed-ip-table
+            tjit-increment-id!
 
             tjit-hot-loop
             set-tjit-hot-loop!
@@ -56,16 +57,15 @@
 
             tjit-dump-abort?
             tjit-dump-bytecode?
-            tjit-dump-disassemble?
             tjit-dump-ops?
             tjit-dump-locals?
+            tjit-dump-ncode?
             tjit-dump-jitc?
             tjit-dump-anf?
             tjit-dump-time?
             tjit-dump-exit?
             parse-tjit-dump-flags
             set-tjit-dump-option!
-
 
             make-tjit-time-log
             set-tjit-time-log-start!
@@ -95,14 +95,14 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode disassemble ops jitc locals scm time exit)
+  (make-tjit-dump abort bytecode ops jitc locals ncode scm time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
-  (disassemble tjit-dump-disassemble? set-tjit-dump-disassemble!)
   (ops tjit-dump-ops? set-tjit-dump-ops!)
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-locals? set-tjit-dump-locals!)
+  (ncode tjit-dump-ncode? set-tjit-dump-ncode!)
   (scm tjit-dump-anf? set-tjit-dump-anf!)
   (time tjit-dump-time? set-tjit-dump-time!)
   (exit tjit-dump-exit? set-tjit-dump-exit!))
@@ -120,11 +120,11 @@ Flags are:
 
 - 'b': Dump recorded bytecode.
 
-- 'd': Dump disassembled code.
-
 - 'j': Dump brief info when starting JIT compilation.
 
 - 'l': Dump locals, see 'x'.
+
+- 'n': Dump native code.
 
 - 'o': Dump list of primitive operations.
 
@@ -152,9 +152,9 @@ fields to @code{#f}."
                                (lp (cdr cs))))))))
         (flags (#\a set-tjit-dump-abort!)
                (#\b set-tjit-dump-bytecode!)
-               (#\d set-tjit-dump-disassemble!)
                (#\j set-tjit-dump-jitc!)
                (#\l set-tjit-dump-locals!)
+               (#\n set-tjit-dump-ncode!)
                (#\o set-tjit-dump-ops!)
                (#\s set-tjit-dump-anf!)
                (#\t set-tjit-dump-time!)

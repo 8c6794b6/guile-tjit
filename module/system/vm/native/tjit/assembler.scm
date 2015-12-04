@@ -60,6 +60,8 @@
             jumpi
             sp-ref
             sp-set!
+            sp-ref/f
+            sp-set!/f
             memory-ref
             memory-set!
             memory-ref/f
@@ -81,7 +83,7 @@
             vm-sync-fp
             vm-handle-interrupts
             vm-expand-stack
-            unbox-scm))
+            unbox-stack-element))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -274,6 +276,17 @@
       (jit-str %sp src)
       (jit-stxi (make-signed-pointer (* n %word-size)) %sp src)))
 
+(define-syntax-rule (sp-ref/f dst n)
+  (if (= 0 n)
+      (jit-ldr-d dst %sp)
+      (jit-ldxi-d dst %sp (make-signed-pointer (* n %word-size)))))
+
+(define-syntax-rule (sp-set!/f n src)
+  (if (= 0 n)
+      (jit-str-d %sp src)
+      (jit-stxi-d (make-signed-pointer (* n %word-size)) %sp src)))
+
+
 (define (store-volatile src)
   (jit-stxi (volatile-offset src) %fp (gpr src)))
 
@@ -420,9 +433,7 @@
                      acc))
                '()
                env))
-  (let ((volatiles (volatile-regs-in-use env)))
-    (debug 1 ";;; make-asm: volatiles=~a~%" volatiles)
-    (%make-asm volatiles #f #f end-address)))
+  (%make-asm (volatile-regs-in-use env) #f #f end-address))
 
 (define-syntax jump
   (syntax-rules ()
@@ -581,7 +592,9 @@ both arguments were register or memory."
 (define-binary-int-guard %eq != jit-bnei jit-bner)
 (define-binary-int-guard %ne = jit-beqi jit-beqr)
 (define-binary-int-guard %lt >= jit-bgei jit-bger)
+(define-binary-int-guard %le > jit-bgti jit-bgtr)
 (define-binary-int-guard %ge < jit-blti jit-bltr)
+(define-binary-int-guard %gt <= jit-blei jit-bler)
 
 (define-prim (%flt (double a) (double b))
   (let ((next (jit-forward)))
@@ -871,7 +884,7 @@ both arguments were register or memory."
    (else
     (error "%fmul" dst a b))))
 
-(define-syntax unbox-scm
+(define-syntax unbox-stack-element
   (syntax-rules ()
     ((_ dst src type guard?)
      ;; Passing `guard?' parameter, control expansion of
@@ -924,7 +937,7 @@ both arguments were register or memory."
          (load-constant *scm-undefined* guard?))
         ((eq? type &null)
          (load-constant *scm-null* guard?))
-        ((memq type (list &box &procedure &pair))
+        ((memq type (list &box &procedure &pair &u64))
          ;; XXX: Add guard for each type.
          (cond
           ((gpr? dst)
@@ -951,32 +964,40 @@ both arguments were register or memory."
               (not (constant? type)))
       (error "%fref" dst n type))
     (sp-ref r0 (ref-value n))
-    (unbox-scm dst r0 t #t)))
+    (unbox-stack-element dst r0 t #t)))
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.
-(define-prim (%fref/f (double dst) (void n))
+(define-prim (%fref/f (double dst) (void n) (void type))
   (let ((exit (jit-forward))
-        (next (jit-forward)))
+        (next (jit-forward))
+        (t (ref-value type)))
     (when (not (constant? n))
       (error "%fref/f" dst n))
-    (sp-ref r0 (ref-value n))
-    (jump (scm-imp r0) exit)
-    (scm-cell-type r1 r0)
-    (scm-typ16 r1 r1)
-    (jump (scm-not-realp r1) exit)
     (cond
-     ((fpr? dst)
-      (scm-real-value (fpr dst) r0))
-     ((memory? dst)
-      (scm-real-value f0 r0)
-      (memory-set!/f dst f0))
-     (else
-      (error "%fref/f" dst n)))
-    (jump next)
-    (jit-link exit)
-    (emit-side-exit)
-    (jit-link next)))
+     ((= t &flonum)
+      (sp-ref r0 (ref-value n))
+      (jump (scm-imp r0) (current-exit))
+      (scm-cell-type r1 r0)
+      (scm-typ16 r1 r1)
+      (jump (scm-not-realp r1) (current-exit))
+      (cond
+       ((fpr? dst)
+        (scm-real-value (fpr dst) r0))
+       ((memory? dst)
+        (scm-real-value f0 r0)
+        (memory-set!/f dst f0))
+       (else
+        (error "%fref/f" dst n type))))
+     ((= t &f64)
+      (cond
+       ((fpr? dst)
+        (sp-ref/f (fpr dst) (ref-value n)))
+       ((memory? dst)
+        (sp-ref/f f0 (ref-value n))
+        (memory-set!/f dst f0))
+       (else
+        (error "%fref/f" dst n type)))))))
 
 (define-prim (%cref (int dst) (int src) (void n))
   (cond

@@ -55,12 +55,18 @@
 
 (define (main paths)
   (init-vm-tjit #t)
-  (let ((results (map run-tjit-test paths)))
+  (let ((results (map run-tjit-test paths))
+        (nfs (assq-ref (tjit-stats) 'num-fragments)))
     (cond
      ((and (every not results)
-           (< 0 (assq-ref (tjit-stats) 'num-fragments)))
+           (number? nfs)
+           (< 0 nfs))
       (exit 0))
+     ((<= nfs 0)
+      (format #t "num-fragments: ~s~%" nfs)
+      (exit 1))
      (else
-      (format #t "vm-regular: ~a~%vm-tjit:    ~a~%"
-              (caar results) (cadar results))
+      (let ((result (car results)))
+        (format #t "vm-regular: ~s~%vm-tjit:    ~s~%"
+                (car result) (cadr result)))
       (exit 1)))))

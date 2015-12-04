@@ -66,6 +66,7 @@ SCM_API SCM scm_tjit_hot_exit (void);
 SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
 SCM_API SCM scm_tjit_max_retries (void);
 SCM_API SCM scm_set_tjit_max_retries_x (SCM count);
+SCM_API SCM scm_tjit_increment_id_x (void);
 
 SCM_API SCM scm_tjit_make_retval (scm_i_thread *thread,
                                   scm_t_bits exit_id,

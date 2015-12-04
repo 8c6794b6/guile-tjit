@@ -36,7 +36,6 @@
   #:use-module (system foreign)
   #:use-module (system vm debug)
   #:use-module (system vm native debug)
-  #:use-module (system vm native tjit parameters)
   #:export ($snapshot
             make-snapshot
             %make-snapshot
@@ -62,14 +61,28 @@
 
             $past-frame
             make-past-frame
+            arrange-past-frame
+            past-frame-locals
             past-frame-local-indices
+            set-past-frame-local-indices!
             past-frame-local-ref
+            past-frame-type-ref
             past-frame-sp-offsets
+            set-past-frame-sp-offsets!
             past-frame-fp-offsets
+            set-past-frame-fp-offsets!
+            past-frame-types
+            set-past-frame-types!
             past-frame-dls
             past-frame-ras
+            past-frame-sp-offset
+            set-past-frame-sp-offset!
+            past-frame-fp-offset
+            set-past-frame-fp-offset!
             pop-past-frame!
             push-past-frame!
+            expand-past-frame
+            merge-past-frame-types!
 
             $return-address
             make-return-address
@@ -93,7 +106,8 @@
             pretty-type
             &undefined
 
-            stack-element)
+            stack-element
+            type->stack-element-type)
   #:re-export (&exact-integer
                &flonum
                &complex
@@ -116,7 +130,10 @@
                &bytevector
                &bitvector
                &array
-               &hash-table))
+               &hash-table
+               &f64
+               &u64
+               &s64))
 
 
 ;;;
@@ -140,7 +157,8 @@
 ;; Stores dynamic link, return addresses, and locals of caller procedure when
 ;; inlined procedure exist in trace.
 (define-record-type $past-frame
-  (%make-past-frame dls ras locals local-indices sp-offsets fp-offsets)
+  (%make-past-frame dls ras locals local-indices sp-offsets fp-offsets types
+                    sp-offset fp-offset)
   past-frame?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -150,30 +168,40 @@
   (ras past-frame-ras set-past-frame-ras!)
 
   ;; Vector containing locals.
-  (locals past-frame-locals set-past-frame-locals!)
+  (locals past-frame-locals)
 
   ;; All local indices found in trace.
-  (local-indices past-frame-local-indices)
+  (local-indices past-frame-local-indices set-past-frame-local-indices!)
 
   ;; Vector containing SP offset per bytecode operation.
-  (sp-offsets past-frame-sp-offsets)
+  (sp-offsets past-frame-sp-offsets set-past-frame-sp-offsets!)
 
   ;; Vector containing FP offset per bytecode operation.
-  (fp-offsets past-frame-fp-offsets))
+  (fp-offsets past-frame-fp-offsets set-past-frame-fp-offsets!)
 
-(define (make-past-frame dls ras local-offset locals local-indices
-                         sp-offsets fp-offsets)
+  ;; Stack element types.
+  (types past-frame-types set-past-frame-types!)
+
+  ;; Current SP offset.
+  (sp-offset past-frame-sp-offset set-past-frame-sp-offset!)
+
+  ;; Current FP offset.
+  (fp-offset past-frame-fp-offset set-past-frame-fp-offset!))
+
+(define (make-past-frame types sp-offset fp-offset)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (let ((table (make-hash-table))
-        (nlocals (vector-length locals)))
-    (let lp ((i 0) (end nlocals))
-      (when (< i end)
-        (let ((elem (and (vector-ref locals i)))
-              (j (+ i local-offset)))
-          (hashq-set! table j elem))
-        (lp (+ i 1) end)))
-    (%make-past-frame dls ras table local-indices sp-offsets fp-offsets)))
+  (%make-past-frame '() '() (make-hash-table) '() '() '() types
+                    sp-offset fp-offset))
+
+(define (arrange-past-frame pf)
+  (let ((locals/list (sort (map car (past-frame-local-indices pf)) >))
+        (sp-offsets/vec (list->vector (reverse! (past-frame-sp-offsets pf))))
+        (fp-offsets/vec (list->vector (reverse! (past-frame-fp-offsets pf)))))
+    (set-past-frame-local-indices! pf locals/list)
+    (set-past-frame-sp-offsets! pf sp-offsets/vec)
+    (set-past-frame-fp-offsets! pf fp-offsets/vec)
+    pf))
 
 (define (push-past-frame! past-frame dl ra local-offset locals)
   (set-past-frame-dls! past-frame (cons dl (past-frame-dls past-frame)))
@@ -195,8 +223,32 @@
       (set-past-frame-ras! past-frame (cdr old-ras)))
     past-frame))
 
+(define (expand-past-frame past-frame offset nlocals)
+  (let ((locals (past-frame-locals past-frame))
+        (undefined (make-pointer #x904)))
+    (let lp ((n 0))
+      (when (< n nlocals)
+        (hashq-set! locals (+ offset n) undefined)
+        (lp (+ n 1))))))
+
 (define (past-frame-local-ref past-frame i)
-  (hashq-get-handle (past-frame-locals past-frame) i))
+  (hashq-ref (past-frame-locals past-frame) i))
+
+(define (past-frame-type-ref past-frame i)
+  (assq-ref (past-frame-types past-frame) i))
+
+(define (merge-past-frame-types! past-frame local-x-types)
+  (let lp ((locals local-x-types)
+           (types (past-frame-types past-frame)))
+    (match locals
+      (((local . type) . locals)
+       (let* ((etype (type->stack-element-type type))
+              (types (assq-set! types local etype)))
+         (lp locals types)))
+      (_
+       (set-past-frame-types! past-frame types)))))
+
+
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
@@ -254,10 +306,10 @@
 (define (true? x)
   (eq? x #t))
 
-;; Extra type
-
+;; Extra type for #<undefined> values.
 (define &undefined
-  (ash &hash-table 2))
+  ;; XXX: Any better number to use ...?
+  0)
 
 (define (type-of obj)
   (cond
@@ -268,13 +320,21 @@
    ((undefined? obj) &undefined)
    ((false? obj) &false)
    ((true? obj) &true)
-   ((procedure? obj) &procedure)
-   ((pair? obj) &pair)
    ((null? obj) &null)
+   ((symbol? obj) &symbol)
+   ((keyword? obj) &keyword)
+   ((procedure? obj) &procedure)
+   ((pointer? obj) &pointer)
+   ((fluid? obj) &fluid)
+   ((pair? obj) &pair)
+   ((vector? obj) &vector)
    ((variable? obj) &box)
    ((struct? obj) &struct)
+   ((string? obj) &string)
    ((bytevector? obj) &bytevector)
    ((bitvector? obj) &bitvector)
+   ((array? obj) &array)
+   ((hash-table? obj) &hash-table)
    (else
     (debug 1 "XXX: Type not determined: ~s~%" obj)
     #f)))
@@ -299,6 +359,9 @@
    ((eq? type &vector) (yellow "vect"))
    ((eq? type &box) (yellow "box"))
    ((eq? type &struct) (yellow "strc"))
+   ((eq? type &f64) (magenta "f64"))
+   ((eq? type &u64) (blue "u64"))
+   ((eq? type &s64) (blue "s64"))
    ((dynamic-link? type)
     (let ((diff (number->string (dynamic-link-offset type))))
       (string-append "dl:" (cyan diff))))
@@ -310,19 +373,65 @@
 
 
 ;;;
+;;; Stack element
+;;;
+
+(define (stack-element locals n type)
+  (let ((elem (vector-ref locals n)))
+    (cond
+     ((eq? 'u64 type)
+      (pointer-address elem))
+     ((eq? 's64 type)
+      (error "stack-element: NYI s64"))
+     ((eq? 'f64 type)
+      (error "stack-element: NYI f64"))
+     ((eq? 'scm type)
+      (resolve-stack-element elem))
+     (else
+      (error "stack-element: unknown type" type n elem)))))
+
+(define (resolve-stack-element ptr)
+  (let ((scm? (and (pointer? ptr)
+                   (let ((addr (pointer-address ptr)))
+                     (and (zero? (logand 1 addr))
+                          ;; XXX: Workaround to show Scheme error instead of
+                          ;; segmentation fault.
+                          (not (and (zero? (modulo addr 8))
+                                    (<= addr 800))))))))
+    (if scm?
+        (pointer->scm ptr)
+        (error "resolve-stack-element: non-SCM value" ptr))))
+
+(define (type->stack-element-type type)
+  (cond
+   ((eq? type &f64) 'f64)
+   ((eq? type &u64) 'u64)
+   ((eq? type &s64) 's64)
+   (else 'scm)))
+
+
+;;;
 ;;; Snapshot
 ;;;
 
 (define (make-snapshot id sp-offset fp-offset nlocals locals
                        parent-snapshot indices past-frame ip)
-  (define-syntax-rule (local-ref i)
-    (stack-element locals i))
   (define initial-offset
     (or (and=> parent-snapshot snapshot-sp-offset)))
   (define parent-locals
     (and=> parent-snapshot snapshot-locals))
   (define (parent-snapshot-local-ref i)
     (and parent-snapshot (assq-ref parent-locals i)))
+  (define-syntax-rule (local-ref i)
+    (let ((type (past-frame-type-ref past-frame i)))
+      (cond
+       ((eq? 'f64 type) &f64)
+       ((eq? 'u64 type) &u64)
+       ((eq? 's64 type) &s64)
+       ((eq? 'scm type)
+        (type-of (stack-element locals (- i sp-offset) type)))
+       (else
+        (error "make-snapshot: unknown local" type i)))))
   (let lp ((is indices) (acc '()))
     (match is
       ((i . is)
@@ -333,16 +442,15 @@
                (and (or (dynamic-link? val)
                         (return-address? val))
                     val))))
-       (define (add-local local)
-         (let ((type (type-of local)))
-           (lp is (cons `(,i . ,type) acc))))
+       (define (add-local type)
+         (lp is (cons `(,i . ,type) acc)))
        (define (add-val val)
          (lp is (cons `(,i . ,val) acc)))
        (cond
         ;; Inlined local in initial frame in root trace. The frame contents
-        ;; should be a scheme value, not dynamic link or return address.
-        ((< (- sp-offset 1) i (+ sp-offset nlocals))
-         (add-local (local-ref (- i sp-offset))))
+        ;; should be a scheme stack element, not dynamic link or return address.
+        ((<= sp-offset i (- (+ sp-offset nlocals) 1))
+         (add-local (local-ref i)))
 
         ;; Dynamic link and return address might need to be passed from parent
         ;; trace. When side trace of inlined procedure takes bailout code,
@@ -351,38 +459,48 @@
         ((dl-or-ra i)
          => add-val)
 
-        ;; Local from a vector saved at the tme of recording the trace.
-        ((< -1 (- i sp-offset) (vector-length locals))
-         (add-local (local-ref (- i sp-offset))))
+        ;; Down frame. Taking local from a vector saved at the tme of recording
+        ;; the trace.
+        ((<= 0 (- i sp-offset) (- (vector-length locals) 1))
+         (add-local (local-ref i)))
 
         ;; When side trace contains inlined procedure and the guard taking this
         ;; snapshot is from the caller of the inlined procedure, saving local in
         ;; upper frame. Looking up locals from newest locals in past-frame.
-        ((past-frame-local-ref past-frame i)
-         => (match-lambda ((_ . ptr)
-                           (add-local (resolve-stack-element ptr)))))
-
+        ;;
         ;; Side trace could start from the middle of inlined procedure, locals
         ;; in past frame may not have enough information to recover locals in
         ;; caller of the inlined procedure. In such case, look up locals in the
         ;; snapshot of parent trace.
-        ((parent-snapshot-local-ref i)
-         => add-val)
+        ((past-frame-type-ref past-frame i)
+         => (lambda (se-type)
+              (cond
+               ((eq? 'f64 se-type) (add-local &f64))
+               ((eq? 'u64 se-type) (add-local &u64))
+               ((eq? 's64 se-type) (add-local &s64))
+               ((eq? 'scm se-type)
+                (cond
+                 ((past-frame-local-ref past-frame i)
+                  => (lambda (ptr)
+                       (add-local (type-of (resolve-stack-element ptr)))))
+                 ((parent-snapshot-local-ref i)
+                  => add-local)
+                 ((<= 0 (+ i sp-offset) (- (vector-length locals) 1))
+                  (let ((ptr (vector-ref locals (+ i sp-offset))))
+                    (add-local (type-of (resolve-stack-element ptr)))))
+                 (else
+                  (error "make-snapshot: unresolved scm" id i))))
+               (else
+                (error "make-snapshot: unknown type" id se-type)))))
 
         ;; Giving up, skip this local.
         (else
          (debug 3 "XXX: local for i=~a not found~%" i)
          (add-local #f))))
       (()
-       (let ((acc (reverse! acc)))
-         (%make-snapshot id
-                         sp-offset
-                         fp-offset
-                         (vector-length locals)
-                         acc
-                         #f
-                         #f
-                         ip))))))
+       (%make-snapshot id sp-offset fp-offset (vector-length locals)
+                       (reverse! acc) #f #f ip)))))
+
 
 ;;;
 ;;; IP Keys
@@ -404,28 +522,3 @@
 
 (define (snapshot-uprec? snapshot)
   (= (snapshot-ip snapshot) *ip-key-uprec*))
-
-
-;;;
-;;; Stack element
-;;;
-
-(define (stack-element locals n)
-  (let ((elem (vector-ref locals n)))
-    (resolve-stack-element elem)))
-
-(define (resolve-stack-element ptr)
-  ;; XXX: Poor workaround for filtering out non-SCM stack element.
-  ;;
-  ;; Test for immediate small integer and possibly heap object. Proper way to do
-  ;; this is to add element type in argument of thi sprocedure. Such element
-  ;; type could be gathered by `(@@ (system vm native tjit ir) scan-locals)'.
-  ;;
-  (if (and (pointer? ptr)
-           (let ((addr (pointer-address ptr)))
-             (or (and (zero? (modulo (- addr 2) 4))
-                      (< (ash addr -2) most-positive-fixnum)
-                      (< most-negative-fixnum (ash addr -2)))
-                 (< #x10000 addr))))
-      (pointer->scm ptr)
-      #f))

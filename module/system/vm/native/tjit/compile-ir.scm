@@ -45,6 +45,7 @@
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
+  #:use-module (system vm native tjit scan)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
   #:export (compile-primops))
@@ -82,6 +83,7 @@
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
     (define (convert-one ir op ip ra locals rest)
+      (scan-locals (ir-past-frame ir) op locals #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (proc)
@@ -108,7 +110,7 @@
                       ir handle-interrupts? next escape
                       ip ra locals (cdr op)))))
        (else
-        (debug 2 "*** IR: NYI ~a~%" (car op))
+        (debug 2 "XXX IR: NYI ~a~%" (car op))
         (escape #f))))
     (define (convert ir trace)
       ;; Last operation is wrapped in a thunk, to assign snapshot ID
@@ -206,7 +208,6 @@
          (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id)))
-
     (define (take-snapshot! ip dst-offset locals vars)
       (let*-values (((ret snapshot)
                      (take-snapshot ip
@@ -225,7 +226,6 @@
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
-
     (define (make-vars-from-parent vars locals-from-parent
                                    sp-offset-from-parent)
       (let lp ((vars vars) (acc '()))
@@ -236,7 +236,6 @@
                (lp vars acc)))
           (()
            (reverse! acc)))))
-
     (let* ((args (map make-var (reverse local-indices)))
            (initial-trace (car trace))
            (initial-ip (cadr initial-trace))
@@ -259,8 +258,12 @@
         (let ((snapshot0 (hashq-ref snapshots 0)))
           (define (type-from-snapshot n)
             (let ((i (- n (snapshot-sp-offset snapshot0))))
-              (and (< -1 i (vector-length initial-locals))
-                   (type-of (stack-element initial-locals i)))))
+              (assq-ref (snapshot-locals snapshot0) i)))
+          (define (type-from-runtime-value i)
+            (let* ((type (past-frame-type-ref (tj-past-frame tj)
+                                              (+ i initial-sp-offset)))
+                   (local (stack-element initial-locals i type)))
+              (type-of local)))
           (define (type-from-parent n)
             (assq-ref parent-snapshot-locals n))
           (let lp ((vars (reverse vars)))
@@ -268,8 +271,10 @@
               (((n . var) . vars)
                (debug 3 ";;; add-initial-loads: n=~a~%" n)
                (debug 3 ";;;   var: ~a~%" var)
-               (debug 3 ";;;   from parent: ~a~%" (type-from-parent n))
-               (debug 3 ";;;   from snapshot: ~a~%" (type-from-snapshot n))
+               (debug 3 ";;;   from parent: ~a~%"
+                      (pretty-type (type-from-parent n)))
+               (debug 3 ";;;   from snapshot: ~a~%"
+                      (pretty-type (type-from-snapshot n)))
                (cond
                 ;; When local was passed from parent and snapshot 0 contained
                 ;; the local with same type, no need to load from frame. If type
@@ -285,33 +290,30 @@
                 ;; later with '%fref' or '%fref/f'.
                 ;;
                 ((let ((parent-type (type-from-parent n))
-                       (snapshot-type (type-from-snapshot n)))
-                   (and (not (tj-loop? tj))
-                        (or (and parent-type
-                                 snapshot-type
-                                 (eq? parent-type snapshot-type))
-                            (and (not snapshot-type)
-                                 parent-type)
-                            (and (<= 0 initial-sp-offset)
-                                 (< n 0)))))
-                 (lp vars))
-                ((let ((i (- n (snapshot-sp-offset snapshot0))))
-                   (not (< -1 i (vector-length initial-locals))))
+                       (snapshot-type (type-from-snapshot n))
+                       (i (- n (snapshot-sp-offset snapshot0))))
+                   (or (and (not (tj-loop? tj))
+                            (or (and parent-type
+                                     snapshot-type
+                                     (eq? parent-type snapshot-type))
+                                (and (not snapshot-type)
+                                     parent-type)
+                                (and (<= 0 initial-sp-offset)
+                                     (< n 0))))
+                       (not (<= 0 i (- (vector-length initial-locals) 1)))))
                  (lp vars))
                 (else
-                 (let* ((i (- n (snapshot-sp-offset snapshot0)))
-                        (local (stack-element initial-locals i))
-                        (type (type-of local)))
-                   (debug 3 ";;;   local:          ~a~%" local)
-                   (debug 3 ";;;   type:           ~a~%" type)
-
-                   ;; Shift the index when this trace started from negative
-                   ;; offset. Skip loading from frame when shifted index is
-                   ;; negative, should be loaded explicitly with `%fref' or
-                   ;; `%fref/f'.
-                   (let ((j (+ n initial-sp-offset)))
-                     (if (< j 0)
-                         (lp vars)
+                 (let ((j (+ n initial-sp-offset)))
+                   (if (< j 0)
+                       (lp vars)
+                       (let* ((i (- n (snapshot-sp-offset snapshot0)))
+                              (type (or (assq-ref (snapshot-locals snapshot0) n)
+                                        (and=>
+                                         (hashq-ref snapshots 1)
+                                         (lambda (s1)
+                                           (assq-ref (snapshot-locals s1) n)))
+                                        (type-from-runtime-value i))))
+                         (debug 3 ";;;   type: ~a~%" (pretty-type type))
                          (with-frame-ref lp vars var type j)))))))
               (()
                exp-body)))))
@@ -334,18 +336,11 @@
           (cond
            (root-trace?
             (let* ((arg-indices (filter (lambda (n)
-                                          (if (tj-uprec? tj)
-                                              (<= 0 n (- initial-nlocals 1))
-                                              (<= 0 n)))
+                                          (<= 0 n (- initial-nlocals 1)))
                                         (reverse local-indices)))
-                   (snapshot (make-snapshot 0
-                                            0
-                                            0
-                                            initial-nlocals
-                                            initial-locals
-                                            #f
-                                            arg-indices
-                                            (tj-past-frame tj)
+                   (snapshot (make-snapshot 0 0 0
+                                            initial-nlocals initial-locals
+                                            #f arg-indices (tj-past-frame tj)
                                             initial-ip))
                    (_ (hashq-set! snapshots 0 snapshot))
                    (snap (take-snapshot! *ip-key-set-loop-info!*
@@ -377,7 +372,9 @@
             (let ((snap (take-snapshot! initial-ip
                                         0
                                         initial-locals
-                                        vars-from-parent)))
+                                        '())))
+              (merge-past-frame-types! (tj-past-frame tj)
+                                       parent-snapshot-locals)
               `(letrec ((patch (lambda ,args-from-parent
                                  (let ((_ ,snap))
                                    ,(add-initial-loads

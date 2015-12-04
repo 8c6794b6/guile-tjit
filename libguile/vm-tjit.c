@@ -38,7 +38,6 @@
     SYNC_IP ();                           \
     tjitc (tj, ip, loop_p);               \
     CACHE_SP ();                          \
-    ++tjit_trace_id;                      \
     stop_recording (tj);                  \
   } while (0)
 
@@ -551,6 +550,16 @@ SCM_DEFINE (scm_set_tjit_max_retries_x, "set-tjit-max-retries!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_tjit_increment_id_x, "tjit-increment-id!", 0, 0, 0,
+            (void),
+            "Increment trace ID.")
+#define FUNC_NAME s_scm_tjit_increment_id_x
+{
+  ++tjit_trace_id;
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 SCM
 scm_tjit_make_retval (scm_i_thread *thread,
                       scm_t_bits exit_id, scm_t_bits exit_ip,
@@ -605,8 +614,8 @@ scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp,
     {
       scm_puts(" [", port);
       scm_display (SCM_I_MAKINUM (i), port);
-      scm_puts ("]:", port);
-      scm_display (sp[i].as_scm, port);
+      scm_puts ("]: 0x", port);
+      scm_display (to_hex (SCM_I_MAKINUM (sp[i].as_uint)), port);
     }
 
   scm_newline (port);
