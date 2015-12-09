@@ -132,8 +132,6 @@
              (let ((etype (type->stack-element-type type)))
                (lp locals (cons (cons local etype) acc))))
             (()
-             (debug 1 ";;; g-i-t: ~s~%" (sort acc (lambda (a b)
-                                                    (< (car a) (car b)))))
              acc)))
         '()))
 

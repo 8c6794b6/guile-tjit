@@ -821,68 +821,94 @@ both arguments were register or memory."
    (else
     (error "XXX: %scm-from-double" dst src))))
 
-(define-prim (%fadd (double dst) (double a) (double b))
-  (cond
-   ((and (fpr? dst) (constant? a) (fpr? b))
-    (jit-addi-d (fpr dst) (fpr b) (constant a)))
-   ((and (fpr? dst) (fpr? a) (constant? b))
-    (%fadd asm dst b a))
-   ((and (fpr? dst) (fpr? a) (fpr? b))
-    (jit-addr-d (fpr dst) (fpr a) (fpr b)))
+(define-syntax define-binary-fpr-prim
+  (lambda (x)
+    (syntax-case x ()
+      ((k name op-rr op-ri)
+       #`(define-prim (name (double dst) (double a) (double b))
+           (let ((show-error
+                  (lambda ()
+                    (error #,(symbol->string (syntax->datum #'name))
+                           dst a b))))
+             (cond
+              ((fpr? dst)
+               (cond
+                ((constant? a)
+                 (jit-movi-d f0 (constant a))
+                 (cond
+                  ((fpr? b)
+                   (op-rr (fpr dst) f0 (fpr b)))
+                  ((memory? b)
+                   (memory-ref/f f1 b)
+                   (op-rr (fpr dst) f0 f1))
+                  (else (show-error))))
+                ((fpr? a)
+                 (cond
+                  ((constant? b)
+                   (op-ri (fpr dst) (fpr a) (constant b)))
+                  ((fpr? b)
+                   (op-rr (fpr dst) (fpr a) (fpr b)))
+                  ((memory? b)
+                   (memory-ref/f f0 b)
+                   (op-rr (fpr dst) (fpr a) f0))
+                  (else (show-error))))
+                ((memory? a)
+                 (cond
+                  ((constant? b)
+                   (memory-ref/f f0 a)
+                   (op-ri (fpr dst) f0 (constant b)))
+                  ((fpr? b)
+                   (memory-ref/f f0 a)
+                   (op-rr (fpr dst) f0 (fpr b)))
+                  ((memory? b)
+                   (memory-ref/f f0 a)
+                   (memory-ref/f f1 b)
+                   (op-rr (fpr dst) f0 f1))
+                  (else (show-error))))))
+              ((memory? dst)
+               (cond
+                ((constant? a)
+                 (jit-movi-d f1 a)
+                 (cond
+                  ((fpr? b)
+                   (op-rr f0 f1 (fpr b)))
+                  ((memory? b)
+                   (memory-ref/f f2 b)
+                   (op-rr f0 f1 f2))
+                  (else (show-error))))
+                ((fpr? a)
+                 (cond
+                  ((constant? b)
+                   (op-ri f0 (fpr a) (constant b)))
+                  ((fpr? b)
+                   (op-rr f0 (fpr a) (fpr b)))
+                  ((memory? b)
+                   (memory-ref/f f1 b)
+                   (op-rr f0 (fpr a) f1))
+                  (else (show-error))))
+                ((memory? a)
+                 (memory-ref/f f1 a)
+                 (cond
+                  ((constant? b)
+                   (op-ri f0 f1 (constant b)))
+                  ((fpr? b)
+                   (op-rr f0 f1 (fpr b)))
+                  ((memory? b)
+                   (memory-ref/f f2 b)
+                   (op-rr f0 f1 f2))
+                  (else (show-error)))))
+               (memory-set!/f dst f0))
+              (else (show-error)))))))))
 
-   ((and (memory? dst) (fpr? a) (fpr? b))
-    (jit-addr-d f0 (fpr a) (fpr b))
-    (memory-set!/f dst f0))
-   ((and (memory? dst) (memory? a) (constant? b))
-    (memory-ref/f f0 a)
-    (jit-addi-d f0 f0 (constant b))
-    (memory-set!/f dst f0))
-   ((and (memory? dst) (memory? a) (fpr? b))
-    (memory-ref/f f0 a)
-    (jit-addr-d f0 f0 (fpr b))
-    (memory-set!/f dst f0))
-   (else
-    (error "%fadd" dst a b))))
+(define-binary-fpr-prim %fadd jit-addr-d jit-addi-d)
+(define-binary-fpr-prim %fsub jit-subr-d jit-subi-d)
+(define-binary-fpr-prim %fmul jit-mulr-d jit-muli-d)
+(define-binary-fpr-prim %fdiv jit-divr-d jit-divi-d)
 
-(define-prim (%fsub (double dst) (double a) (double b))
-  (cond
-   ((and (fpr? dst) (fpr? a) (fpr? b))
-    (jit-subr-d (fpr dst) (fpr a) (fpr b)))
-   ((and (fpr? dst) (constant? a) (fpr? b))
-    (jit-movi-d f0 (constant a))
-    (jit-subr-d (fpr dst) f0 (fpr b)))
-   ((and (fpr? dst) (fpr? a) (constant? b))
-    (jit-subi-d (fpr dst) (fpr a) (constant b)))
 
-   ((and (memory? dst) (fpr? a) (fpr? b))
-    (jit-subr-d f0 (fpr a) (fpr b))
-    (memory-set!/f dst f0))
-   ((and (memory? dst) (memory? a) (memory? b))
-    (memory-ref/f f0 a)
-    (memory-ref/f f1 b)
-    (jit-subr-d f0 f0 f1)
-    (memory-set!/f dst f0))
-   (else
-    (error "%fsub" dst a b))))
-
-(define-prim (%fmul (double dst) (double a) (double b))
-  (cond
-   ((and (fpr? dst) (constant? a) (fpr? b))
-    (jit-muli-d (fpr dst) (fpr b) (constant a)))
-   ((and (fpr? dst) (fpr? a) (constant? b))
-    (%fmul asm dst b a))
-   ((and (fpr? dst) (fpr? a) (fpr? b))
-    (jit-mulr-d (fpr dst) (fpr a) (fpr b)))
-
-   ((and (memory? dst) (constant? a) (fpr? b))
-    (jit-muli-d f0 (fpr b) (constant a))
-    (memory-set!/f dst f0))
-   ((and (memory? dst) (memory? a) (fpr? b))
-    (memory-ref/f f0 a)
-    (jit-mulr-d f0 f0 (fpr b))
-    (memory-set!/f dst f0))
-   (else
-    (error "%fmul" dst a b))))
+;;;
+;;; Load and store
+;;;
 
 (define-syntax unbox-stack-element
   (syntax-rules ()
@@ -946,10 +972,6 @@ both arguments were register or memory."
            (memory-set! dst src))))
         (else
          (error "load-and-unbox" dst type guard?)))))))
-
-;;;
-;;; Load and store
-;;;
 
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
 ;;; instructions with expected type as done in bytecode, to have vector-ref,

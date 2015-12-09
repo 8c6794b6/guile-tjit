@@ -513,7 +513,7 @@ are local index number."
           ((hashq-ref *native-prim-procedures* op-name)
            => (lambda (proc)
                 (let ((verbosity (lightning-verbosity)))
-                  (when (<= 4 verbosity)
+                  (when (and verbosity (<= 4 verbosity))
                     (jit-note (format #f "~a" (cons op-name args)) 0)))
                 (apply proc asm args)
                 (lp ops loop-locals loop-vars acc)))

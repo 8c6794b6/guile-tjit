@@ -937,10 +937,9 @@ referenced by dst and src value at runtime."
           ,(next))))))
 
 (define-f64-binary-arith fadd %fadd)
-
-;; XXX: fsub
-;; XXX: fmul
-;; XXX: fdiv
+(define-f64-binary-arith fsub %fsub)
+(define-f64-binary-arith fmul %fmul)
+(define-f64-binary-arith fdiv %fdiv)
 
 ;; XXX: apply-non-program
 
