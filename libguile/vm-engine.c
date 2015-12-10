@@ -770,7 +770,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      NEXT (0);
+      VM_TJIT_TAIL_CALL (ip - label);
     }
 
   /* tail-call/shuffle from:24

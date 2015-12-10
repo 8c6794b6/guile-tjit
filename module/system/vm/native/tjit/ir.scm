@@ -389,11 +389,10 @@ referenced by dst and src value at runtime."
          (vdl (var-ref (+ fp 1)))
          (vproc (var-ref (- fp 1)))
          (rproc (local-ref (- fp 1)))
-         (rproc-addr (pointer-address (scm->pointer rproc)))
          (snapshot (take-snapshot! ip 0)))
     (push-past-frame! (ir-past-frame ir) rdl rra sp-offset locals)
     `(let ((_ ,snapshot))
-       (let ((_ (%eq ,vproc ,rproc-addr)))
+       (let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
          ,(if (< 0 (current-fp-offset))
               `(let ((_ (%pcall ,proc)))
                  ,(next))
@@ -404,10 +403,17 @@ referenced by dst and src value at runtime."
   (escape #f))
 
 (define-ir (tail-call nlocals)
-  ;; XXX: Add guard for callee procedure IP.
+  (let* ((stack-size (vector-length locals))
+         (proc-index (- stack-size 1))
+         (vproc (var-ref proc-index))
+         (rproc (local-ref proc-index)))
+    `(let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
+       ,(next))))
+
+(define-ir (tail-call-label nlocals label)
   (next))
 
-;; XXX: tail-call-label
+
 ;; XXX: tail-call/shuffle
 
 (define-ir (receive dst proc nlocals)
