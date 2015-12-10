@@ -203,24 +203,30 @@
     (set-past-frame-fp-offsets! pf fp-offsets/vec)
     pf))
 
-(define (push-past-frame! past-frame dl ra local-offset locals)
+(define (push-past-frame! past-frame dl ra sp-offset locals)
   (set-past-frame-dls! past-frame (cons dl (past-frame-dls past-frame)))
   (set-past-frame-ras! past-frame (cons ra (past-frame-ras past-frame)))
   (let lp ((i 0)
            (end (vector-length locals))
            (to-update (past-frame-locals past-frame)))
     (when (< i end)
-      (hashq-set! to-update (+ i local-offset) (vector-ref locals i))
+      (hashq-set! to-update (+ i sp-offset) (vector-ref locals i))
       (lp (+ i 1) end to-update)))
   past-frame)
 
-(define (pop-past-frame! past-frame)
+(define (pop-past-frame! past-frame sp-offset locals)
   (let ((old-dls (past-frame-dls past-frame))
         (old-ras (past-frame-ras past-frame)))
     (when (not (null? old-dls))
       (set-past-frame-dls! past-frame (cdr old-dls)))
     (when (not (null? old-ras))
       (set-past-frame-ras! past-frame (cdr old-ras)))
+    (let lp ((i 0)
+             (end (vector-length locals))
+             (t (past-frame-locals past-frame)))
+      (when (< i end)
+        (hashq-set! t (+ i sp-offset) (vector-ref locals i))
+        (lp (+ i 1) end t)))
     past-frame))
 
 (define (expand-past-frame past-frame offset nlocals)
@@ -448,7 +454,8 @@
          (lp is (cons `(,i . ,val) acc)))
        (cond
         ;; Inlined local in initial frame in root trace. The frame contents
-        ;; should be a scheme stack element, not dynamic link or return address.
+        ;; should be a scheme stack element, not a dynamic link or a return
+        ;; address.
         ((<= sp-offset i (- (+ sp-offset nlocals) 1))
          (add-local (local-ref i)))
 
@@ -485,9 +492,6 @@
                        (add-local (type-of (resolve-stack-element ptr)))))
                  ((parent-snapshot-local-ref i)
                   => add-local)
-                 ((<= 0 (+ i sp-offset) (- (vector-length locals) 1))
-                  (let ((ptr (vector-ref locals (+ i sp-offset))))
-                    (add-local (type-of (resolve-stack-element ptr)))))
                  (else
                   (error "make-snapshot: unresolved scm" id i))))
                (else

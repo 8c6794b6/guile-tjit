@@ -730,9 +730,9 @@ are local index number."
          (cond
           ((hashq-ref dsts (- local sp-offset))
            => (lambda (dst)
-                (move dst var)))))
-        (else
-         (lp locals vars))
+                (move dst var)
+                (lp locals vars)))
+          (else
+           (lp locals vars))))
         (_
-         (shift-fp (+ fp-offset nlocals))
-         (shift-sp sp-offset))))))
+         (shift-sp fp-offset))))))

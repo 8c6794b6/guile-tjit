@@ -472,7 +472,7 @@ referenced by dst and src value at runtime."
 
 (define-interrupt-ir (return-values nlocals)
   (let ((snapshot (take-snapshot! ip 0)))
-    (pop-past-frame! (ir-past-frame ir))
+    (pop-past-frame! (ir-past-frame ir) (current-sp-offset) locals)
     `(let ((_ ,snapshot))
        ,(if (< (current-fp-offset) 0)
             (next)
