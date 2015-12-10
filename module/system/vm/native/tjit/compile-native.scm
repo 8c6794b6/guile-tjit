@@ -56,8 +56,8 @@
 ;;; Scheme constants and syntax
 ;;;
 
-(define %scm-tjit-make-retval
-  (dynamic-pointer "scm_tjit_make_retval" (dynamic-link)))
+(define %scm-make-tjit-retval
+  (dynamic-pointer "scm_make_tjit_retval" (dynamic-link)))
 
 (define %scm-tjit-dump-retval
   (dynamic-pointer "scm_tjit_dump_retval" (dynamic-link)))
@@ -599,7 +599,7 @@ are local index number."
           (jit-pushargi (scm-i-makinumi id))
           (jit-pushargi (scm-i-makinumi (tj-id tj)))
           (jit-pushargi (scm-i-makinumi nlocals))
-          (jit-calli %scm-tjit-make-retval)
+          (jit-calli %scm-make-tjit-retval)
           (jit-retval %retval)
 
           ;; Debug code to dump tjit-retval and locals.

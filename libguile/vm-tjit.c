@@ -244,15 +244,16 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
   scm_t_native_code f;
   scm_t_uint32 nlocals;
   SCM s_next_ip;
-  SCM code, ret, exit_id, fragment_id, exit_counts, count;
+  SCM code, exit_id, fragment_id, exit_counts, count;
+  struct scm_tjit_retval *ret;
 
   code = SCM_FRAGMENT_CODE (fragment);
   f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = f (thread, vp, registers);
 
-  exit_id = SCM_TJIT_RETVAL_EXIT_ID (ret);
-  fragment_id = SCM_TJIT_RETVAL_FRAGMENT_ID (ret);
-  nlocals = SCM_TJIT_RETVAL_NLOCALS (ret);
+  exit_id = SCM_PACK (ret->exit_id);
+  fragment_id = SCM_PACK (ret->fragment_id);
+  nlocals = SCM_I_INUM (SCM_PACK (ret->nlocals));
 
   s_next_ip = SCM_I_MAKINUM ((scm_t_uintptr) vp->ip);
   fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
@@ -457,29 +458,34 @@ SCM_DEFINE (scm_tjit_increment_id_x, "tjit-increment-id!", 0, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM
-scm_tjit_make_retval (scm_i_thread *thread,
-                      scm_t_bits exit_id, scm_t_bits exit_ip,
-                      scm_t_bits nlocals)
-{
-  SCM ret = scm_inline_gc_malloc_pointerless (thread, 3 * sizeof (void *));
 
-  SCM_SET_CELL_WORD (ret, 0, exit_id);
-  SCM_SET_CELL_WORD (ret, 1, exit_ip);
-  SCM_SET_CELL_WORD (ret, 2, nlocals);
+/*
+ * Gluing functions
+ */
+
+struct scm_tjit_retval*
+scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits exit_id,
+                      scm_t_bits fragment_id, scm_t_bits nlocals)
+{
+  struct scm_tjit_retval *ret =
+    scm_inline_gc_malloc_pointerless (thread, sizeof (struct scm_tjit_retval));
+
+  ret->exit_id = exit_id;
+  ret->fragment_id = fragment_id;
+  ret->nlocals = nlocals;
 
   return ret;
 }
 
 void
-scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp)
+scm_tjit_dump_retval (struct scm_tjit_retval *retval, struct scm_vm *vp)
 {
   SCM port = scm_current_output_port ();
 
   scm_puts (";;; trace ", port);
-  scm_display (SCM_TJIT_RETVAL_FRAGMENT_ID (tjit_retval), port);
+  scm_display (SCM_PACK (retval->fragment_id), port);
   scm_puts (": exit ", port);
-  scm_display (SCM_TJIT_RETVAL_EXIT_ID (tjit_retval), port);
+  scm_display (SCM_PACK (retval->exit_id), port);
   scm_puts (" => ", port);
   scm_display (to_hex (SCM_I_MAKINUM (vp->ip)), port);
   scm_newline (port);
@@ -517,11 +523,6 @@ scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp,
 
   scm_newline (port);
 }
-
-
-/*
- * Gluing functions
- */
 
 SCM
 scm_do_inline_from_double (scm_i_thread *thread, double val)

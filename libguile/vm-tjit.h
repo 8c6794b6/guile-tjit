@@ -48,9 +48,39 @@ struct scm_tjit_state
   int nunrolled;            /* current number of unrolled recursion */
 };
 
-typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
-                                  struct scm_vm *vp,
-                                  scm_i_jmp_buf *registers);
+struct scm_tjit_retval
+{
+  scm_t_bits exit_id;
+  scm_t_bits fragment_id;
+  scm_t_bits nlocals;
+};
+
+/* Function pointer type of compiled trace */
+typedef struct scm_tjit_retval* (*scm_t_native_code)
+  (scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers);
+
+SCM_API struct scm_tjit_retval*
+scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits exit_id,
+                      scm_t_bits exit_ip, scm_t_bits nlocals);
+
+SCM_API void scm_tjit_dump_retval (struct scm_tjit_retval *retval,
+                                   struct scm_vm *vp);
+SCM_API void scm_tjit_dump_locals (SCM trace_id, int n,
+                                   union scm_vm_stack_element *sp,
+                                   struct scm_vm *vp);
+
+SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
+SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM x, SCM y);
+SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
+                                     union scm_vm_stack_element *new_sp);
+
+/* Fields in `fragment' record type, defined in:
+   "module/system/vm/native/tjit/fragment.scm". */
+#define SCM_FRAGMENT_ID(T)             SCM_STRUCT_SLOT_REF (T, 0)
+#define SCM_FRAGMENT_CODE(T)           SCM_STRUCT_SLOT_REF (T, 1)
+#define SCM_FRAGMENT_EXIT_COUNTS(T)    SCM_STRUCT_SLOT_REF (T, 2)
+#define SCM_FRAGMENT_DOWNREC_P(T)      SCM_STRUCT_SLOT_REF (T, 3)
+#define SCM_FRAGMENT_UPREC_P(T)        SCM_STRUCT_SLOT_REF (T, 4)
 
 SCM_API SCM scm_tjit_jump_counter (void);
 SCM_API SCM scm_tjit_call_counter (void);
@@ -73,32 +103,6 @@ SCM_API SCM scm_tjit_num_unrolls (void);
 SCM_API SCM scm_set_tjit_num_unrolls_x (SCM count);
 
 SCM_API SCM scm_tjit_increment_id_x (void);
-SCM_API SCM scm_tjit_make_retval (scm_i_thread *thread,
-                                  scm_t_bits exit_id,
-                                  scm_t_bits exit_ip,
-                                  scm_t_bits nlocals);
-
-SCM_API void scm_tjit_dump_retval (SCM tjit_retval, struct scm_vm *vp);
-SCM_API void scm_tjit_dump_locals (SCM trace_id, int n,
-                                   union scm_vm_stack_element *sp,
-                                   struct scm_vm *vp);
-
-/* Fields in record-type `fragment', from:
-   "module/system/vm/native/tjit/parameters.scm". */
-#define SCM_FRAGMENT_ID(T)             SCM_STRUCT_SLOT_REF (T, 0)
-#define SCM_FRAGMENT_CODE(T)           SCM_STRUCT_SLOT_REF (T, 1)
-#define SCM_FRAGMENT_EXIT_COUNTS(T)    SCM_STRUCT_SLOT_REF (T, 2)
-#define SCM_FRAGMENT_DOWNREC_P(T)      SCM_STRUCT_SLOT_REF (T, 3)
-#define SCM_FRAGMENT_UPREC_P(T)        SCM_STRUCT_SLOT_REF (T, 4)
-
-#define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
-#define SCM_TJIT_RETVAL_FRAGMENT_ID(R) SCM_CELL_OBJECT (R, 1)
-#define SCM_TJIT_RETVAL_NLOCALS(R) SCM_I_INUM (SCM_CELL_OBJECT (R, 2))
-
-SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
-SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM x, SCM y);
-SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
-                                     union scm_vm_stack_element *new_sp);
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);
