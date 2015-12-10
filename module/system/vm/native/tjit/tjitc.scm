@@ -55,49 +55,6 @@
 
 
 ;;;
-;;; Auxiliary
-;;;
-
-(define (traced-ops bytecode traces sp-offset fp-offset types)
-  (define disassemble-one
-    (@@ (system vm disassembler) disassemble-one))
-  (let lp ((acc '())
-           (offset 0)
-           (traces (reverse! traces))
-           (pf (make-past-frame types sp-offset fp-offset))
-           (so-far-so-good? #t))
-    (match traces
-      ((trace . traces)
-       (let*-values (((len op) (disassemble-one bytecode offset))
-                     ((implemented?) (scan-locals pf op (caddr trace))))
-         (lp (cons (cons op trace) acc) (+ offset len) traces
-             pf (and so-far-so-good? implemented?))))
-      (()
-       (values (reverse! acc) (arrange-past-frame pf) so-far-so-good?)))))
-
-
-(define (scan-again traces pf parent-snapshot sp fp)
-  ;; Scan traces again to resolve stack element types which were unresolved in
-  ;; the first scan.
-  ;;
-  ;; XXX: Inefficient to scan again, consider resolving stack element types by
-  ;; travercing the traces from last to first.
-  (when parent-snapshot
-    (merge-past-frame-types! pf (snapshot-locals parent-snapshot)))
-  (set-past-frame-sp-offset! pf sp)
-  (set-past-frame-fp-offset! pf fp)
-  (let lp ((traces traces))
-    (match traces
-      (((op _ _ locals) . traces)
-       (scan-locals pf op locals #t)
-       (lp traces))
-      (()
-       (set-past-frame-sp-offset! pf sp)
-       (set-past-frame-fp-offset! pf fp)
-       pf))))
-
-
-;;;
 ;;; Entry point
 ;;;
 
@@ -105,8 +62,8 @@
 (define (tjitc trace-id bytecode traces parent-ip parent-exit-id linked-ip
                loop? downrec? uprec?)
   (define-syntax-rule (increment-compilation-failure ip)
-    (let ((current (hashq-ref (tjit-failed-ip-table) ip 0)))
-      (hashq-set! (tjit-failed-ip-table) ip (+ current 1))))
+    (let ((current (hashq-ref (tjit-failed-ip) ip 0)))
+      (hashq-set! (tjit-failed-ip) ip (+ current 1))))
   (define-syntax-rule (show-one-line sline fragment)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
@@ -124,6 +81,41 @@
                        (else ""))))
       (format #t ";;; trace ~a: ~a~a~a~a~%"
               trace-id sline exit-pair linked-id trace-type)))
+  (define (traced-ops bytecode traces sp-offset fp-offset types)
+    (define disassemble-one
+      (@@ (system vm disassembler) disassemble-one))
+    (let lp ((acc '())
+             (offset 0)
+             (traces (reverse! traces))
+             (pf (make-past-frame types sp-offset fp-offset))
+             (so-far-so-good? #t))
+      (match traces
+        ((trace . traces)
+         (let*-values (((len op) (disassemble-one bytecode offset))
+                       ((implemented?) (scan-locals pf op (caddr trace))))
+           (lp (cons (cons op trace) acc) (+ offset len) traces
+               pf (and so-far-so-good? implemented?))))
+        (()
+         (values (reverse! acc) (arrange-past-frame pf) so-far-so-good?)))))
+  (define (scan-again traces pf parent-snapshot sp fp)
+    ;; Scan traces again to resolve stack element types which were unresolved in
+    ;; the first scan.
+    ;;
+    ;; XXX: Inefficient to scan again, consider resolving stack element types by
+    ;; travercing the traces from last to first.
+    (when parent-snapshot
+      (merge-past-frame-types! pf (snapshot-locals parent-snapshot)))
+    (set-past-frame-sp-offset! pf sp)
+    (set-past-frame-fp-offset! pf fp)
+    (let lp ((traces traces))
+      (match traces
+        (((op _ _ locals) . traces)
+         (scan-locals pf op locals #t)
+         (lp traces))
+        (()
+         (set-past-frame-sp-offset! pf sp)
+         (set-past-frame-fp-offset! pf fp)
+         pf))))
   (define (get-initial-types snapshot)
     (if snapshot
         (let lp ((locals (snapshot-locals snapshot)) (acc '()))
@@ -158,10 +150,8 @@
     (let-values (((traces past-frame implemented?)
                   (catch #t
                     (lambda ()
-                      (traced-ops bytecode
-                                  traces
-                                  initial-sp-offset
-                                  initial-fp-offset
+                      (traced-ops bytecode traces
+                                  initial-sp-offset initial-fp-offset
                                   (get-initial-types parent-snapshot)))
                     (lambda (x y fmt args . z)
                       (debug 1 "XXX: ~s~%" (apply format #f fmt args))
@@ -175,20 +165,15 @@
        ((not implemented?)
         (debug 1 ";;; trace ~a: NYI found, aborted~%" trace-id)
         (increment-compilation-failure entry-ip))
+       (uprec?
+        (debug 1 ";;; trace ~a: NYI up recursion~%" trace-id)
+        (increment-compilation-failure entry-ip))
        (else
         (let* ((past-frame (scan-again traces past-frame parent-snapshot
                                        initial-sp-offset initial-fp-offset))
-               (tj (make-tj trace-id
-                            entry-ip
-                            linked-ip
-                            parent-exit-id
-                            parent-fragment
-                            parent-snapshot
-                            past-frame
-                            loop?
-                            downrec?
-                            uprec?)))
-
+               (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
+                            parent-fragment parent-snapshot past-frame
+                            loop? downrec? uprec?)))
           (let-values (((snapshots anf ops) (compile-primops tj traces)))
             (dump tjit-dump-anf? anf (dump-anf trace-id anf))
             (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
@@ -196,22 +181,13 @@
              ((not ops)
               (debug 1 ";;; trace ~a: aborted~%" trace-id)
               (increment-compilation-failure entry-ip))
-             (uprec?
-              (debug 1 ";;; trace ~a: NYI up recursion~%" trace-id)
-              (increment-compilation-failure entry-ip))
              (else
               (let-values (((code size adjust loop-address trampoline)
                             (compile-native tj ops snapshots)))
                 (tjit-increment-id!)
                 (when (tjit-dump-ncode? dump-option)
-                  (dump-ncode trace-id
-                              entry-ip
-                              code
-                              size
-                              adjust
-                              loop-address
-                              snapshots
-                              trampoline)))))
+                  (dump-ncode trace-id entry-ip code size adjust
+                              loop-address snapshots trampoline)))))
             (when (tjit-dump-time? dump-option)
               (let ((log (get-tjit-time-log trace-id))
                     (t (get-internal-run-time)))

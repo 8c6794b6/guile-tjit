@@ -65,7 +65,7 @@
                                              (tj-past-frame tj)))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i))))
-    (define (take-snapshot-in-entry! ir ip dst-offset locals sp-offset min-sp)
+    (define (take-entry-snapshot! ir ip dst-offset locals sp-offset min-sp)
       (let-values (((ret snapshot)
                     (take-snapshot ip
                                    dst-offset
@@ -144,12 +144,12 @@
                                              (tj-parent-fragment tj)))
                                     initial-nlocals))
                       (next-sp-offset (+ next-sp sp-shift)))
-                 `(let ((_ ,(take-snapshot-in-entry! ir
-                                                     *ip-key-downrec*
-                                                     0
-                                                     (dr-locals proc nlocals)
-                                                     next-sp-offset
-                                                     next-sp-offset)))
+                 `(let ((_ ,(take-entry-snapshot! ir
+                                                  *ip-key-downrec*
+                                                  0
+                                                  (dr-locals proc nlocals)
+                                                  next-sp-offset
+                                                  next-sp-offset)))
                     (loop ,@(reverse (map cdr (ir-vars ir))))))))
             (('call-label . _)
              ;; XXX: TODO.
@@ -161,12 +161,12 @@
             (('return-values n)
              (lambda ()
                (let* ((next-sp-offset last-sp-offset))
-                 `(let ((_ ,(take-snapshot-in-entry! ir
-                                                     *ip-key-uprec*
-                                                     0
-                                                     locals
-                                                     next-sp-offset
-                                                     (ir-min-sp-offset ir))))
+                 `(let ((_ ,(take-entry-snapshot! ir
+                                                  *ip-key-uprec*
+                                                  0
+                                                  locals
+                                                  next-sp-offset
+                                                  (ir-min-sp-offset ir))))
                     (loop ,@(reverse (map cdr (ir-vars ir))))))))
             (_
              (escape #f))))
@@ -175,12 +175,12 @@
             `(loop ,@(reverse (map cdr (ir-vars ir))))))
          (else
           (lambda ()
-            `(let ((_ ,(take-snapshot-in-entry! ir
-                                                *ip-key-link*
-                                                0
-                                                locals
-                                                last-sp-offset
-                                                (ir-min-sp-offset ir))))
+            `(let ((_ ,(take-entry-snapshot! ir
+                                             *ip-key-link*
+                                             0
+                                             locals
+                                             last-sp-offset
+                                             (ir-min-sp-offset ir))))
                _)))))
       (match trace
         (((op ip ra locals) . ())

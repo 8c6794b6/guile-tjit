@@ -244,12 +244,12 @@
   (zero? (fragment-parent-id fragment)))
 
 (define (put-fragment! trace-id fragment)
-  (hashq-set! (tjit-fragment-table) trace-id fragment)
+  (hashq-set! (tjit-fragment) trace-id fragment)
   (when (root-trace-fragment? fragment)
-    (hashq-set! (tjit-root-trace-table) (fragment-entry-ip fragment) fragment)))
+    (hashq-set! (tjit-root-trace) (fragment-entry-ip fragment) fragment)))
 
 (define (get-fragment fragment-id)
-  (hashq-ref (tjit-fragment-table) fragment-id #f))
+  (hashq-ref (tjit-fragment) fragment-id #f))
 
 (define (get-root-trace ip)
-  (hashq-ref (tjit-root-trace-table) ip #f))
+  (hashq-ref (tjit-root-trace) ip #f))

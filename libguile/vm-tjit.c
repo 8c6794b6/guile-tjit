@@ -47,27 +47,57 @@
 #define SCM_UPREC_P(fragment)                   \
   scm_is_true (SCM_FRAGMENT_UPREC_P (fragment))
 
+#define SCM_TJIT_PARAM(name, sname, ini)                                \
+                                                                        \
+  static SCM tjit_##name = SCM_I_MAKINUM (ini);                         \
+                                                                        \
+  SCM_DEFINE (scm_tjit_##name, "tjit-"#sname, 0, 0, 0, (void), "")      \
+  {                                                                     \
+    return tjit_##name;                                                 \
+  }                                                                     \
+                                                                        \
+  SCM_DEFINE (scm_set_tjit_##name##_x, "set-tjit-"#sname"!",            \
+              1, 0, 0, (SCM count), "")                                 \
+  {                                                                     \
+    if (SCM_I_NINUMP (count) || count < 0)                              \
+      scm_misc_error ("set-tjit-"#sname"!",                             \
+                      "Unknown arg: ~s", scm_list_1 (count));           \
+                                                                        \
+    tjit_##name = count;                                                \
+    return SCM_UNSPECIFIED;                                             \
+  }
+
+#define SCM_TJIT_TABLE(name, sname)                                     \
+                                                                        \
+  static SCM tjit_##name##_table;                                       \
+                                                                        \
+  SCM_DEFINE (scm_tjit_##name, "tjit-"#sname, 0, 0, 0, (void), "")      \
+  {                                                                     \
+   return tjit_##name##_table;                                          \
+  }
+
+
 /*
  * Configurable parameters
  */
 
 /* Number of iterations to decide a hot loop. */
-static SCM tjit_hot_loop = SCM_I_MAKINUM (60);
+SCM_TJIT_PARAM (hot_loop, hot-loop, 60)
 
 /* Number of calls to decide a hot procedure call. */
-static SCM tjit_hot_call = SCM_I_MAKINUM (12);
+SCM_TJIT_PARAM (hot_call, hot-call, 12)
 
-/* Number of exits to decide a side exit is hot. */
-static SCM tjit_hot_exit = SCM_I_MAKINUM (10);
+/* Number of exits to decide a hot side exit. */
+SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 
 /* Maximum length of traced bytecodes. */
-static SCM tjit_max_record = SCM_I_MAKINUM (6000);
+SCM_TJIT_PARAM (max_record, max-retries, 6000)
 
 /* Maximum count of retries for failed compilation. */
-static SCM tjit_max_retries = SCM_I_MAKINUM (2);
+SCM_TJIT_PARAM (max_retries, max-retries, 2)
 
 /* Number of recursive procedure calls to unroll. */
-static SCM tjit_num_unrolls = SCM_I_MAKINUM (3);
+SCM_TJIT_PARAM (num_unrolls, num-unrolls, 3)
 
 
 /*
@@ -76,25 +106,25 @@ static SCM tjit_num_unrolls = SCM_I_MAKINUM (3);
 
 /* Hash table to hold iteration counts for loops. Key is bytecode IP,
    value is current count. */
-static SCM tjit_jump_counter_table;
+SCM_TJIT_TABLE (jump_counter, jump-counter)
 
 /* Hash table to hold counts for call. */
-static SCM tjit_call_counter_table;
+SCM_TJIT_TABLE (call_counter, call-counter)
 
 /* Hash table to hold counts for return. */
-static SCM tjit_return_counter_table;
-
-/* Hash table to hold IPs of failed traces. Key is bytecode IP, value is
-   number of failed compilation. */
-static SCM tjit_failed_ip_table;
+SCM_TJIT_TABLE (return_counter, return-counter);
 
 /* Hash table to hold all fragments. Key is fragment ID, value is
    fragment data. */
-static SCM tjit_fragment_table;
+SCM_TJIT_TABLE (fragment, fragment);
 
 /* Hash table to hold fragment data of root traces. Key is bytecode IP,
    value is fragment data. */
-static SCM tjit_root_trace_table;
+SCM_TJIT_TABLE (root_trace, root-trace);
+
+/* Hash table to hold IPs of failed traces. Key is bytecode IP, value is
+   number of failed compilation. */
+SCM_TJIT_TABLE (failed_ip, failed-ip);
 
 /* Fluid to hold recorded bytecode. */
 static SCM bytecode_buffer_fluid;
@@ -418,141 +448,8 @@ scm_make_tjit_state (void)
  * Scheme interfaces
  */
 
-SCM_DEFINE (scm_tjit_ip_counter, "tjit-ip-counter", 0, 0, 0, (void),
-            "Hash table to count number of jumped visits, per IP.")
-#define FUNC_NAME s_scm_tjit_ip_counter
-{
-  return tjit_jump_counter_table;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_call_counter, "tjit-call-counter", 0, 0, 0, (void),
-            "Hash table to count number of calls, per IP.")
-#define FUNC_NAME s_scm_tjit_call_counter
-{
-  return tjit_call_counter_table;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_return_counter, "tjit-return-counter", 0, 0, 0, (void),
-            "Hash table to count number of returns, per IP.")
-#define FUNC_NAME s_scm_tjit_return_counter
-{
-  return tjit_return_counter_table;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_fragment_table, "tjit-fragment-table", 0, 0, 0, (void),
-            "Hash table containing all fragments.")
-#define FUNC_NAME s_scm_tjit_fragment_table
-{
-  return tjit_fragment_table;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_root_trace_table, "tjit-root-trace-table", 0, 0, 0, (void),
-            "Hash table containing root trace fragments.")
-#define FUNC_NAME s_scm_tjit_root_trace_table
-{
-  return tjit_root_trace_table;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_failed_ip_table, "tjit-failed-ip-table", 0, 0, 0, (void),
-            "Hash table containing failed ips.")
-#define FUNC_NAME s_scm_tjit_failed_ip_table
-{
-  return tjit_failed_ip_table;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_hot_loop, "tjit-hot-loop", 0, 0, 0, (void),
-            "Number of iterations to decide loop is hot.")
-#define FUNC_NAME s_scm_tjit_hot_loop
-{
-  return tjit_hot_loop;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_set_tjit_hot_loop_x, "set-tjit-hot-loop!", 1, 0, 0,
-            (SCM count),
-            "Set number of iterations to decide loop is hot")
-#define FUNC_NAME s_scm_set_tjit_hot_loop_x
-{
-  if (SCM_I_NINUMP (count) || count < 0)
-    SCM_MISC_ERROR ("Unknown hot loop: ~a", scm_list_1 (count));
-
-  tjit_hot_loop = count;
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_hot_call, "tjit-hot-call", 0, 0, 0, (void),
-            "Number of calls to decide procedure is hot.")
-#define FUNC_NAME s_scm_tjit_hot_call
-{
-  return tjit_hot_call;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_set_tjit_hot_call_x, "set-tjit-hot-call!", 1, 0, 0,
-            (SCM count),
-            "Set number of calls to decide procedure is hot")
-#define FUNC_NAME s_scm_set_tjit_hot_call_x
-{
-  if (SCM_I_NINUMP (count) || count < 0)
-    SCM_MISC_ERROR ("Unknown hot call: ~a", scm_list_1 (count));
-
-  tjit_hot_call = count;
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_hot_exit, "tjit-hot-exit", 0, 0, 0, (void),
-            "Number of exits to decide side exit is hot.")
-#define FUNC_NAME s_scm_tjit_hot_exit
-{
-  return tjit_hot_exit;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_set_tjit_hot_exit_x, "set-tjit-hot-exit!", 1, 0, 0,
-            (SCM count),
-            "Set number of exits to decide side exit is hot.")
-#define FUNC_NAME s_scm_set_tjit_hot_exit_x
-{
-  if (SCM_I_NINUMP (count) || count < 0)
-    SCM_MISC_ERROR ("Unknown hot exit: ~a", scm_list_1 (count));
-
-  tjit_hot_exit = count;
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_tjit_max_retries, "tjit-max-retries", 0, 0, 0, (void),
-            "Number of retries for failed IP.")
-#define FUNC_NAME s_scm_tjit_max_retries
-{
-  return tjit_max_retries;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_set_tjit_max_retries_x, "set-tjit-max-retries!", 1, 0, 0,
-            (SCM count),
-            "Set number of max retries for failed IP.")
-#define FUNC_NAME s_scm_set_tjit_max_retries_x
-{
-  if (SCM_I_NINUMP (count) || count < 0)
-    SCM_MISC_ERROR ("Unknown hot exit: ~a", scm_list_1 (count));
-
-  tjit_max_retries = count;
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
 SCM_DEFINE (scm_tjit_increment_id_x, "tjit-increment-id!", 0, 0, 0,
-            (void),
-            "Increment trace ID.")
+            (void), "Increment trace ID.")
 #define FUNC_NAME s_scm_tjit_increment_id_x
 {
   ++tjit_trace_id;

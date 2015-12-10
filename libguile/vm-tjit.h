@@ -52,22 +52,27 @@ typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
                                   struct scm_vm *vp,
                                   scm_i_jmp_buf *registers);
 
-SCM_API SCM scm_tjit_ip_counter (void);
+SCM_API SCM scm_tjit_jump_counter (void);
 SCM_API SCM scm_tjit_call_counter (void);
 SCM_API SCM scm_tjit_return_counter (void);
-SCM_API SCM scm_tjit_fragment_table (void);
-SCM_API SCM scm_tjit_root_trace_table (void);
-SCM_API SCM scm_tjit_failed_ip_table (void);
+SCM_API SCM scm_tjit_fragment (void);
+SCM_API SCM scm_tjit_root_trace (void);
+SCM_API SCM scm_tjit_failed_ip (void);
+
 SCM_API SCM scm_tjit_hot_loop (void);
 SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
 SCM_API SCM scm_tjit_hot_call (void);
 SCM_API SCM scm_set_tjit_hot_call_x (SCM count);
 SCM_API SCM scm_tjit_hot_exit (void);
 SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
+SCM_API SCM scm_tjit_max_record (void);
+SCM_API SCM scm_set_tjit_max_record_x (SCM count);
 SCM_API SCM scm_tjit_max_retries (void);
 SCM_API SCM scm_set_tjit_max_retries_x (SCM count);
-SCM_API SCM scm_tjit_increment_id_x (void);
+SCM_API SCM scm_tjit_num_unrolls (void);
+SCM_API SCM scm_set_tjit_num_unrolls_x (SCM count);
 
+SCM_API SCM scm_tjit_increment_id_x (void);
 SCM_API SCM scm_tjit_make_retval (scm_i_thread *thread,
                                   scm_t_bits exit_id,
                                   scm_t_bits exit_ip,

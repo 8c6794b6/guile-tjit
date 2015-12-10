@@ -38,12 +38,12 @@
   #:use-module (system foreign)
   #:use-module (system vm vm)
   #:use-module (srfi srfi-9)
-  #:export (tjit-ip-counter
+  #:export (tjit-jump-counter
             tjit-call-counter
             tjit-return-counter
-            tjit-fragment-table
-            tjit-root-trace-table
-            tjit-failed-ip-table
+            tjit-fragment
+            tjit-root-trace
+            tjit-failed-ip
             tjit-increment-id!
 
             tjit-hot-loop
@@ -233,13 +233,13 @@ option was set to true."
          (scm-time (if dump-time 0 #f))
          (ops-time (if dump-time 0 #f))
          (asm-time (if dump-time 0 #f))
-         (num-fragments (hash-count (const #t) (tjit-fragment-table))))
+         (num-fragments (hash-count (const #t) (tjit-fragment))))
     (hash-fold (lambda (k v acc)
                  (set! num-loops (+ num-loops 1))
                  (when (< hot-loop v)
                    (set! num-hot-loops (+ num-hot-loops 1))))
                '()
-               (tjit-ip-counter))
+               (tjit-jump-counter))
     (hash-fold (lambda (k v acc)
                  (set! num-calls (+ num-calls 1))
                  (when (< hot-call v)

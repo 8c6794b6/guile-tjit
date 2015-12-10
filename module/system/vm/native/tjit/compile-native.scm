@@ -692,6 +692,7 @@ are local index number."
                   (srcs (snapshot-variables snapshot)))
            (match (list dsts srcs)
              (((dst . dsts) (src . srcs))
+              ;; XXX: Move carefully, avoid overwriting srcs with dsts.
               (move dst src)
               (lp dsts srcs))
              (_

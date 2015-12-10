@@ -994,7 +994,8 @@ both arguments were register or memory."
   (let ((exit (jit-forward))
         (next (jit-forward))
         (t (ref-value type)))
-    (when (not (constant? n))
+    (when (or (not (constant? n))
+              (not (constant? type)))
       (error "%fref/f" dst n))
     (cond
      ((= t &flonum)
