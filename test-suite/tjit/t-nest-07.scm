@@ -33,6 +33,6 @@
        (iota n)))
 
 ;; See comments in "t-nest-07b.scm" for the call of `(loop2 20)'.
-(list (loop2 20)
-      (run1 50)
-      (run2 50))
+(list (loop2 18)
+      (run1 25)
+      (run2 25))

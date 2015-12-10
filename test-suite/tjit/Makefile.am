@@ -108,7 +108,9 @@ TESTS = \
 	t-toplevel-box-02.scm \
 	t-toplevel-box-03.scm \
 	t-toplevel-box-04.scm \
-	t-types-01.scm
+	t-types-01.scm \
+	t-u64-01.scm \
+	t-u64-02.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 

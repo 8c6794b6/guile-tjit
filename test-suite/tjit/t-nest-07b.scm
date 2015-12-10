@@ -50,4 +50,4 @@
 ;; (run-loop2 4)
 ;; (run-loop2 5)
 
-(run2 50)
+(run2 25)

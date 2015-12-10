@@ -254,10 +254,6 @@ referenced by dst and src value at runtime."
      (let ((index-proc (lambda (pf sp-offset arg ...)
                          (gen-put-index pf sp-offset (flag arg) ...)))
            (type-proc (lambda (pf sp-offset arg ...)
-                        ;; (debug 1 ";;; ~20@s: ~s~%" 'name
-                        ;;        (sort (past-frame-types pf)
-                        ;;              (lambda (a b)
-                        ;;                (< (car a) (car b)))))
                         (gen-put-element-type pf sp-offset (flag arg) ...))))
        (hashq-set! *index-scanners* 'name index-proc)
        (hashq-set! *element-type-scanners* 'name type-proc)
@@ -339,6 +335,7 @@ referenced by dst and src value at runtime."
        (let ((,tmp (%add ,tmp 2)))
          ,(next tmp))))
    ((flonum? val)
+    ;; XXX: Save volatile registers.
     `(let ((,tmp (%from-double ,var)))
        ,(next tmp)))
    ((pair? val)
@@ -467,6 +464,7 @@ referenced by dst and src value at runtime."
             `(let ((_ ,(take-snapshot! ip 0)))
                ,(load-previous-frame))))))
 
+;; XXX: receive-values
 (define-ir (receive-values proc allow-extra? nvalues)
   (escape #f))
 
@@ -536,15 +534,7 @@ referenced by dst and src value at runtime."
 ;; removed. So this IR should relate to the cause of segfault in linker.scm
 ;; somehow.
 (define-ir (br-if-null (scm test) (const invert) (const offset))
-  (let* ((rtest
-          ;; XXX: Workaround for out-of-range error from `vector-ref' when
-          ;; invoking REPL with `--tjit-dump=j' option.
-          (catch #t
-            (lambda ()
-              (local-ref test))
-            (lambda msgs
-              (debug 1 "XXX: br-if-null: ~a~%" msgs)
-              (escape #f))))
+  (let* ((rtest (local-ref test))
          (vtest (var-ref test))
          (dest (if (null? rtest)
                    (if invert offset 2)
@@ -564,14 +554,14 @@ referenced by dst and src value at runtime."
 
 (define-syntax define-br-binary-body
   (syntax-rules ()
-    ((_ name a b invert? offset scm-op ra rb va vb dest . body)
+    ((_ name a b invert? offset test ra rb va vb dest . body)
      (let* ((ra (local-ref a))
             (rb (local-ref b))
             (va (var-ref a))
             (vb (var-ref b))
             (dest (if (and (number? ra)
                            (number? rb))
-                      (if (scm-op ra rb)
+                      (if (test ra rb)
                           (if invert? offset br-op-size)
                           (if invert? br-op-size offset))
                       (begin
@@ -581,22 +571,24 @@ referenced by dst and src value at runtime."
 
 (define-syntax define-br-binary
   (syntax-rules ()
-    ((_  name scm-op fx-op-t fx-op-f fl-op-t fl-op-f)
+    ((_  name op-scm op-fx-t op-fx-f op-fl-t op-fl-f)
      (define-ir (name (scm a) (scm b) (const invert?) (const offset))
-       (define-br-binary-body name a b invert? offset scm-op ra rb va vb dest
+       (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
          (cond
           ((and (fixnum? ra) (fixnum? rb))
            `(let ((_ ,(take-snapshot! ip dest)))
-              (let ((_ ,(if (scm-op ra rb)
-                            `(fx-op-t ,va ,vb)
-                            `(fx-op-f ,va ,vb))))
+              (let ((_ ,(if (op-scm ra rb)
+                            `(op-fx-t ,va ,vb)
+                            `(op-fx-f ,va ,vb))))
                 ,(next))))
           ((and (flonum? ra) (flonum? rb))
            `(let ((_ ,(take-snapshot! ip dest)))
-              (let ((_ ,(if (scm-op ra rb)
-                            `(fl-op-t ,va ,vb)
-                            `(fl-op-f ,va ,vb))))
+              (let ((_ ,(if (op-scm ra rb)
+                            `(op-fl-t ,va ,vb)
+                            `(op-fl-f ,va ,vb))))
                 ,(next))))
+          ;; XXX: Delegate other types to `scm_num_eq_p' function, e.g.: SCM
+          ;; bignum, complex, ... etc.
           (else
            (debug 1 "XXX: ~a ~a ~a~%" 'name ra rb)
            (escape #f))))))))
@@ -697,11 +689,8 @@ referenced by dst and src value at runtime."
 ;; XXX: resolve
 ;; XXX: define!
 
-(define-ir (toplevel-box (scm dst)
-                         (const var-offset)
-                         (const mod-offset)
-                         (const sym-offset)
-                         (const bound?))
+(define-ir (toplevel-box (scm dst) (const var-offset) (const mod-offset)
+                         (const sym-offset) (const bound?))
   (let ((vdst (var-ref dst))
         (src (pointer-address
               (scm->pointer
@@ -786,63 +775,45 @@ referenced by dst and src value at runtime."
 
 ;;; *** Numeric operations
 
-(define-ir (add (scm dst) (scm a) (scm b))
-  (let ((ra (local-ref a))
-        (rb (local-ref b))
-        (vdst (var-ref dst))
-        (va (var-ref a))
-        (vb (var-ref b)))
-    (cond
-     ((and (fixnum? ra) (fixnum? rb))
-      `(let ((,vdst (%add ,va ,vb)))
-         ,(next)))
-     ((and (flonum? ra) (flonum? rb))
-      `(let ((,vdst (%fadd ,va ,vb)))
-         ,(next)))
-     (else
-      (debug 1 "XXX: add ~a ~a ~a~%" (local-ref dst) ra rb)
-      (escape #f)))))
+(define-syntax define-binary-arith-scm-scm
+  (syntax-rules ()
+    ((_ name op-fx op-fl)
+     (define-ir (name (scm dst) (scm a) (scm b))
+       (let ((ra (local-ref a))
+             (rb (local-ref b))
+             (vdst (var-ref dst))
+             (va (var-ref a))
+             (vb (var-ref b)))
+         (cond
+          ((and (fixnum? ra) (fixnum? rb))
+           `(let ((,vdst (op-fx ,va ,vb)))
+              ,(next)))
+          ((and (flonum? ra) (flonum? rb))
+           `(let ((,vdst (op-fl ,va ,vb)))
+              ,(next)))
+          (else
+           (debug 1 "XXX: ~s ~a ~a ~a~%" 'name (local-ref dst) ra rb)
+           (escape #f))))))))
 
-(define-ir (add/immediate (scm dst) (scm src) (const imm))
-  (let ((rsrc (local-ref src))
-        (vdst (var-ref dst))
-        (vsrc (var-ref src)))
-    (cond
-     ((fixnum? rsrc)
-      `(let ((,vdst (%add ,vsrc ,imm)))
-         ,(next)))
-     (else
-      (debug 1 "XXX: add/immediate ~a ~a" (local-ref dst) rsrc)
-      (escape #f)))))
+(define-syntax define-binary-arith-scm-imm
+  (syntax-rules ()
+    ((_ name op-fx)
+     (define-ir (name (scm dst) (scm src) (const imm))
+       (let ((rsrc (local-ref src))
+             (vdst (var-ref dst))
+             (vsrc (var-ref src)))
+         (cond
+          ((fixnum? rsrc)
+           `(let ((,vdst (op-fx ,vsrc ,imm)))
+              ,(next)))
+          (else
+           (debug 1 "XXX: ~s ~a ~a" 'name (local-ref dst) rsrc)
+           (escape #f))))))))
 
-(define-ir (sub (scm dst) (scm a) (scm b))
-  (let ((ra (local-ref a))
-        (rb (local-ref b))
-        (vdst (var-ref dst))
-        (va (var-ref a))
-        (vb (var-ref b)))
-    (cond
-     ((and (fixnum? ra) (fixnum? rb))
-      `(let ((,vdst (%sub ,va ,vb)))
-         ,(next)))
-     ((and (flonum? ra) (flonum? rb))
-      `(let ((,vdst (%fsub ,va ,vb)))
-         ,(next)))
-     (else
-      (debug 1 "XXX: sub ~a ~a ~a~%" (local-ref dst) ra rb)
-      (escape #f)))))
-
-(define-ir (sub/immediate (scm dst) (scm src) (const imm))
-  (let ((rsrc (local-ref src))
-        (vdst (var-ref dst))
-        (vsrc (var-ref src)))
-    (cond
-     ((fixnum? rsrc)
-      `(let ((,vdst (%sub ,vsrc ,imm)))
-         ,(next)))
-     (else
-      (debug 1 "XXX: sub/immediate ~a ~a~%" (local-ref dst) rsrc)
-      (escape #f)))))
+(define-binary-arith-scm-scm add %add %fadd)
+(define-binary-arith-scm-imm add/immediate %add)
+(define-binary-arith-scm-scm sub %sub %fsub)
+(define-binary-arith-scm-imm sub/immediate %sub)
 
 (define-ir (mul (scm dst) (scm a) (scm b))
   (let ((ra (local-ref a))
@@ -926,20 +897,25 @@ referenced by dst and src value at runtime."
 ;; XXX: bv-f32-set!
 ;; XXX: bv-f64-set!
 
-;; XXX: scm->f64
-;; XXX: f64->scm
+(define-ir (scm->f64 (f64 dst) (scm src))
+  `(let ((,(var-ref dst) ,(var-ref src)))
+     ,(next)))
 
-(define-syntax define-f64-binary-arith
+(define-ir (f64->scm (scm dst) (f64 src))
+  `(let ((,(var-ref dst) ,(var-ref src)))
+     ,(next)))
+
+(define-syntax define-binary-arith-f64-f64
   (syntax-rules ()
     ((_ name op)
      (define-ir (name (f64 dst) (f64 a) (f64 b))
        `(let ((,(var-ref dst) (op ,(var-ref a) ,(var-ref b))))
           ,(next))))))
 
-(define-f64-binary-arith fadd %fadd)
-(define-f64-binary-arith fsub %fsub)
-(define-f64-binary-arith fmul %fmul)
-(define-f64-binary-arith fdiv %fdiv)
+(define-binary-arith-f64-f64 fadd %fadd)
+(define-binary-arith-f64-f64 fsub %fsub)
+(define-binary-arith-f64-f64 fmul %fmul)
+(define-binary-arith-f64-f64 fdiv %fdiv)
 
 ;; XXX: apply-non-program
 
@@ -953,15 +929,35 @@ referenced by dst and src value at runtime."
 
 ;; XXX: bv-length
 
-;; XXX: br-if-u64-=
-;; XXX: br-if-u64-<
-;; XXX: br-if-u64-<=
+(define-syntax define-br-binary-u64-u64
+  (syntax-rules ()
+    ((_ name op-scm op-fx-t op-fx-f)
+     (define-ir (name (u64 a) (u64 b) (const invert?) (const offset))
+       (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
+         `(let ((_ ,(take-snapshot! ip dest)))
+            (let ((_ ,(if (op-scm ra rb)
+                          `(op-fx-t ,va ,vb)
+                          `(op-fx-f ,va ,vb))))
+              ,(next))))))))
+
+(define-br-binary-u64-u64 br-if-u64-= = %eq %ne)
+(define-br-binary-u64-u64 br-if-u64-< < %lt %ge)
+(define-br-binary-u64-u64 br-if-u64-<= <= %le %gt)
 
 ;; XXX: uadd
 ;; XXX: usub
 ;; XXX: umul
-;; XXX: uadd/immediate
-;; XXX: usub/immediate
+
+(define-syntax define-binary-arith-u64-imm
+  (syntax-rules ()
+    ((_ name op)
+     (define-ir (name (u64 dst) (u64 src) (const imm))
+       `(let ((,(var-ref dst) (op ,(var-ref src) ,imm)))
+          ,(next))))))
+
+(define-binary-arith-u64-imm uadd/immediate %add)
+(define-binary-arith-u64-imm usub/immediate %sub)
+
 ;; XXX: umul/immediate
 
 ;; XXX: load-f64
@@ -990,17 +986,17 @@ referenced by dst and src value at runtime."
 
 (define-syntax define-br-binary-u64-scm
   (syntax-rules ()
-    ((_ name scm-op fx-op-t fx-op-f)
+    ((_ name op-scm op-fx-t op-fx-f)
      (define-ir (name (u64 a) (scm b) (const invert?) (const offset))
-       (define-br-binary-body name a b invert? offset scm-op ra rb va vb dest
+       (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
         `(let ((_ ,(take-snapshot! ip dest)))
-           (let ((_ ,(if (scm-op ra rb)
-                         `(fx-op-t ,va ,vb)
-                         `(fx-op-f ,va ,vb))))
+           (let ((_ ,(if (op-scm ra rb)
+                         `(op-fx-t ,va ,vb)
+                         `(op-fx-f ,va ,vb))))
              ,(next))))))))
 
 (define-br-binary-u64-scm br-if-u64-=-scm = %eq %ne)
 (define-br-binary-u64-scm br-if-u64-<-scm < %lt %ge)
-;; XXX: br-if-u64-<=-scm
+(define-br-binary-u64-scm br-if-u64-<=scm <= %le %gt)
 (define-br-binary-u64-scm br-if-u64->-scm > %gt %le)
-;; XXX: br-if-u64->=-scm
+(define-br-binary-u64-scm br-if-u64->=-scm >= %ge %lt)
