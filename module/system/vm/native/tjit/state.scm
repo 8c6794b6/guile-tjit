@@ -38,13 +38,16 @@
             tj-past-frame
             tj-loop?
             tj-downrec?
-            tj-uprec?))
+            tj-uprec?
+            tj-handle-interrupts?
+            set-tj-handle-interrupts!))
 
 (define-record-type $tj
   (make-tj id entry-ip linked-ip
            parent-exit-id parent-fragment parent-snapshot
            past-frame
-           loop? downrec? uprec?)
+           loop? downrec? uprec?
+           handle-interrupts?)
   tj?
 
   ;; Trace ID of this compilation.
@@ -75,4 +78,7 @@
   (downrec? tj-downrec?)
 
   ;; Flag for up recursion trace.
-  (uprec? tj-uprec?))
+  (uprec? tj-uprec?)
+
+  ;; Flag to emit interrupt handler.
+  (handle-interrupts? tj-handle-interrupts? set-tj-handle-interrupts!))

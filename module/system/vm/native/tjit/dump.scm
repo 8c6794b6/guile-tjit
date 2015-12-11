@@ -28,20 +28,89 @@
 (define-module (system vm native tjit dump)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
   #:use-module (system vm debug)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit assembler)
+  #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
+  #:use-module (system vm vm)
   #:export (addr->source-line
+            tjit-stats
             dump-bytecode
             dump-anf
             dump-primops
-            dump-ncode))
+            dump-ncode
+            dump-tjit-stats
+            dump-fragment))
+
+;;;
+;;; Statistics
+;;;
+
+(define (tjit-stats)
+  "Returns statistics of vm-tjit engine.
+
+Statistical times will be constantly @code{#f} unless @code{tjit-dump-time?}
+option was set to true."
+  (let* ((hot-loop (tjit-hot-loop))
+         (hot-call (tjit-hot-call))
+         (hot-exit (tjit-hot-exit))
+         (num-loops 0)
+         (num-calls 0)
+         (num-returns 0)
+         (num-hot-loops 0)
+         (num-hot-calls 0)
+         (num-hot-returns 0)
+         (dump-time (tjit-dump-time? (tjit-dump-option)))
+         (total-time (if dump-time 0 #f))
+         (init-time (if dump-time 0 #f))
+         (scm-time (if dump-time 0 #f))
+         (ops-time (if dump-time 0 #f))
+         (asm-time (if dump-time 0 #f))
+         (num-fragments (hash-count (const #t) (tjit-fragment))))
+    (define-syntax-rule (sum-counter var hot-var thres tbl)
+      (hash-fold (lambda (k v acc)
+                   (set! var (+ var 1))
+                   (when (< thres v)
+                     (set! hot-var (+ hot-var 1))))
+                 '()
+                 (tbl)))
+    (sum-counter num-loops num-hot-loops hot-loop tjit-jump-counter)
+    (sum-counter num-calls num-hot-calls hot-call tjit-call-counter)
+    (sum-counter num-returns num-hot-returns hot-call tjit-return-counter)
+    (when dump-time
+      (fold-tjit-time-logs
+       (lambda (k v acc)
+         (match (diff-tjit-time-log v)
+           ((t i s c a)
+            (set! total-time (+ total-time t))
+            (set! init-time (+ init-time i))
+            (set! scm-time (+ scm-time s))
+            (set! ops-time (+ ops-time c))
+            (set! asm-time (+ asm-time a)))))
+       #f))
+    (list `(hot-loop . ,hot-loop)
+          `(hot-call . ,hot-call)
+          `(hot-exit . ,hot-exit)
+          `(num-loops . ,num-loops)
+          `(num-calls . ,num-calls)
+          `(num-returns . ,num-returns)
+          `(num-hot-loops . ,num-hot-loops)
+          `(num-hot-calls . ,num-hot-calls)
+          `(num-hot-returns . ,num-hot-returns)
+          `(num-fragments . ,num-fragments)
+          `(init-time . ,init-time)
+          `(scm-time . ,scm-time)
+          `(ops-time . ,ops-time)
+          `(asm-time . ,asm-time)
+          `(total-time . ,total-time))))
+
 
 ;;;
 ;;; Dump procedures
@@ -252,3 +321,45 @@
   (format #t ";;; trace ~a: ncode~%" trace-id)
   ((tjit-disassembler) trace-id entry-ip code code-size adjust
    loop-address snapshots trampoline))
+
+(define (dump-tjit-stats)
+  (if (eq? 'tjit (vm-engine))
+      (for-each
+       (lambda (kv)
+         (format #t "~16@a: ~a~%" (car kv) (cdr kv)))
+       (tjit-stats))
+      (display "not running with `vm-tjit' engine.\n")))
+
+(define (dump-fragment fragment)
+  (format #t "~20@a~a~%" "*****" " fragment *****")
+  (format #t "~19@a: ~a~%" 'id (fragment-id fragment))
+  (format #t "~19@a: addr=~a size=~a~%" 'code
+          (let ((code (fragment-code fragment)))
+            (and (bytevector? code)
+                 (bytevector->pointer code)))
+          (bytevector-length (fragment-code fragment)))
+  (format #t "~19@a: ~{~a ~}~%" 'exit-counts
+          (reverse! (hash-fold acons '() (fragment-exit-counts fragment))))
+  (format #t "~19@a: ~x~%" 'entry-ip (fragment-entry-ip fragment))
+  (format #t "~19@a: ~a~%" 'parent-id (fragment-parent-id fragment))
+  (format #t "~19@a: ~a~%" 'parent-exit-id (fragment-parent-exit-id fragment))
+  (format #t "~19@a:~%" 'snapshots)
+  (for-each
+   (match-lambda
+     ((i . ($ $snapshot id sp-offset fp-offset nlocals locals variables code ip))
+      (format #t "~13@a: id=~a sp-offset=~a fp-offset=~a nlocals=~a locals=~a"
+              i id sp-offset fp-offset nlocals locals)
+      (format #t " variables=~a code=~a ip=~a~%"
+              variables (and (bytevector? code) (bytevector->pointer code)) ip)))
+   (sort (hash-fold acons '() (fragment-snapshots fragment))
+         (lambda (a b)
+           (< (car a) (car b)))))
+  (let ((code (fragment-trampoline fragment)))
+    (format #t "~19@a: ~a:~a~%" 'trampoline
+            (and (bytevector? code) (bytevector->pointer code))
+            (and (bytevector? code) (bytevector-length code))))
+  (format #t "~19@a: ~a~%" 'loop-address (fragment-loop-address fragment))
+  (format #t "~19@a: ~a~%" 'loop-locals (fragment-loop-locals fragment))
+  (format #t "~19@a: ~a~%" 'loop-vars (fragment-loop-vars fragment))
+  (format #t "~19@a: ~a~%" 'fp-offset (fragment-fp-offset fragment))
+  (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))

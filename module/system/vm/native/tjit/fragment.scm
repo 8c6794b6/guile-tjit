@@ -34,13 +34,14 @@
   #:use-module (system foreign)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit snapshot)
   #:export (<fragment>
             make-fragment
             fragment-id
             fragment-code
             fragment-exit-counts
             fragment-entry-ip
+            fragment-parent-id
+            fragment-parent-exit-id
             fragment-snapshots
             fragment-exit-codes
             fragment-trampoline
@@ -50,7 +51,6 @@
             fragment-fp-offset
             fragment-end-address
 
-            dump-fragment
             put-fragment!
             get-fragment
             get-root-trace
@@ -205,40 +205,6 @@
   (end-address fragment-end-address))
 
 (define make-fragment %make-fragment)
-
-(define (dump-fragment fragment)
-  (format #t "~20@a~a~%" "*****" " fragment *****")
-  (format #t "~19@a: ~a~%" 'id (fragment-id fragment))
-  (format #t "~19@a: addr=~a size=~a~%" 'code
-          (let ((code (fragment-code fragment)))
-            (and (bytevector? code)
-                 (bytevector->pointer code)))
-          (bytevector-length (fragment-code fragment)))
-  (format #t "~19@a: ~{~a ~}~%" 'exit-counts
-          (reverse! (hash-fold acons '() (fragment-exit-counts fragment))))
-  (format #t "~19@a: ~x~%" 'entry-ip (fragment-entry-ip fragment))
-  (format #t "~19@a: ~a~%" 'parent-id (fragment-parent-id fragment))
-  (format #t "~19@a: ~a~%" 'parent-exit-id (fragment-parent-exit-id fragment))
-  (format #t "~19@a:~%" 'snapshots)
-  (for-each
-   (match-lambda
-    ((i . ($ $snapshot id sp-offset fp-offset nlocals locals variables code ip))
-     (format #t "~13@a: id=~a sp-offset=~a fp-offset=~a nlocals=~a locals=~a"
-             i id sp-offset fp-offset nlocals locals)
-     (format #t " variables=~a code=~a ip=~a~%"
-             variables (and (bytevector? code) (bytevector->pointer code)) ip)))
-   (sort (hash-fold acons '() (fragment-snapshots fragment))
-         (lambda (a b)
-           (< (car a) (car b)))))
-  (let ((code (fragment-trampoline fragment)))
-    (format #t "~19@a: ~a:~a~%" 'trampoline
-            (and (bytevector? code) (bytevector->pointer code))
-            (and (bytevector? code) (bytevector-length code))))
-  (format #t "~19@a: ~a~%" 'loop-address (fragment-loop-address fragment))
-  (format #t "~19@a: ~a~%" 'loop-locals (fragment-loop-locals fragment))
-  (format #t "~19@a: ~a~%" 'loop-vars (fragment-loop-vars fragment))
-  (format #t "~19@a: ~a~%" 'fp-offset (fragment-fp-offset fragment))
-  (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))
 
 (define (root-trace-fragment? fragment)
   (zero? (fragment-parent-id fragment)))

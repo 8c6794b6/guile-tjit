@@ -36,6 +36,7 @@
   #:use-module (system foreign)
   #:use-module (system vm debug)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit error)
   #:export ($snapshot
             make-snapshot
             %make-snapshot
@@ -342,8 +343,7 @@
    ((array? obj) &array)
    ((hash-table? obj) &hash-table)
    (else
-    (debug 1 "XXX: Type not determined: ~s~%" obj)
-    #f)))
+    (tjitc-error 'type-of "~s" obj))))
 
 (define (pretty-type type)
   "Show string representation of TYPE."
@@ -360,7 +360,7 @@
    ((eq? type &null) (green "null"))
    ((eq? type &symbol) (blue "symb"))
    ((eq? type &keyword) (blue "keyw"))
-   ((eq? type &procedure) (red "proc"))
+   ((eq? type &procedure) (yellow "proc"))
    ((eq? type &pair) (yellow "pair"))
    ((eq? type &vector) (yellow "vect"))
    ((eq? type &box) (yellow "box"))
@@ -388,25 +388,24 @@
      ((eq? 'u64 type)
       (pointer-address elem))
      ((eq? 's64 type)
-      (error "stack-element: NYI s64"))
+      (tjitc-error 'stack-element "got s64"))
      ((eq? 'f64 type)
-      (error "stack-element: NYI f64"))
+      (tjitc-error 'stack-element "got f64"))
      ((eq? 'scm type)
       (resolve-stack-element elem))
      (else
-      (error "stack-element: unknown type" type n elem)))))
+      (tjitc-error 'stack-element "~s ~s ~s" type n elem)))))
 
 (define (resolve-stack-element ptr)
   (let ((scm? (and (pointer? ptr)
                    (let ((addr (pointer-address ptr)))
                      (and (zero? (logand 1 addr))
-                          ;; XXX: Workaround to show Scheme error instead of
-                          ;; segmentation fault.
+                          ;; XXX: Workaround to avoid segmentation fault.
                           (not (and (zero? (modulo addr 8))
                                     (<= addr 800))))))))
     (if scm?
         (pointer->scm ptr)
-        (error "resolve-stack-element: non-SCM value" ptr))))
+        (tjitc-error 'resolve-stack-element "non-SCM ~s" ptr))))
 
 (define (type->stack-element-type type)
   (cond
@@ -437,7 +436,8 @@
        ((eq? 'scm type)
         (type-of (stack-element locals (- i sp-offset) type)))
        (else
-        (error "make-snapshot: unknown local" type i)))))
+        (tjitc-error 'make-snapshot "unknown local ~s ~s" type i)))))
+
   (let lp ((is indices) (acc '()))
     (match is
       ((i . is)
@@ -493,9 +493,9 @@
                  ((parent-snapshot-local-ref i)
                   => add-local)
                  (else
-                  (error "make-snapshot: unresolved scm" id i))))
+                  (tjitc-error 'make-snapshot "unresolved scm ~s ~s" id i))))
                (else
-                (error "make-snapshot: unknown type" id se-type)))))
+                (tjitc-error 'make-snapshot "unknown type ~s ~s" id se-type)))))
 
         ;; Giving up, skip this local.
         (else

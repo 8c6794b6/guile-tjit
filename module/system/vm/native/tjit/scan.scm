@@ -83,7 +83,7 @@
     #t)
   (define-syntax-rule (nyi op)
     (begin
-      (debug 1 "XXX: NYI ~a~%" op)
+      (debug 1 "NYI: ~a~%" op)
       #f))
 
   (cond

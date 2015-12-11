@@ -27,7 +27,6 @@
 
 (define-module (system vm native tjit tjitc)
   #:use-module (ice-9 binary-ports)
-  #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (ice-9 regex)
@@ -41,6 +40,7 @@
   #:use-module (system vm native tjit compile-ir)
   #:use-module (system vm native tjit compile-native)
   #:use-module (system vm native tjit dump)
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
@@ -61,10 +61,7 @@
 ;; This procedure is called from C code in "libguile/vm-tjit.c".
 (define (tjitc trace-id bytecode traces parent-ip parent-exit-id linked-ip
                loop? downrec? uprec?)
-  (define-syntax-rule (increment-compilation-failure ip)
-    (let ((current (hashq-ref (tjit-failed-ip) ip 0)))
-      (hashq-set! (tjit-failed-ip) ip (+ current 1))))
-  (define-syntax-rule (show-one-line sline fragment)
+  (define-syntax-rule (show-sline sline fragment)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
                                  (or (and fragment (fragment-id fragment))
@@ -141,57 +138,61 @@
          (sline (addr->source-line entry-ip))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot)))
-    (define-syntax dump
-      (syntax-rules ()
-        ((_ test data exp)
-         (when (and (test dump-option)
-                    (or data (tjit-dump-abort? dump-option)))
-           exp))))
-    (let-values (((traces past-frame implemented?)
-                  (catch #t
-                    (lambda ()
-                      (traced-ops bytecode traces
-                                  initial-sp-offset initial-fp-offset
-                                  (get-initial-types parent-snapshot)))
-                    (lambda (x y fmt args . z)
-                      (debug 1 "XXX: ~s~%" (apply format #f fmt args))
-                      (values '() #f #f)))))
-      (dump tjit-dump-jitc? implemented? (show-one-line sline parent-fragment))
-      (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
-      (cond
-       ((not past-frame)
-        (debug 1 ";;; trace ~a: error in scan~%" trace-id)
-        (increment-compilation-failure entry-ip))
-       ((not implemented?)
-        (debug 1 ";;; trace ~a: NYI found, aborted~%" trace-id)
-        (increment-compilation-failure entry-ip))
-       (uprec?
-        (debug 1 ";;; trace ~a: NYI up recursion~%" trace-id)
-        (increment-compilation-failure entry-ip))
-       (else
-        (let* ((past-frame (scan-again traces past-frame parent-snapshot
-                                       initial-sp-offset initial-fp-offset))
-               (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
-                            parent-fragment parent-snapshot past-frame
-                            loop? downrec? uprec?)))
-          (let-values (((snapshots anf ops) (compile-primops tj traces)))
-            (dump tjit-dump-anf? anf (dump-anf trace-id anf))
-            (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
-            (cond
-             ((not ops)
-              (debug 1 ";;; trace ~a: aborted~%" trace-id)
-              (increment-compilation-failure entry-ip))
-             (else
-              (let-values (((code size adjust loop-address trampoline)
-                            (compile-native tj ops snapshots)))
-                (tjit-increment-id!)
-                (when (tjit-dump-ncode? dump-option)
-                  (dump-ncode trace-id entry-ip code size adjust
-                              loop-address snapshots trampoline)))))
-            (when (tjit-dump-time? dump-option)
-              (let ((log (get-tjit-time-log trace-id))
-                    (t (get-internal-run-time)))
-                (set-tjit-time-log-end! log t))))))))))
+    (define-syntax-rule (dump test data exp)
+      (when (and (test dump-option)
+                 (or data (tjit-dump-abort? dump-option)))
+        exp))
+    (define-syntax-rule (failure msg)
+      (begin
+        (debug 1 ";;; trace ~a: ~a~%" trace-id msg)
+        (tjit-increment-compilation-failure! entry-ip)))
+    (define (compile-traces traces past-frame)
+      (let* ((past-frame (scan-again traces past-frame parent-snapshot
+                                     initial-sp-offset
+                                     initial-fp-offset))
+             (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
+                          parent-fragment parent-snapshot past-frame
+                          loop? downrec? uprec? #f)))
+        (let-values (((snapshots anf ops) (compile-primops tj traces)))
+          (dump tjit-dump-anf? anf (dump-anf trace-id anf))
+          (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
+          (let-values (((code size adjust loop-address trampoline)
+                        (compile-native tj ops snapshots)))
+            (tjit-increment-id!)
+            (when (tjit-dump-ncode? dump-option)
+              (dump-ncode trace-id entry-ip code size adjust
+                          loop-address snapshots trampoline)))
+          (when (tjit-dump-time? dump-option)
+            (let ((log (get-tjit-time-log trace-id))
+                  (t (get-internal-run-time)))
+              (set-tjit-time-log-end! log t))))))
+
+    (call-with-tjitc-error-handler entry-ip
+      (lambda ()
+        (let-values (((traces past-frame implemented?)
+                      (catch #t
+                        (lambda ()
+                          (traced-ops bytecode traces
+                                      initial-sp-offset initial-fp-offset
+                                      (get-initial-types parent-snapshot)))
+                        (lambda (x y fmt args . z)
+                          (debug 1 "XXX: ~s~%" (apply format #f fmt args))
+                          (values '() #f #f)))))
+          (dump tjit-dump-jitc? implemented?
+                (show-sline sline parent-fragment))
+          (dump tjit-dump-bytecode? implemented?
+                (dump-bytecode trace-id traces))
+          (cond
+           ((not past-frame)
+            (failure "error during scan"))
+           ((not implemented?)
+            (failure "NYI found, aborted"))
+           (uprec?
+            (failure "NYI up recursion"))
+           (else
+            (call-with-nyi-handler entry-ip
+              (lambda ()
+                (compile-traces traces past-frame))))))))))
 
 
 ;;;

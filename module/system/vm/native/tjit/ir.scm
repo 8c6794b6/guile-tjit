@@ -31,6 +31,7 @@
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
   #:export (make-ir
@@ -42,6 +43,7 @@
             ir-bytecode-index set-ir-bytecode-index!
             ir-vars
             ir-past-frame
+            ir-handle-interrupts?
 
             make-var
             make-vars
@@ -61,7 +63,7 @@
 (define-record-type <ir>
   (make-ir snapshots snapshot-id parent-snapshot vars
            min-sp-offset max-sp-offset bytecode-index
-           past-frame)
+           past-frame handle-interrupts?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -86,7 +88,10 @@
   (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
 
   ;; Past frame.
-  (past-frame ir-past-frame))
+  (past-frame ir-past-frame)
+
+  ;; Flag for handle interrupts
+  (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!))
 
 
 (define (make-var index)
@@ -191,8 +196,7 @@
            'name "uninitialized" x))
        ...))))
 
-(define-ir-syntax-parameters
-  ir ip ra locals handle-interrupts? next escape)
+(define-ir-syntax-parameters ir ip ra locals next)
 
 (define-syntax put-index!
   (syntax-rules ()
@@ -260,13 +264,10 @@ referenced by dst and src value at runtime."
        (define-ir (name arg ...) . body)))
     ((_ (name arg ...) . body)
      (let ((proc
-            (lambda (%ir %handle-interrupts? %next %escape
-                         %ip %ra %locals arg ...)
+            (lambda (%ir %next %ip %ra %locals arg ...)
               (syntax-parameterize
                   ((ir (identifier-syntax %ir))
-                   (handle-interrupts? (identifier-syntax %handle-interrupts?))
                    (next (identifier-syntax %next))
-                   (escape (identifier-syntax %escape))
                    (ip (identifier-syntax %ip))
                    (ra (identifier-syntax %ra))
                    (locals (identifier-syntax %locals)))
@@ -278,7 +279,7 @@ referenced by dst and src value at runtime."
     ((_ names-and-args . body)
      (define-ir names-and-args
        (begin
-         (variable-set! handle-interrupts? #t)
+         (set-ir-handle-interrupts! ir #t)
          . body)))))
 
 (define-syntax-rule (to-fixnum scm)
@@ -341,8 +342,7 @@ referenced by dst and src value at runtime."
    ((pair? val)
     (next var))
    (else
-    (debug 1 "XXX: with-boxing: ~a ~a ~a~%" val var tmp)
-    (escape #f))))
+    (nyi "with-boxing: ~s ~s ~s" val var tmp))))
 
 ;; XXX: Tag more types. Add guard.
 (define-syntax-rule (with-unboxing next val var)
@@ -358,8 +358,7 @@ referenced by dst and src value at runtime."
         (procedure? val))
     (next))
    (else
-    (debug 1 "XXX: with-unboxing: ~a ~a~%" val var)
-    (escape #f))))
+    (nyi "with-unboxing: ~a ~a" val var))))
 
 (define-syntax-rule (expand-stack nlocals)
   (expand-past-frame (ir-past-frame ir) (current-sp-offset) nlocals))
@@ -400,7 +399,7 @@ referenced by dst and src value at runtime."
 
 ;; XXX: call-label
 (define-ir (call-label proc nlocals label)
-  (escape #f))
+  (nyi "call-label"))
 
 (define-ir (tail-call nlocals)
   (let* ((stack-size (vector-length locals))
@@ -447,8 +446,8 @@ referenced by dst and src value at runtime."
                                  ((eq? 'scm elem)
                                   (type-of (stack-element locals i elem)))
                                  (else
-                                  (debug 1 "XXX: receive: type ~s~%" elem)
-                                  (escape #f)))))
+                                  (tjitc-error 'receive "unknown type ~s"
+                                               elem)))))
                      ;; Ignoring `unspecified' values when loading from previous
                      ;; frame. Those values might came from dead slots in stack
                      ;; which were overwritten by gc. See `scm_i_vm_mark_stack'
@@ -472,7 +471,7 @@ referenced by dst and src value at runtime."
 
 ;; XXX: receive-values
 (define-ir (receive-values proc allow-extra? nvalues)
-  (escape #f))
+  (nyi "receive-values"))
 
 (define-interrupt-ir (return-values nlocals)
   (let ((snapshot (take-snapshot! ip 0)))
@@ -570,9 +569,7 @@ referenced by dst and src value at runtime."
                       (if (test ra rb)
                           (if invert? offset br-op-size)
                           (if invert? br-op-size offset))
-                      (begin
-                        (debug 1 ";;; XXX: ~s: got ~s ~s~%" 'name ra rb)
-                        (escape #f)))))
+                      (tjitc-error "~s: got ~s ~s" 'name ra rb))))
        . body))))
 
 (define-syntax define-br-binary
@@ -596,8 +593,7 @@ referenced by dst and src value at runtime."
           ;; XXX: Delegate other types to `scm_num_eq_p' function, e.g.: SCM
           ;; bignum, complex, ... etc.
           (else
-           (debug 1 "XXX: ~a ~a ~a~%" 'name ra rb)
-           (escape #f))))))))
+           (nyi "~s: ~a ~a~%" 'name ra rb))))))))
 
 (define-br-binary br-if-= = %eq %ne %feq %fne)
 (define-br-binary br-if-< < %lt %ge %flt %fge)
@@ -632,9 +628,7 @@ referenced by dst and src value at runtime."
                    (let ((var (local-ref src)))
                      (if (variable? var)
                          (variable-ref var)
-                         (begin
-                           (debug 1 "XXX: box-ref: got ~s~%" var)
-                           (escape #f)))))))
+                         (tjitc-error 'box-ref "got ~s" var))))))
     `(let ((,vdst (%cref ,vsrc 1)))
        ,(with-unboxing next rsrc vdst))))
 
@@ -645,9 +639,7 @@ referenced by dst and src value at runtime."
                     (let ((var (local-ref dst)))
                       (if (variable? var)
                           (variable-ref var)
-                          (begin
-                            (debug 1 "XXX: box-set!: got ~s~%" var)
-                            (escape #f))))))
+                          (tjitc-error 'box-set! "got ~s~%" var)))))
          (r0 (make-tmpvar 0))
          (emit-next (lambda (tmp)
                       `(let ((_ (%cset ,vdst 1 ,tmp)))
@@ -757,8 +749,7 @@ referenced by dst and src value at runtime."
         (vdst (var-ref dst))
         (vsrc (var-ref src)))
     (when (not (pair? rsrc))
-      (debug 1 "XXX: car ~a ~a~%" rdst rsrc)
-      (escape #f))
+      (tjitc-error 'car "~a ~a~%" rdst rsrc))
     `(let ((,vdst (%cref ,vsrc 0)))
        ,(let ((rcar (car rsrc)))
           (with-unboxing next rcar vdst)))))
@@ -769,8 +760,7 @@ referenced by dst and src value at runtime."
         (vdst (var-ref dst))
         (vsrc (var-ref src)))
     (when (not (pair? rsrc))
-      (debug 1 "XXX: cdr ~a ~a~%" rdst rsrc)
-      (escape #f))
+      (tjitc-error 'cdr "~a ~a~%" rdst rsrc))
     `(let ((,vdst (%cref ,vsrc 1)))
        ,(let ((rcdr (cdr rsrc)))
           (with-unboxing next rcdr vdst)))))
@@ -798,8 +788,7 @@ referenced by dst and src value at runtime."
            `(let ((,vdst (op-fl ,va ,vb)))
               ,(next)))
           (else
-           (debug 1 "XXX: ~s ~a ~a ~a~%" 'name (local-ref dst) ra rb)
-           (escape #f))))))))
+           (nyi "~s: ~a ~a ~a" 'name (local-ref dst) ra rb))))))))
 
 (define-syntax define-binary-arith-scm-imm
   (syntax-rules ()
@@ -813,8 +802,7 @@ referenced by dst and src value at runtime."
            `(let ((,vdst (op-fx ,vsrc ,imm)))
               ,(next)))
           (else
-           (debug 1 "XXX: ~s ~a ~a" 'name (local-ref dst) rsrc)
-           (escape #f))))))))
+           (nyi "~s: ~a ~a" 'name (local-ref dst) rsrc))))))))
 
 (define-binary-arith-scm-scm add %add %fadd)
 (define-binary-arith-scm-imm add/immediate %add)
@@ -832,8 +820,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%fmul ,va ,vb)))
          ,(next)))
      (else
-      (debug 1 "XXX: mul ~a ~a ~a~%" (local-ref dst) ra rb)
-      (escape #f)))))
+      (nyi "mul: ~a ~a ~a" (local-ref dst) ra rb)))))
 
 ;; XXX: div
 ;; XXX: quo
@@ -850,8 +837,7 @@ referenced by dst and src value at runtime."
       `(let ((,vdst (%mod ,va ,vb)))
          ,(next)))
      (else
-      (debug 1 "XXX: mod ~a ~a ~a~%" (local-ref dst) ra rb)
-      (escape #f)))))
+      (nyi "mod: ~a ~a ~a" (local-ref dst) ra rb)))))
 
 ;; XXX: ash
 ;; XXX: logand

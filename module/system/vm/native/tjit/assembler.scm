@@ -34,6 +34,7 @@
   #:use-module ((system base types) #:select (%word-size))
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
@@ -88,7 +89,7 @@
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
   (when (< 0 addr)
-    (error "make-negative-pointer: expecting negative address" addr))
+    (tjitc-error 'make-negative-pointer "non-negative address ~s" addr))
   (make-pointer (+ (expt 2 (* 8 %word-size)) addr)))
 
 (define (make-signed-pointer addr)
@@ -304,7 +305,7 @@
     (memory-ref r0 arg)
     (jit-pushargr r0))
    (else
-    (error "push-gpr-or-mem: unknown arg" arg))))
+    (tjitc-error 'push-gpr-or-mem "unknown arg ~s" arg))))
 
 (define-syntax-rule (retval-to-gpr-or-mem dst)
   (cond
@@ -314,7 +315,7 @@
     (jit-retval r0)
     (memory-set! dst r0))
    (else
-    (error "retval-to-gpr-or-mem: unknown dst" dst))))
+    (tjitc-error 'retval-to-gpr-or-mem "unknown dst ~s" dst))))
 
 ;;; XXX: Offsets for fields in C structs where manually taken with
 ;;; observing output from `objdump'. It would be nice if the offsets
@@ -450,28 +451,28 @@
 (define-syntax-rule (memory-ref dst src)
   (cond
    ((not (memory? src))
-    (error "memory-ref: not a memory" src))
+    (tjitc-error 'memory-ref "not a memory ~s" src))
    (else
     (jit-ldxi dst %fp (moffs src)))))
 
 (define-syntax-rule (memory-ref/f dst src)
   (cond
    ((not (memory? src))
-    (error "memory-ref/f: not a memory" src))
+    (tjitc-error 'memory-ref/f "not a memory ~s" src))
    (else
     (jit-ldxi-d dst %fp (moffs src)))))
 
 (define-syntax-rule (memory-set! dst src)
   (cond
    ((not (memory? dst))
-    (error "memory-set!: not a memory" dst))
+    (tjitc-error 'memory-set! "not a memory ~s" dst))
    (else
     (jit-stxi (moffs dst) %fp src))))
 
 (define-syntax-rule (memory-set!/f dst src)
   (cond
    ((not (memory? dst))
-    (error "memory-set!/f: not a memory" dst))
+    (tjitc-error 'memory-set!/f "not a memory" dst))
    (else
     (jit-stxi-d (moffs dst) %fp src))))
 
@@ -584,7 +585,7 @@ both arguments were register or memory."
              (jump (reg-reg-op r0 r1) (current-exit)))
 
             (else
-             (error #,(symbol->string (syntax->datum #'name)) a b))))))))
+             (tjitc-error 'name "~s ~s" a b))))))))
 
 ;; Auxiliary procedure for %ne.
 (define (!= a b) (not (= a b)))
@@ -609,7 +610,7 @@ both arguments were register or memory."
       (jump (jit-bltr-d (fpr a) (fpr b)) next))
 
      (else
-      (error "%flt" a b)))
+      (tjitc-error '%flt "~s ~s" a b)))
     (emit-side-exit)
     (jit-link next)))
 
@@ -628,7 +629,7 @@ both arguments were register or memory."
       (jump (jit-bger-d f0 f1) next))
 
      (else
-      (error "%fge" a b)))
+      (tjitc-error '%fge "~s ~s" a b)))
     (emit-side-exit)
     (jit-link next)))
 
@@ -649,7 +650,7 @@ both arguments were register or memory."
         (vp->fp r1)
         (tmp r2))
     (when (not (constant? ip))
-      (error "%return: got non-constant ip"))
+      (tjitc-error '%return "got non-constant ip ~s" ip))
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
@@ -731,7 +732,7 @@ both arguments were register or memory."
              (memory-set! dst r0))
 
             (else
-             (error #,(symbol->string (syntax->datum #'name)) dst a b))))))))
+             (tjitc-error 'name "~s ~s ~s" dst a b))))))))
 
 (define-binary-int-prim %add + jit-addi jit-addr)
 (define-binary-int-prim %sub - jit-subi jit-subr)
@@ -754,7 +755,7 @@ both arguments were register or memory."
     (jit-rshi r0 r0 (constant b))
     (memory-set! dst r0))
    (else
-    (error "%rsh" dst a b))))
+    (tjitc-error '%rsh "~s ~s ~s" dst a b))))
 
 (define-prim (%lsh (int dst) (int a) (int b))
   (cond
@@ -779,7 +780,7 @@ both arguments were register or memory."
     (jit-lshi r0 r0 (constant b))
     (memory-set! dst r0))
    (else
-    (error "%lsh" dst a b))))
+    (tjitc-error '%lsh "~s ~s ~s" dst a b))))
 
 (define-prim (%mod (int dst) (int a) (int b))
   (cond
@@ -788,7 +789,7 @@ both arguments were register or memory."
    ((and (gpr? dst) (gpr? a) (gpr? b))
     (jit-remr (gpr dst) (gpr a) (gpr b)))
    (else
-    (error "%mod" dst a b))))
+    (tjitc-error '%mod "~s ~s ~s" dst a b))))
 
 
 ;;;
@@ -819,17 +820,16 @@ both arguments were register or memory."
     (scm-from-double r0 f0)
     (memory-set! dst r0))
    (else
-    (error "XXX: %scm-from-double" dst src))))
+    (tjitc-error '%scm-from-double "~s ~s ~s" dst src))))
 
 (define-syntax define-binary-fpr-prim
   (lambda (x)
     (syntax-case x ()
       ((k name op-rr op-ri)
        #`(define-prim (name (double dst) (double a) (double b))
-           (let ((show-error
-                  (lambda ()
-                    (error #,(symbol->string (syntax->datum #'name))
-                           dst a b))))
+           (let-syntax ((show-error
+                         (syntax-rules ()
+                           ((_) (tjitc-error 'name "~s ~s ~s" dst a b)))))
              (cond
               ((fpr? dst)
                (cond
@@ -925,7 +925,8 @@ both arguments were register or memory."
                           ((memory? dst)
                            (memory-set! dst src))
                           (else
-                           (error "load-and-unbox" dst type))))
+                           (tjitc-error 'unbox-stack-element "~s ~s"
+                                        dst type))))
                         ((_ constant any)
                          (begin
                            (jump (jit-bnei src constant) (current-exit))
@@ -971,7 +972,7 @@ both arguments were register or memory."
           ((memory? dst)
            (memory-set! dst src))))
         (else
-         (error "load-and-unbox" dst type guard?)))))))
+         (tjitc-error 'unbox-stack-element "~s ~s ~s" dst type guard?)))))))
 
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
 ;;; instructions with expected type as done in bytecode, to have vector-ref,
@@ -984,7 +985,7 @@ both arguments were register or memory."
   (let ((t (ref-value type)))
     (when (or (not (constant? n))
               (not (constant? type)))
-      (error "%fref" dst n type))
+      (tjitc-error '%fref "~s ~s ~s" dst n type))
     (sp-ref r0 (ref-value n))
     (unbox-stack-element dst r0 t #t)))
 
@@ -996,7 +997,7 @@ both arguments were register or memory."
         (t (ref-value type)))
     (when (or (not (constant? n))
               (not (constant? type)))
-      (error "%fref/f" dst n))
+      (tjitc-error '%fref/f "~s ~s ~s" dst n type))
     (cond
      ((= t &flonum)
       (sp-ref r0 (ref-value n))
@@ -1011,7 +1012,7 @@ both arguments were register or memory."
         (scm-real-value f0 r0)
         (memory-set!/f dst f0))
        (else
-        (error "%fref/f" dst n type))))
+        (tjitc-error '%fref/f "~s ~s ~s" dst n type))))
      ((= t &f64)
       (cond
        ((fpr? dst)
@@ -1020,7 +1021,7 @@ both arguments were register or memory."
         (sp-ref/f f0 (ref-value n))
         (memory-set!/f dst f0))
        (else
-        (error "%fref/f" dst n type)))))))
+        (tjitc-error '%fref/f "~s ~s ~s" dst n type)))))))
 
 (define-prim (%cref (int dst) (int src) (void n))
   (cond
@@ -1048,7 +1049,7 @@ both arguments were register or memory."
     (jit-ldxi r0 r0 (constant-word n))
     (memory-set! dst r0))
    (else
-    (error "%cref" dst src n))))
+    (tjitc-error '%cref "~s ~s ~s" dst src n))))
 
 (define-prim (%cref/f (double dst) (int src) (void n))
   (cond
@@ -1068,7 +1069,7 @@ both arguments were register or memory."
     (memory-set!/f dst f0))
 
    (else
-    (error "%cref/f" dst src n))))
+    (tjitc-error '%cref/f "~s ~s ~s" dst src n))))
 
 (define-prim (%cset (int cell) (void n) (int src))
   (cond
@@ -1087,7 +1088,7 @@ both arguments were register or memory."
     (jit-stxi (constant-word n) r0 r1))
 
    (else
-    (error "%cset" cell n src))))
+    (tjitc-error '%cset "~s ~s ~s" cell n src))))
 
 
 ;;;

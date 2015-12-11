@@ -40,11 +40,12 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
-  #:use-module (system vm native tjit ra)
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit compile-ir)
-  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit fragment)
+  #:use-module (system vm native tjit ra)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
@@ -164,7 +165,7 @@
     (jit-movi r0 *scm-null*)
     (sp-set! local r0))
    (else
-    (error "store-frame" local type src))))
+    (tjitc-error 'store-frame "~s ~s ~s" local type src))))
 
 (define (maybe-store local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES.
@@ -409,9 +410,7 @@ are local index number."
               (let ((max-spills (tjit-max-spills))
                     (nspills (primops-nspills primops)))
                 (when (< max-spills nspills)
-                  ;; XXX: Escape from this procedure, increment compilation
-                  ;; failure for this entry-ip.
-                  (error "Too many spilled variables" nspills))
+                  (tjitc-error 'compile- "Too many spills ~s" nspills))
                 (jit-allocai (imm (* (+ max-spills 1 *num-volatiles*)
                                      %word-size))))
               (fragment-fp-offset fragment))))
@@ -453,8 +452,8 @@ are local index number."
                 (values))))
            (maybe-store local-x-types exit-variables references 0)))
         (_
-         (error "compile-native: snapshot not found in parent trace"
-                (tj-parent-exit-id tj))))))
+         (tjitc-error 'compile-entry "snapshot not found"
+                      (tj-parent-exit-id tj))))))
 
     ;; Assemble the primitives.
     (compile-body tj primops snapshots fp-offset trampoline)))
@@ -493,7 +492,7 @@ are local index number."
                     (($ $snapshot _ _ _ _ local-x-types)
                      (lp ops local-x-types args acc))
                     (else
-                     (error "snapshot loop info not found"))))
+                     (tjitc-error 'compile-body "no snapshot loop info"))))
                  ((snapshot-link? snapshot)
                   (compile-link tj asm args snapshot)
                   (lp ops loop-locals loop-vars acc))
@@ -507,7 +506,7 @@ are local index number."
                       (set-asm-exit! asm exit))
                     (lp ops loop-locals loop-vars (cons gen-bailout acc)))))))
           (else
-           (error "compile-ops: no snapshot with id" snapshot-id))))
+           (tjitc-error 'compile-ops "no snapshot ~s" snapshot-id))))
         (((op-name . args) . ops)
          (cond
           ((hashq-ref *native-prim-procedures* op-name)
@@ -518,16 +517,15 @@ are local index number."
                 (apply proc asm args)
                 (lp ops loop-locals loop-vars acc)))
           (else
-           (error "op not found" op-name))))
+           (tjitc-error 'compile-ops "op not found ~s" op-name))))
         (()
          (values loop-locals loop-vars acc)))))
-  (define (compile-loop asm loop gen-bailouts handle-interrupts?
-                        loop-locals loop-vars)
+  (define (compile-loop asm loop gen-bailouts loop-locals loop-vars)
     (if (null? loop)
         (values #f gen-bailouts)
         (let ((loop-label (jit-label)))
           (jit-note "loop" 0)
-          (when handle-interrupts?
+          (when (tj-handle-interrupts? tj)
             (vm-handle-interrupts asm))
           (let-values
               (((unused-loop-locals unused-loop-vars gen-bailouts)
@@ -535,7 +533,7 @@ are local index number."
             (jump loop-label)
             (values loop-label gen-bailouts)))))
   (match primops
-    (($ $primops entry loop mem-idx env handle-interrupts?)
+    (($ $primops entry loop mem-idx env)
      (let*-values (((fragment) (tj-parent-fragment tj))
                    ((end-address)
                     (or (and=> fragment
@@ -546,12 +544,11 @@ are local index number."
                    ((loop-locals loop-vars gen-bailouts)
                     (compile-ops asm entry #f #f '()))
                    ((loop-label gen-bailouts)
-                    (compile-loop asm loop gen-bailouts handle-interrupts?
-                                  loop-locals loop-vars)))
+                    (compile-loop asm loop gen-bailouts loop-locals loop-vars)))
        (values trampoline loop-label loop-locals loop-vars fp-offset
                gen-bailouts)))
     (_
-     (error "compile-body: not a $primops" primops))))
+     (tjitc-error 'compile-body "not a $primops" primops))))
 
 (define (compile-bailout tj asm snapshot trampoline args)
   (lambda (end-address)
@@ -671,7 +668,7 @@ are local index number."
        ;; Jump to the beginning of linked trace.
        (jumpi (fragment-loop-address linked-fragment)))
       (_
-       (error "compile-link: not a snapshot" snapshot)))))
+       (tjitc-error 'compile-link "not a snapshot ~s" snapshot)))))
 
 (define (compile-downrec tj asm loop? snapshot initial-nlocals dsts)
   (let* ((last-sp-offset (snapshot-sp-offset snapshot))

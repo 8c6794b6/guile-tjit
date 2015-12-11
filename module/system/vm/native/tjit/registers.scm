@@ -30,6 +30,7 @@
 (define-module (system vm native tjit registers)
   #:use-module (ice-9 format)
   #:use-module (system vm native lightning)
+  #:use-module (system vm native tjit error)
   #:export (*num-gpr*
             *num-fpr*
             *num-volatiles*
@@ -135,7 +136,7 @@
        ((= i -1) r0)
        ((= i -2) r1)
        ((= i -3) r2)
-       (else (error "gpr-ref" i)))
+       (else (tjitc-error 'gpr-ref "~s" i)))
       (vector-ref *gprs* i)))
 
 ;; Using negative numbers to refer scratch FPRs.
@@ -145,7 +146,7 @@
        ((= i -1) f0)
        ((= i -2) f1)
        ((= i -3) f2)
-       (else (error "fpr-ref" i)))
+       (else (tjitc-error 'fpr-ref "~s" i)))
       (vector-ref *fprs* i)))
 
 (define (physical-name r)
@@ -157,15 +158,15 @@
          #(xmm8 xmm9 xmm10 xmm11 xmm12 xmm13 xmm14 xmm15
                 xmm7 xmm6 xmm5 xmm4 xmm3 xmm2 xmm1 xmm0)))
     (when (not (pair? r))
-      (error "reg-name: unknown argument" r))
+      (tjitc-error 'physical-name "unknown argument ~s" r))
     (let ((t (car r))
           (n (cdr r)))
       (when (not (integer? n))
-        (error "reg-name: cdr not an integer" r))
+        (tjitc-error 'physical-name "cdr not an integer ~s" r))
       (cond
        ((eq? t 'gpr)
         (vector-ref gpr-names (+ 3 n)))
        ((eq? t 'fpr)
         (vector-ref fpr-names (+ 3 n)))
        (else
-        (error "physical-name: not a register" r))))))
+        (tjitc-error 'physical-name "not a register ~s" r))))))

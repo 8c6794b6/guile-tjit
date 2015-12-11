@@ -36,7 +36,6 @@
   #:use-module (ice-9 rdelim)
   #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
-  #:use-module (system vm vm)
   #:use-module (srfi srfi-9)
   #:export (tjit-jump-counter
             tjit-call-counter
@@ -54,6 +53,7 @@
             set-tjit-hot-exit!
             tjit-max-retries
             set-tjit-max-retries!
+            tjit-increment-compilation-failure!
 
             tjit-dump-abort?
             tjit-dump-bytecode?
@@ -79,15 +79,20 @@
             get-tjit-time-log
             fold-tjit-time-logs
 
-            tjit-stats
-            dump-tjit-stats
-
             tjit-max-spills
             tjit-dump-option
             tjit-disassembler))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
+
+;;;
+;;; Failure
+;;;
+
+(define (tjit-increment-compilation-failure! ip)
+  (let ((current (hashq-ref (tjit-failed-ip) ip 0)))
+    (hashq-set! (tjit-failed-ip) ip (+ current 1))))
 
 ;;;
 ;;; Dump options
@@ -212,80 +217,6 @@ fields to @code{#f}."
 
 (define (fold-tjit-time-logs proc init)
   (hash-fold proc init *tjit-time-logs*))
-
-(define (tjit-stats)
-  "Returns statistics of vm-tjit engine.
-
-Statistical times will be constantly @code{#f} unless @code{tjit-dump-time?}
-option was set to true."
-  (let* ((hot-loop (tjit-hot-loop))
-         (hot-call (tjit-hot-call))
-         (hot-exit (tjit-hot-exit))
-         (num-loops 0)
-         (num-calls 0)
-         (num-returns 0)
-         (num-hot-loops 0)
-         (num-hot-calls 0)
-         (num-hot-returns 0)
-         (dump-time (tjit-dump-time? (tjit-dump-option)))
-         (total-time (if dump-time 0 #f))
-         (init-time (if dump-time 0 #f))
-         (scm-time (if dump-time 0 #f))
-         (ops-time (if dump-time 0 #f))
-         (asm-time (if dump-time 0 #f))
-         (num-fragments (hash-count (const #t) (tjit-fragment))))
-    (hash-fold (lambda (k v acc)
-                 (set! num-loops (+ num-loops 1))
-                 (when (< hot-loop v)
-                   (set! num-hot-loops (+ num-hot-loops 1))))
-               '()
-               (tjit-jump-counter))
-    (hash-fold (lambda (k v acc)
-                 (set! num-calls (+ num-calls 1))
-                 (when (< hot-call v)
-                   (set! num-hot-calls (+ num-hot-calls 1))))
-               '()
-               (tjit-call-counter))
-    (hash-fold (lambda (k v acc)
-                 (set! num-returns (+ num-returns 1))
-                 (when (< hot-call v)
-                   (set! num-hot-returns (+ num-hot-returns 1))))
-               '()
-               (tjit-return-counter))
-    (when dump-time
-      (fold-tjit-time-logs
-       (lambda (k v acc)
-         (match (diff-tjit-time-log v)
-           ((t i s c a)
-            (set! total-time (+ total-time t))
-            (set! init-time (+ init-time i))
-            (set! scm-time (+ scm-time s))
-            (set! ops-time (+ ops-time c))
-            (set! asm-time (+ asm-time a)))))
-       #f))
-    (list `(hot-loop . ,hot-loop)
-          `(hot-call . ,hot-call)
-          `(hot-exit . ,hot-exit)
-          `(num-loops . ,num-loops)
-          `(num-calls . ,num-calls)
-          `(num-returns . ,num-returns)
-          `(num-hot-loops . ,num-hot-loops)
-          `(num-hot-calls . ,num-hot-calls)
-          `(num-hot-returns . ,num-hot-returns)
-          `(num-fragments . ,num-fragments)
-          `(init-time . ,init-time)
-          `(scm-time . ,scm-time)
-          `(ops-time . ,ops-time)
-          `(asm-time . ,asm-time)
-          `(total-time . ,total-time))))
-
-(define (dump-tjit-stats)
-  (if (eq? 'tjit (vm-engine))
-      (for-each
-       (lambda (kv)
-         (format #t "~16@a: ~a~%" (car kv) (cdr kv)))
-       (tjit-stats))
-      (display "not running with `vm-tjit' engine.\n")))
 
 (define (default-disassembler trace-id entry-ip code code-size adjust
           loop-address snapshots trampoline)

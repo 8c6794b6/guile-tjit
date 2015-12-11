@@ -34,8 +34,10 @@
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit variables)
   #:export ($primops
             primops?
@@ -50,7 +52,7 @@
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primops
-  (make-primops entry loop nspills env handle-interrupts?)
+  (make-primops entry loop nspills env)
   primops?
   ;; List of primitives for entry clause.
   (entry primops-entry)
@@ -62,10 +64,7 @@
   (nspills primops-nspills)
 
   ;; Hash-table containing variable information.
-  (env primops-env)
-
-  ;; Flag for whether to call async tick.
-  (handle-interrupts? primops-handle-interrupts?))
+  (env primops-env))
 
 
 ;;;
@@ -157,28 +156,22 @@
             (((type . types) (arg . args))
              (cond
               ((constant? arg)
-               (debug 2 ";;; get-arg-types!: got constant ~a~%" arg)
                (lp types args (cons (make-constant arg) acc)))
               ((symbol? arg)
                (cond
                 ((hashq-ref env arg)
                  => (lambda (reg)
-                      (debug 2 ";;; get-arg-types!: found ~a as ~a~%"
-                             arg reg)
                       (lp types args (cons reg acc))))
                 ((= type int)
                  (let ((reg (get-gpr! arg)))
-                   (debug 2 ";;; get-arg-types!: ~a to ~a (int)~%" arg reg)
                    (lp types args (cons reg acc))))
                 ((= type double)
                  (let ((reg (get-fpr! arg)))
-                   (debug 2 ";;; get-arg-types!: ~a to ~a (double)~%" arg reg)
                    (lp types args (cons reg acc))))
                 (else
-                 (debug 2 ";;; get-arg-types!: unknown type ~a~%" type)
                  (lp types args acc))))
               (else
-               (error "get-arg-types!: unknown arg with type" arg type))))
+               (tjitc-error 'get-arg-types! "arg ~s ~s" arg type))))
             (_
              (reverse! acc))))))
     (define (get-dst-type! op dst)
@@ -198,13 +191,13 @@
          ((= type double)
           (get-fpr! dst))
          (else
-          (error "get-dst-types!: unknown type~%" dst type)))))
+          (tjitc-error 'get-dst-types! "dst ~s ~s" dst type)))))
     (define (ref k)
       (cond
        ((constant? k) (make-constant k))
        ((symbol? k) (hashq-ref env k))
        (else
-        (error "assign-registers: ref not found" k))))
+        (tjitc-error 'assign-registers "ref ~s not found" k))))
     (define (constant? x)
       (cond
        ((boolean? x) #t)
@@ -257,12 +250,12 @@
 
 
 ;;;
-;;; IR to Primitive List
+;;; IR to list of primitive operations
 ;;;
 
-(define (ir->primops parent-snapshot initial-snapshot vars handle-interrupts?
-                     snapshots term)
-  (let ((initial-free-gprs (make-initial-free-gprs))
+(define (ir->primops term tj initial-snapshot vars snapshots)
+  (let ((parent-snapshot (tj-parent-snapshot tj))
+        (initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
         (initial-env (make-hash-table))
@@ -328,11 +321,7 @@
                                           snapshot-idx)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
-           (make-primops entry-ops
-                          loop-ops
-                          (variable-ref mem-idx)
-                          env
-                          handle-interrupts?)))
+           (make-primops entry-ops loop-ops (variable-ref mem-idx) env)))
 
         ;; ANF without loop.
         (`(letrec ((patch (lambda ,patch-args
@@ -343,8 +332,6 @@
          ;; determined at the time of exit from parent trace.
          (match parent-snapshot
            (($ $snapshot id sp-offset fp-offset nlocals locals variables code ip)
-            (debug 2 ";;; [a->pf] locals from parent:    ~a~%" locals)
-            (debug 2 ";;; [a->pf] variables from parent: ~a~%" variables)
             ;; The number of assigned variables might fewer than the number of
             ;; locals. Reversed and assigning from highest frame to lowest
             ;; frame.
@@ -362,9 +349,8 @@
                     (when (<= (variable-ref mem-idx) n)
                       (variable-set! mem-idx (+ n 1))))
                    (_
-                    (debug 1
-                           "XXX ir->primops: var ~a at local ~a, type ~a~%"
-                           var local type)))
+                    (tjitc-error 'ir->primops "var ~a at local ~a, type ~a~%"
+                                 var local type)))
                  (lp vars locals))
                 (_
                  (values)))))
@@ -378,10 +364,6 @@
                                          0)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
-           (make-primops patch-ops
-                          '()
-                          (variable-ref mem-idx)
-                          env
-                          handle-interrupts?)))
+           (make-primops patch-ops '() (variable-ref mem-idx) env)))
         (_
-         (error "ir->primops: malformed term" term))))))
+         (tjitc-error 'ir->primops "malformed term" term))))))
