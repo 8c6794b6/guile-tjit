@@ -74,16 +74,6 @@ option was set to true."
          (ops-time (if dump-time 0 #f))
          (asm-time (if dump-time 0 #f))
          (num-fragments (hash-count (const #t) (tjit-fragment))))
-    (define-syntax-rule (sum-counter var hot-var thres tbl)
-      (hash-fold (lambda (k v acc)
-                   (set! var (+ var 1))
-                   (when (< thres v)
-                     (set! hot-var (+ hot-var 1))))
-                 '()
-                 (tbl)))
-    (sum-counter num-loops num-hot-loops hot-loop tjit-jump-counter)
-    (sum-counter num-calls num-hot-calls hot-call tjit-call-counter)
-    (sum-counter num-returns num-hot-returns hot-call tjit-return-counter)
     (when dump-time
       (fold-tjit-time-logs
        (lambda (k v acc)

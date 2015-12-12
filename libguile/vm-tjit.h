@@ -82,9 +82,6 @@ SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
 #define SCM_FRAGMENT_DOWNREC_P(T)      SCM_STRUCT_SLOT_REF (T, 3)
 #define SCM_FRAGMENT_UPREC_P(T)        SCM_STRUCT_SLOT_REF (T, 4)
 
-SCM_API SCM scm_tjit_jump_counter (void);
-SCM_API SCM scm_tjit_call_counter (void);
-SCM_API SCM scm_tjit_return_counter (void);
 SCM_API SCM scm_tjit_fragment (void);
 SCM_API SCM scm_tjit_root_trace (void);
 SCM_API SCM scm_tjit_failed_ip (void);
@@ -103,6 +100,8 @@ SCM_API SCM scm_tjit_num_unrolls (void);
 SCM_API SCM scm_set_tjit_num_unrolls_x (SCM count);
 
 SCM_API SCM scm_tjit_increment_id_x (void);
+SCM_API SCM scm_tjit_increment_compilation_failure_x (SCM ip);
+SCM_API SCM scm_tjit_add_root_ip_x (SCM ip);
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);

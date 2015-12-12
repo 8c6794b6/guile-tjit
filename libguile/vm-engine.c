@@ -221,10 +221,7 @@
   do {                                                                  \
     if (n < 0 && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)           \
       {                                                                 \
-        SCM_TJIT_ENTER (n, ip + n, ip,                                  \
-                        SCM_TJIT_TRACE_JUMP,                            \
-                        tjit_jump_counter_table,                        \
-                        tjit_hot_loop);                                 \
+        SCM_TJIT_ENTER (n, ip, SCM_TJIT_TRACE_JUMP, tjit_hot_loop);     \
         NEXT (0);                                                       \
       }                                                                 \
     else                                                                \
@@ -234,10 +231,8 @@
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
       {                                                                 \
-        SCM_TJIT_ENTER (0, ip, SCM_FRAME_RETURN_ADDRESS (vp->fp),       \
-                        SCM_TJIT_TRACE_CALL,                            \
-                        tjit_call_counter_table,                        \
-                        tjit_hot_call);                                 \
+        SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),           \
+                        SCM_TJIT_TRACE_CALL, tjit_hot_call);            \
         NEXT (0);                                                       \
       }                                                                 \
     else                                                                \
@@ -247,28 +242,22 @@
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
       {                                                                 \
-        SCM_TJIT_ENTER (0, ip, old_ip,                                  \
-                        SCM_TJIT_TRACE_JUMP,                            \
-                        tjit_jump_counter_table,                        \
-                        tjit_hot_call);                                 \
+        SCM_TJIT_ENTER (0, old_ip, SCM_TJIT_TRACE_JUMP, tjit_hot_call); \
         NEXT (0);                                                       \
       }                                                                 \
     else                                                                \
       NEXT (0);                                                         \
   } while (0)
-#  define VM_TJIT_RETURN(n)                             \
-  do {                                                  \
-    if (tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)    \
-      {                                                 \
-        SCM_TJIT_ENTER (0, ip, 0,                       \
-                        SCM_TJIT_TRACE_RETURN,          \
-                        tjit_return_counter_table,      \
-                        tjit_hot_call);                 \
-        NEXT (0);                                       \
-      }                                                 \
-    else                                                \
-      NEXT (0);                                         \
-  } while (0);                                          \
+#  define VM_TJIT_RETURN(n)                                             \
+  do {                                                                  \
+    if (tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)                    \
+      {                                                                 \
+        SCM_TJIT_ENTER (0, 0, SCM_TJIT_TRACE_RETURN, tjit_hot_call);    \
+        NEXT (0);                                                       \
+      }                                                                 \
+    else                                                                \
+      NEXT (0);                                                         \
+  } while (0);                                                          \
 
 # endif
 #endif

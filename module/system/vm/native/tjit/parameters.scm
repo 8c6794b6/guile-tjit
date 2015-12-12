@@ -37,9 +37,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
   #:use-module (srfi srfi-9)
-  #:export (tjit-jump-counter
-            tjit-call-counter
-            tjit-return-counter
+  #:export (tjit-ip-counter
             tjit-fragment
             tjit-root-trace
             tjit-failed-ip
@@ -54,6 +52,7 @@
             tjit-max-retries
             set-tjit-max-retries!
             tjit-increment-compilation-failure!
+            tjit-add-root-ip!
 
             tjit-dump-abort?
             tjit-dump-bytecode?
@@ -86,13 +85,6 @@
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
 
-;;;
-;;; Failure
-;;;
-
-(define (tjit-increment-compilation-failure! ip)
-  (let ((current (hashq-ref (tjit-failed-ip) ip 0)))
-    (hashq-set! (tjit-failed-ip) ip (+ current 1))))
 
 ;;;
 ;;; Dump options

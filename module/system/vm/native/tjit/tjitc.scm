@@ -89,9 +89,12 @@
       (match traces
         ((trace . traces)
          (let*-values (((len op) (disassemble-one bytecode offset))
-                       ((implemented?) (scan-locals pf op (caddr trace))))
-           (lp (cons (cons op trace) acc) (+ offset len) traces
-               pf (and so-far-so-good? implemented?))))
+                       ((implemented?)
+                        (if so-far-so-good?
+                            (scan-locals pf op (caddr trace))
+                            #f)))
+           (lp (cons (cons op trace) acc) (+ offset len) traces pf
+               (and so-far-so-good? implemented?))))
         (()
          (values (reverse! acc) (arrange-past-frame pf) so-far-so-good?)))))
   (define (scan-again traces pf parent-snapshot sp fp)

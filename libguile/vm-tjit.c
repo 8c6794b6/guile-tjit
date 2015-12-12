@@ -22,30 +22,25 @@
 
 /* Internal C macros */
 
-#define SCM_TJIT_IS_HOT(ref, ip, count)                            \
-  (ref < count                                                     \
-   && scm_hashq_ref (tjit_failed_ip_table, ip, SCM_INUM0) <        \
-   tjit_max_retries)
+/* For bytecode IP hash, used to count hot IP, etc. */
+#define TJIT_HASH_MASK 0xffffff
+#define TJIT_HASH_SIZE ((TJIT_HASH_MASK + 1) / 4)
+#define TJIT_HASH_FUNC(ip) ((TJIT_HASH_MASK & ip) >> 2)
 
-#define SCM_TJIT_INCREMENT(table, ip, count)                            \
-  do {                                                                  \
-    SCM new_count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);          \
-    scm_hashq_set_x (table, ip, new_count);                             \
-  } while (0)
-
-#define SCM_TJITC(ip, loop_p)             \
-  do {                                    \
-    SYNC_IP ();                           \
-    tjitc (tj, ip, loop_p);               \
-    CACHE_SP ();                          \
-    stop_recording (tj);                  \
-  } while (0)
-
-#define SCM_DOWNREC_P(fragmeng)                     \
-  scm_is_true (SCM_FRAGMENT_DOWNREC_P (fragment))
-
-#define SCM_UPREC_P(fragment)                   \
-  scm_is_true (SCM_FRAGMENT_UPREC_P (fragment))
+#define SCM_TJIT_HASH(name)                             \
+  static scm_t_uint16 name##_hash[TJIT_HASH_SIZE];      \
+                                                        \
+  static inline scm_t_uint16                            \
+  name##_ref (scm_t_uint32 key)                         \
+  {                                                     \
+    return name##_hash[TJIT_HASH_FUNC (key)];           \
+  }                                                     \
+                                                        \
+  static inline void                                    \
+  name##_set (scm_t_uint32 key, scm_t_uint16 val)       \
+  {                                                     \
+    name##_hash[TJIT_HASH_FUNC (key)] = val;            \
+  }
 
 #define SCM_TJIT_PARAM(name, sname, ini)                                \
                                                                         \
@@ -59,9 +54,12 @@
   SCM_DEFINE (scm_set_tjit_##name##_x, "set-tjit-"#sname"!",            \
               1, 0, 0, (SCM count), "")                                 \
   {                                                                     \
-    if (SCM_I_NINUMP (count) || count < 0)                              \
+    /* XXX: Some params does not require `65536 < count' check. */      \
+    if (SCM_I_NINUMP (count)                                            \
+        || count < 0                                                    \
+        || SCM_I_MAKINUM (65536) < count)                               \
       scm_misc_error ("set-tjit-"#sname"!",                             \
-                      "Unknown arg: ~s", scm_list_1 (count));           \
+                      "Invalid arg: ~s", scm_list_1 (count));           \
                                                                         \
     tjit_##name = count;                                                \
     return SCM_UNSPECIFIED;                                             \
@@ -75,6 +73,42 @@
   {                                                                     \
    return tjit_##name##_table;                                          \
   }
+
+#define SCM_TJIT_IS_HOT(ref, ip, count)                                 \
+  (ref < count                                                          \
+   && SCM_I_MAKINUM (failed_ip_ref ((scm_t_uintptr) (ip))) <            \
+   tjit_max_retries)
+
+#define SCM_TJIT_INCREMENT_HOT_IP(JUMP, END_IP, TTYPE, REF)             \
+  do {                                                                  \
+      if (SCM_I_MAKINUM (failed_ip_ref ((scm_t_uintptr) (ip + JUMP))) < \
+          tjit_max_retries)                                             \
+      {                                                                 \
+        scm_t_uint16 count = hot_ip_ref ((scm_t_uintptr) (ip + JUMP));  \
+                                                                        \
+        if (REF < SCM_I_MAKINUM (count))                                \
+          start_recording (tj, ip + JUMP, END_IP, TTYPE);               \
+        else                                                            \
+          hot_ip_set ((scm_t_uintptr) (ip + JUMP), count + 1);          \
+      }                                                                 \
+                                                                        \
+      /* Next IP is jump destination specified in bytecode. */          \
+      ip += JUMP;                                                       \
+  } while (0);
+
+#define SCM_TJITC(ip, loop_p)             \
+  do {                                    \
+    SYNC_IP ();                           \
+    tjitc (tj, ip, loop_p);               \
+    CACHE_SP ();                          \
+    stop_recording (tj);                  \
+  } while (0)
+
+#define SCM_DOWNREC_P(fragmeng)                         \
+  (scm_is_true (fragment) && scm_is_true (SCM_FRAGMENT_DOWNREC_P (fragment)))
+
+#define SCM_UPREC_P(fragment)                   \
+  (scm_is_true (fragment) && scm_is_true (SCM_FRAGMENT_UPREC_P (fragment)))
 
 
 /*
@@ -91,7 +125,7 @@ SCM_TJIT_PARAM (hot_call, hot-call, 12)
 SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 
 /* Maximum length of traced bytecodes. */
-SCM_TJIT_PARAM (max_record, max-retries, 6000)
+SCM_TJIT_PARAM (max_record, max-record, 6000)
 
 /* Maximum count of retries for failed compilation. */
 SCM_TJIT_PARAM (max_retries, max-retries, 2)
@@ -104,15 +138,17 @@ SCM_TJIT_PARAM (num_unrolls, num-unrolls, 3)
  *  Internal variables
  */
 
-/* Hash table to hold iteration counts for loops. Key is bytecode IP,
+/* Hash array to hold iteration counts for loops. Key is bytecode IP,
    value is current count. */
-SCM_TJIT_TABLE (jump_counter, jump-counter)
+SCM_TJIT_HASH (hot_ip)
 
-/* Hash table to hold counts for call. */
-SCM_TJIT_TABLE (call_counter, call-counter)
+/* Hash array to hold IP of  root traces. Key is bytecode IP,
+   value is 0 or 1. */
+SCM_TJIT_HASH (root_ip)
 
-/* Hash table to hold counts for return. */
-SCM_TJIT_TABLE (return_counter, return-counter);
+/* Hash array to hold IPs of failed traces. Key is bytecode IP, value is
+   number of failed compilation. */
+SCM_TJIT_HASH (failed_ip)
 
 /* Hash table to hold all fragments. Key is fragment ID, value is
    fragment data. */
@@ -122,9 +158,6 @@ SCM_TJIT_TABLE (fragment, fragment);
    value is fragment data. */
 SCM_TJIT_TABLE (root_trace, root-trace);
 
-/* Hash table to hold IPs of failed traces. Key is bytecode IP, value is
-   number of failed compilation. */
-SCM_TJIT_TABLE (failed_ip, failed-ip);
 
 /* Fluid to hold recorded bytecode. */
 static SCM bytecode_buffer_fluid;
@@ -201,11 +234,9 @@ stop_recording (struct scm_tjit_state *tj)
 static inline void
 abort_recording (struct scm_tjit_state *tj, scm_t_uint32 *ip)
 {
-  SCM retries, s_ip;
-  s_ip = SCM_I_MAKINUM (ip);
-  retries = scm_hashq_ref (tjit_failed_ip_table, s_ip, SCM_INUM0);
-  retries = SCM_PACK (SCM_UNPACK (retries) + INUM_STEP);
-  scm_hashq_set_x (tjit_failed_ip_table, s_ip, retries);
+  scm_t_uint16 retries;
+  retries = failed_ip_ref ((scm_t_uintptr) ip);
+  failed_ip_set ((scm_t_uintptr) ip, retries + 1);
   stop_recording (tj);
 }
 
@@ -243,7 +274,6 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
 {
   scm_t_native_code f;
   scm_t_uint32 nlocals;
-  SCM s_next_ip;
   SCM code, exit_id, fragment_id, exit_counts, count;
   struct scm_tjit_retval *ret;
 
@@ -255,7 +285,6 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
   fragment_id = SCM_PACK (ret->fragment_id);
   nlocals = SCM_I_INUM (SCM_PACK (ret->nlocals));
 
-  s_next_ip = SCM_I_MAKINUM ((scm_t_uintptr) vp->ip);
   fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
 
   if (scm_is_true (fragment))
@@ -273,7 +302,7 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
        the message. */
     count = SCM_INUM0;
 
-  if (SCM_TJIT_IS_HOT (tjit_hot_exit, s_next_ip, count))
+  if (SCM_TJIT_IS_HOT (tjit_hot_exit, vp->ip, count))
     {
       scm_t_uint32 *start = vp->ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
@@ -326,54 +355,58 @@ scm_make_tjit_state (void)
   by "libguile/vm.c". Following two macros share common variables
   defined in "libguile/vm-engine.h", such as thread, vp, ip, ... etc. */
 
-#define SCM_TJIT_ENTER(JUMP, HOT_IP, END_IP, TTYPE, TABLE, REF)         \
+#define SCM_TJIT_ENTER(JUMP, END_IP, TTYPE, REF)                        \
   do {                                                                  \
-    SCM s_ip, fragment;                                                 \
-                                                                        \
-    s_ip = SCM_I_MAKINUM (ip + JUMP);                                   \
-    fragment = scm_hashq_ref (tjit_root_trace_table, s_ip, SCM_BOOL_F); \
-                                                                        \
-    if (scm_is_true (fragment))                                         \
+    if (root_ip_ref ((scm_t_uintptr) (ip + JUMP)))                      \
       {                                                                 \
+        SCM s_ip, fragment;                                             \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
-        call_native (s_ip, ip, fragment, thread, vp, registers, tj,     \
-                     &nlocals);                                         \
+        s_ip = SCM_I_MAKINUM (ip + JUMP);                               \
+        fragment = scm_hashq_ref (tjit_root_trace_table, s_ip,          \
+                                  SCM_BOOL_F);                          \
                                                                         \
-        /* Update `sp' and `ip' in C code. */                           \
-        CACHE_REGISTER ();                                              \
+        /* Check that the fragment exists. `root_ip_ref' uses hash   */ \
+        /* function, might return incorrect result.                  */ \
+        if (scm_is_true (fragment))                                     \
+          {                                                             \
+            call_native (s_ip, ip, fragment, thread, vp, registers, tj, \
+                         &nlocals);                                     \
                                                                         \
-        /* Setting vp->sp with number of locals returnd from native  */ \
-        /* code, vp->sp need to be recovered after taking side exit. */ \
-        if (nlocals != FRAME_LOCALS_COUNT ())                           \
-          ALLOC_FRAME (nlocals);                                        \
+            /* Update `sp' and `ip' in C code. */                       \
+            CACHE_REGISTER ();                                          \
+                                                                        \
+            /* Setting vp->sp with number of locals returnd from     */ \
+            /* native code, vp->sp need to be recovered after taking */ \
+            /* side exit. */                                            \
+            if (nlocals != FRAME_LOCALS_COUNT ())                       \
+              ALLOC_FRAME (nlocals);                                    \
+          }                                                             \
+        else                                                            \
+          SCM_TJIT_INCREMENT_HOT_IP (JUMP, END_IP, TTYPE, REF);         \
       }                                                                 \
     else                                                                \
-      {                                                                 \
-        SCM s_hot_ip = SCM_I_MAKINUM (HOT_IP);                          \
-        SCM count = scm_hashq_ref (TABLE, s_hot_ip, SCM_INUM0);         \
-                                                                        \
-        if (SCM_TJIT_IS_HOT (REF, s_hot_ip, count))                     \
-          start_recording (tj, ip + JUMP, END_IP, TTYPE);               \
-        else                                                            \
-          SCM_TJIT_INCREMENT (TABLE, s_hot_ip, count);                  \
-                                                                        \
-        /* Next IP is jump destination specified in bytecode. */        \
-        ip += JUMP;                                                     \
-      }                                                                 \
+      SCM_TJIT_INCREMENT_HOT_IP (JUMP, END_IP, TTYPE, REF);             \
   } while (0)
 
 #define SCM_TJIT_MERGE()                                                \
   do {                                                                  \
+    SCM fragment;                                                       \
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
-                                                                        \
     scm_t_uint32 *start_ip = (scm_t_uint32 *) tj->loop_start;           \
     scm_t_uint32 *end_ip = (scm_t_uint32 *) tj->loop_end;               \
-    SCM fragment = scm_hashq_ref (tjit_root_trace_table, s_ip,          \
-                                  SCM_BOOL_F);                          \
+    int has_root = root_ip_ref ((scm_t_uintptr) ip);                    \
                                                                         \
     /* Avoid looking up fragment of looping-side-trace itself. */       \
-    int link_found = scm_is_true (fragment) && ip != start_ip;          \
+    int link_found = has_root && ip != start_ip;                        \
+                                                                        \
+    if (has_root)                                                       \
+      {                                                                 \
+        fragment = scm_hashq_ref (tjit_root_trace_table, s_ip,          \
+                                  SCM_BOOL_F);                          \
+      }                                                                 \
+    else                                                                \
+      fragment = SCM_BOOL_F;                                            \
                                                                         \
     switch (tj->trace_type)                                             \
       {                                                                 \
@@ -454,6 +487,26 @@ SCM_DEFINE (scm_tjit_increment_id_x, "tjit-increment-id!", 0, 0, 0,
 #define FUNC_NAME s_scm_tjit_increment_id_x
 {
   ++tjit_trace_id;
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_tjit_increment_compilation_failure_x,
+            "tjit-increment-compilation-failure!", 1, 0, 0,
+            (SCM ip), "Increment compilation failure.")
+#define FUNC_NAME s_scm_tjit_increment_compilation_failure_x
+{
+  scm_t_uint32 key = SCM_I_INUM (ip);
+  failed_ip_set (key, failed_ip_ref (key) + 1);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_tjit_add_root_ip_x, "tjit-add-root-ip!", 1, 0, 0,
+            (SCM ip), "Add root trace IP.")
+#define FUNC_NAME s_scm_tjit_add_root_ip_x
+{
+  root_ip_set (SCM_I_INUM (ip), 1);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -555,6 +608,19 @@ scm_do_vm_expand_stack (struct scm_vm *vp, union scm_vm_stack_element *new_sp)
  * Initialization
  */
 
+static inline void
+init_tjit_hash (void)
+{
+  int i;
+
+  for (i = 0; i < TJIT_HASH_SIZE; ++i)
+    {
+      hot_ip_hash[i] = 0;
+      root_ip_hash[i] = 0;
+      failed_ip_hash[i] = 0;
+    }
+}
+
 void
 scm_bootstrap_vm_tjit(void)
 {
@@ -568,10 +634,7 @@ scm_bootstrap_vm_tjit(void)
   buffer = scm_gc_malloc_pointerless (bytes, "tjitbuffer");
   scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
 
-  tjit_jump_counter_table = scm_c_make_hash_table (31);
-  tjit_call_counter_table = scm_c_make_hash_table (31);
-  tjit_return_counter_table = scm_c_make_hash_table (31);
-  tjit_failed_ip_table = scm_c_make_hash_table (31);
+  init_tjit_hash ();
   tjit_fragment_table = scm_c_make_hash_table (31);
   tjit_root_trace_table = scm_c_make_hash_table (31);
   tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));

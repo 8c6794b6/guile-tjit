@@ -212,6 +212,7 @@
 (define (put-fragment! trace-id fragment)
   (hashq-set! (tjit-fragment) trace-id fragment)
   (when (root-trace-fragment? fragment)
+    (tjit-add-root-ip! (fragment-entry-ip fragment))
     (hashq-set! (tjit-root-trace) (fragment-entry-ip fragment) fragment)))
 
 (define (get-fragment fragment-id)
