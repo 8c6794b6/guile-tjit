@@ -152,7 +152,7 @@ option was set to true."
       (match traces
         (((op ip ra dl locals) . traces)
          (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
-           (if (tjit-dump-locals? (tjit-dump-option))
+           (if (tjit-dump-verbose? (tjit-dump-option))
                (format #t "~48a; ~a~%" op-val (as-address locals))
                (format #t "~a~%" op-val)))
          (case (car op)
@@ -212,7 +212,7 @@ option was set to true."
           (match (list locals vars)
             ((((n . t) . locals) (v . vars))
              (let* ((elem
-                     (if (tjit-dump-locals? (tjit-dump-option))
+                     (if (tjit-dump-verbose? (tjit-dump-option))
                          (list n (pretty-type t) (pretty-register v))
                          (list n (pretty-type t)))))
                (lp locals vars (cons elem acc))))

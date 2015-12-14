@@ -609,7 +609,7 @@ are local index number."
               (jit-pushargr %retval)
               (jit-calli %scm-tjit-dump-retval)
               (jit-movr %retval %thread)
-              (when (tjit-dump-locals? dump-option)
+              (when (tjit-dump-verbose? dump-option)
                 (jit-movr %thread %retval)
                 (jit-prepare)
                 (jit-pushargi (scm-i-makinumi (tj-id tj)))

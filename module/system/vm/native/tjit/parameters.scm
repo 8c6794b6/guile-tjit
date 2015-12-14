@@ -57,11 +57,11 @@
             tjit-dump-abort?
             tjit-dump-bytecode?
             tjit-dump-ops?
-            tjit-dump-locals?
             tjit-dump-ncode?
             tjit-dump-jitc?
             tjit-dump-anf?
             tjit-dump-time?
+            tjit-dump-verbose?
             tjit-dump-exit?
             parse-tjit-dump-flags
             set-tjit-dump-option!
@@ -98,7 +98,7 @@
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
   (ops tjit-dump-ops? set-tjit-dump-ops!)
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
-  (locals tjit-dump-locals? set-tjit-dump-locals!)
+  (locals tjit-dump-verbose? set-tjit-dump-verbose!)
   (ncode tjit-dump-ncode? set-tjit-dump-ncode!)
   (scm tjit-dump-anf? set-tjit-dump-anf!)
   (time tjit-dump-time? set-tjit-dump-time!)
@@ -119,8 +119,6 @@ Flags are:
 
 - 'j': Dump brief info when starting JIT compilation.
 
-- 'l': Dump locals, see 'x'.
-
 - 'n': Dump native code.
 
 - 'o': Dump list of primitive operations.
@@ -129,7 +127,9 @@ Flags are:
 
 - 't': Take elapsed time spent in native compilation.
 
-- 'x': Dump exit. When 'l' option is set to true, also shows locals.
+- 'v': Dump verbosly, affects 'b', 'o', and 'x'.
+
+- 'x': Dump exit.
 
 For instance, @code{(parse-tjit-dump-flags \"lexb\")} will return a <tjit-dump>
 data with locals, entry, exit, and bytecodes field set to @code{#t} and other
@@ -150,11 +150,11 @@ fields to @code{#f}."
         (flags (#\a set-tjit-dump-abort!)
                (#\b set-tjit-dump-bytecode!)
                (#\j set-tjit-dump-jitc!)
-               (#\l set-tjit-dump-locals!)
                (#\n set-tjit-dump-ncode!)
                (#\o set-tjit-dump-ops!)
                (#\s set-tjit-dump-anf!)
                (#\t set-tjit-dump-time!)
+               (#\v set-tjit-dump-verbose!)
                (#\x set-tjit-dump-exit!))))))
 
 (define (set-tjit-dump-option! str)
