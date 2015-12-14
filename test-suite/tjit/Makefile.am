@@ -105,6 +105,7 @@ TESTS = \
 	t-side-exit-17.scm \
 	t-tail-call-01.scm \
 	t-tail-call-02.scm \
+	t-tail-call-03.scm \
 	t-tail-call-label-01.scm \
 	t-toplevel-box-01.scm \
 	t-toplevel-box-02.scm \

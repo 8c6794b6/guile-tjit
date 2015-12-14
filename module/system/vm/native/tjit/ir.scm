@@ -196,7 +196,7 @@
            'name "uninitialized" x))
        ...))))
 
-(define-ir-syntax-parameters ir ip ra locals next)
+(define-ir-syntax-parameters ir ip ra dl locals next)
 
 (define-syntax put-index!
   (syntax-rules ()
@@ -264,12 +264,13 @@ referenced by dst and src value at runtime."
        (define-ir (name arg ...) . body)))
     ((_ (name arg ...) . body)
      (let ((proc
-            (lambda (%ir %next %ip %ra %locals arg ...)
+            (lambda (%ir %next %ip %ra %dl %locals arg ...)
               (syntax-parameterize
                   ((ir (identifier-syntax %ir))
                    (next (identifier-syntax %next))
                    (ip (identifier-syntax %ip))
                    (ra (identifier-syntax %ra))
+                   (dl (identifier-syntax %dl))
                    (locals (identifier-syntax %locals)))
                 . body))))
        (hashq-set! *ir-procedures* 'name proc)))))
@@ -474,6 +475,11 @@ referenced by dst and src value at runtime."
   (nyi "receive-values"))
 
 (define-interrupt-ir (return-values nlocals)
+  (let ((ra/val (make-return-address (make-pointer ra)))
+        (dl/val (make-dynamic-link dl))
+        (stack-size (vector-length locals)))
+    (set-past-frame-previous-dl-and-ra! (ir-past-frame ir) stack-size
+                                        ra/val dl/val))
   (let ((snapshot (take-snapshot! ip 0)))
     (pop-past-frame! (ir-past-frame ir) (current-sp-offset) locals)
     `(let ((_ ,snapshot))

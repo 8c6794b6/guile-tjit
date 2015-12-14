@@ -83,6 +83,7 @@
             pop-past-frame!
             push-past-frame!
             expand-past-frame
+            set-past-frame-previous-dl-and-ra!
             merge-past-frame-types!
 
             $return-address
@@ -238,6 +239,11 @@
         (hashq-set! locals (+ offset n) undefined)
         (lp (+ n 1))))))
 
+(define (set-past-frame-previous-dl-and-ra! past-frame stack-size ra dl)
+  (let ((locals (past-frame-locals past-frame)))
+    (hashq-set! locals (- stack-size 1) ra)
+    (hashq-set! locals stack-size dl)))
+
 (define (past-frame-local-ref past-frame i)
   (hashq-ref (past-frame-locals past-frame) i))
 
@@ -254,8 +260,6 @@
          (lp locals types)))
       (_
        (set-past-frame-types! past-frame types)))))
-
-
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
@@ -455,9 +459,14 @@
        (cond
         ;; Inlined local in initial frame in root trace. The frame contents
         ;; should be a scheme stack element, not a dynamic link or a return
-        ;; address.
+        ;; address. Only excpetion is return address and dynamic link for last
+        ;; snapshot in side trace, which is specified by dedicated IP key.
         ((<= sp-offset i (- (+ sp-offset nlocals) 1))
-         (add-local (local-ref i)))
+         (cond
+          ((and (= ip *ip-key-link*) (dl-or-ra i))
+           => add-val)
+          (else
+           (add-local (local-ref i)))))
 
         ;; Dynamic link and return address might need to be passed from parent
         ;; trace. When side trace of inlined procedure takes bailout code,
@@ -488,8 +497,12 @@
                ((eq? 'scm se-type)
                 (cond
                  ((past-frame-local-ref past-frame i)
-                  => (lambda (ptr)
-                       (add-local (type-of (resolve-stack-element ptr)))))
+                  => (lambda (e)
+                       (cond
+                        ((or (dynamic-link? e) (return-address? e))
+                         (add-val e))
+                        (else
+                         (add-local (type-of (resolve-stack-element e)))))))
                  ((parent-snapshot-local-ref i)
                   => add-local)
                  (else

@@ -438,7 +438,7 @@ are local index number."
       ;; Store values passed from parent trace when it's not used by this
       ;; side trace.
       (match (tj-parent-snapshot tj)
-        (($ $snapshot _ sp-offset _ _ local-x-types exit-variables)
+        (($ $snapshot _ _ _ _ local-x-types exit-variables)
          (let* ((snap0 (hashq-ref snapshots 0))
                 (locals (snapshot-locals snap0))
                 (vars (snapshot-variables snap0))

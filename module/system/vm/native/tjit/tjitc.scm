@@ -91,7 +91,7 @@
          (let*-values (((len op) (disassemble-one bytecode offset))
                        ((implemented?)
                         (if so-far-so-good?
-                            (scan-locals pf op (caddr trace))
+                            (scan-locals pf op (cadddr trace))
                             #f)))
            (lp (cons (cons op trace) acc) (+ offset len) traces pf
                (and so-far-so-good? implemented?))))
@@ -109,7 +109,7 @@
     (set-past-frame-fp-offset! pf fp)
     (let lp ((traces traces))
       (match traces
-        (((op _ _ locals) . traces)
+        (((op _ _ _ locals) . traces)
          (scan-locals pf op locals #t)
          (lp traces))
         (()

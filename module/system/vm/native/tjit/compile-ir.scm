@@ -114,7 +114,7 @@
     (let* ((args (map make-var (reverse local-indices)))
            (initial-trace (car trace))
            (initial-ip (cadr initial-trace))
-           (initial-locals (cadddr initial-trace))
+           (initial-locals (list-ref initial-trace 4))
            (initial-nlocals (vector-length initial-locals))
            (parent-snapshot-locals (match parent-snapshot
                                      (($ $snapshot _ _ _ _ locals) locals)
@@ -284,7 +284,7 @@
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
-    (define (convert-one ir op ip ra locals rest)
+    (define (convert-one ir op ip ra dl locals rest)
       (scan-locals (ir-past-frame ir) op locals #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
@@ -308,7 +308,7 @@
                         (when (< (ir-max-sp-offset ir) max-offset)
                           (set-ir-max-sp-offset! ir max-offset)))
                       (convert ir rest))))
-               (apply proc ir next ip ra locals (cdr op)))))
+               (apply proc ir next ip ra dl locals (cdr op)))))
        (else
         (nyi "~a" (car op)))))
     (define (convert ir trace)
@@ -324,7 +324,7 @@
       ;; with `take-snapshot!' at the end, so that the machine code
       ;; can pass the register information to linked code.
       ;;
-      (define (gen-last-op op ip ra locals)
+      (define (gen-last-op op ip locals)
         (define (dr-locals proc nlocals)
           (let lp ((n 0) (end (vector-length locals)) (acc '()))
             (if (= n nlocals)
@@ -374,11 +374,11 @@
                                              (ir-min-sp-offset ir))))
                _)))))
       (match trace
-        (((op ip ra locals) . ())
-         (let ((last-op (gen-last-op op ip ra locals)))
-           (convert-one ir op ip ra locals last-op)))
-        (((op ip ra locals) . rest)
-         (convert-one ir op ip ra locals rest))
+        (((op ip ra dl locals) . ())
+         (let ((last-op (gen-last-op op ip locals)))
+           (convert-one ir op ip ra dl locals last-op)))
+        (((op ip ra dl locals) . rest)
+         (convert-one ir op ip ra dl locals rest))
         (last-op
          (last-op))))
     (convert ir traces)))

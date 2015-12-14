@@ -247,6 +247,7 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
   int opcode, i, num_locals;
   SCM locals, trace;
   SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (vp->fp));
+  SCM s_dl = SCM_I_MAKINUM (SCM_FRAME_DYNAMIC_LINK (vp->fp));
 
   opcode = *ip & 0xff;
 
@@ -261,6 +262,7 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
     scm_c_vector_set_x (locals, i, scm_from_pointer (sp[i].as_ptr, NULL));
 
   trace = scm_inline_cons (thread, locals, SCM_EOL);
+  trace = scm_inline_cons (thread, s_dl, trace);
   trace = scm_inline_cons (thread, s_ra, trace);
   trace = scm_inline_cons (thread, SCM_I_MAKINUM (ip), trace);
 
