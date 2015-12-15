@@ -84,38 +84,38 @@
     (let lp ((acc '())
              (offset 0)
              (traces (reverse! traces))
-             (pf (make-past-frame types sp-offset fp-offset))
+             (ol (make-outline types sp-offset fp-offset))
              (so-far-so-good? #t))
       (match traces
         ((trace . traces)
          (let*-values (((len op) (disassemble-one bytecode offset))
                        ((implemented?)
                         (if so-far-so-good?
-                            (scan-locals pf op (cadddr trace))
+                            (scan-locals ol op (cadddr trace))
                             #f)))
-           (lp (cons (cons op trace) acc) (+ offset len) traces pf
+           (lp (cons (cons op trace) acc) (+ offset len) traces ol
                (and so-far-so-good? implemented?))))
         (()
-         (values (reverse! acc) (arrange-past-frame pf) so-far-so-good?)))))
-  (define (scan-again traces pf parent-snapshot sp fp)
+         (values (reverse! acc) (arrange-outline ol) so-far-so-good?)))))
+  (define (scan-again traces ol parent-snapshot sp fp)
     ;; Scan traces again to resolve stack element types which were unresolved in
     ;; the first scan.
     ;;
     ;; XXX: Inefficient to scan again, consider resolving stack element types by
     ;; travercing the traces from last to first.
     (when parent-snapshot
-      (merge-past-frame-types! pf (snapshot-locals parent-snapshot)))
-    (set-past-frame-sp-offset! pf sp)
-    (set-past-frame-fp-offset! pf fp)
+      (merge-outline-types! ol (snapshot-locals parent-snapshot)))
+    (set-outline-sp-offset! ol sp)
+    (set-outline-fp-offset! ol fp)
     (let lp ((traces traces))
       (match traces
         (((op _ _ _ locals) . traces)
-         (scan-locals pf op locals #t)
+         (scan-locals ol op locals #t)
          (lp traces))
         (()
-         (set-past-frame-sp-offset! pf sp)
-         (set-past-frame-fp-offset! pf fp)
-         pf))))
+         (set-outline-sp-offset! ol sp)
+         (set-outline-fp-offset! ol fp)
+         ol))))
   (define (get-initial-types snapshot)
     (if snapshot
         (let lp ((locals (snapshot-locals snapshot)) (acc '()))
@@ -149,12 +149,12 @@
       (begin
         (debug 1 ";;; trace ~a: ~a~%" trace-id msg)
         (tjit-increment-compilation-failure! entry-ip)))
-    (define (compile-traces traces past-frame)
-      (let* ((past-frame (scan-again traces past-frame parent-snapshot
+    (define (compile-traces traces outline)
+      (let* ((outline (scan-again traces outline parent-snapshot
                                      initial-sp-offset
                                      initial-fp-offset))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
-                          parent-fragment parent-snapshot past-frame
+                          parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f)))
         (let-values (((snapshots anf ops) (compile-primops tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
@@ -172,7 +172,7 @@
 
     (call-with-tjitc-error-handler entry-ip
       (lambda ()
-        (let-values (((traces past-frame implemented?)
+        (let-values (((traces outline implemented?)
                       (catch #t
                         (lambda ()
                           (traced-ops bytecode traces
@@ -186,7 +186,7 @@
           (dump tjit-dump-bytecode? implemented?
                 (dump-bytecode trace-id traces))
           (cond
-           ((not past-frame)
+           ((not outline)
             (failure "error during scan"))
            ((not implemented?)
             (failure "NYI found, aborted"))
@@ -195,7 +195,7 @@
            (else
             (call-with-nyi-handler entry-ip
               (lambda ()
-                (compile-traces traces past-frame))))))))))
+                (compile-traces traces outline))))))))))
 
 
 ;;;

@@ -33,7 +33,7 @@
   #:export (scan-locals))
 
 
-(define* (scan-locals pf op locals #:optional (type-only? #f))
+(define* (scan-locals ol op locals #:optional (type-only? #f))
   ;; Compute local indices and stack element types in op.
   ;;
   ;; Lower frame data is saved at the time of accumulation.  If one of
@@ -46,38 +46,38 @@
   ;; The stack grows down.
   ;;
   (define-syntax-rule (push-sp-offset! n)
-    (set-past-frame-sp-offset! pf (- (past-frame-sp-offset pf) n)))
+    (set-outline-sp-offset! ol (- (outline-sp-offset ol) n)))
   (define-syntax-rule (pop-sp-offset! n)
-    (set-past-frame-sp-offset! pf (+ (past-frame-sp-offset pf) n)))
+    (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n)))
   (define-syntax-rule (push-fp-offset! n)
-    (set-past-frame-fp-offset! pf (- (past-frame-fp-offset pf) n)))
+    (set-outline-fp-offset! ol (- (outline-fp-offset ol) n)))
   (define-syntax-rule (pop-fp-offset! n)
-    (set-past-frame-fp-offset! pf (+ (past-frame-fp-offset pf) n)))
+    (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n)))
   (define-syntax-rule (save-sp-offset!)
     (when (not type-only?)
-      (let ((new-offsets (cons (past-frame-sp-offset pf)
-                               (past-frame-sp-offsets pf))))
-        (set-past-frame-sp-offsets! pf new-offsets))))
+      (let ((new-offsets (cons (outline-sp-offset ol)
+                               (outline-sp-offsets ol))))
+        (set-outline-sp-offsets! ol new-offsets))))
   (define-syntax-rule (save-fp-offset!)
     (when (not type-only?)
-      (let ((new-offsets (cons (past-frame-fp-offset pf)
-                               (past-frame-fp-offsets pf))))
-        (set-past-frame-fp-offsets! pf new-offsets))))
+      (let ((new-offsets (cons (outline-fp-offset ol)
+                               (outline-fp-offsets ol))))
+        (set-outline-fp-offsets! ol new-offsets))))
   (define-syntax set-type!
     (syntax-rules ()
       ((_ (i t) ...)
-       (let* ((types (past-frame-types pf))
-              (types (assq-set! types (+ i (past-frame-sp-offset pf)) t))
+       (let* ((types (outline-types ol))
+              (types (assq-set! types (+ i (outline-sp-offset ol)) t))
               ...)
-         (set-past-frame-types! pf types)))))
+         (set-outline-types! ol types)))))
   (define-syntax add!
     (syntax-rules ()
       ((_ i ...)
        (when (not type-only?)
-         (let* ((indices (past-frame-local-indices pf))
-                (indices (assq-set! indices (+ i (past-frame-sp-offset pf)) #t))
+         (let* ((indices (outline-local-indices ol))
+                (indices (assq-set! indices (+ i (outline-sp-offset ol)) #t))
                 ...)
-           (set-past-frame-local-indices! pf indices))
+           (set-outline-local-indices! ol indices))
          (set-type! (i 'scm) ...)))))
   (define-syntax-rule (ret)
     #t)
@@ -89,7 +89,7 @@
   (cond
    ((hashq-ref *element-type-scanners* (car op))
     => (lambda (proc)
-         (apply proc pf (past-frame-sp-offset pf) (cdr op))))
+         (apply proc ol (outline-sp-offset ol) (cdr op))))
    (else
     (values)))
 
@@ -103,7 +103,7 @@
     => (lambda (proc)
          (if (not type-only?)
              (begin
-               (apply proc pf (past-frame-sp-offset pf) (cdr op))
+               (apply proc ol (outline-sp-offset ol) (cdr op))
                (save-sp-offset!)
                (save-fp-offset!)
                (ret))

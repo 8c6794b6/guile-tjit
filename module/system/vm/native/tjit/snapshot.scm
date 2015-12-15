@@ -60,31 +60,31 @@
             *ip-key-downrec*
             *ip-key-uprec*
 
-            $past-frame
-            make-past-frame
-            arrange-past-frame
-            past-frame-locals
-            past-frame-local-indices
-            set-past-frame-local-indices!
-            past-frame-local-ref
-            past-frame-type-ref
-            past-frame-sp-offsets
-            set-past-frame-sp-offsets!
-            past-frame-fp-offsets
-            set-past-frame-fp-offsets!
-            past-frame-types
-            set-past-frame-types!
-            past-frame-dls
-            past-frame-ras
-            past-frame-sp-offset
-            set-past-frame-sp-offset!
-            past-frame-fp-offset
-            set-past-frame-fp-offset!
-            pop-past-frame!
-            push-past-frame!
-            expand-past-frame
-            set-past-frame-previous-dl-and-ra!
-            merge-past-frame-types!
+            $outline
+            make-outline
+            arrange-outline
+            outline-locals
+            outline-local-indices
+            set-outline-local-indices!
+            outline-local-ref
+            outline-type-ref
+            outline-sp-offsets
+            set-outline-sp-offsets!
+            outline-fp-offsets
+            set-outline-fp-offsets!
+            outline-types
+            set-outline-types!
+            outline-dls
+            outline-ras
+            outline-sp-offset
+            set-outline-sp-offset!
+            outline-fp-offset
+            set-outline-fp-offset!
+            pop-outline!
+            push-outline!
+            expand-outline
+            set-outline-previous-dl-and-ra!
+            merge-outline-types!
 
             $return-address
             make-return-address
@@ -158,108 +158,108 @@
 ;;
 ;; Stores dynamic link, return addresses, and locals of caller procedure when
 ;; inlined procedure exist in trace.
-(define-record-type $past-frame
-  (%make-past-frame dls ras locals local-indices sp-offsets fp-offsets types
-                    sp-offset fp-offset)
-  past-frame?
+(define-record-type $outline
+  (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
+                 sp-offset fp-offset)
+  outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
-  (dls past-frame-dls set-past-frame-dls!)
+  (dls outline-dls set-outline-dls!)
 
   ;; Association list for return address: (local . pointer to ra).
-  (ras past-frame-ras set-past-frame-ras!)
+  (ras outline-ras set-outline-ras!)
 
   ;; Vector containing locals.
-  (locals past-frame-locals)
+  (locals outline-locals)
 
   ;; All local indices found in trace.
-  (local-indices past-frame-local-indices set-past-frame-local-indices!)
+  (local-indices outline-local-indices set-outline-local-indices!)
 
   ;; Vector containing SP offset per bytecode operation.
-  (sp-offsets past-frame-sp-offsets set-past-frame-sp-offsets!)
+  (sp-offsets outline-sp-offsets set-outline-sp-offsets!)
 
   ;; Vector containing FP offset per bytecode operation.
-  (fp-offsets past-frame-fp-offsets set-past-frame-fp-offsets!)
+  (fp-offsets outline-fp-offsets set-outline-fp-offsets!)
 
   ;; Stack element types.
-  (types past-frame-types set-past-frame-types!)
+  (types outline-types set-outline-types!)
 
   ;; Current SP offset.
-  (sp-offset past-frame-sp-offset set-past-frame-sp-offset!)
+  (sp-offset outline-sp-offset set-outline-sp-offset!)
 
   ;; Current FP offset.
-  (fp-offset past-frame-fp-offset set-past-frame-fp-offset!))
+  (fp-offset outline-fp-offset set-outline-fp-offset!))
 
-(define (make-past-frame types sp-offset fp-offset)
+(define (make-outline types sp-offset fp-offset)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (%make-past-frame '() '() (make-hash-table) '() '() '() types
-                    sp-offset fp-offset))
+  (%make-outline '() '() (make-hash-table) '() '() '() types
+                 sp-offset fp-offset))
 
-(define (arrange-past-frame pf)
-  (let ((locals/list (sort (map car (past-frame-local-indices pf)) >))
-        (sp-offsets/vec (list->vector (reverse! (past-frame-sp-offsets pf))))
-        (fp-offsets/vec (list->vector (reverse! (past-frame-fp-offsets pf)))))
-    (set-past-frame-local-indices! pf locals/list)
-    (set-past-frame-sp-offsets! pf sp-offsets/vec)
-    (set-past-frame-fp-offsets! pf fp-offsets/vec)
-    pf))
+(define (arrange-outline outline)
+  (let ((locals/list (sort (map car (outline-local-indices outline)) >))
+        (sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
+        (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline)))))
+    (set-outline-local-indices! outline locals/list)
+    (set-outline-sp-offsets! outline sp-offsets/vec)
+    (set-outline-fp-offsets! outline fp-offsets/vec)
+    outline))
 
-(define (push-past-frame! past-frame dl ra sp-offset locals)
-  (set-past-frame-dls! past-frame (cons dl (past-frame-dls past-frame)))
-  (set-past-frame-ras! past-frame (cons ra (past-frame-ras past-frame)))
+(define (push-outline! outline dl ra sp-offset locals)
+  (set-outline-dls! outline (cons dl (outline-dls outline)))
+  (set-outline-ras! outline (cons ra (outline-ras outline)))
   (let lp ((i 0)
            (end (vector-length locals))
-           (to-update (past-frame-locals past-frame)))
+           (to-update (outline-locals outline)))
     (when (< i end)
       (hashq-set! to-update (+ i sp-offset) (vector-ref locals i))
       (lp (+ i 1) end to-update)))
-  past-frame)
+  outline)
 
-(define (pop-past-frame! past-frame sp-offset locals)
-  (let ((old-dls (past-frame-dls past-frame))
-        (old-ras (past-frame-ras past-frame)))
+(define (pop-outline! outline sp-offset locals)
+  (let ((old-dls (outline-dls outline))
+        (old-ras (outline-ras outline)))
     (when (not (null? old-dls))
-      (set-past-frame-dls! past-frame (cdr old-dls)))
+      (set-outline-dls! outline (cdr old-dls)))
     (when (not (null? old-ras))
-      (set-past-frame-ras! past-frame (cdr old-ras)))
+      (set-outline-ras! outline (cdr old-ras)))
     (let lp ((i 0)
              (end (vector-length locals))
-             (t (past-frame-locals past-frame)))
+             (t (outline-locals outline)))
       (when (< i end)
         (hashq-set! t (+ i sp-offset) (vector-ref locals i))
         (lp (+ i 1) end t)))
-    past-frame))
+    outline))
 
-(define (expand-past-frame past-frame offset nlocals)
-  (let ((locals (past-frame-locals past-frame))
+(define (expand-outline outline offset nlocals)
+  (let ((locals (outline-locals outline))
         (undefined (make-pointer #x904)))
     (let lp ((n 0))
       (when (< n nlocals)
         (hashq-set! locals (+ offset n) undefined)
         (lp (+ n 1))))))
 
-(define (set-past-frame-previous-dl-and-ra! past-frame stack-size ra dl)
-  (let ((locals (past-frame-locals past-frame)))
+(define (set-outline-previous-dl-and-ra! outline stack-size ra dl)
+  (let ((locals (outline-locals outline)))
     (hashq-set! locals (- stack-size 1) ra)
     (hashq-set! locals stack-size dl)))
 
-(define (past-frame-local-ref past-frame i)
-  (hashq-ref (past-frame-locals past-frame) i))
+(define (outline-local-ref outline i)
+  (hashq-ref (outline-locals outline) i))
 
-(define (past-frame-type-ref past-frame i)
-  (assq-ref (past-frame-types past-frame) i))
+(define (outline-type-ref outline i)
+  (assq-ref (outline-types outline) i))
 
-(define (merge-past-frame-types! past-frame local-x-types)
+(define (merge-outline-types! outline local-x-types)
   (let lp ((locals local-x-types)
-           (types (past-frame-types past-frame)))
+           (types (outline-types outline)))
     (match locals
       (((local . type) . locals)
        (let* ((etype (type->stack-element-type type))
               (types (assq-set! types local etype)))
          (lp locals types)))
       (_
-       (set-past-frame-types! past-frame types)))))
+       (set-outline-types! outline types)))))
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
@@ -424,7 +424,7 @@
 ;;;
 
 (define (make-snapshot id sp-offset fp-offset nlocals locals
-                       parent-snapshot indices past-frame ip)
+                       parent-snapshot indices outline ip)
   (define initial-offset
     (or (and=> parent-snapshot snapshot-sp-offset)))
   (define parent-locals
@@ -432,7 +432,7 @@
   (define (parent-snapshot-local-ref i)
     (and parent-snapshot (assq-ref parent-locals i)))
   (define-syntax-rule (local-ref i)
-    (let ((type (past-frame-type-ref past-frame i)))
+    (let ((type (outline-type-ref outline i)))
       (cond
        ((eq? 'f64 type) &f64)
        ((eq? 'u64 type) &u64)
@@ -446,8 +446,8 @@
     (match is
       ((i . is)
        (define (dl-or-ra i)
-         (or (assq-ref (past-frame-dls past-frame) i)
-             (assq-ref (past-frame-ras past-frame) i)
+         (or (assq-ref (outline-dls outline) i)
+             (assq-ref (outline-ras outline) i)
              (let ((val (parent-snapshot-local-ref i)))
                (and (or (dynamic-link? val)
                         (return-address? val))
@@ -482,13 +482,13 @@
 
         ;; When side trace contains inlined procedure and the guard taking this
         ;; snapshot is from the caller of the inlined procedure, saving local in
-        ;; upper frame. Looking up locals from newest locals in past-frame.
+        ;; upper frame. Looking up locals from newest locals in outline.
         ;;
         ;; Side trace could start from the middle of inlined procedure, locals
         ;; in past frame may not have enough information to recover locals in
         ;; caller of the inlined procedure. In such case, look up locals in the
         ;; snapshot of parent trace.
-        ((past-frame-type-ref past-frame i)
+        ((outline-type-ref outline i)
          => (lambda (se-type)
               (cond
                ((eq? 'f64 se-type) (add-local &f64))
@@ -496,7 +496,7 @@
                ((eq? 's64 se-type) (add-local &s64))
                ((eq? 'scm se-type)
                 (cond
-                 ((past-frame-local-ref past-frame i)
+                 ((outline-local-ref outline i)
                   => (lambda (e)
                        (cond
                         ((or (dynamic-link? e) (return-address? e))

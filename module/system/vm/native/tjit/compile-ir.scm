@@ -78,7 +78,7 @@
   (let* ((parent-snapshot (tj-parent-snapshot tj))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
-         (local-indices (past-frame-local-indices (tj-past-frame tj)))
+         (local-indices (outline-local-indices (tj-outline tj)))
          (vars (make-vars local-indices))
          (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
@@ -97,7 +97,7 @@
                                                        initial-fp-offset
                                                        (vector-length locals))
                                     parent-snapshot
-                                    (tj-past-frame tj))))
+                                    (tj-outline tj))))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
@@ -134,7 +134,7 @@
             (let ((i (- n (snapshot-sp-offset snapshot0))))
               (assq-ref (snapshot-locals snapshot0) i)))
           (define (type-from-runtime-value i)
-            (let* ((type (past-frame-type-ref (tj-past-frame tj)
+            (let* ((type (outline-type-ref (tj-outline tj)
                                               (+ i initial-sp-offset)))
                    (local (stack-element initial-locals i type)))
               (type-of local)))
@@ -204,7 +204,7 @@
                                                              initial-fp-offset
                                                              initial-nlocals)
                                           0
-                                          (tj-past-frame tj)
+                                          (tj-outline tj)
                                           #f)))
                         (let* ((anf (trace->anf tj ir trace))
                                (interrupts? (ir-handle-interrupts? ir)))
@@ -217,7 +217,7 @@
                                         (reverse local-indices)))
                    (snapshot (make-snapshot 0 0 0
                                             initial-nlocals initial-locals
-                                            #f arg-indices (tj-past-frame tj)
+                                            #f arg-indices (tj-outline tj)
                                             initial-ip))
                    (_ (hashq-set! snapshots 0 snapshot))
                    (snap (take-snapshot! *ip-key-set-loop-info!*
@@ -248,7 +248,7 @@
                                         0
                                         initial-locals
                                         '())))
-              (merge-past-frame-types! (tj-past-frame tj)
+              (merge-outline-types! (tj-outline tj)
                                        parent-snapshot-locals)
               `(letrec ((patch (lambda ,args-from-parent
                                  (let ((_ ,snap))
@@ -264,12 +264,12 @@
 
 (define (trace->anf tj ir traces)
   (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
-         (last-sp-offset (let* ((sp-offsets (past-frame-sp-offsets
-                                             (tj-past-frame tj)))
+         (last-sp-offset (let* ((sp-offsets (outline-sp-offsets
+                                             (tj-outline tj)))
                                 (i (- (vector-length sp-offsets) 1)))
                            (vector-ref sp-offsets i)))
-         (last-fp-offset (let* ((fp-offsets (past-frame-fp-offsets
-                                             (tj-past-frame tj)))
+         (last-fp-offset (let* ((fp-offsets (outline-fp-offsets
+                                             (tj-outline tj)))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i))))
     (define (take-entry-snapshot! ir ip dst-offset locals sp-offset min-sp)
@@ -279,24 +279,22 @@
                                    sp-offset last-fp-offset min-sp
                                    (ir-max-sp-offset ir)
                                    (tj-parent-snapshot tj)
-                                   (tj-past-frame tj))))
+                                   (tj-outline tj))))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
     (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-past-frame ir) op locals #t)
+      (scan-locals (ir-outline ir) op locals #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (proc)
              (let ((next
                     (lambda ()
                       (let* ((old-index (ir-bytecode-index ir))
-                             (sp-offsets (past-frame-sp-offsets
-                                          (ir-past-frame ir)))
+                             (sp-offsets (outline-sp-offsets (ir-outline ir)))
                              (sp-offset (vector-ref sp-offsets old-index))
-                             (fp-offsets (past-frame-fp-offsets
-                                          (ir-past-frame ir)))
+                             (fp-offsets (outline-fp-offsets (ir-outline ir)))
                              (fp-offset (vector-ref fp-offsets old-index))
                              (nlocals (vector-length locals))
                              (max-offset (get-max-sp-offset sp-offset

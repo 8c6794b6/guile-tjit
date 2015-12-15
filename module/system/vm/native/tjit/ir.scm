@@ -42,7 +42,7 @@
             ir-max-sp-offset set-ir-max-sp-offset!
             ir-bytecode-index set-ir-bytecode-index!
             ir-vars
-            ir-past-frame
+            ir-outline
             ir-handle-interrupts?
 
             make-var
@@ -63,7 +63,7 @@
 (define-record-type <ir>
   (make-ir snapshots snapshot-id parent-snapshot vars
            min-sp-offset max-sp-offset bytecode-index
-           past-frame handle-interrupts?)
+           outline handle-interrupts?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -88,7 +88,7 @@
   (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
 
   ;; Past frame.
-  (past-frame ir-past-frame)
+  (outline ir-outline)
 
   ;; Flag for handle interrupts
   (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!))
@@ -128,7 +128,7 @@
 
 (define (take-snapshot ip dst-offset locals vars id
                        sp-offset fp-offset min-sp-offset max-sp-offset
-                       parent-snapshot past-frame)
+                       parent-snapshot outline)
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
          (args-and-indices
@@ -149,7 +149,7 @@
                                   locals
                                   parent-snapshot
                                   indices
-                                  past-frame
+                                  outline
                                   dst-ip)))
     (values `(%snap ,id ,@args) snapshot)))
 
@@ -200,48 +200,48 @@
 
 (define-syntax put-index!
   (syntax-rules ()
-    ((_ pf offset arg)
-     (let ((indices (assq-set! (past-frame-local-indices pf)
+    ((_ ol offset arg)
+     (let ((indices (assq-set! (outline-local-indices ol)
                                (+ arg offset) #t)))
-       (set-past-frame-local-indices! pf indices)))))
+       (set-outline-local-indices! ol indices)))))
 
 (define-syntax put-element-type!
   (syntax-rules ()
-    ((_ pf offset arg type)
-     (let ((types (assq-set! (past-frame-types pf) (+ arg offset) type)))
-       (set-past-frame-types! pf types)))))
+    ((_ ol offset arg type)
+     (let ((types (assq-set! (outline-types ol) (+ arg offset) type)))
+       (set-outline-types! ol types)))))
 
 (define-syntax gen-put-index
   (syntax-rules (const)
-    ((_ pf sp-offset)
-     pf)
-    ((_ pf sp-offset (const arg) . rest)
-     (gen-put-index pf sp-offset . rest))
-    ((_ pf sp-offset (other arg) . rest)
+    ((_ ol sp-offset)
+     ol)
+    ((_ ol sp-offset (const arg) . rest)
+     (gen-put-index ol sp-offset . rest))
+    ((_ ol sp-offset (other arg) . rest)
      (begin
-       (put-index! pf sp-offset arg)
-       (gen-put-index pf sp-offset . rest)))))
+       (put-index! ol sp-offset arg)
+       (gen-put-index ol sp-offset . rest)))))
 
 (define-syntax gen-put-element-type
   (syntax-rules (any scm u64 f64 const)
-    ((_ pf sp-offset)
-     pf)
-    ((_ pf sp-offset (scm arg) . rest)
+    ((_ ol sp-offset)
+     ol)
+    ((_ ol sp-offset (scm arg) . rest)
      (begin
-       (put-element-type! pf sp-offset arg 'scm)
-       (gen-put-element-type pf sp-offset . rest)))
-    ((_ pf sp-offset (u64 arg) . rest)
+       (put-element-type! ol sp-offset arg 'scm)
+       (gen-put-element-type ol sp-offset . rest)))
+    ((_ ol sp-offset (u64 arg) . rest)
      (begin
-       (put-element-type! pf sp-offset arg 'u64)
-       (gen-put-element-type pf sp-offset . rest)))
-    ((_ pf sp-offset (f64 arg) . rest)
+       (put-element-type! ol sp-offset arg 'u64)
+       (gen-put-element-type ol sp-offset . rest)))
+    ((_ ol sp-offset (f64 arg) . rest)
      (begin
-       (put-element-type! pf sp-offset arg 'f64)
-       (gen-put-element-type pf sp-offset . rest)))
-    ((_ pf sp-offset (any arg) . rest)
-     (gen-put-element-type pf sp-offset . rest))
-    ((_ pf sp-offset (const arg) . rest)
-     (gen-put-element-type pf sp-offset . rest))))
+       (put-element-type! ol sp-offset arg 'f64)
+       (gen-put-element-type ol sp-offset . rest)))
+    ((_ ol sp-offset (any arg) . rest)
+     (gen-put-element-type ol sp-offset . rest))
+    ((_ ol sp-offset (const arg) . rest)
+     (gen-put-element-type ol sp-offset . rest))))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -255,10 +255,10 @@ will define two procedures: one for IR compilation taking two arguments, and
 another procedure for accumulator taking two arguments and saving index
 referenced by dst and src value at runtime."
     ((_ (name (flag arg) ...) . body)
-     (let ((index-proc (lambda (pf sp-offset arg ...)
-                         (gen-put-index pf sp-offset (flag arg) ...)))
-           (type-proc (lambda (pf sp-offset arg ...)
-                        (gen-put-element-type pf sp-offset (flag arg) ...))))
+     (let ((index-proc (lambda (ol sp-offset arg ...)
+                         (gen-put-index ol sp-offset (flag arg) ...)))
+           (type-proc (lambda (ol sp-offset arg ...)
+                        (gen-put-element-type ol sp-offset (flag arg) ...))))
        (hashq-set! *index-scanners* 'name index-proc)
        (hashq-set! *element-type-scanners* 'name type-proc)
        (define-ir (name arg ...) . body)))
@@ -296,15 +296,15 @@ referenced by dst and src value at runtime."
   (identifier-syntax 3))
 
 (define-syntax-rule (current-sp-offset)
-  (vector-ref (past-frame-sp-offsets (ir-past-frame ir))
+  (vector-ref (outline-sp-offsets (ir-outline ir))
               (ir-bytecode-index ir)))
 
 (define-syntax-rule (current-fp-offset)
-  (vector-ref (past-frame-fp-offsets (ir-past-frame ir))
+  (vector-ref (outline-fp-offsets (ir-outline ir))
               (ir-bytecode-index ir)))
 
 (define-syntax-rule (local-ref n)
-  (let ((t (past-frame-type-ref (ir-past-frame ir)
+  (let ((t (outline-type-ref (ir-outline ir)
                                 (+ n (current-sp-offset)))))
     (stack-element locals n t)))
 
@@ -323,7 +323,7 @@ referenced by dst and src value at runtime."
                                (ir-min-sp-offset ir)
                                (ir-max-sp-offset ir)
                                (ir-parent-snapshot ir)
-                               (ir-past-frame ir))))
+                               (ir-outline ir))))
     (let ((old-id (ir-snapshot-id ir)))
       (hashq-set! (ir-snapshots ir) old-id snapshot)
       (set-ir-snapshot-id! ir (+ old-id 1)))
@@ -362,7 +362,7 @@ referenced by dst and src value at runtime."
     (nyi "with-unboxing: ~a ~a" val var))))
 
 (define-syntax-rule (expand-stack nlocals)
-  (expand-past-frame (ir-past-frame ir) (current-sp-offset) nlocals))
+  (expand-outline (ir-outline ir) (current-sp-offset) nlocals))
 
 
 ;;; *** Call and return
@@ -390,7 +390,7 @@ referenced by dst and src value at runtime."
          (vproc (var-ref (- fp 1)))
          (rproc (local-ref (- fp 1)))
          (snapshot (take-snapshot! ip 0)))
-    (push-past-frame! (ir-past-frame ir) rdl rra sp-offset locals)
+    (push-outline! (ir-outline ir) rdl rra sp-offset locals)
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
          ,(if (< 0 (current-fp-offset))
@@ -439,7 +439,7 @@ referenced by dst and src value at runtime."
                    (lp vars))
                   ((< min-local-index n max-local-index)
                    (let* ((i (- n sp-offset))
-                          (elem (past-frame-type-ref (ir-past-frame ir) n))
+                          (elem (outline-type-ref (ir-outline ir) n))
                           (type (cond
                                  ((eq? 'f64 elem) &f64)
                                  ((eq? 'u64 elem) &u64)
@@ -478,10 +478,10 @@ referenced by dst and src value at runtime."
   (let ((ra/val (make-return-address (make-pointer ra)))
         (dl/val (make-dynamic-link dl))
         (stack-size (vector-length locals)))
-    (set-past-frame-previous-dl-and-ra! (ir-past-frame ir) stack-size
+    (set-outline-previous-dl-and-ra! (ir-outline ir) stack-size
                                         ra/val dl/val))
   (let ((snapshot (take-snapshot! ip 0)))
-    (pop-past-frame! (ir-past-frame ir) (current-sp-offset) locals)
+    (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     `(let ((_ ,snapshot))
        ,(if (< (current-fp-offset) 0)
             (next)
