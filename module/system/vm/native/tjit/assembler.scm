@@ -133,7 +133,7 @@
   (lambda (x)
     (syntax-violation 'asm "asm used outside of primitive definition" x)))
 
-(define-syntax define-prim
+(define-syntax define-native
   (syntax-rules ()
     ((_ (name (ty arg) ...) <body>)
      (begin
@@ -541,7 +541,7 @@ epilog part. Native code of side trace does not reset %rsp, since it uses
 ;;; Guards
 ;;;
 
-(define-syntax define-binary-int-guard
+(define-syntax define-binary-guard-int
   (lambda (x)
     "Macro for defining guard primitive which takes two int arguments.
 
@@ -552,7 +552,7 @@ or `memory?' predicate while the second was constant. And, uses REG-REG-OP when
 both arguments were register or memory."
     (syntax-case x ()
       ((_ name const-const-op reg-const-op reg-reg-op)
-       #`(define-prim (name (int a) (int b))
+       #`(define-native (name (int a) (int b))
            (cond
             ((and (constant? a) (constant? b))
              (when (const-const-op (ref-value a) (ref-value b))
@@ -590,14 +590,14 @@ both arguments were register or memory."
 ;; Auxiliary procedure for %ne.
 (define (!= a b) (not (= a b)))
 
-(define-binary-int-guard %eq != jit-bnei jit-bner)
-(define-binary-int-guard %ne = jit-beqi jit-beqr)
-(define-binary-int-guard %lt >= jit-bgei jit-bger)
-(define-binary-int-guard %le > jit-bgti jit-bgtr)
-(define-binary-int-guard %ge < jit-blti jit-bltr)
-(define-binary-int-guard %gt <= jit-blei jit-bler)
+(define-binary-guard-int %eq != jit-bnei jit-bner)
+(define-binary-guard-int %ne = jit-beqi jit-beqr)
+(define-binary-guard-int %lt >= jit-bgei jit-bger)
+(define-binary-guard-int %le > jit-bgti jit-bgtr)
+(define-binary-guard-int %ge < jit-blti jit-bltr)
+(define-binary-guard-int %gt <= jit-blei jit-bler)
 
-(define-prim (%flt (double a) (double b))
+(define-native (%flt (double a) (double b))
   (let ((next (jit-forward)))
     (cond
      ((and (constant? a) (fpr? b))
@@ -614,7 +614,7 @@ both arguments were register or memory."
     (emit-side-exit)
     (jit-link next)))
 
-(define-prim (%fge (double a) (double b))
+(define-native (%fge (double a) (double b))
   (let ((next (jit-forward)))
     (cond
      ((and (fpr? a) (fpr? b))
@@ -634,7 +634,7 @@ both arguments were register or memory."
     (jit-link next)))
 
 ;;; Scheme procedure call.
-(define-prim (%pcall (void proc))
+(define-native (%pcall (void proc))
   (let* ((vp r0)
          (vp->fp r1))
     (load-vp vp)
@@ -645,7 +645,7 @@ both arguments were register or memory."
 ;;; Return from procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
-(define-prim (%return (void ip))
+(define-native (%return (void ip))
   (let ((vp r0)
         (vp->fp r1)
         (tmp r2))
@@ -667,11 +667,11 @@ both arguments were register or memory."
 ;;;
 
 ;;; XXX: Manage overflow and underflow.
-(define-syntax define-binary-int-prim
+(define-syntax define-binary-arith-int
   (lambda (x)
     (syntax-case x ()
       ((_ name const-const-op reg-const-op reg-reg-op)
-       #`(define-prim (name (int dst) (int a) (int b))
+       #`(define-native (name (int dst) (int a) (int b))
            (cond
             ((and (gpr? dst) (constant? a) (constant? b))
              (let ((result (const-const-op (ref-value a) (ref-value b))))
@@ -734,10 +734,10 @@ both arguments were register or memory."
             (else
              (tjitc-error 'name "~s ~s ~s" dst a b))))))))
 
-(define-binary-int-prim %add + jit-addi jit-addr)
-(define-binary-int-prim %sub - jit-subi jit-subr)
+(define-binary-arith-int %add + jit-addi jit-addr)
+(define-binary-arith-int %sub - jit-subi jit-subr)
 
-(define-prim (%rsh (int dst) (int a) (int b))
+(define-native (%rsh (int dst) (int a) (int b))
   (cond
    ((and (gpr? dst) (gpr? a) (gpr? b))
     (jit-rshr (gpr dst) (gpr a) (gpr b)))
@@ -757,7 +757,7 @@ both arguments were register or memory."
    (else
     (tjitc-error '%rsh "~s ~s ~s" dst a b))))
 
-(define-prim (%lsh (int dst) (int a) (int b))
+(define-native (%lsh (int dst) (int a) (int b))
   (cond
    ((and (gpr? dst) (constant? a) (constant? b))
     (jit-movi (gpr dst) (imm (ash (ref-value a) (ref-value b)))))
@@ -782,7 +782,7 @@ both arguments were register or memory."
    (else
     (tjitc-error '%lsh "~s ~s ~s" dst a b))))
 
-(define-prim (%mod (int dst) (int a) (int b))
+(define-native (%mod (int dst) (int a) (int b))
   (cond
    ((and (gpr? dst) (gpr? a) (constant? b))
     (jit-remi (gpr dst) (gpr a) (constant b)))
@@ -797,7 +797,7 @@ both arguments were register or memory."
 ;;;
 
 ;;; XXX: Make lower level operation and rewrite.
-(define-prim (%from-double (int dst) (double src))
+(define-native (%from-double (int dst) (double src))
   (cond
    ((and (gpr? dst) (constant? src))
     (jit-movi-d f0 (constant src))
@@ -822,11 +822,11 @@ both arguments were register or memory."
    (else
     (tjitc-error '%scm-from-double "~s ~s ~s" dst src))))
 
-(define-syntax define-binary-fpr-prim
+(define-syntax define-binary-arith-double
   (lambda (x)
     (syntax-case x ()
-      ((k name op-rr op-ri)
-       #`(define-prim (name (double dst) (double a) (double b))
+      ((k name op-ri op-rr)
+       #`(define-native (name (double dst) (double a) (double b))
            (let-syntax ((show-error
                          (syntax-rules ()
                            ((_) (tjitc-error 'name "~s ~s ~s" dst a b)))))
@@ -900,10 +900,10 @@ both arguments were register or memory."
                (memory-set!/f dst f0))
               (else (show-error)))))))))
 
-(define-binary-fpr-prim %fadd jit-addr-d jit-addi-d)
-(define-binary-fpr-prim %fsub jit-subr-d jit-subi-d)
-(define-binary-fpr-prim %fmul jit-mulr-d jit-muli-d)
-(define-binary-fpr-prim %fdiv jit-divr-d jit-divi-d)
+(define-binary-arith-double %fadd jit-addi-d jit-addr-d)
+(define-binary-arith-double %fsub jit-subi-d jit-subr-d)
+(define-binary-arith-double %fmul jit-muli-d jit-mulr-d)
+(define-binary-arith-double %fdiv jit-divi-d jit-divr-d)
 
 
 ;;;
@@ -977,11 +977,11 @@ both arguments were register or memory."
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
 ;;; instructions with expected type as done in bytecode, to have vector-ref,
 ;;; struct-ref, box-ref, string-ref, fluid-ref, bv-u8-ref ... etc or not. When
-;;; instructions specify its operand type, size of CPS will be more compact, but
+;;; instructions specify its operand type, size of ANF will be more compact, but
 ;;; may loose chances to optimize away type checking instructions.
 
 ;; Type check local N with TYPE and load to gpr or memory DST.
-(define-prim (%fref (int dst) (void n) (void type))
+(define-native (%fref (int dst) (void n) (void type))
   (let ((t (ref-value type)))
     (when (or (not (constant? n))
               (not (constant? type)))
@@ -991,7 +991,7 @@ both arguments were register or memory."
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.
-(define-prim (%fref/f (double dst) (void n) (void type))
+(define-native (%fref/f (double dst) (void n) (void type))
   (let ((exit (jit-forward))
         (next (jit-forward))
         (t (ref-value type)))
@@ -1023,7 +1023,7 @@ both arguments were register or memory."
        (else
         (tjitc-error '%fref/f "~s ~s ~s" dst n type)))))))
 
-(define-prim (%cref (int dst) (int src) (void n))
+(define-native (%cref (int dst) (int src) (void n))
   (cond
    ((and (gpr? dst) (constant? src) (constant? n))
     (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
@@ -1051,7 +1051,7 @@ both arguments were register or memory."
    (else
     (tjitc-error '%cref "~s ~s ~s" dst src n))))
 
-(define-prim (%cref/f (double dst) (int src) (void n))
+(define-native (%cref/f (double dst) (int src) (void n))
   (cond
    ((and (fpr? dst) (gpr? src) (constant? n))
     (jit-ldxi-d (fpr dst) (gpr src) (constant-word n)))
@@ -1071,7 +1071,7 @@ both arguments were register or memory."
    (else
     (tjitc-error '%cref/f "~s ~s ~s" dst src n))))
 
-(define-prim (%cset (int cell) (void n) (int src))
+(define-native (%cset (int cell) (void n) (int src))
   (cond
    ((and (gpr? cell) (constant? n) (gpr? src))
     (jit-stxi (constant-word n) (gpr cell) (gpr src)))
@@ -1097,7 +1097,7 @@ both arguments were register or memory."
 
 ;; Call C function `scm_do_inline_cons'. Save volatile registers before calling,
 ;; restore after getting returned value.
-(define-prim (%cons (int dst) (int x) (int y))
+(define-native (%cons (int dst) (int x) (int y))
   (let ((x-overwritten? (equal? x (argr 1)))
         (y-overwritten? (or (equal? y (argr 1))
                             (equal? y (argr 2)))))
@@ -1122,5 +1122,5 @@ both arguments were register or memory."
 ;;; Move
 ;;;
 
-(define-prim (%move (int dst) (int src))
+(define-native (%move (int dst) (int src))
   (move dst src))
