@@ -51,6 +51,8 @@
             set-tjit-hot-exit!
             tjit-max-retries
             set-tjit-max-retries!
+            tjit-num-unrolls
+            set-tjit-num-unrolls!
             tjit-increment-compilation-failure!
             tjit-add-root-ip!
 
