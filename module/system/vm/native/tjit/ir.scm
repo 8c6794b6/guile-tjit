@@ -108,7 +108,7 @@
 (define (get-max-sp-offset sp-offset fp-offset nlocals)
   (max fp-offset
        (- (+ sp-offset nlocals) 1)
-       (if (< fp-offset)
+       (if (< fp-offset 0)
            (- (+ (- fp-offset) nlocals) 1)
            0)))
 
