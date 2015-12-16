@@ -62,7 +62,6 @@
 
             $outline
             make-outline
-            arrange-outline
             outline-locals
             outline-local-indices
             set-outline-local-indices!
@@ -80,8 +79,12 @@
             set-outline-sp-offset!
             outline-fp-offset
             set-outline-fp-offset!
+            outline-ret-types
+            set-outline-ret-types!
+
             pop-outline!
             push-outline!
+            arrange-outline
             expand-outline
             set-outline-previous-dl-and-ra!
             merge-outline-types!
@@ -125,6 +128,7 @@
                &keyword
                &procedure
                &pointer
+               &pair
                &fluid
                &vector
                &box
@@ -160,7 +164,8 @@
 ;; inlined procedure exist in trace.
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
-                 sp-offset fp-offset)
+                 sp-offset fp-offset
+                 ret-types)
   outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -188,21 +193,27 @@
   (sp-offset outline-sp-offset set-outline-sp-offset!)
 
   ;; Current FP offset.
-  (fp-offset outline-fp-offset set-outline-fp-offset!))
+  (fp-offset outline-fp-offset set-outline-fp-offset!)
+
+  ;; Returned types from C functions.
+  (ret-types outline-ret-types set-outline-ret-types!))
 
 (define (make-outline types sp-offset fp-offset)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline '() '() (make-hash-table) '() '() '() types
-                 sp-offset fp-offset))
+                 sp-offset fp-offset
+                 '()))
 
 (define (arrange-outline outline)
   (let ((locals/list (sort (map car (outline-local-indices outline)) >))
         (sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
-        (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline)))))
+        (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline))))
+        (ret-types/vec (list->vector (reverse! (outline-ret-types outline)))))
     (set-outline-local-indices! outline locals/list)
     (set-outline-sp-offsets! outline sp-offsets/vec)
     (set-outline-fp-offsets! outline fp-offsets/vec)
+    (set-outline-ret-types! outline ret-types/vec)
     outline))
 
 (define (push-outline! outline dl ra sp-offset locals)
@@ -365,10 +376,12 @@
    ((eq? type &symbol) (blue "symb"))
    ((eq? type &keyword) (blue "keyw"))
    ((eq? type &procedure) (yellow "proc"))
+   ((eq? type &pointer) (yellow "ptr"))
    ((eq? type &pair) (yellow "pair"))
-   ((eq? type &vector) (yellow "vect"))
+   ((eq? type &vector) (yellow "vctr"))
    ((eq? type &box) (yellow "box"))
    ((eq? type &struct) (yellow "strc"))
+   ((eq? type &hash-table) (yellow "htbl"))
    ((eq? type &f64) (magenta "f64"))
    ((eq? type &u64) (blue "u64"))
    ((eq? type &s64) (blue "s64"))

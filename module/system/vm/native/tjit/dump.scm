@@ -151,7 +151,7 @@ option was set to true."
     (let lp ((traces ip-x-ops) (level (- lowest)))
       (match traces
         (((op ip ra dl locals) . traces)
-         (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
+         (let ((op-val (format #f "~12,'0x  ~a~a" ip (make-indent level) op)))
            (if (tjit-dump-verbose? (tjit-dump-option))
                (format #t "~48a; ~a~%" op-val (as-address locals))
                (format #t "~a~%" op-val)))

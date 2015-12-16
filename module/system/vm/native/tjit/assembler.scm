@@ -410,7 +410,7 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm volatiles exit out-code end-address)
+  (%make-asm volatiles exit out-code end-address cargs)
   asm?
 
   ;; Volatile registers in use.
@@ -423,7 +423,10 @@
   (out-code asm-out-code set-asm-out-code!)
 
   ;; Pointer of native code at the end of parent trace.
-  (end-address asm-end-address))
+  (end-address asm-end-address)
+
+  ;; Arguments for function call.
+  (cargs asm-cargs set-asm-cargs!))
 
 (define (make-asm env end-address)
   (define (volatile-regs-in-use env)
@@ -434,7 +437,7 @@
                      acc))
                '()
                env))
-  (%make-asm (volatile-regs-in-use env) #f #f end-address))
+  (%make-asm (volatile-regs-in-use env) #f #f end-address '()))
 
 (define-syntax jump
   (syntax-rules ()
@@ -633,6 +636,9 @@ both arguments were register or memory."
     (emit-side-exit)
     (jit-link next)))
 
+(define-native (%carg (int dst))
+  (set-asm-cargs! asm (cons dst (asm-cargs asm))))
+
 ;;; Scheme procedure call.
 (define-native (%pcall (void proc))
   (let* ((vp r0)
@@ -641,6 +647,28 @@ both arguments were register or memory."
     (load-vp->fp vp->fp vp)
     (jit-subi vp->fp vp->fp (imm (* (ref-value proc) %word-size)))
     (store-vp->fp vp vp->fp)))
+
+(define-native (%ccall (int dst) (void cfunc))
+  (let ((volatiles (asm-volatiles asm))
+        (cargs (asm-cargs asm)))
+    (for-each store-volatile volatiles)
+    (jit-prepare)
+    (let lp ((cargs cargs) (i 1) (pushed '()))
+      (match cargs
+        ((carg . cargs)
+         (let ((overwritten? (and (member carg volatiles)
+                                  (member carg pushed))))
+           (push-gpr-or-mem carg overwritten?)
+           (lp cargs (+ i 1) (cons (argr i) pushed))))
+        (()
+         (values))))
+    (jit-calli (imm (ref-value cfunc)))
+    (retval-to-gpr-or-mem dst)
+    (for-each (lambda (reg)
+                (when (not (equal? reg dst))
+                  (load-volatile reg)))
+              volatiles)
+    (set-asm-cargs! asm '())))
 
 ;;; Return from procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
@@ -788,6 +816,9 @@ both arguments were register or memory."
     (jit-remi (gpr dst) (gpr a) (constant b)))
    ((and (gpr? dst) (gpr? a) (gpr? b))
     (jit-remr (gpr dst) (gpr a) (gpr b)))
+   ((and (gpr? dst) (memory? a) (gpr? b))
+    (memory-ref r0 a)
+    (jit-remr (gpr dst) r0 (gpr b)))
    (else
     (tjitc-error '%mod "~s ~s ~s" dst a b))))
 
@@ -964,7 +995,7 @@ both arguments were register or memory."
          (load-constant *scm-undefined* guard?))
         ((eq? type &null)
          (load-constant *scm-null* guard?))
-        ((memq type (list &box &procedure &pair &u64))
+        ((memq type (list &char &box &procedure &pair &hash-table &u64))
          ;; XXX: Add guard for each type.
          (cond
           ((gpr? dst)
@@ -972,7 +1003,8 @@ both arguments were register or memory."
           ((memory? dst)
            (memory-set! dst src))))
         (else
-         (tjitc-error 'unbox-stack-element "~s ~s ~s" dst type guard?)))))))
+         (tjitc-error 'unbox-stack-element "~a ~a ~s" (physical-name dst)
+                      (pretty-type type) guard?)))))))
 
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
 ;;; instructions with expected type as done in bytecode, to have vector-ref,

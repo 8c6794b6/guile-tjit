@@ -285,7 +285,7 @@
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
     (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-outline ir) op locals #t)
+      (scan-locals (ir-outline ir) op #f locals #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (proc)

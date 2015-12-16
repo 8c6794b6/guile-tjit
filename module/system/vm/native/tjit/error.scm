@@ -35,8 +35,10 @@
   #:export (tjitc-errors
             tjitc-error
             call-with-tjitc-error-handler
+            with-tjitc-error-handler
             nyi
-            call-with-nyi-handler))
+            call-with-nyi-handler
+            with-nyi-handler))
 
 (define *tjitc-prompt-tag*
   (make-prompt-tag "tjitc"))
@@ -62,6 +64,12 @@
         (tjit-increment-compilation-failure! ip)
         (hashq-set! (tjitc-errors) ip (cons name msg))))))
 
+(define-syntax with-tjitc-error-handler
+  (syntax-rules ()
+    ((_ ip exp)
+     (call-with-tjitc-error-handler ip
+       (lambda () exp)))))
+
 (define *nyi-prompt-tag*
   (make-prompt-tag "nyi"))
 
@@ -77,3 +85,9 @@
     (lambda (k fmt . args)
       (debug 1 "NYI: ~a~%" (apply format #f fmt args))
       (tjit-increment-compilation-failure! ip))))
+
+(define-syntax with-nyi-handler
+  (syntax-rules ()
+    ((_ ip exp)
+     (call-with-nyi-handler ip
+       (lambda () exp)))))

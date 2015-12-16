@@ -81,22 +81,28 @@
   (define (traced-ops bytecode traces sp-offset fp-offset types)
     (define disassemble-one
       (@@ (system vm disassembler) disassemble-one))
-    (let lp ((acc '())
-             (offset 0)
-             (traces (reverse! traces))
-             (ol (make-outline types sp-offset fp-offset))
-             (so-far-so-good? #t))
-      (match traces
-        ((trace . traces)
-         (let*-values (((len op) (disassemble-one bytecode offset))
-                       ((implemented?)
-                        (if so-far-so-good?
-                            (scan-locals ol op (cadddr trace))
-                            #f)))
-           (lp (cons (cons op trace) acc) (+ offset len) traces ol
-               (and so-far-so-good? implemented?))))
-        (()
-         (values (reverse! acc) (arrange-outline ol) so-far-so-good?)))))
+    (define (go)
+      (let lp ((acc '())
+               (offset 0)
+               (traces (reverse! traces))
+               (ol (make-outline types sp-offset fp-offset))
+               (so-far-so-good? #t)
+               (prev-op #f))
+        (match traces
+          ((trace . traces)
+           (let*-values (((len op) (disassemble-one bytecode offset))
+                         ((implemented? prev-op)
+                          (if so-far-so-good?
+                              (scan-locals ol op prev-op (cadddr trace))
+                              (values #f (car op)))))
+             (lp (cons (cons op trace) acc) (+ offset len) traces ol
+                 (and so-far-so-good? implemented?) prev-op)))
+          (()
+           (values (reverse! acc) (arrange-outline ol) so-far-so-good?)))))
+    (catch #t go
+      (lambda (x y fmt args . z)
+        (debug 1 "XXX: ~s~%" (apply format #f fmt args))
+        (values '() #f #f))))
   (define (scan-again traces ol parent-snapshot sp fp)
     ;; Scan traces again to resolve stack element types which were unresolved in
     ;; the first scan.
@@ -110,7 +116,7 @@
     (let lp ((traces traces))
       (match traces
         (((op _ _ _ locals) . traces)
-         (scan-locals ol op locals #t)
+         (scan-locals ol op #f locals #t)
          (lp traces))
         (()
          (set-outline-sp-offset! ol sp)
@@ -151,8 +157,8 @@
         (tjit-increment-compilation-failure! entry-ip)))
     (define (compile-traces traces outline)
       (let* ((outline (scan-again traces outline parent-snapshot
-                                     initial-sp-offset
-                                     initial-fp-offset))
+                                  initial-sp-offset
+                                  initial-fp-offset))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f)))
@@ -170,32 +176,23 @@
                   (t (get-internal-run-time)))
               (set-tjit-time-log-end! log t))))))
 
-    (call-with-tjitc-error-handler entry-ip
-      (lambda ()
-        (let-values (((traces outline implemented?)
-                      (catch #t
-                        (lambda ()
-                          (traced-ops bytecode traces
-                                      initial-sp-offset initial-fp-offset
-                                      (get-initial-types parent-snapshot)))
-                        (lambda (x y fmt args . z)
-                          (debug 1 "XXX: ~s~%" (apply format #f fmt args))
-                          (values '() #f #f)))))
-          (dump tjit-dump-jitc? implemented?
-                (show-sline sline parent-fragment))
-          (dump tjit-dump-bytecode? implemented?
-                (dump-bytecode trace-id traces))
-          (cond
-           ((not outline)
-            (failure "error during scan"))
-           ((not implemented?)
-            (failure "NYI found, aborted"))
-           (uprec?
-            (failure "NYI up recursion"))
-           (else
-            (call-with-nyi-handler entry-ip
-              (lambda ()
-                (compile-traces traces outline))))))))))
+    (with-tjitc-error-handler entry-ip
+      (let-values (((traces outline implemented?)
+                    (traced-ops bytecode traces
+                                initial-sp-offset initial-fp-offset
+                                (get-initial-types parent-snapshot))))
+        (dump tjit-dump-jitc? implemented? (show-sline sline parent-fragment))
+        (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
+        (cond
+         ((not outline)
+          (failure "error during scan"))
+         ((not implemented?)
+          (failure "NYI found, aborted"))
+         (uprec?
+          (failure "NYI up recursion"))
+         (else
+          (with-nyi-handler entry-ip
+            (compile-traces traces outline))))))))
 
 
 ;;;

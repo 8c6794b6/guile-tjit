@@ -30,6 +30,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
+  #:use-module (system vm program)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit snapshot)
@@ -254,6 +255,18 @@ accumulator when arguments in definition are lists. E.g:
 will define two procedures: one for IR compilation taking two arguments, and
 another procedure for accumulator taking two arguments and saving index
 referenced by dst and src value at runtime."
+    ((_ (name) . body)
+     (let ((proc
+            (lambda (%ir %next %ip %ra %dl %locals)
+              (syntax-parameterize
+                  ((ir (identifier-syntax %ir))
+                   (next (identifier-syntax %next))
+                   (ip (identifier-syntax %ip))
+                   (ra (identifier-syntax %ra))
+                   (dl (identifier-syntax %dl))
+                   (locals (identifier-syntax %locals)))
+                . body))))
+       (hashq-set! *ir-procedures* 'name proc)))
     ((_ (name (flag arg) ...) . body)
      (let ((index-proc (lambda (ol sp-offset arg ...)
                          (gen-put-index ol sp-offset (flag arg) ...)))
@@ -330,36 +343,34 @@ referenced by dst and src value at runtime."
     ret))
 
 ;; XXX: Tag more types.
-(define-syntax-rule (with-boxing next val var tmp)
+(define-syntax-rule (with-boxing type var tmp proc)
   (cond
-   ((fixnum? val)
+   ((eq? type &exact-integer)
     `(let ((,tmp (%lsh ,var 2)))
        (let ((,tmp (%add ,tmp 2)))
-         ,(next tmp))))
-   ((flonum? val)
+         ,(proc tmp))))
+   ((eq? type &flonum)
     ;; XXX: Save volatile registers.
     `(let ((,tmp (%from-double ,var)))
-       ,(next tmp)))
-   ((pair? val)
-    (next var))
+       ,(proc tmp)))
+   ((memq type (list &char &pair &hash-table))
+    (proc var))
    (else
-    (nyi "with-boxing: ~s ~s ~s" val var tmp))))
+    (nyi "with-boxing: ~s ~s ~s" type var tmp))))
 
 ;; XXX: Tag more types. Add guard.
-(define-syntax-rule (with-unboxing next val var)
+(define-syntax-rule (with-unboxing type var thunk)
   (cond
-   ((flonum? val)
-    `(let ((,var ,(to-double var)))
-       ,(next)))
-   ((fixnum? val)
+   ((eq? type &exact-integer)
     `(let ((,var ,(to-fixnum var)))
-       ,(next)))
-   ((or (null? val)
-        (pair? val)
-        (procedure? val))
-    (next))
+       ,(thunk)))
+   ((eq? type &flonum)
+    `(let ((,var ,(to-double var)))
+       ,(thunk)))
+   ((memq type (list &char &null &pair &procedure &hash-table))
+    (thunk))
    (else
-    (nyi "with-unboxing: ~a ~a" val var))))
+    (nyi "with-unboxing: ~a ~a" type var))))
 
 (define-syntax-rule (expand-stack nlocals)
   (expand-outline (ir-outline ir) (current-sp-offset) nlocals))
@@ -496,7 +507,57 @@ referenced by dst and src value at runtime."
 
 ;;; *** Specialized call stubs
 
-;; XXX: subr-call
+(define (subrf subr)
+  (let ((var0 (program-free-variable-ref subr 0)))
+    (if (pointer? var0)
+        (pointer-address var0)
+        (tjitc-error 'subrf "not a primitive ~s" subr))))
+
+;; Helper to get type from runtime value returned from external functions, i.e.:
+;; `subr-call' and `foreign-call'.
+(define-syntax-rule (current-ret-type)
+  (let ((idx (+ (ir-bytecode-index ir) 1))
+        (ret-types (outline-ret-types (ir-outline ir))))
+    (if (<= 0 idx (- (vector-length ret-types) 1))
+        (vector-ref ret-types idx)
+        (tjitc-error 'current-ret-type "index ~s out of range ~s"
+                     idx ret-types))))
+
+(define-ir (subr-call)
+  (let* ((stack-size (vector-length locals))
+         (vdst (var-ref (- stack-size 2)))
+         (subr/val (local-ref (- stack-size 1)))
+         (ccode (and (program? subr/val)
+                     (program-code subr/val)))
+         (ret-type (current-ret-type))
+         (emit-next (lambda ()
+                      `(let ((,vdst (%ccall ,(subrf subr/val))))
+                         ,(if ret-type
+                              (with-unboxing ret-type vdst next)
+                              (next)))))
+         (tmp0 (make-tmpvar 0)))
+    (debug 1 ";;; subr-call: (~a) (~s ~{~a~^ ~})~%"
+           (pretty-type (current-ret-type))
+           (procedure-name subr/val)
+           (let lp ((n 0) (acc '()))
+             (if (< n (- stack-size 1))
+                 (begin
+                   (let ((arg (local-ref n)))
+                     (lp (+ n 1)
+                         (cons (pretty-type (type-of arg)) acc))))
+                 acc)))
+    (if (primitive-code? ccode)
+        (let lp ((n 0))
+          (if (< n (- stack-size 1))
+              (let ((n/var (var-ref n))
+                    (n/val (local-ref n)))
+                (with-boxing (type-of n/val) n/var n/var
+                  (lambda (boxed)
+                    `(let ((_ (%carg ,boxed)))
+                       ,(lp (+ n 1))))))
+              (emit-next)))
+        (tjitc-error 'subr-call "not a primitive ~s" subr/val))))
+
 ;; XXX: foreign-call
 ;; XXX: continuation-call
 ;; XXX: compose-continuation
@@ -511,10 +572,25 @@ referenced by dst and src value at runtime."
 ;; XXX: br-if-nargs-ne
 ;; XXX: br-if-nargs-lt
 ;; XXX; br-if-nargs-gt
-;; XXX: assert-nargs-ee
-;; XXX: assert-nargs-ge
-;; XXX: assert-nargs-le
+
+(define-ir (assert-nargs-ee (const expected))
+  ;; XXX: Unless this op was found at entry of down recursion, nothing to do.
+  ;; Detect entry of down recursion, emit assertion in native code.
+  (next))
+
+(define-ir (assert-nargs-ge (const expected))
+  ;; XXX: Same as assert-nargs-ee
+  (next))
+
+(define-ir (assert-nargs-le (const expected))
+  ;; XXX: Same as assert-nargs-ee
+  (next))
+
 ;; XXX: alloc-frame
+(define-ir (alloc-frame (const nlocals))
+  ;; XXX: Remove `const' annotation, update `scan-locals'.
+  (next))
+
 ;; XXX: reset-frame
 
 (define-ir (assert-nargs-ee/locals expected nlocals)
@@ -636,7 +712,7 @@ referenced by dst and src value at runtime."
                          (variable-ref var)
                          (tjitc-error 'box-ref "got ~s" var))))))
     `(let ((,vdst (%cref ,vsrc 1)))
-       ,(with-unboxing next rsrc vdst))))
+       ,(with-unboxing (type-of rsrc) vdst next))))
 
 (define-ir (box-set! (scm dst) (scm src))
   (let* ((vdst (var-ref dst))
@@ -650,7 +726,8 @@ referenced by dst and src value at runtime."
          (emit-next (lambda (tmp)
                       `(let ((_ (%cset ,vdst 1 ,tmp)))
                          ,(next)))))
-    (with-boxing emit-next rdst vsrc r0)))
+    (with-boxing (type-of rdst) vsrc r0
+      emit-next)))
 
 ;; XXX: make-closure
 ;; XXX: free-ref
@@ -696,13 +773,20 @@ referenced by dst and src value at runtime."
 (define-ir (toplevel-box (scm dst) (const var-offset) (const mod-offset)
                          (const sym-offset) (const bound?))
   (let ((vdst (var-ref dst))
-        (src (pointer-address
-              (scm->pointer
-               (dereference-scm (+ ip (* var-offset 4)))))))
-    `(let ((,vdst ,src))
-       ,(next))))
+        (var (dereference-scm (+ ip (* var-offset 4)))))
+    (if (variable? var)
+        `(let ((,vdst ,(pointer-address (scm->pointer var))))
+           ,(next))
+        (nyi "toplevel-box: not a variable ~s" var))))
 
-;; XXX: module-box
+(define-ir (module-box (scm dst) (const var-offset) (const mod-offset)
+                       (const sym-offset) (const bound?))
+  (let ((vdst (var-ref dst))
+        (var (dereference-scm (+ ip (* var-offset 4)))))
+    (if (variable? var)
+        `(let ((,vdst ,(pointer-address (scm->pointer var))))
+           ,(next))
+        (nyi "module-box: not a variable ~s" var))))
 
 
 ;;; *** The dynamic environment
@@ -744,9 +828,11 @@ referenced by dst and src value at runtime."
                         `(let ((,vdst (%cons ,a ,b)))
                            ,(next)))))
          (emit-y (lambda (a)
-                   (with-boxing (emit-cons a) ly vy r1)))
+                   (with-boxing (type-of ly) vy r1
+                     (emit-cons a))))
          (emit-x (lambda ()
-                   (with-boxing emit-y lx vx r0))))
+                   (with-boxing (type-of lx) vx r0
+                     emit-y))))
     (emit-x)))
 
 (define-ir (car (scm dst) (scm src))
@@ -758,7 +844,7 @@ referenced by dst and src value at runtime."
       (tjitc-error 'car "~a ~a~%" rdst rsrc))
     `(let ((,vdst (%cref ,vsrc 0)))
        ,(let ((rcar (car rsrc)))
-          (with-unboxing next rcar vdst)))))
+          (with-unboxing (type-of rcar) vdst next)))))
 
 (define-ir (cdr (scm dst) (scm src))
   (let ((rdst (local-ref dst))
@@ -769,7 +855,7 @@ referenced by dst and src value at runtime."
       (tjitc-error 'cdr "~a ~a~%" rdst rsrc))
     `(let ((,vdst (%cref ,vsrc 1)))
        ,(let ((rcdr (cdr rsrc)))
-          (with-unboxing next rcdr vdst)))))
+          (with-unboxing (type-of rcdr) vdst next)))))
 
 ;; XXX: set-car!
 ;; XXX: set-cdr!

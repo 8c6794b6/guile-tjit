@@ -139,7 +139,7 @@
      ((memory? src)
       (memory-ref/f f0 src)
       (sp-set!/f local f0))))
-   ((memq type (list &box &procedure &pair &u64))
+   ((memq type (list &char &box &procedure &pair &hash-table &u64))
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))

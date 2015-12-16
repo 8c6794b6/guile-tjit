@@ -103,6 +103,9 @@ TESTS = \
 	t-side-exit-15.scm \
 	t-side-exit-16.scm \
 	t-side-exit-17.scm \
+	t-subr-call-01.scm \
+	t-subr-call-02.scm \
+	t-subr-call-03.scm \
 	t-tail-call-01.scm \
 	t-tail-call-02.scm \
 	t-tail-call-03.scm \
