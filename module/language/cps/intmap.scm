@@ -33,7 +33,6 @@
 (define-module (language cps intmap)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-9 gnu)
-  #:use-module (srfi srfi-18)
   #:use-module (ice-9 match)
   #:export (empty-intmap
             intmap?
