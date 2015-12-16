@@ -148,7 +148,10 @@
     (define (get-arg-types! op dst args)
       (let ((types (lookup-prim-type op)))
         (let lp ((types (if dst
-                            (cdr types)
+                            (if (pair? types)
+                                (cdr types)
+                                (tjitc-error 'get-arg-types! "unknown type ~s"
+                                             types))
                             types))
                  (args args)
                  (acc '()))

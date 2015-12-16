@@ -227,6 +227,8 @@ option was set to true."
             (blue (if (<= 0 x)
                       (string-append "+" (number->string x))
                       (number->string x))))
+           ((flonum? x)
+            (magenta (number->string x)))
            ((false? x)
             (green "#f"))
            ((null? x)

@@ -914,7 +914,24 @@ referenced by dst and src value at runtime."
      (else
       (nyi "mul: ~a ~a ~a" (local-ref dst) ra rb)))))
 
-;; XXX: div
+;; (define-ir (div (scm dst) (scm a) (scm b))
+;;   (let ((ra (local-ref a))
+;;         (rb (local-ref b))
+;;         (vdst (var-ref dst))
+;;         (va (var-ref a))
+;;         (vb (var-ref b)))
+;;     (cond
+;;      ((and (flonum? ra) (flonum? rb))
+;;       `(let ((,vdst (%fdiv ,va ,vb)))
+;;          ,(next)))
+;;      ((and (fixnum? ra) (flonum? rb))
+;;       (let ((f0 (make-tmpvar/f 0)))
+;;         `(let ((,f0 (%i2d ,va)))
+;;            (let ((,vdst (%fdiv ,f0 ,vb)))
+;;              ,(next)))))
+;;      (else
+;;       (nyi "div: ~a ~a ~a" (local-ref dst) ra rb)))))
+
 ;; XXX: quo
 ;; XXX: rem
 

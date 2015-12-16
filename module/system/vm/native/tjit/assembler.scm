@@ -103,6 +103,16 @@
 (define %word-size-in-bits
   (inexact->exact (/ (log %word-size) (log 2))))
 
+(define-syntax-rule (fpr->gpr dst src)
+  (let ((tmp-offset (volatile-offset `(gpr . 8))))
+    (jit-stxi-d tmp-offset %fp src)
+    (jit-ldxi dst %fp tmp-offset)))
+
+(define-syntax-rule (gpr->fpr dst src)
+  (let ((tmp-offset (volatile-offset `(gpr . 8))))
+    (jit-stxi tmp-offset %fp src)
+    (jit-ldxi-d dst %fp tmp-offset)))
+
 
 ;;;
 ;;; Primitives
@@ -493,52 +503,10 @@ epilog part. Native code of side trace does not reset %rsp, since it uses
 (define-syntax-rule (current-exit)
   (asm-exit asm))
 
-(define (move dst src)
-  (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-movi (gpr dst) (constant src)))
-   ((and (gpr? dst) (gpr? src))
-    (jit-movr (gpr dst) (gpr src)))
-   ((and (gpr? dst) (memory? src))
-    (memory-ref r0 src)
-    (jit-movr (gpr dst) r0))
 
-   ((and (fpr? dst) (constant? src))
-    (let ((val (ref-value src)))
-      (cond
-       ((and (number? val) (flonum? val))
-        (jit-movi-d (fpr dst) (constant src)))
-       ((and (number? val) (exact? val))
-        (jit-movi r0 (constant src))
-        (jit-extr-d (fpr dst) r0))
-       (else
-        (debug 3 "XXX move: ~a ~a~%" dst src)))))
-   ((and (fpr? dst) (fpr? src))
-    (jit-movr-d (fpr dst) (fpr src)))
-   ((and (fpr? dst) (memory? src))
-    (memory-ref/f f0 src)
-    (jit-movr-d (fpr dst) f0))
-
-   ((and (memory? dst) (constant? src))
-    (let ((val (ref-value src)))
-      (cond
-       ((fixnum? val)
-        (jit-movi r0 (constant src))
-        (memory-set! dst r0))
-       ((flonum? val)
-        (jit-movi-d f0 (constant src))
-        (memory-set!/f dst f0)))))
-   ((and (memory? dst) (gpr? src))
-    (memory-set! dst (gpr src)))
-   ((and (memory? dst) (fpr? src))
-    (memory-set!/f dst (fpr src)))
-   ((and (memory? dst) (memory? src))
-    (memory-ref r0 src)
-    (memory-set! dst r0))
-
-   (else
-    (debug 1 "XXX move: ~a ~a~%" dst src))))
-
+;;;;
+;;;; Native operations
+;;;;
 
 ;;;
 ;;; Guards
@@ -635,6 +603,11 @@ both arguments were register or memory."
       (tjitc-error '%fge "~s ~s" a b)))
     (emit-side-exit)
     (jit-link next)))
+
+
+;;;
+;;; Call and return
+;;;
 
 (define-native (%carg (int dst))
   (set-asm-cargs! asm (cons dst (asm-cargs asm))))
@@ -793,6 +766,9 @@ both arguments were register or memory."
     (jit-lshi (gpr dst) (gpr a) (constant b)))
    ((and (gpr? dst) (gpr? a) (gpr? b))
     (jit-lshr (gpr dst) (gpr a) (gpr b)))
+   ((and (gpr? dst) (fpr? a) (constant? b))
+    (fpr->gpr r0 (fpr a))
+    (jit-lshi (gpr dst) r0 (constant b)))
    ((and (gpr? dst) (memory? a) (constant? b))
     (memory-ref r0 a)
     (jit-lshi (gpr dst) r0 (constant b)))
@@ -877,6 +853,9 @@ both arguments were register or memory."
                  (cond
                   ((constant? b)
                    (op-ri (fpr dst) (fpr a) (constant b)))
+                  ((gpr? b)
+                   (gpr->fpr f0 (gpr b))
+                   (op-rr (fpr dst) (fpr a) f0))
                   ((fpr? b)
                    (op-rr (fpr dst) (fpr a) (fpr b)))
                   ((memory? b)
@@ -1150,9 +1129,75 @@ both arguments were register or memory."
                   (load-volatile reg)))
               (asm-volatiles asm))))
 
+
+;;;
+;;; Type conversion
+;;;
+
+(define-native (%i2d (double dst) (int src))
+  (cond
+   ((and (fpr? dst) (gpr? src))
+    (jit-extr-d (fpr dst) (gpr src)))
+   ((and (fpr? dst) (memory? src))
+    (memory-ref r0 src)
+    (jit-extr-d (fpr dst) r0))
+   (else
+    (tjitc-error '%i2d "~s ~s" dst src))))
+
+
 ;;;
 ;;; Move
 ;;;
+
+(define (move dst src)
+  (cond
+   ((and (gpr? dst) (constant? src))
+    (jit-movi (gpr dst) (constant src)))
+   ((and (gpr? dst) (gpr? src))
+    (jit-movr (gpr dst) (gpr src)))
+   ((and (gpr? dst) (fpr? src))
+    (fpr->gpr (gpr dst) (fpr src)))
+   ((and (gpr? dst) (memory? src))
+    (memory-ref r0 src)
+    (jit-movr (gpr dst) r0))
+
+   ((and (fpr? dst) (constant? src))
+    (let ((val (ref-value src)))
+      (cond
+       ((and (number? val) (flonum? val))
+        (jit-movi-d (fpr dst) (constant src)))
+       ((and (number? val) (exact? val))
+        (jit-movi r0 (constant src))
+        (jit-extr-d (fpr dst) r0))
+       (else
+        (debug 3 "XXX move: ~a ~a~%" dst src)))))
+   ((and (fpr? dst) (gpr? src))
+    (gpr->fpr (fpr dst) (gpr src)))
+   ((and (fpr? dst) (fpr? src))
+    (jit-movr-d (fpr dst) (fpr src)))
+   ((and (fpr? dst) (memory? src))
+    (memory-ref/f f0 src)
+    (jit-movr-d (fpr dst) f0))
+
+   ((and (memory? dst) (constant? src))
+    (let ((val (ref-value src)))
+      (cond
+       ((fixnum? val)
+        (jit-movi r0 (constant src))
+        (memory-set! dst r0))
+       ((flonum? val)
+        (jit-movi-d f0 (constant src))
+        (memory-set!/f dst f0)))))
+   ((and (memory? dst) (gpr? src))
+    (memory-set! dst (gpr src)))
+   ((and (memory? dst) (fpr? src))
+    (memory-set!/f dst (fpr src)))
+   ((and (memory? dst) (memory? src))
+    (memory-ref r0 src)
+    (memory-set! dst r0))
+
+   (else
+    (debug 1 "XXX move: ~a ~a~%" dst src))))
 
 (define-native (%move (int dst) (int src))
   (move dst src))

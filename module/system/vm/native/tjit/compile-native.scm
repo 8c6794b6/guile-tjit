@@ -410,7 +410,7 @@ are local index number."
               (let ((max-spills (tjit-max-spills))
                     (nspills (primops-nspills primops)))
                 (when (< max-spills nspills)
-                  (tjitc-error 'compile- "Too many spills ~s" nspills))
+                  (tjitc-error 'compile-entry "Too many spills ~s" nspills))
                 (jit-allocai (imm (* (+ max-spills 1 *num-volatiles*)
                                      %word-size))))
               (fragment-fp-offset fragment))))
