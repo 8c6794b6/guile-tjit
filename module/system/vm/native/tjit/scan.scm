@@ -90,17 +90,14 @@
     (let ((ret-types (outline-ret-types ol)))
       (if (eq? 'subr-call prev-op)
           (begin
-            (debug 1 ";;; scan-locals: after `subr-call' op=~s, " (car op))
             (match op
               (('receive dst proc nlocals)
                (let* ((stack-size (vector-length locals))
                       (idx (- stack-size proc 2))
                       (val (stack-element locals idx 'scm))
                       (type (type-of val)))
-                 (debug 1 "[~s]=~s (~a)~%" idx val (pretty-type type))
                  (set-outline-ret-types! ol (cons type ret-types))))
               (_
-               (debug 1 "skipping~%")
                (set-outline-ret-types! ol (cons #f ret-types)))))
           (set-outline-ret-types! ol (cons #f ret-types)))))
 

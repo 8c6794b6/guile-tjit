@@ -546,6 +546,7 @@ referenced by dst and src value at runtime."
                      (lp (+ n 1)
                          (cons (pretty-type (type-of arg)) acc))))
                  acc)))
+    (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))
