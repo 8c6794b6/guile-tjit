@@ -507,12 +507,6 @@ referenced by dst and src value at runtime."
 
 ;;; *** Specialized call stubs
 
-(define (subrf subr)
-  (let ((var0 (program-free-variable-ref subr 0)))
-    (if (pointer? var0)
-        (pointer-address var0)
-        (tjitc-error 'subrf "not a primitive ~s" subr))))
-
 ;; Helper to get type from runtime value returned from external functions, i.e.:
 ;; `subr-call' and `foreign-call'.
 (define-syntax-rule (current-ret-type)
@@ -531,7 +525,8 @@ referenced by dst and src value at runtime."
                      (program-code subr/val)))
          (ret-type (current-ret-type))
          (emit-next (lambda ()
-                      `(let ((,vdst (%ccall ,(subrf subr/val))))
+                      `(let ((,vdst (%ccall ,(pointer-address
+                                              (scm->pointer subr/val)))))
                          ,(if ret-type
                               (with-unboxing ret-type vdst next)
                               (next)))))

@@ -32,6 +32,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module ((system base types) #:select (%word-size))
+  #:use-module (system vm program)
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit error)
@@ -102,16 +103,6 @@
 
 (define %word-size-in-bits
   (inexact->exact (/ (log %word-size) (log 2))))
-
-(define-syntax-rule (fpr->gpr dst src)
-  (let ((tmp-offset (volatile-offset `(gpr . 8))))
-    (jit-stxi-d tmp-offset %fp src)
-    (jit-ldxi dst %fp tmp-offset)))
-
-(define-syntax-rule (gpr->fpr dst src)
-  (let ((tmp-offset (volatile-offset `(gpr . 8))))
-    (jit-stxi tmp-offset %fp src)
-    (jit-ldxi-d dst %fp tmp-offset)))
 
 
 ;;;
@@ -205,6 +196,7 @@
   (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
 
 (define-syntax-rule (scm-from-double dst src)
+  ;; XXX: Store and load volatile registers.
   (begin
     (jit-prepare)
     (jit-pushargr %thread)
@@ -234,18 +226,34 @@
   (jit-stxi (imm %word-size) vp->fp src))
 
 (define-syntax-rule (moffs mem)
-  (let ((n (+ (ref-value mem) *num-volatiles*)))
-    (make-negative-pointer (* (- -2 n) %word-size))))
+  (let ((n (- (+ 2 1 (ref-value mem) *num-volatiles* *num-fpr*))))
+    (make-negative-pointer (* n %word-size))))
 
 (define registers-offset
   (make-negative-pointer (* -1 %word-size)))
 
 (define (volatile-offset reg)
-  (let ((n (- (ref-value reg) *num-non-volatiles*)))
-    (make-negative-pointer (* (- -2 n) %word-size))))
+  (let ((n (cond
+            ((gpr? reg)
+             (+ 2 (- (ref-value reg) *num-non-volatiles*)))
+            ((fpr? reg)
+             (+ 2 1 (ref-value reg) *num-volatiles*))
+            (else
+             (tjitc-error 'volatile-offset "~s" reg)))))
+    (make-negative-pointer (* (- n) %word-size))))
 
 (define (spilled-offset mem)
   (moffs mem))
+
+(define-syntax-rule (fpr->gpr dst src)
+  (let ((tmp-offset (volatile-offset `(gpr . 8))))
+    (jit-stxi-d tmp-offset %fp src)
+    (jit-ldxi dst %fp tmp-offset)))
+
+(define-syntax-rule (gpr->fpr dst src)
+  (let ((tmp-offset (volatile-offset `(gpr . 8))))
+    (jit-stxi tmp-offset %fp src)
+    (jit-ldxi-d dst %fp tmp-offset)))
 
 (define-syntax-rule (load-vp dst)
   (jit-ldr dst %fp))
@@ -297,12 +305,23 @@
       (jit-str-d %sp src)
       (jit-stxi-d (make-signed-pointer (* n %word-size)) %sp src)))
 
-
 (define (store-volatile src)
-  (jit-stxi (volatile-offset src) %fp (gpr src)))
+  (cond
+   ((gpr? src)
+    (jit-stxi (volatile-offset src) %fp (gpr src)))
+   ((fpr? src)
+    (jit-stxi-d (volatile-offset src) %fp (fpr src)))
+   (else
+    (tjitc-error 'store-volatile "~s" src))))
 
 (define (load-volatile dst)
-  (jit-ldxi (gpr dst) %fp (volatile-offset dst)))
+  (cond
+   ((gpr? dst)
+    (jit-ldxi (gpr dst) %fp (volatile-offset dst)))
+   ((fpr? dst)
+    (jit-ldxi-d (fpr dst) %fp (volatile-offset dst)))
+   (else
+    (tjitc-error 'load-volatile "~s" dst))))
 
 (define-syntax-rule (push-gpr-or-mem arg overwritten?)
   (cond
@@ -327,10 +346,10 @@
    (else
     (tjitc-error 'retval-to-gpr-or-mem "unknown dst ~s" dst))))
 
-;;; XXX: Offsets for fields in C structs where manually taken with
-;;; observing output from `objdump'. It would be nice if the offsets
-;;; were derived in programmatic manner. Have not tested on
-;;; architecture other than Linux x86-64.
+;;; XXX: Offsets for fields in C structs were manually taken with observing
+;;; output from `objdump'. It would be nice if the offsets were derived in
+;;; programmatic manner. Have not tested on architecture other than Linux
+;;; x86-64.
 
 (define-syntax-rule (vm-thread-pending-asyncs dst)
   (jit-ldxi dst %thread (imm #x104)))
@@ -441,8 +460,9 @@
 (define (make-asm env end-address)
   (define (volatile-regs-in-use env)
     (hash-fold (lambda (_ reg acc)
-                 (if (and (gpr? reg)
-                          (<= *num-non-volatiles* (ref-value reg)))
+                 (if (or (and (gpr? reg)
+                              (<= *num-non-volatiles* (ref-value reg)))
+                         (fpr? reg))
                      (cons reg acc)
                      acc))
                '()
@@ -624,6 +644,12 @@ both arguments were register or memory."
 (define-native (%ccall (int dst) (void cfunc))
   (let ((volatiles (asm-volatiles asm))
         (cargs (asm-cargs asm)))
+    (define (subrf subr-addr)
+      (let ((subr (pointer->scm (make-pointer subr-addr))))
+        (let ((var0 (program-free-variable-ref subr 0)))
+          (if (pointer? var0)
+              var0
+              (tjitc-error '%ccall "not a primitive ~s" subr)))))
     (for-each store-volatile volatiles)
     (jit-prepare)
     (let lp ((cargs cargs) (i 1) (pushed '()))
@@ -635,7 +661,7 @@ both arguments were register or memory."
            (lp cargs (+ i 1) (cons (argr i) pushed))))
         (()
          (values))))
-    (jit-calli (imm (ref-value cfunc)))
+    (jit-calli (subrf (ref-value cfunc)))
     (retval-to-gpr-or-mem dst)
     (for-each (lambda (reg)
                 (when (not (equal? reg dst))
@@ -956,8 +982,7 @@ both arguments were register or memory."
            (scm-real-value f0 src)
            (memory-set!/f dst f0))))
         ((eq? type &exact-integer)
-         (maybe-guard guard?
-                      (jump (scm-not-inump src) (current-exit)))
+         (maybe-guard guard? (jump (scm-not-inump src) (current-exit)))
          (cond
           ((gpr? dst)
            (jit-rshi (gpr dst) src (imm 2)))
@@ -1158,8 +1183,7 @@ both arguments were register or memory."
    ((and (gpr? dst) (fpr? src))
     (fpr->gpr (gpr dst) (fpr src)))
    ((and (gpr? dst) (memory? src))
-    (memory-ref r0 src)
-    (jit-movr (gpr dst) r0))
+    (memory-ref (gpr dst) src))
 
    ((and (fpr? dst) (constant? src))
     (let ((val (ref-value src)))
@@ -1176,8 +1200,7 @@ both arguments were register or memory."
    ((and (fpr? dst) (fpr? src))
     (jit-movr-d (fpr dst) (fpr src)))
    ((and (fpr? dst) (memory? src))
-    (memory-ref/f f0 src)
-    (jit-movr-d (fpr dst) f0))
+    (memory-ref/f (fpr dst) src))
 
    ((and (memory? dst) (constant? src))
     (let ((val (ref-value src)))

@@ -107,6 +107,7 @@ TESTS = \
 	t-subr-call-02.scm \
 	t-subr-call-03.scm \
 	t-subr-call-04.scm \
+	t-subr-call-05.scm \
 	t-tail-call-01.scm \
 	t-tail-call-02.scm \
 	t-tail-call-03.scm \

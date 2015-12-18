@@ -285,6 +285,11 @@ option was set to true."
                     '%return
                     (cyan (number->string addr 16))
                     (addr->source-line addr)))
+           (('%ccall dst (const . addr))
+            (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
+                    '%ccall
+                    (pretty-register dst)
+                    (pointer->scm (make-pointer addr))))
            (_
             (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
                     (car op)

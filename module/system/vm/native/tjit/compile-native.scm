@@ -411,8 +411,9 @@ are local index number."
                     (nspills (primops-nspills primops)))
                 (when (< max-spills nspills)
                   (tjitc-error 'compile-entry "Too many spills ~s" nspills))
-                (jit-allocai (imm (* (+ max-spills 1 *num-volatiles*)
-                                     %word-size))))
+                (jit-allocai
+                 (imm (* (+ max-spills *num-fpr* *num-volatiles* 1)
+                         %word-size))))
               (fragment-fp-offset fragment))))
     (cond
      ;; Root trace.
