@@ -335,18 +335,21 @@
    (else
     (tjitc-error 'load-volatile "~s" dst))))
 
-(define-syntax-rule (push-gpr-or-mem arg overwritten?)
+(define-syntax-rule (push-as-gpr arg overwritten?)
   (cond
    (overwritten?
     (jit-ldxi r0 %fp (volatile-offset arg))
     (jit-pushargr r0))
    ((gpr? arg)
     (jit-pushargr (gpr arg)))
+   ((fpr? arg)
+    (fpr->gpr r0 (fpr arg))
+    (jit-pushargr r0))
    ((memory? arg)
     (memory-ref r0 arg)
     (jit-pushargr r0))
    (else
-    (tjitc-error 'push-gpr-or-mem "unknown arg ~s" arg))))
+    (tjitc-error 'push-as-gpr "unknown arg ~s" arg))))
 
 (define-syntax-rule (retval-to-gpr-or-mem dst)
   (cond
@@ -671,7 +674,7 @@ both arguments were register or memory."
         ((carg . cargs)
          (let ((overwritten? (and (member carg volatiles)
                                   (member carg pushed))))
-           (push-gpr-or-mem carg overwritten?)
+           (push-as-gpr carg overwritten?)
            (lp cargs (+ i 1) (cons (argr i) pushed))))
         (()
          (values))))
@@ -1163,8 +1166,8 @@ both arguments were register or memory."
               volatiles)
     (jit-prepare)
     (jit-pushargr %thread)
-    (push-gpr-or-mem x x-overwritten?)
-    (push-gpr-or-mem y y-overwritten?)
+    (push-as-gpr x x-overwritten?)
+    (push-as-gpr y y-overwritten?)
     (jit-calli %scm-inline-cons)
     (retval-to-gpr-or-mem dst)
     (for-each (lambda (reg)
