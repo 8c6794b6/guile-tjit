@@ -195,14 +195,26 @@
 (define %scm-from-double
   (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
 
-(define-syntax-rule (scm-from-double dst src)
-  ;; XXX: Store and load volatile registers.
-  (begin
-    (jit-prepare)
-    (jit-pushargr %thread)
-    (jit-pushargr-d src)
-    (jit-calli %scm-from-double)
-    (jit-retval dst)))
+(define-syntax scm-from-double
+  (syntax-rules ()
+    ((_ dst src)
+     (scm-from-double asm dst src))
+    ((_ asm-arg dst src)
+     (let ((volatiles (asm-volatiles asm-arg)))
+       (for-each store-volatile volatiles)
+       (jit-prepare)
+       (jit-pushargr %thread)
+       (jit-pushargr-d src)
+       (jit-calli %scm-from-double)
+       (jit-retval dst)
+       (for-each (lambda (reg)
+                   (when (not (cond ((fpr? reg)
+                                     (equal? (fpr reg) dst))
+                                    ((gpr? reg)
+                                     (equal? (gpr reg) dst))
+                                    (else #f)))
+                     (load-volatile reg)))
+                 volatiles)))))
 
 (define %scm-inline-cons
   (dynamic-pointer "scm_do_inline_cons" (dynamic-link)))
@@ -641,6 +653,8 @@ both arguments were register or memory."
     (jit-subi vp->fp vp->fp (imm (* (ref-value proc) %word-size)))
     (store-vp->fp vp vp->fp)))
 
+;;; C function call. Appears when Scheme primitive procedure defined as `gsubr'
+;;; in C were called.
 (define-native (%ccall (int dst) (void cfunc))
   (let ((volatiles (asm-volatiles asm))
         (cargs (asm-cargs asm)))
@@ -927,6 +941,9 @@ both arguments were register or memory."
                  (cond
                   ((constant? b)
                    (op-ri f0 f1 (constant b)))
+                  ((gpr? b)
+                   (gpr->fpr f2 (gpr b))
+                   (op-rr f0 f1 f2))
                   ((fpr? b)
                    (op-rr f0 f1 (fpr b)))
                   ((memory? b)
@@ -1134,7 +1151,8 @@ both arguments were register or memory."
 ;; Call C function `scm_do_inline_cons'. Save volatile registers before calling,
 ;; restore after getting returned value.
 (define-native (%cons (int dst) (int x) (int y))
-  (let ((x-overwritten? (equal? x (argr 1)))
+  (let ((volatiles (asm-volatiles asm))
+        (x-overwritten? (equal? x (argr 1)))
         (y-overwritten? (or (equal? y (argr 1))
                             (equal? y (argr 2)))))
     (for-each (lambda (reg)
@@ -1142,7 +1160,7 @@ both arguments were register or memory."
                           (and y-overwritten? (equal? reg y))
                           (not (equal? reg dst)))
                   (store-volatile reg)))
-              (asm-volatiles asm))
+              volatiles)
     (jit-prepare)
     (jit-pushargr %thread)
     (push-gpr-or-mem x x-overwritten?)
@@ -1152,7 +1170,7 @@ both arguments were register or memory."
     (for-each (lambda (reg)
                 (when (not (equal? reg dst))
                   (load-volatile reg)))
-              (asm-volatiles asm))))
+              volatiles)))
 
 
 ;;;

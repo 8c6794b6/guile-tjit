@@ -350,7 +350,6 @@ referenced by dst and src value at runtime."
        (let ((,tmp (%add ,tmp 2)))
          ,(proc tmp))))
    ((eq? type &flonum)
-    ;; XXX: Save volatile registers.
     `(let ((,tmp (%from-double ,var)))
        ,(proc tmp)))
    ((memq type (list &char &pair &hash-table))

@@ -80,7 +80,7 @@
   (sp-ref r0 local)
   (unbox-stack-element dst r0 type #f))
 
-(define (store-frame local type src)
+(define (store-frame asm local type src)
   (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
          local (pretty-type type) src)
   (cond
@@ -120,14 +120,14 @@
     (cond
      ((constant? src)
       (jit-movi-d f0 (constant src))
-      (scm-from-double r0 f0)
+      (scm-from-double asm r0 f0)
       (sp-set! local r0))
      ((fpr? src)
-      (scm-from-double r0 (fpr src))
+      (scm-from-double asm r0 (fpr src))
       (sp-set! local r0))
      ((memory? src)
       (memory-ref/f f0 src)
-      (scm-from-double r0 f0)
+      (scm-from-double asm r0 f0)
       (sp-set! local r0))))
    ((eq? type &f64)
     (cond
@@ -167,7 +167,7 @@
    (else
     (tjitc-error 'store-frame "~s ~s ~s" local type src))))
 
-(define (maybe-store local-x-types srcs references shift)
+(define (maybe-store asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES.
 
 Returns a hash-table containing src. Key of the returned hash-table is
@@ -188,7 +188,7 @@ for SHIFT."
                  (let ((reg (hashq-ref references (- local shift))))
                    (or (not reg)
                        (not (equal? src reg)))))
-         (store-frame local type src))
+         (store-frame asm local type src))
        (hashq-set! acc (- local shift) src)
        (lp local-x-types srcs acc))
       (_
@@ -303,7 +303,7 @@ are local index number."
              (vars (snapshot-variables last-snapshot)))
       (match (list locals vars)
         ((((local . type) . locals) (var . vars))
-         (store-frame (- local last-sp-offset) type var)
+         (store-frame asm (- local last-sp-offset) type var)
          (lp locals vars))
         (_
          (let lp ((dsts dsts)
@@ -443,7 +443,8 @@ are local index number."
          (let* ((snap0 (hashq-ref snapshots 0))
                 (locals (snapshot-locals snap0))
                 (vars (snapshot-variables snap0))
-                (references (make-hash-table)))
+                (references (make-hash-table))
+                (asm (make-asm (make-hash-table) #f)))
            (let lp ((locals locals) (vars vars))
              (match (list locals vars)
                ((((local . _) . locals) (var . vars))
@@ -451,7 +452,7 @@ are local index number."
                 (lp locals vars))
                (_
                 (values))))
-           (maybe-store local-x-types exit-variables references 0)))
+           (maybe-store asm local-x-types exit-variables references 0)))
         (_
          (tjitc-error 'compile-entry "snapshot not found"
                       (tj-parent-exit-id tj))))))
@@ -574,7 +575,7 @@ are local index number."
                      (args args))
               (match (list local-x-types args)
                 ((((local . type) . local-x-types) (arg . args))
-                 (store-frame local type arg)
+                 (store-frame asm local type arg)
                  (lp local-x-types args))
                 (_
                  (values)))))
@@ -655,7 +656,8 @@ are local index number."
               (lp locals dsts))
              (_
               (values))))
-         (let ((src-table (maybe-store local-x-types args dst-table sp-offset)))
+         (let ((src-table (maybe-store asm local-x-types args dst-table
+                                       sp-offset)))
            (move-or-load-carefully dst-table src-table type-table)))
 
        ;; Shift SP.
@@ -683,7 +685,7 @@ are local index number."
              (vars (snapshot-variables snapshot)))
       (match (list locals vars)
         ((((local . type) . locals) (var . vars))
-         (store-frame (- local last-sp-offset) type var)
+         (store-frame asm (- local last-sp-offset) type var)
          (lp locals vars))
         (_
          (let lp ((dsts dsts)
@@ -718,7 +720,7 @@ are local index number."
              (vars (snapshot-variables snapshot)))
       (match (list locals vars)
         ((((local . type) . locals) (var . vars))
-         (store-frame local type var)
+         (store-frame asm local type var)
          (lp locals vars))
         (_
          (values))))
