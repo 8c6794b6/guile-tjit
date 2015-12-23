@@ -389,6 +389,7 @@ scm_make_tjit_state (void)
       }                                                                 \
     else                                                                \
       SCM_TJIT_INCREMENT_HOT_IP (JUMP, END_IP, TTYPE, REF);             \
+    NEXT (0);                                                           \
   } while (0)
 
 #define SCM_TJIT_MERGE()                                                \

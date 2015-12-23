@@ -220,41 +220,29 @@
 #  define VM_TJIT_JUMP(n)                                               \
   do {                                                                  \
     if (n < 0 && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)           \
-      {                                                                 \
-        SCM_TJIT_ENTER (n, ip, SCM_TJIT_TRACE_JUMP, tjit_hot_loop);     \
-        NEXT (0);                                                       \
-      }                                                                 \
+      SCM_TJIT_ENTER (n, ip, SCM_TJIT_TRACE_JUMP, tjit_hot_loop);       \
     else                                                                \
       NEXT (n);                                                         \
   } while (0)
 #  define VM_TJIT_CALL(old_ip)                                          \
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
-      {                                                                 \
-        SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),           \
-                        SCM_TJIT_TRACE_CALL, tjit_hot_call);            \
-        NEXT (0);                                                       \
-      }                                                                 \
+      SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),             \
+                      SCM_TJIT_TRACE_CALL, tjit_hot_call);              \
     else                                                                \
       NEXT (0);                                                         \
   } while (0)
 #  define VM_TJIT_TAIL_CALL(old_ip)                                     \
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
-      {                                                                 \
-        SCM_TJIT_ENTER (0, old_ip, SCM_TJIT_TRACE_JUMP, tjit_hot_call); \
-        NEXT (0);                                                       \
-      }                                                                 \
+      SCM_TJIT_ENTER (0, old_ip, SCM_TJIT_TRACE_JUMP, tjit_hot_call);   \
     else                                                                \
       NEXT (0);                                                         \
   } while (0)
 #  define VM_TJIT_RETURN(n)                                             \
   do {                                                                  \
     if (tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)                    \
-      {                                                                 \
-        SCM_TJIT_ENTER (0, 0, SCM_TJIT_TRACE_RETURN, tjit_hot_call);    \
-        NEXT (0);                                                       \
-      }                                                                 \
+      SCM_TJIT_ENTER (0, 0, SCM_TJIT_TRACE_RETURN, tjit_hot_call);      \
     else                                                                \
       NEXT (0);                                                         \
   } while (0);                                                          \
