@@ -150,8 +150,9 @@
         (let lp ((types (if dst
                             (if (pair? types)
                                 (cdr types)
-                                (tjitc-error 'get-arg-types! "unknown type ~s"
-                                             types))
+                                (tjitc-error 'get-arg-types!
+                                             "unknown type ~s ~s"
+                                             op types))
                             types))
                  (args args)
                  (acc '()))
@@ -269,6 +270,9 @@
     (hashq-set! initial-env (make-tmpvar 0) (make-gpr -1))
     (hashq-set! initial-env (make-tmpvar 1) (make-gpr -2))
     (hashq-set! initial-env (make-tmpvar 2) (make-gpr -3))
+    (hashq-set! initial-env (make-tmpvar/f 0) (make-fpr -1))
+    (hashq-set! initial-env (make-tmpvar/f 1) (make-fpr -2))
+    (hashq-set! initial-env (make-tmpvar/f 2) (make-fpr -3))
 
     (syntax-parameterize
         ((free-gprs (identifier-syntax initial-free-gprs))

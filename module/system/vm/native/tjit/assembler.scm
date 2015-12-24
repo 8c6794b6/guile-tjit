@@ -478,7 +478,9 @@
     (hash-fold (lambda (_ reg acc)
                  (if (or (and (gpr? reg)
                               (<= *num-non-volatiles* (ref-value reg)))
-                         (fpr? reg))
+                         (and (fpr? reg)
+                              ;; Suppressing scratch registers.
+                              (<= 0 (ref-value reg))))
                      (cons reg acc)
                      acc))
                '()
@@ -825,29 +827,7 @@ both arguments were register or memory."
 ;;; Floating point
 ;;;
 
-;;; XXX: Make lower level operation and rewrite.
-(define-native (%from-double (int dst) (double src))
-  (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-movi-d f0 (constant src))
-    (scm-from-double (gpr dst) f0))
-   ((and (gpr? dst) (fpr? src))
-    (scm-from-double (gpr dst) (fpr src)))
-   ((and (gpr? dst) (memory? src))
-    (scm-from-double (gpr dst) (memory-ref/f f0 src)))
 
-   ((and (memory? dst) (constant? src))
-    (jit-movi-d f0 (constant src))
-    (scm-from-double r0 f0)
-    (memory-set! dst r0))
-   ((and (memory? dst) (fpr? src))
-    (scm-from-double r0 (fpr src))
-    (memory-set! dst r0))
-   ((and (memory? dst) (memory? src))
-    (scm-from-double r0 (memory-ref/f f0 src))
-    (memory-set! dst r0))
-   (else
-    (tjitc-error '%scm-from-double "~s ~s ~s" dst src))))
 
 (define-syntax define-binary-arith-double
   (lambda (x)
@@ -1138,6 +1118,7 @@ both arguments were register or memory."
 ;;; Type conversion
 ;;;
 
+;; integer -> floating point
 (define-native (%i2d (double dst) (int src))
   (cond
    ((and (fpr? dst) (gpr? src))
@@ -1147,6 +1128,29 @@ both arguments were register or memory."
    (else
     (tjitc-error '%i2d "~s ~s" dst src))))
 
+;; floating point -> SCM
+(define-native (%d2s (int dst) (double src))
+  (cond
+   ((and (gpr? dst) (constant? src))
+    (jit-movi-d f0 (constant src))
+    (scm-from-double (gpr dst) f0))
+   ((and (gpr? dst) (fpr? src))
+    (scm-from-double (gpr dst) (fpr src)))
+   ((and (gpr? dst) (memory? src))
+    (scm-from-double (gpr dst) (memory-ref/f f0 src)))
+
+   ((and (memory? dst) (constant? src))
+    (jit-movi-d f0 (constant src))
+    (scm-from-double r0 f0)
+    (memory-set! dst r0))
+   ((and (memory? dst) (fpr? src))
+    (scm-from-double r0 (fpr src))
+    (memory-set! dst r0))
+   ((and (memory? dst) (memory? src))
+    (scm-from-double r0 (memory-ref/f f0 src))
+    (memory-set! dst r0))
+   (else
+    (tjitc-error '%scm-from-double "~s ~s ~s" dst src))))
 
 ;;;
 ;;; Move

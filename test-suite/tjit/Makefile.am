@@ -38,6 +38,8 @@ TESTS = \
 	t-args-10.scm \
 	t-assign-01.scm \
 	t-box-01.scm \
+	t-box-02.scm \
+	t-box-03.scm \
 	t-call-01.scm \
 	t-call-02.scm \
 	t-call-03.scm \

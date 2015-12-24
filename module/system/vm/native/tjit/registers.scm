@@ -155,7 +155,7 @@
          ;; Lightning.
          #(r11 r10 rax r14 r15 r9 r8 rcx rdx rsi rdi))
         (fpr-names
-         #(xmm8 xmm9 xmm10 xmm11 xmm12 xmm13 xmm14 xmm15
+         #(xmm10 xmm9 xmm8 xmm11 xmm12 xmm13 xmm14 xmm15
                 xmm7 xmm6 xmm5 xmm4 xmm3 xmm2 xmm1 xmm0)))
     (when (not (pair? r))
       (tjitc-error 'physical-name "unknown argument ~s" r))
