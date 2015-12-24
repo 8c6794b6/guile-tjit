@@ -110,13 +110,12 @@ option was set to true."
   (cond
    ((find-source-for-addr addr)
     => (lambda (source)
-         (format #f "~a:~d"
-                 (let ((file (source-file source)))
-                   (or (and (string? file) (basename file))
-                       "(unknown file)"))
-                 (source-line-for-user source))))
+         (cons (let ((file (source-file source)))
+                 (or (and (string? file) file)
+                     "(unknown file)"))
+               (source-line-for-user source))))
    (else
-    "(invalid IP)")))
+    (cons "(invalid IP)" #f))))
 
 (define (dump-bytecode trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
@@ -284,7 +283,7 @@ option was set to true."
             (format #t "~4,,,'0@a ~a (~7a ~a/~a)~%" idx mark
                     '%return
                     (cyan (number->string addr 16))
-                    (addr->source-line addr)))
+                    (basename (car (addr->source-line addr)))))
            (('%ccall dst (const . addr))
             (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
                     '%ccall

@@ -54,7 +54,7 @@
   SCM_DEFINE (scm_set_tjit_##name##_x, "set-tjit-"#sname"!",            \
               1, 0, 0, (SCM count), "")                                 \
   {                                                                     \
-    /* XXX: Some params does not require `65536 < count' check. */      \
+    /* XXX: Some params does not need `65536 < count' check. */         \
     if (SCM_I_NINUMP (count)                                            \
         || count < 0                                                    \
         || SCM_I_MAKINUM (65536) < count)                               \
@@ -157,7 +157,6 @@ SCM_TJIT_TABLE (fragment, fragment);
 /* Hash table to hold fragment data of root traces. Key is bytecode IP,
    value is fragment data. */
 SCM_TJIT_TABLE (root_trace, root-trace);
-
 
 /* Fluid to hold recorded bytecode. */
 static SCM bytecode_buffer_fluid;
@@ -404,10 +403,8 @@ scm_make_tjit_state (void)
     int link_found = has_root && ip != start_ip;                        \
                                                                         \
     if (has_root)                                                       \
-      {                                                                 \
-        fragment = scm_hashq_ref (tjit_root_trace_table, s_ip,          \
-                                  SCM_BOOL_F);                          \
-      }                                                                 \
+      fragment =                                                        \
+        scm_hashq_ref (tjit_root_trace_table, s_ip, SCM_BOOL_F);        \
     else                                                                \
       fragment = SCM_BOOL_F;                                            \
                                                                         \
@@ -608,6 +605,111 @@ scm_do_vm_expand_stack (struct scm_vm *vp, union scm_vm_stack_element *new_sp)
 
 
 /*
+ * GDB JIT Interface
+ */
+
+typedef enum
+  {
+    GDB_JIT_NOACTION = 0,
+    GDB_JIT_REGISTER,
+    GDB_JIT_UNREGISTER
+  } jit_actions_t;
+
+struct gdb_jit_entry
+{
+  struct gdb_jit_entry *next_entry;
+  struct gdb_jit_entry *prev_entry;
+  const char *symfile_addr;
+  uint64_t symfile_size;
+};
+
+struct gdb_jit_descriptor
+{
+  uint32_t version;
+  uint32_t action_flag;
+  struct gdb_jit_entry *relevant_entry;
+  struct gdb_jit_entry *first_entry;
+};
+
+void SCM_NOINLINE __jit_debug_register_code (void);
+
+void SCM_NOINLINE
+__jit_debug_register_code (void)
+{
+#ifdef __GNUC__
+  __asm__ volatile ("" : : : "memory");
+#else
+  scm_remember_upto_here_1 (SCM_BOOL_F);
+#endif
+}
+
+struct gdb_jit_descriptor __jit_debug_descriptor = {
+  1, GDB_JIT_NOACTION, NULL, NULL
+};
+
+static SCM gdb_jit_entries = SCM_EOL;
+
+SCM_DEFINE (scm_tjit_register_gdb_jit_entry_x, "tjit-register-gdb-jit-entry!",
+            1, 0, 0, (SCM elf), "Register GDB JIT entry.")
+#define FUNC_NAME s_scm_tjit_register_gdb_jit_entry_x
+{
+  struct gdb_jit_entry *entry;
+  SCM s_entry;
+
+  SCM_VALIDATE_BYTEVECTOR (1, elf);
+
+  entry = scm_gc_malloc (sizeof (struct gdb_jit_entry), "gdbjit");
+  entry->prev_entry = NULL;
+  entry->next_entry = __jit_debug_descriptor.first_entry;
+  if (entry->next_entry)
+    entry->next_entry->prev_entry = entry;
+  entry->symfile_addr = (const char *) SCM_BYTEVECTOR_CONTENTS (elf);
+  entry->symfile_size = SCM_BYTEVECTOR_LENGTH (elf);
+
+  SCM_CRITICAL_SECTION_START;
+  __jit_debug_descriptor.first_entry = entry;
+  __jit_debug_descriptor.relevant_entry = entry;
+  __jit_debug_descriptor.action_flag = GDB_JIT_REGISTER;
+  __jit_debug_register_code ();
+  SCM_CRITICAL_SECTION_END;
+
+  s_entry = scm_from_pointer (entry, NULL);
+  gdb_jit_entries = scm_cons (s_entry, gdb_jit_entries);
+
+  return s_entry;
+}
+#undef FUNC_NAME
+
+static inline void scm_tjit_unregister_gdb_jit_entry (void *obj)
+{
+  struct gdb_jit_entry *entry;
+
+  entry = (struct gdb_jit_entry *) obj;
+  if (entry->prev_entry)
+    entry->prev_entry->next_entry = entry->next_entry;
+  else
+    __jit_debug_descriptor.first_entry = entry->next_entry;
+  if (entry->next_entry)
+    entry->next_entry->prev_entry = entry->prev_entry;
+  __jit_debug_descriptor.relevant_entry = entry;
+  __jit_debug_descriptor.action_flag = GDB_JIT_UNREGISTER;
+  __jit_debug_register_code ();
+}
+
+static void scm_tjit_cleanup_gdb_entries (void)
+{
+  SCM_CRITICAL_SECTION_START;
+  while (scm_is_pair (gdb_jit_entries))
+    {
+      void *entry = SCM_POINTER_VALUE (SCM_CAR (gdb_jit_entries));
+      scm_tjit_unregister_gdb_jit_entry (entry);
+      gdb_jit_entries = SCM_CDR (gdb_jit_entries);
+    }
+  SCM_CRITICAL_SECTION_END;
+}
+
+
+/*
  * Initialization
  */
 
@@ -641,6 +743,8 @@ scm_bootstrap_vm_tjit(void)
   tjit_fragment_table = scm_c_make_hash_table (31);
   tjit_root_trace_table = scm_c_make_hash_table (31);
   tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));
+
+  atexit (scm_tjit_cleanup_gdb_entries);
 }
 
 void

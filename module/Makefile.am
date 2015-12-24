@@ -344,6 +344,7 @@ SOURCES =					\
   system/vm/native/debug.scm			\
   system/vm/native/tjit/parameters.scm		\
   system/vm/native/tjit/error.scm		\
+  system/vm/native/tjit/gdb.scm			\
   system/vm/native/tjit/snapshot.scm		\
   system/vm/native/tjit/registers.scm		\
   system/vm/native/tjit/variables.scm		\

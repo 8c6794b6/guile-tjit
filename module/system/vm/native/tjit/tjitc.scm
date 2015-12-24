@@ -72,12 +72,12 @@
                          ""
                          (format #f " -> ~a"
                                  (fragment-id (get-root-trace linked-ip)))))
-          (trace-type (cond
-                       (downrec? " - downrec")
-                       (uprec? " - uprec")
-                       (else ""))))
-      (format #t ";;; trace ~a: ~a~a~a~a~%"
-              trace-id sline exit-pair linked-id trace-type)))
+          (ttype (cond
+                  (downrec? " - downrec")
+                  (uprec? " - uprec")
+                  (else ""))))
+      (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
+              trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
   (define (traced-ops bytecode traces sp-offset fp-offset types)
     (define disassemble-one
       (@@ (system vm disassembler) disassemble-one))
@@ -166,7 +166,7 @@
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
           (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
           (let-values (((code size adjust loop-address trampoline)
-                        (compile-native tj ops snapshots)))
+                        (compile-native tj ops snapshots sline)))
             (tjit-increment-id!)
             (when (tjit-dump-ncode? dump-option)
               (dump-ncode trace-id entry-ip code size adjust

@@ -40,10 +40,11 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
-  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit assembler)
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit compile-ir)
   #:use-module (system vm native tjit fragment)
+  #:use-module (system vm native tjit gdb)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit registers)
@@ -220,7 +221,6 @@ Avoids overwriting source in hash-table SRCS while updating destinations in
 hash-table DSTS.  If source is not found, load value from frame with using type
 from hash-table TYPES to get memory offset.  Hash-table key of SRCS, DSTS, TYPES
 are local index number."
-
   (define (dst-is-full? as bs)
     (let lp ((as as))
       (match as
@@ -240,7 +240,6 @@ are local index number."
     (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local dst src))
   (define (dump-load local dst type)
     (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local dst type))
-
   (let ((dsts-list (hash-map->list cons dsts))
         (car-< (lambda (a b) (< (car a) (car b)))))
     (debug 3 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
@@ -329,7 +328,7 @@ are local index number."
 ;;; The Native Code Compiler
 ;;;
 
-(define (compile-native tj primops snapshots)
+(define (compile-native tj primops snapshots sline)
   (with-jit-state
    (jit-prolog)
    (let-values
@@ -342,9 +341,9 @@ are local index number."
        (jit-realize)
        (let* ((estimated-size (jit-code-size))
               (code (make-bytevector estimated-size)))
-         (jit-set-code (bytevector->pointer code)
-                       (imm estimated-size))
+         (jit-set-code (bytevector->pointer code) (imm estimated-size))
          (let* ((ptr (jit-emit))
+                (size (jit-code-size))
                 (exit-counts (make-hash-table))
                 (loop-address (and loop-label (jit-address loop-label)))
                 (end-address (or (and=> (tj-parent-fragment tj)
@@ -352,7 +351,15 @@ are local index number."
                                  (jit-address epilog-label)))
                 (parent-id (or (and=> (tj-parent-fragment tj)
                                       fragment-id)
-                               0)))
+                               0))
+                (verbosity (lightning-verbosity))
+                (gdb-jit-entry
+                 (if (and verbosity (< 0 verbosity))
+                     (let* ((addr (pointer-address (bytevector->pointer code)))
+                            (elf (make-gdb-jit-elf (tj-id tj) addr size
+                                                   (car sline) (cdr sline))))
+                       (tjit-register-gdb-jit-entry! elf))
+                     #f)))
            (make-bytevector-executable! code)
 
            ;; Emit bailouts with end address of this code.
@@ -381,7 +388,9 @@ are local index number."
                                          snapshots
                                          trampoline
                                          fp-offset
-                                         end-address))
+                                         end-address
+                                         gdb-jit-entry))
+
            (debug 4 ";;; jit-print:~%~a~%" (jit-print))
            ;; When this trace is a side trace, replace the native code
            ;; of trampoline in parent fragment.
@@ -390,7 +399,7 @@ are local index number."
                (let ((trampoline (fragment-trampoline fragment)))
                  (trampoline-set! trampoline (tj-parent-exit-id tj) ptr)
                  (set-snapshot-code! (tj-parent-snapshot tj) code))))
-           (values code (jit-code-size) (pointer-address ptr)
+           (values code size (pointer-address ptr)
                    loop-address trampoline)))))))
 
 (define (compile-entry tj primops snapshots)

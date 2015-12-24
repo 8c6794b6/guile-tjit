@@ -103,6 +103,8 @@ SCM_API SCM scm_tjit_increment_id_x (void);
 SCM_API SCM scm_tjit_increment_compilation_failure_x (SCM ip);
 SCM_API SCM scm_tjit_add_root_ip_x (SCM ip);
 
+SCM_API SCM scm_tjit_register_gdb_jit_entry_x (SCM elf);
+
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);
 

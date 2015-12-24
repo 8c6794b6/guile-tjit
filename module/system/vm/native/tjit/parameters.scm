@@ -55,6 +55,7 @@
             set-tjit-num-unrolls!
             tjit-increment-compilation-failure!
             tjit-add-root-ip!
+            tjit-register-gdb-jit-entry!
 
             tjit-dump-abort?
             tjit-dump-bytecode?

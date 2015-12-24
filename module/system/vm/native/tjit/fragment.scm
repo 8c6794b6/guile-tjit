@@ -50,6 +50,7 @@
             fragment-loop-vars
             fragment-fp-offset
             fragment-end-address
+            fragment-gdb-jit-entry
 
             put-fragment!
             get-fragment
@@ -156,7 +157,7 @@
 (define-record-type <fragment>
   (%make-fragment id code exit-counts downrec? uprec? entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
-                  snapshots trampoline fp-offset end-address)
+                  snapshots trampoline fp-offset end-address gdb-jit-entry)
   fragment?
 
   ;; Trace id number.
@@ -202,7 +203,10 @@
   (fp-offset fragment-fp-offset)
 
   ;; End address.
-  (end-address fragment-end-address))
+  (end-address fragment-end-address)
+
+  ;; GDB JIT entry.
+  (gdb-jit-entry fragment-gdb-jit-entry))
 
 (define make-fragment %make-fragment)
 
