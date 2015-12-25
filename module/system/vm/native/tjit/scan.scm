@@ -33,7 +33,8 @@
   #:export (scan-locals))
 
 
-(define* (scan-locals ol op prev-op locals #:optional (type-only? #f))
+(define* (scan-locals ol op prev-op locals #:optional (initialized? #f)
+                      (backward? #f))
   ;; Compute local indices and stack element types in op.
   ;;
   ;; Lower frame data is saved at the time of accumulation.  If one of
@@ -46,20 +47,24 @@
   ;; The stack grows down.
   ;;
   (define-syntax-rule (push-sp-offset! n)
-    (set-outline-sp-offset! ol (- (outline-sp-offset ol) n)))
+    (unless initialized?
+      (set-outline-sp-offset! ol (- (outline-sp-offset ol) n))))
   (define-syntax-rule (pop-sp-offset! n)
-    (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n)))
+    (unless initialized?
+      (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n))))
   (define-syntax-rule (push-fp-offset! n)
-    (set-outline-fp-offset! ol (- (outline-fp-offset ol) n)))
+    (unless initialized?
+      (set-outline-fp-offset! ol (- (outline-fp-offset ol) n))))
   (define-syntax-rule (pop-fp-offset! n)
-    (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n)))
+    (unless initialized?
+      (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n))))
   (define-syntax-rule (save-sp-offset!)
-    (when (not type-only?)
+    (unless initialized?
       (let ((new-offsets (cons (outline-sp-offset ol)
                                (outline-sp-offsets ol))))
         (set-outline-sp-offsets! ol new-offsets))))
   (define-syntax-rule (save-fp-offset!)
-    (when (not type-only?)
+    (unless initialized?
       (let ((new-offsets (cons (outline-fp-offset ol)
                                (outline-fp-offsets ol))))
         (set-outline-fp-offsets! ol new-offsets))))
@@ -80,8 +85,9 @@
   (define-syntax add!
     (syntax-rules ()
       ((_ i ...)
-       (when (not type-only?)
-         (set-index! i ...)
+       (begin
+         (unless initialized?
+           (set-index! i ...))
          (set-type! (i 'scm) ...)))))
   (define-syntax-rule (ret)
     (values #t (car op)))
@@ -90,19 +96,18 @@
       (debug 1 "NYI: ~a~%" (car op))
       (values #f (car op))))
 
-  (when (not type-only?)
+  (unless initialized?
     (let ((ret-types (outline-ret-types ol)))
       (if (eq? 'subr-call prev-op)
-          (begin
-            (match op
-              (('receive dst proc nlocals)
-               (let* ((stack-size (vector-length locals))
-                      (idx (- stack-size proc 2))
-                      (val (stack-element locals idx 'scm))
-                      (type (type-of val)))
-                 (set-outline-ret-types! ol (cons type ret-types))))
-              (_
-               (set-outline-ret-types! ol (cons #f ret-types)))))
+          (match op
+            (('receive dst proc nlocals)
+             (let* ((stack-size (vector-length locals))
+                    (idx (- stack-size proc 2))
+                    (val (stack-element locals idx 'scm))
+                    (type (type-of val)))
+               (set-outline-ret-types! ol (cons type ret-types))))
+            (_
+             (set-outline-ret-types! ol (cons #f ret-types))))
           (set-outline-ret-types! ol (cons #f ret-types)))))
 
   (cond
@@ -121,7 +126,9 @@
     (('call proc nlocals)
      (let* ((stack-size (vector-length locals))
             (sp-proc (- stack-size proc 1)))
-       (add! sp-proc (+ sp-proc 1) (+ sp-proc 2))
+       (if initialized?
+           (set-type! (sp-proc 'scm))
+           (add! sp-proc (+ sp-proc 1) (+ sp-proc 2)))
        (let lp ((n 1))
          (when (<= n nlocals)
            (set-type! ((- sp-proc n) 'scm))
@@ -190,11 +197,25 @@
      (save-sp-offset!)
      (save-fp-offset!)
      (ret))
+    (('mov dst src)
+     (unless initialized?
+       (set-index! dst src))
+     (let ((sp-offset (outline-sp-offset ol)))
+       (if backward?
+           (and=> (outline-type-ref ol (+ dst sp-offset))
+                  (lambda (type)
+                    (set-type! (src type))))
+           (and=> (outline-type-ref ol (+ src sp-offset))
+                  (lambda (type)
+                    (set-type! (dst type))))))
+     (save-sp-offset!)
+     (save-fp-offset!)
+     (ret))
     (_
      (cond
       ((hashq-ref *index-scanners* (car op))
        => (lambda (proc)
-            (if (not type-only?)
+            (if (not initialized?)
                 (begin
                   (apply proc ol (outline-sp-offset ol) (cdr op))
                   (save-sp-offset!)

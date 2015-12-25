@@ -224,25 +224,15 @@
        (gen-put-index ol sp-offset . rest)))))
 
 (define-syntax gen-put-element-type
-  (syntax-rules (any scm u64 f64 const)
+  (syntax-rules (scm u64 f64 const)
     ((_ ol sp-offset)
      ol)
-    ((_ ol sp-offset (scm arg) . rest)
-     (begin
-       (put-element-type! ol sp-offset arg 'scm)
-       (gen-put-element-type ol sp-offset . rest)))
-    ((_ ol sp-offset (u64 arg) . rest)
-     (begin
-       (put-element-type! ol sp-offset arg 'u64)
-       (gen-put-element-type ol sp-offset . rest)))
-    ((_ ol sp-offset (f64 arg) . rest)
-     (begin
-       (put-element-type! ol sp-offset arg 'f64)
-       (gen-put-element-type ol sp-offset . rest)))
-    ((_ ol sp-offset (any arg) . rest)
-     (gen-put-element-type ol sp-offset . rest))
     ((_ ol sp-offset (const arg) . rest)
-     (gen-put-element-type ol sp-offset . rest))))
+     (gen-put-element-type ol sp-offset . rest))
+    ((_ ol sp-offset (other arg) . rest)
+     (begin
+       (put-element-type! ol sp-offset arg 'other)
+       (gen-put-element-type ol sp-offset . rest)))))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -458,8 +448,8 @@ referenced by dst and src value at runtime."
                                  ((eq? 'scm elem)
                                   (type-of (stack-element locals i elem)))
                                  (else
-                                  (tjitc-error 'receive "unknown type ~s"
-                                               elem)))))
+                                  (tjitc-error 'receive "unknown type ~s at ~s"
+                                               elem n)))))
                      ;; Ignoring `unspecified' values when loading from previous
                      ;; frame. Those values might came from dead slots in stack
                      ;; which were overwritten by gc. See `scm_i_vm_mark_stack'
@@ -490,7 +480,7 @@ referenced by dst and src value at runtime."
         (dl/val (make-dynamic-link dl))
         (stack-size (vector-length locals)))
     (set-outline-previous-dl-and-ra! (ir-outline ir) stack-size
-                                        ra/val dl/val))
+                                     ra/val dl/val))
   (let ((snapshot (take-snapshot! ip 0)))
     (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     `(let ((_ ,snapshot))
@@ -650,7 +640,7 @@ referenced by dst and src value at runtime."
                       (tjitc-error "~s: got ~s ~s" 'name ra rb))))
        . body))))
 
-(define-syntax define-br-binary
+(define-syntax define-br-binary-scm-scm
   (syntax-rules ()
     ((_  name op-scm op-fx-t op-fx-f op-fl-t op-fl-f)
      (define-ir (name (scm a) (scm b) (const invert?) (const offset))
@@ -668,14 +658,14 @@ referenced by dst and src value at runtime."
                             `(op-fl-t ,va ,vb)
                             `(op-fl-f ,va ,vb))))
                 ,(next))))
-          ;; XXX: Delegate other types to `scm_num_eq_p' function, e.g.: SCM
-          ;; bignum, complex, ... etc.
+          ;; XXX: Delegate other types to C function, e.g.: SCM bignum, complex,
+          ;; ... etc.
           (else
            (nyi "~s: ~a ~a~%" 'name ra rb))))))))
 
-(define-br-binary br-if-= = %eq %ne %feq %fne)
-(define-br-binary br-if-< < %lt %ge %flt %fge)
-(define-br-binary br-if-<= <= %le %gt %fle %fgt)
+(define-br-binary-scm-scm br-if-= = %eq %ne %feq %fne)
+(define-br-binary-scm-scm br-if-< < %lt %ge %flt %fge)
+(define-br-binary-scm-scm br-if-<= <= %le %gt %fle %fgt)
 
 ;;; *** Lexical binding instructions
 
@@ -683,7 +673,7 @@ referenced by dst and src value at runtime."
 ;; stack element type resolution may return incorrect result. To properly
 ;; resolve stack element types, may need to traverse bytecode operations
 ;; backward.
-(define-ir (mov (scm dst) (scm src))
+(define-ir (mov dst src)
   `(let ((,(var-ref dst) ,(var-ref src)))
      ,(next)))
 

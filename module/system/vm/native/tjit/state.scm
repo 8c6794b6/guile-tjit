@@ -40,14 +40,13 @@
             tj-downrec?
             tj-uprec?
             tj-handle-interrupts?
-            set-tj-handle-interrupts!))
+            set-tj-handle-interrupts!
+            tj-initial-types))
 
 (define-record-type $tj
   (make-tj id entry-ip linked-ip
-           parent-exit-id parent-fragment parent-snapshot
-           outline
-           loop? downrec? uprec?
-           handle-interrupts?)
+           parent-exit-id parent-fragment parent-snapshot outline
+           loop? downrec? uprec? handle-interrupts? initial-types)
   tj?
 
   ;; Trace ID of this compilation.
@@ -81,4 +80,7 @@
   (uprec? tj-uprec?)
 
   ;; Flag to emit interrupt handler.
-  (handle-interrupts? tj-handle-interrupts? set-tj-handle-interrupts!))
+  (handle-interrupts? tj-handle-interrupts? set-tj-handle-interrupts!)
+
+  ;; Initial stack element types
+  (initial-types tj-initial-types))

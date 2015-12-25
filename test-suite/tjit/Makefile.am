@@ -56,6 +56,8 @@ TESTS = \
 	t-flonum-03.scm \
 	t-flonum-04.scm \
 	t-guard-01.scm \
+	t-mov-01.scm \
+	t-mov-02.scm \
 	t-nest-01.scm \
 	t-nest-02.scm \
 	t-nest-03.scm \

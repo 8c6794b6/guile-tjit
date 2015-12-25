@@ -49,14 +49,14 @@
   #:use-module (system vm native tjit scan)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
-  #:export (compile-primops))
+  #:export (compile-ir))
 
 
 ;;;
-;;; Traced bytecode to ANF IR compiler
+;;; Traced bytecode to ANF IR, and ANF to primop IR compiler
 ;;;
 
-(define (compile-primops tj trace)
+(define (compile-ir tj trace)
   "Compiles TRACE to primops with TJ and TRACE."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (tj-id tj))))
@@ -135,7 +135,7 @@
               (assq-ref (snapshot-locals snapshot0) i)))
           (define (type-from-runtime-value i)
             (let* ((type (outline-type-ref (tj-outline tj)
-                                              (+ i initial-sp-offset)))
+                                           (+ i initial-sp-offset)))
                    (local (stack-element initial-locals i type)))
               (type-of local)))
           (define (type-from-parent n)
@@ -195,6 +195,15 @@
         (let ((emit (lambda ()
                       (let* ((initial-nlocals
                               (snapshot-nlocals (hashq-ref snapshots 0)))
+                             (outline (tj-outline tj))
+                             (outline-sp-offset
+                              (vector-ref (outline-sp-offsets outline) 0))
+                             (outline-fp-offset
+                              (vector-ref (outline-fp-offsets outline) 0))
+                             (_ (set-outline-sp-offset! outline
+                                                        outline-sp-offset))
+                             (_ (set-outline-fp-offset! outline
+                                                        outline-fp-offset))
                              (ir (make-ir snapshots
                                           snapshot-id
                                           (tj-parent-snapshot tj)
@@ -210,6 +219,7 @@
                                (interrupts? (ir-handle-interrupts? ir)))
                           (set-tj-handle-interrupts! tj interrupts?)
                           anf)))))
+          (merge-outline-types! (tj-outline tj) (tj-initial-types tj))
           (cond
            (root-trace?
             (let* ((arg-indices (filter (lambda (n)
@@ -248,8 +258,6 @@
                                         0
                                         initial-locals
                                         '())))
-              (merge-outline-types! (tj-outline tj)
-                                       parent-snapshot-locals)
               `(letrec ((patch (lambda ,args-from-parent
                                  (let ((_ ,snap))
                                    ,(add-initial-loads
@@ -292,6 +300,7 @@
              (let ((next
                     (lambda ()
                       (let* ((old-index (ir-bytecode-index ir))
+                             (new-index (+ old-index 1))
                              (sp-offsets (outline-sp-offsets (ir-outline ir)))
                              (sp-offset (vector-ref sp-offsets old-index))
                              (fp-offsets (outline-fp-offsets (ir-outline ir)))
@@ -299,8 +308,18 @@
                              (nlocals (vector-length locals))
                              (max-offset (get-max-sp-offset sp-offset
                                                             fp-offset
-                                                            nlocals)))
-                        (set-ir-bytecode-index! ir (+ old-index 1))
+                                                            nlocals))
+                             (new-sp-offset
+                              (if (< 0 new-index (vector-length sp-offsets))
+                                  (vector-ref sp-offsets new-index)
+                                  0))
+                             (new-fp-offset
+                              (if (< 0 new-index (vector-length fp-offsets))
+                                  (vector-ref fp-offsets new-index)
+                                  0)))
+                        (set-ir-bytecode-index! ir new-index)
+                        (set-outline-sp-offset! (ir-outline ir) new-sp-offset)
+                        (set-outline-fp-offset! (ir-outline ir) new-fp-offset)
                         (when (< sp-offset (ir-min-sp-offset ir))
                           (set-ir-min-sp-offset! ir sp-offset))
                         (when (< (ir-max-sp-offset ir) max-offset)

@@ -266,7 +266,9 @@
            (types (outline-types outline)))
     (match locals
       (((local . type) . locals)
-       (let* ((etype (type->stack-element-type type))
+       (let* ((etype (if (symbol? type)
+                         type
+                         (type->stack-element-type type)))
               (types (assq-set! types local etype)))
          (lp locals types)))
       (_

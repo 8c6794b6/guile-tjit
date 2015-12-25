@@ -103,25 +103,24 @@
       (lambda (x y fmt args . z)
         (debug 1 "XXX: ~s~%" (apply format #f fmt args))
         (values '() #f #f))))
-  (define (scan-again traces ol parent-snapshot sp fp)
-    ;; Scan traces again to resolve stack element types which were unresolved in
-    ;; the first scan.
-    ;;
-    ;; XXX: Inefficient to scan again, consider resolving stack element types by
-    ;; travercing the traces from last to first.
-    (when parent-snapshot
-      (merge-outline-types! ol (snapshot-locals parent-snapshot)))
-    (set-outline-sp-offset! ol sp)
-    (set-outline-fp-offset! ol fp)
-    (let lp ((traces traces))
-      (match traces
-        (((op _ _ _ locals) . traces)
-         (scan-locals ol op #f locals #t)
-         (lp traces))
-        (()
-         (set-outline-sp-offset! ol sp)
-         (set-outline-fp-offset! ol fp)
-         ol))))
+  (define (scan-backward traces ol parent-snapshot sp fp)
+    (let ((sp-offsets (outline-sp-offsets ol))
+          (fp-offsets (outline-fp-offsets ol))
+          (linked (get-root-trace linked-ip)))
+      (when linked
+        (merge-outline-types! ol (fragment-loop-locals linked)))
+      (let lp ((traces (reverse traces))
+               (index (- (vector-length sp-offsets) 1)))
+        (match traces
+          (((op _ _ _ locals) . traces)
+           (set-outline-sp-offset! ol (vector-ref sp-offsets index))
+           (set-outline-fp-offset! ol (vector-ref fp-offsets index))
+           (scan-locals ol op #f locals #t #t)
+           (lp traces (- index 1)))
+          (()
+           (set-outline-sp-offset! ol sp)
+           (set-outline-fp-offset! ol fp)
+           ol)))))
   (define (get-initial-types snapshot)
     (if snapshot
         (let lp ((locals (snapshot-locals snapshot)) (acc '()))
@@ -156,13 +155,16 @@
         (debug 1 ";;; trace ~a: ~a~%" trace-id msg)
         (tjit-increment-compilation-failure! entry-ip)))
     (define (compile-traces traces outline)
-      (let* ((outline (scan-again traces outline parent-snapshot
-                                  initial-sp-offset
-                                  initial-fp-offset))
+      (let* ((initial-types (if (or (not parent-fragment) loop?)
+                                (copy-tree (outline-types outline))
+                                (snapshot-locals parent-snapshot)))
+             (outline (scan-backward traces outline parent-snapshot
+                                     initial-sp-offset
+                                     initial-fp-offset))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
-                          loop? downrec? uprec? #f)))
-        (let-values (((snapshots anf ops) (compile-primops tj traces)))
+                          loop? downrec? uprec? #f initial-types)))
+        (let-values (((snapshots anf ops) (compile-ir tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
           (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
           (let-values (((code size adjust loop-address trampoline)
