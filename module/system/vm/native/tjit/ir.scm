@@ -405,7 +405,7 @@ referenced by dst and src value at runtime."
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
          ,(if (< 0 (current-fp-offset))
-              `(let ((_ (%pcall ,proc)))
+              `(let ((_ (%scall ,proc)))
                  ,(next))
               (next))))))
 

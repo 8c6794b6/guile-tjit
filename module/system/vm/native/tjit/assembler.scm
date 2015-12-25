@@ -134,6 +134,10 @@
   (lambda (x)
     (syntax-violation 'asm "asm used outside of primitive definition" x)))
 
+(define-syntax-parameter err
+  (lambda (x)
+    (syntax-violation 'err "err used outside of primitive definition" x)))
+
 (define-syntax define-native
   (syntax-rules ()
     ((_ (name (ty arg) ...) <body>)
@@ -143,7 +147,18 @@
            (when (and verbosity (<= 5 verbosity))
              (jit-note (format #f "~a" `(name ,arg ...)) 0))
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
-         (syntax-parameterize ((asm (identifier-syntax asm-in-arg)))
+         (syntax-parameterize
+             ((asm (identifier-syntax asm-in-arg))
+              (err (syntax-rules ()
+                     ((_)
+                      (tjitc-error 'name
+                                   ((lambda args
+                                      (let lp ((args args) (acc '()))
+                                        (if (null? args)
+                                            (string-join acc " ")
+                                            (lp (cdr args) (cons "~s" acc)))))
+                                    'arg ...)
+                                   arg ...)))))
            <body>))
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
@@ -321,21 +336,15 @@
 
 (define (store-volatile src)
   (cond
-   ((gpr? src)
-    (jit-stxi (volatile-offset src) %fp (gpr src)))
-   ((fpr? src)
-    (jit-stxi-d (volatile-offset src) %fp (fpr src)))
-   (else
-    (tjitc-error 'store-volatile "~s" src))))
+   ((gpr? src) (jit-stxi (volatile-offset src) %fp (gpr src)))
+   ((fpr? src) (jit-stxi-d (volatile-offset src) %fp (fpr src)))
+   (else (tjitc-error 'store-volatile "~s" src))))
 
 (define (load-volatile dst)
   (cond
-   ((gpr? dst)
-    (jit-ldxi (gpr dst) %fp (volatile-offset dst)))
-   ((fpr? dst)
-    (jit-ldxi-d (fpr dst) %fp (volatile-offset dst)))
-   (else
-    (tjitc-error 'load-volatile "~s" dst))))
+   ((gpr? dst) (jit-ldxi (gpr dst) %fp (volatile-offset dst)))
+   ((fpr? dst) (jit-ldxi-d (fpr dst) %fp (volatile-offset dst)))
+   (else (tjitc-error 'load-volatile "~s" dst))))
 
 (define-syntax-rule (push-as-gpr arg overwritten?)
   (cond
@@ -529,18 +538,7 @@
    (else
     (jit-stxi-d (moffs dst) %fp src))))
 
-(define-syntax-rule (emit-side-exit)
-  "Emit native code of side exit.
-
-This macro emits native code which does jumping to current side exit. Assuming
-that the `out-code' of ASM contains native code for next side exit.
-
-Side trace reuses native code which does %rsp shifting from parent trace's
-epilog part. Native code of side trace does not reset %rsp, since it uses
-`jit-tramp'."
-  (jumpi (asm-out-code asm)))
-
-(define-syntax-rule (current-exit)
+(define-syntax-rule (bailout)
   (asm-exit asm))
 
 
@@ -553,46 +551,42 @@ epilog part. Native code of side trace does not reset %rsp, since it uses
 ;;;
 
 (define-syntax define-binary-guard-int
-  (lambda (x)
+  (syntax-rules ()
     "Macro for defining guard primitive which takes two int arguments.
 
-`define-binary-int-guard NAME CONST-CONST-OP REG-CONST-OP REG-REG-OP' will
-define a primitive named NAME. Uses CONST-CONST-OP when both arguments matched
-`constant?' predicate. Uses REG-CONST-OP when the first argument matched `gpr?'
-or `memory?' predicate while the second was constant. And, uses REG-REG-OP when
-both arguments were register or memory."
-    (syntax-case x ()
-      ((_ name const-const-op reg-const-op reg-reg-op)
-       #`(define-native (name (int a) (int b))
+`define-binary-int-guard NAME OP-II OP-RI OP-RR' will define a primitive named
+NAME. Uses OP-II when both arguments matched `constant?' predicate. Uses OP-RI
+when the first argument matched `gpr?'  or `memory?' predicate while the second
+was constant. And, uses OP-RR when both arguments were register or memory."
+    ((_ name op-ii op-ri op-rr)
+     (define-native (name (int a) (int b))
+       (cond
+        ((constant? a)
+         (cond
+          ((constant? b)
+           (when (op-ii (ref-value a) (ref-value b))
+             (jump (bailout))))
+          (else
+           (jit-movi r0 (constant a))
            (cond
-            ((and (constant? a) (constant? b))
-             (when (const-const-op (ref-value a) (ref-value b))
-               (jump (current-exit))))
-            ((and (constant? a) (gpr? b))
-             (jit-movi r0 (constant a))
-             (jump (reg-reg-op r0 (gpr b)) (current-exit)))
-            ((and (constant? a) (memory? b))
-             (jit-movi r0 (constant a))
-             (jump (reg-reg-op r0 (memory-ref r1 b)) (current-exit)))
-
-            ((and (gpr? a) (constant? b))
-             (jump (reg-const-op (gpr a) (constant b)) (current-exit)))
-            ((and (gpr? a) (gpr? b))
-             (jump (reg-reg-op (gpr a) (gpr b)) (current-exit)))
-            ((and (gpr? a) (memory? b))
-             (jump (reg-reg-op (gpr a) (memory-ref r0 b)) (current-exit)))
-
-            ((and (memory? a) (constant? b))
-             (jump (reg-const-op (memory-ref r0 a) (constant b))
-                   (current-exit)))
-            ((and (memory? a) (gpr? b))
-             (jump (reg-reg-op (memory-ref r0 a) (gpr b)) (current-exit)))
-            ((and (memory? a) (memory? b))
-             (jump (reg-reg-op (memory-ref r0 a) (memory-ref r1 b))
-                   (current-exit)))
-
-            (else
-             (tjitc-error 'name "~s ~s" a b))))))))
+            ((gpr? b)    (jump (op-rr r0 (gpr b)) (bailout)))
+            ((memory? b) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
+            (else (err))))))
+        ((gpr? a)
+         (cond
+          ((constant? b) (jump (op-ri (gpr a) (constant b)) (bailout)))
+          ((gpr? b)      (jump (op-rr (gpr a) (gpr b)) (bailout)))
+          ((memory? b)   (jump (op-rr (gpr a) (memory-ref r1 b)) (bailout)))
+          (else (err))))
+        ((memory? a)
+         (memory-ref r0 a)
+         (cond
+          ((constant? b) (jump (op-ri r0 (constant b)) (bailout)))
+          ((gpr? b)      (jump (op-rr r0 (gpr b)) (bailout)))
+          ((memory? b)   (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
+          (else (err))))
+        (else
+         (err)))))))
 
 ;; Auxiliary procedure for %ne.
 (define (!= a b) (not (= a b)))
@@ -604,38 +598,35 @@ both arguments were register or memory."
 (define-binary-guard-int %ge < jit-blti jit-bltr)
 (define-binary-guard-int %gt <= jit-blei jit-bler)
 
-(define-native (%flt (double a) (double b))
-  (let ((next (jit-forward)))
-    (cond
-     ((and (constant? a) (fpr? b))
-      (jit-movi-d f0 (constant a))
-      (jump (jit-bltr-d f0 (fpr b)) next))
+(define-syntax define-binary-guard-double
+  (syntax-rules ()
+    ((_ name op-ii op-ri op-rr)
+     (define-native (name (double a) (double b))
+       (cond
+        ((constant? a)
+         (jit-movi-d f0 (constant a))
+         (cond
+          ((fpr? b)    (jump (op-rr f0 (fpr b)) (bailout)))
+          ((memory? b) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
+          (else (err))))
+        ((fpr? a)
+         (cond
+          ((constant? b) (jump (op-ri (fpr a) (constant b)) (bailout)))
+          ((fpr? b)      (jump (op-rr (fpr a) (fpr b)) (bailout)))
+          ((memory? b)   (jump (op-rr (fpr a) (memory-ref/f f1 b)) (bailout)))
+          (else (err))))
+        ((memory? a)
+         (memory-ref/f f0 a)
+         (cond
+          ((constant? b) (jump (op-ri f0 (constant b)) (bailout)))
+          ((fpr? b)      (jump (op-rr f0 (fpr b)) (bailout)))
+          ((memory? b)   (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
+          (else (err))))
+        (else
+         (err)))))))
 
-     ((and (fpr? a) (constant? b))
-      (jump (jit-blti-d (fpr a) (constant b)) next))
-     ((and (fpr? a) (fpr? b))
-      (jump (jit-bltr-d (fpr a) (fpr b)) next))
-
-     (else
-      (tjitc-error '%flt "~s ~s" a b)))
-    (emit-side-exit)
-    (jit-link next)))
-
-(define-native (%fge (double a) (double b))
-  (let ((next (jit-forward)))
-    (cond
-     ((and (fpr? a) (fpr? b))
-      (jump (jit-bger-d (fpr a) (fpr b)) next))
-     ((and (fpr? a) (memory? b))
-      (jump (jit-bger-d (fpr a) (memory-ref/f f0 b)) next))
-
-     ((and (memory? a) (memory? b))
-      (jump (jit-bger-d (memory-ref/f f0 a) (memory-ref/f f1 b)) next))
-
-     (else
-      (tjitc-error '%fge "~s ~s" a b)))
-    (emit-side-exit)
-    (jit-link next)))
+(define-binary-guard-double %flt >= jit-bgei-d jit-bger-d)
+(define-binary-guard-double %fge < jit-blti-d jit-bltr-d)
 
 
 ;;;
@@ -645,8 +636,8 @@ both arguments were register or memory."
 (define-native (%carg (int dst))
   (set-asm-cargs! asm (cons dst (asm-cargs asm))))
 
-;;; Scheme procedure call.
-(define-native (%pcall (void proc))
+;;; Scheme procedure call. Shifts current FP.
+(define-native (%scall (void proc))
   (let* ((vp r0)
          (vp->fp r1))
     (load-vp vp)
@@ -684,7 +675,7 @@ both arguments were register or memory."
               volatiles)
     (set-asm-cargs! asm '())))
 
-;;; Return from procedure call. Shift current FP to the one from dynamic
+;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
 (define-native (%return (void ip))
@@ -696,7 +687,7 @@ both arguments were register or memory."
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
-    (jump (jit-bnei tmp (constant ip)) (current-exit))
+    (jump (jit-bnei tmp (constant ip)) (bailout))
 
     (scm-frame-dynamic-link tmp vp->fp)
     (jit-lshi tmp tmp (imm %word-size-in-bits))
@@ -708,108 +699,47 @@ both arguments were register or memory."
 ;;; Exact integer
 ;;;
 
-;;; XXX: Manage overflow and underflow.
+;;; XXX: This macro does not manage overflow and underflow. Make another macro
+;;; for managing overflow and underflow.
 (define-syntax define-binary-arith-int
-  (lambda (x)
-    (syntax-case x ()
-      ((_ name const-const-op reg-const-op reg-reg-op)
-       #`(define-native (name (int dst) (int a) (int b))
-           (cond
-            ((and (gpr? dst) (constant? a) (constant? b))
-             (let ((result (const-const-op (ref-value a) (ref-value b))))
-               (jit-movi (gpr dst) (make-signed-pointer result))))
-            ((and (gpr? dst) (gpr? a) (constant? b))
-             (reg-const-op (gpr dst) (gpr a) (constant b)))
-            ((and (gpr? dst) (gpr? a) (gpr? b))
-             (reg-reg-op (gpr dst) (gpr a) (gpr b)))
-            ((and (gpr? dst) (gpr? a) (memory? b))
-             (reg-reg-op (gpr dst) (gpr a) (memory-ref r0 b)))
-            ((and (gpr? dst) (memory? a) (constant? b))
-             (reg-const-op (gpr dst) (memory-ref r0 a) (constant b)))
-            ((and (gpr? dst) (memory? a) (gpr? b))
-             (reg-reg-op (gpr dst) (memory-ref r0 a) (gpr b)))
-            ((and (gpr? dst) (memory? a) (memory? b))
-             (reg-reg-op (gpr dst) (memory-ref r0 a) (memory-ref r1 b)))
+  (syntax-rules ()
+    ((_ name op-ii op-ri op-rr)
+     (define-native (name (int dst) (int a) (int b))
+       (letrec-syntax
+           ((op3b (syntax-rules ()
+                    ((_ dst a)
+                     (cond
+                      ((constant? b) (op-ri dst a (constant b)))
+                      ((gpr? b)      (op-rr dst a (gpr b)))
+                      ((fpr? b)      (op-rr dst a (fpr->gpr r1 b)))
+                      ((memory? b)   (op-rr dst a (memory-ref r1 b)))
+                      (else (err))))))
+            (op3a (syntax-rules ()
+                    ((_ dst)
+                     (begin
+                       (cond
+                        ((constant? a) (op3b dst (movi r0 a)))
+                        ((gpr? a)      (op3b dst (gpr a)))
+                        ((fpr? a)      (op3b dst (fpr->gpr r0 (fpr a))))
+                        ((memory? a)   (op3b dst (memory-ref r0 a)))
+                        (else (err)))
+                       dst))))
+            (movi (syntax-rules ()
+                    ((_ x y)
+                     (begin (jit-movi x (constant y))
+                            x)))))
+         (cond
+          ((gpr? dst)    (op3a (gpr dst)))
+          ((memory? dst) (memory-set! dst (op3a r0)))
+          (else (err))))))))
 
-            ((and (memory? dst) (constant? a) (constant? b))
-             (let ((result (const-const-op (ref-value a) (ref-value b))))
-               (jit-movi r0 (make-signed-pointer result))
-               (memory-set! dst r0)))
-            ((and (memory? dst) (constant? a) (gpr? b))
-             (jit-movi r0 (constant a))
-             (reg-reg-op r0 r0 (gpr b))
-             (memory-set! dst r0))
-            ((and (memory? dst) (gpr? a) (constant? b))
-             (reg-const-op r0 (gpr a) (constant b))
-             (memory-set! dst r0))
-            ((and (memory? dst) (gpr? a) (gpr? b))
-             (reg-reg-op r0 (gpr a) (gpr b))
-             (memory-set! dst r0))
-            ((and (memory? dst) (gpr? a) (memory? b))
-             (reg-reg-op r0 (gpr a) (memory-ref r1 b))
-             (memory-set! dst r0))
-            ((and (memory? dst) (constant? a) (memory? b))
-             (jit-movi r0 (constant a))
-             (reg-reg-op r0 r0 (memory-ref r1 b))
-             (memory-set! dst r0))
-            ((and (memory? dst) (memory? a) (constant? b))
-             (reg-const-op r0 (memory-ref r0 a) (constant b))
-             (memory-set! dst r0))
-            ((and (memory? dst) (memory? a) (gpr? b))
-             (reg-reg-op r0 (memory-ref r0 a) (gpr b))
-             (memory-set! dst r0))
-            ((and (memory? dst) (memory? a) (memory? b))
-             (reg-reg-op r0 (memory-ref r0 a) (memory-ref r1 b))
-             (memory-set! dst r0))
-
-            (else
-             (tjitc-error 'name "~s ~s ~s" dst a b))))))))
+(define (rsh a b) (ash a b))
+(define (lsh a b) (ash a (- b)))
 
 (define-binary-arith-int %add + jit-addi jit-addr)
 (define-binary-arith-int %sub - jit-subi jit-subr)
-
-(define-native (%rsh (int dst) (int a) (int b))
-  (cond
-   ((and (gpr? dst) (gpr? a) (gpr? b))
-    (jit-rshr (gpr dst) (gpr a) (gpr b)))
-   ((and (gpr? dst) (gpr? a) (constant? b))
-    (jit-rshi (gpr dst) (gpr a) (constant b)))
-   ((and (gpr? dst) (memory? a) (constant? b))
-    (jit-rshi (gpr dst) (memory-ref r0 a) (constant b)))
-
-   ((and (memory? dst) (gpr? a) (constant? b))
-    (jit-rshi r0 (gpr a) (constant b))
-    (memory-set! dst r0))
-   ((and (memory? dst) (memory? a) (constant? b))
-    (jit-rshi r0 (memory-ref r0 a) (constant b))
-    (memory-set! dst r0))
-   (else
-    (tjitc-error '%rsh "~s ~s ~s" dst a b))))
-
-(define-native (%lsh (int dst) (int a) (int b))
-  (cond
-   ((and (gpr? dst) (constant? a) (constant? b))
-    (jit-movi (gpr dst) (imm (ash (ref-value a) (ref-value b)))))
-   ((and (gpr? dst) (gpr? a) (constant? b))
-    (jit-lshi (gpr dst) (gpr a) (constant b)))
-   ((and (gpr? dst) (gpr? a) (gpr? b))
-    (jit-lshr (gpr dst) (gpr a) (gpr b)))
-   ((and (gpr? dst) (fpr? a) (constant? b))
-    (jit-lshi (gpr dst) (fpr->gpr r0 (fpr a)) (constant b)))
-   ((and (gpr? dst) (memory? a) (constant? b))
-    (jit-lshi (gpr dst) (memory-ref r0 a) (constant b)))
-
-   ((and (memory? dst) (constant? a) (constant? b))
-    (jit-movi r0 (imm (ash (ref-value a) (ref-value b))))
-    (memory-set! dst r0))
-   ((and (memory? dst) (gpr? a) (constant? b))
-    (jit-lshi r0 (gpr a) (constant b))
-    (memory-set! dst r0))
-   ((and (memory? dst) (memory? a) (constant? b))
-    (jit-lshi r0 (memory-ref r0 a) (constant b))
-    (memory-set! dst r0))
-   (else
-    (tjitc-error '%lsh "~s ~s ~s" dst a b))))
+(define-binary-arith-int %rsh rsh jit-rshi jit-rshr)
+(define-binary-arith-int %lsh lsh jit-lshi jit-lshr)
 
 (define-native (%mod (int dst) (int a) (int b))
   (cond
@@ -820,87 +750,43 @@ both arguments were register or memory."
    ((and (gpr? dst) (memory? a) (gpr? b))
     (jit-remr (gpr dst) (memory-ref r0 a) (gpr b)))
    (else
-    (tjitc-error '%mod "~s ~s ~s" dst a b))))
+    (err))))
 
 
 ;;;
 ;;; Floating point
 ;;;
 
-
-
 (define-syntax define-binary-arith-double
-  (lambda (x)
-    (syntax-case x ()
-      ((k name op-ri op-rr)
-       #`(define-native (name (double dst) (double a) (double b))
-           (let-syntax ((show-error
-                         (syntax-rules ()
-                           ((_) (tjitc-error 'name "~s ~s ~s" dst a b)))))
-             (cond
-              ((fpr? dst)
-               (cond
-                ((constant? a)
-                 (jit-movi-d f0 (constant a))
-                 (cond
-                  ((fpr? b)
-                   (op-rr (fpr dst) f0 (fpr b)))
-                  ((memory? b)
-                   (op-rr (fpr dst) f0 (memory-ref/f f1 b)))
-                  (else (show-error))))
-                ((fpr? a)
-                 (cond
-                  ((constant? b)
-                   (op-ri (fpr dst) (fpr a) (constant b)))
-                  ((gpr? b)
-                   (op-rr (fpr dst) (fpr a) (gpr->fpr f0 (gpr b))))
-                  ((fpr? b)
-                   (op-rr (fpr dst) (fpr a) (fpr b)))
-                  ((memory? b)
-                   (op-rr (fpr dst) (fpr a) (memory-ref/f f0 b)))
-                  (else (show-error))))
-                ((memory? a)
-                 (cond
-                  ((constant? b)
-                   (op-ri (fpr dst) (memory-ref/f f0 a) (constant b)))
-                  ((fpr? b)
-                   (op-rr (fpr dst) (memory-ref/f f0 a) (fpr b)))
-                  ((memory? b)
-                   (op-rr (fpr dst) (memory-ref/f f0 a) (memory-ref/f f1 b)))
-                  (else (show-error))))))
-              ((memory? dst)
-               (cond
-                ((constant? a)
-                 (jit-movi-d f1 a)
-                 (cond
-                  ((fpr? b)
-                   (op-rr f0 f1 (fpr b)))
-                  ((memory? b)
-                   (op-rr f0 f1 (memory-ref/f f2 b)))
-                  (else (show-error))))
-                ((fpr? a)
-                 (cond
-                  ((constant? b)
-                   (op-ri f0 (fpr a) (constant b)))
-                  ((fpr? b)
-                   (op-rr f0 (fpr a) (fpr b)))
-                  ((memory? b)
-                   (op-rr f0 (fpr a) (memory-ref/f f1 b)))
-                  (else (show-error))))
-                ((memory? a)
-                 (memory-ref/f f1 a)
-                 (cond
-                  ((constant? b)
-                   (op-ri f0 f1 (constant b)))
-                  ((gpr? b)
-                   (op-rr f0 f1 (gpr->fpr f2 (gpr b))))
-                  ((fpr? b)
-                   (op-rr f0 f1 (fpr b)))
-                  ((memory? b)
-                   (op-rr f0 f1 (memory-ref/f f2 b)))
-                  (else (show-error)))))
-               (memory-set!/f dst f0))
-              (else (show-error)))))))))
+  (syntax-rules ()
+    ((k name op-ri op-rr)
+     (define-native (name (double dst) (double a) (double b))
+       (letrec-syntax
+           ((op3b (syntax-rules ()
+                    ((_ dst a)
+                     (cond
+                      ((constant? b) (op-ri dst a (constant b)))
+                      ((gpr? b)      (op-rr dst a (gpr->fpr f1 (gpr b))))
+                      ((fpr? b)      (op-rr dst a (fpr b)))
+                      ((memory? b)   (op-rr dst a (memory-ref/f f1 b)))
+                      (else (err))))))
+            (op3a (syntax-rules ()
+                    ((_ dst)
+                     (begin
+                       (cond
+                        ((constant? a) (op3b dst (movi f2 a)))
+                        ((fpr? a)      (op3b dst (fpr a)))
+                        ((memory? a)   (op3b dst (memory-ref/f f2 a)))
+                        (else (err)))
+                       dst))))
+            (movi (syntax-rules ()
+                    ((_ x y)
+                     (begin (jit-movi-d x (constant y))
+                            x)))))
+         (cond
+          ((fpr? dst)    (op3a (fpr dst)))
+          ((memory? dst) (memory-set!/f dst (op3a f0)))
+          (else (err))))))))
 
 (define-binary-arith-double %fadd jit-addi-d jit-addr-d)
 (define-binary-arith-double %fsub jit-subi-d jit-subr-d)
@@ -915,9 +801,8 @@ both arguments were register or memory."
 (define-syntax unbox-stack-element
   (syntax-rules ()
     ((_ dst src type guard?)
-     ;; Passing `guard?' parameter, control expansion of
-     ;; `(current-exit)' at macro-expansion time, since it uses syntax
-     ;; paramter `asm'.
+     ;; Passing `guard?' parameter to control expansion of `(bailout)' at
+     ;; macro-expansion time, since it uses syntax paramter `asm'.
      (letrec-syntax ((load-constant
                       (syntax-rules ()
                         ((_ constant #f)
@@ -931,7 +816,7 @@ both arguments were register or memory."
                                         dst type))))
                         ((_ constant any)
                          (begin
-                           (jump (jit-bnei src constant) (current-exit))
+                           (jump (jit-bnei src constant) (bailout))
                            (load-constant constant #f)))))
                      (maybe-guard
                       (syntax-rules ()
@@ -948,7 +833,7 @@ both arguments were register or memory."
            (scm-real-value f0 src)
            (memory-set!/f dst f0))))
         ((eq? type &exact-integer)
-         (maybe-guard guard? (jump (scm-not-inump src) (current-exit)))
+         (maybe-guard guard? (jump (scm-not-inump src) (bailout)))
          (cond
           ((gpr? dst)
            (jit-rshi (gpr dst) src (imm 2)))
@@ -987,7 +872,7 @@ both arguments were register or memory."
   (let ((t (ref-value type)))
     (when (or (not (constant? n))
               (not (constant? type)))
-      (tjitc-error '%fref "~s ~s ~s" dst n type))
+      (err))
     (sp-ref r0 (ref-value n))
     (unbox-stack-element dst r0 t #t)))
 
@@ -999,14 +884,14 @@ both arguments were register or memory."
         (t (ref-value type)))
     (when (or (not (constant? n))
               (not (constant? type)))
-      (tjitc-error '%fref/f "~s ~s ~s" dst n type))
+      (err))
     (cond
      ((= t &flonum)
       (sp-ref r0 (ref-value n))
-      (jump (scm-imp r0) (current-exit))
+      (jump (scm-imp r0) (bailout))
       (scm-cell-type r1 r0)
       (scm-typ16 r1 r1)
-      (jump (scm-not-realp r1) (current-exit))
+      (jump (scm-not-realp r1) (bailout))
       (cond
        ((fpr? dst)
         (scm-real-value (fpr dst) r0))
@@ -1014,7 +899,7 @@ both arguments were register or memory."
         (scm-real-value f0 r0)
         (memory-set!/f dst f0))
        (else
-        (tjitc-error '%fref/f "~s ~s ~s" dst n type))))
+        (err))))
      ((= t &f64)
       (cond
        ((fpr? dst)
@@ -1023,66 +908,68 @@ both arguments were register or memory."
         (sp-ref/f f0 (ref-value n))
         (memory-set!/f dst f0))
        (else
-        (tjitc-error '%fref/f "~s ~s ~s" dst n type)))))))
+        (err)))))))
 
+;; Cell reference.
 (define-native (%cref (int dst) (int src) (void n))
-  (cond
-   ((and (gpr? dst) (constant? src) (constant? n))
-    (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
-      (jit-ldi (gpr dst) (imm addr))))
-   ((and (gpr? dst) (gpr? src) (constant? n))
-    (jit-ldxi (gpr dst) (gpr src) (constant-word n)))
-   ((and (gpr? dst) (fpr? src) (constant? n))
-    (jit-truncr-d r0 (fpr src))
-    (jit-ldxi (gpr dst) r0 (constant-word n)))
-   ((and (gpr? dst) (memory? src) (constant? n))
-    (jit-ldxi (gpr dst) (memory-ref r0 src) (constant-word n)))
+  (let ((nw (* (ref-value n) %word-size)))
+    (cond
+     ((not (constant? n))
+      (err))
+     ((gpr? dst)
+      (cond
+       ((constant? src) (jit-ldi (gpr dst) (imm (+ (ref-value src) nw))))
+       ((gpr? src)      (jit-ldxi (gpr dst) (gpr src) (imm nw)))
+       ((fpr? src)      (jit-ldxi (gpr dst) (fpr->gpr r0 (fpr src)) (imm nw)))
+       ((memory? src)   (jit-ldxi (gpr dst) (memory-ref r0 src) (imm nw)))
+       (else (err))))
+     ((memory? dst)
+      (cond
+       ((constant? src) (jit-ldi r0 (imm (+ (ref-value src) nw))))
+       ((gpr? src)      (jit-ldxi r0 (gpr src) (imm nw)))
+       ((memory? src)   (jit-ldxi r0 (memory-ref r0 src) (imm nw)))
+       (else (err)))
+      (memory-set! dst r0))
+     (else
+      (err)))))
 
-   ((and (memory? dst) (constant? src) (constant? n))
-    (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
-      (jit-ldi r0 (imm addr))
-      (memory-set! dst r0)))
-   ((and (memory? dst) (gpr? src) (constant? n))
-    (jit-ldxi r0 (gpr src) (constant-word n))
-    (memory-set! dst r0))
-   ((and (memory? dst) (memory? src) (constant? n))
-    (jit-ldxi r0 (memory-ref r0 src) (constant-word n))
-    (memory-set! dst r0))
-   (else
-    (tjitc-error '%cref "~s ~s ~s" dst src n))))
-
+;; Cell reference to floating point register.
 (define-native (%cref/f (double dst) (int src) (void n))
-  (cond
-   ((and (fpr? dst) (gpr? src) (constant? n))
-    (jit-ldxi-d (fpr dst) (gpr src) (constant-word n)))
-   ((and (fpr? dst) (memory? src) (constant? n))
-    (jit-ldxi-d (fpr dst) (memory-ref r0 src) (constant-word n)))
+  (let ((nw (constant-word n)))
+    (cond
+     ((not (constant? n))
+      (err))
+     ((fpr? dst)
+      (cond
+       ((gpr? src)    (jit-ldxi-d (fpr dst) (gpr src) nw))
+       ((memory? src) (jit-ldxi-d (fpr dst) (memory-ref r0 src) nw))
+       (else (err))))
+     ((memory? dst)
+      (cond
+       ((gpr? src)    (jit-ldxi-d f0 (gpr src) nw))
+       ((memory? src) (jit-ldxi-d f0 (memory-ref r0 src) nw))
+       (else (err)))
+      (memory-set!/f dst f0))
+     (else (err)))))
 
-   ((and (memory? dst) (gpr? src) (constant? n))
-    (jit-ldxi-d f0 (gpr src) (constant-word n))
-    (memory-set!/f dst f0))
-
-   ((and (memory? dst) (memory? src) (constant? n))
-    (jit-ldxi-d f0 (memory-ref r0 src) (constant-word n))
-    (memory-set!/f dst f0))
-
-   (else
-    (tjitc-error '%cref/f "~s ~s ~s" dst src n))))
-
+;; Cell set.
 (define-native (%cset (int cell) (void n) (int src))
-  (cond
-   ((and (gpr? cell) (constant? n) (gpr? src))
-    (jit-stxi (constant-word n) (gpr cell) (gpr src)))
-   ((and (gpr? cell) (constant? n) (memory? src))
-    (jit-stxi (constant-word n) (gpr cell) (memory-ref r0 src)))
-
-   ((and (memory? cell) (constant? n) (gpr? src))
-    (jit-stxi (constant-word n) (memory-ref r0 cell) (gpr src)))
-   ((and (memory? cell) (constant? n) (memory? src))
-    (jit-stxi (constant-word n) (memory-ref r0 cell) (memory-ref r1 src)))
-
-   (else
-    (tjitc-error '%cset "~s ~s ~s" cell n src))))
+  (let ((nw (constant-word n)))
+    (cond
+     ((not (constant? n))
+      (err))
+     ((gpr? cell)
+      (cond
+       ((gpr? src)    (jit-stxi nw (gpr cell) (gpr src)))
+       ((memory? src) (jit-stxi nw (gpr cell) (memory-ref r0 src)))
+       (else (err))))
+     ((memory? cell)
+      (memory-ref r0 cell)
+      (cond
+       ((gpr? src)    (jit-stxi nw r0 (gpr src)))
+       ((memory? src) (jit-stxi nw r0 (memory-ref r1 src)))
+       (else (err))))
+     (else (err)))))
 
 
 ;;;
@@ -1121,87 +1008,86 @@ both arguments were register or memory."
 ;; integer -> floating point
 (define-native (%i2d (double dst) (int src))
   (cond
-   ((and (fpr? dst) (gpr? src))
-    (jit-extr-d (fpr dst) (gpr src)))
-   ((and (fpr? dst) (memory? src))
-    (jit-extr-d (fpr dst) (memory-ref r0 src)))
-   (else
-    (tjitc-error '%i2d "~s ~s" dst src))))
+   ((fpr? dst)
+    (cond
+     ((gpr? src)    (jit-extr-d (fpr dst) (gpr src)))
+     ((memory? src) (jit-extr-d (fpr dst) (memory-ref r0 src)))
+     (else (err))))
+   ((memory? dst)
+    (cond
+     ((gpr? src)    (jit-extr-d f0 (gpr src)))
+     ((memory? src) (jit-extr-d f0 (memory-ref r0 src)))
+     (else (err)))
+    (memory-set!/f dst f0))
+   (else (err))))
 
 ;; floating point -> SCM
 (define-native (%d2s (int dst) (double src))
   (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-movi-d f0 (constant src))
-    (scm-from-double (gpr dst) f0))
-   ((and (gpr? dst) (fpr? src))
-    (scm-from-double (gpr dst) (fpr src)))
-   ((and (gpr? dst) (memory? src))
-    (scm-from-double (gpr dst) (memory-ref/f f0 src)))
+   ((gpr? dst)
+    (cond
+     ((constant? src) (begin (jit-movi-d f0 (constant src))
+                             (scm-from-double (gpr dst) f0)))
+     ((fpr? src)      (scm-from-double (gpr dst) (fpr src)))
+     ((memory? src)   (scm-from-double (gpr dst) (memory-ref/f f0 src)))
+     (else (err))))
+   ((memory? dst)
+    (cond
+     ((constant? src) (begin (jit-movi-d f0 (constant src))
+                             (scm-from-double r0 f0)))
+     ((fpr? src)      (scm-from-double r0 (fpr src)))
+     ((memory? src)   (scm-from-double r0 (memory-ref/f f0 src)))
+     (else (err)))
+    (memory-set! dst r0))
+   (else (err))))
 
-   ((and (memory? dst) (constant? src))
-    (jit-movi-d f0 (constant src))
-    (scm-from-double r0 f0)
-    (memory-set! dst r0))
-   ((and (memory? dst) (fpr? src))
-    (scm-from-double r0 (fpr src))
-    (memory-set! dst r0))
-   ((and (memory? dst) (memory? src))
-    (scm-from-double r0 (memory-ref/f f0 src))
-    (memory-set! dst r0))
-   (else
-    (tjitc-error '%scm-from-double "~s ~s ~s" dst src))))
 
 ;;;
 ;;; Move
 ;;;
 
 (define (move dst src)
-  (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-movi (gpr dst) (constant src)))
-   ((and (gpr? dst) (gpr? src))
-    (jit-movr (gpr dst) (gpr src)))
-   ((and (gpr? dst) (fpr? src))
-    (fpr->gpr (gpr dst) (fpr src)))
-   ((and (gpr? dst) (memory? src))
-    (memory-ref (gpr dst) src))
-
-   ((and (fpr? dst) (constant? src))
-    (let ((val (ref-value src)))
+  (let-syntax ((err (syntax-rules ()
+                      ((_) (tjitc-error 'move "~s ~s" dst src)))))
+    (cond
+     ((gpr? dst)
       (cond
-       ((and (number? val) (flonum? val))
-        (jit-movi-d (fpr dst) (constant src)))
-       ((and (number? val) (exact? val))
-        (jit-movi r0 (constant src))
-        (jit-extr-d (fpr dst) r0))
-       (else
-        (debug 3 "XXX move: ~a ~a~%" dst src)))))
-   ((and (fpr? dst) (gpr? src))
-    (gpr->fpr (fpr dst) (gpr src)))
-   ((and (fpr? dst) (fpr? src))
-    (jit-movr-d (fpr dst) (fpr src)))
-   ((and (fpr? dst) (memory? src))
-    (memory-ref/f (fpr dst) src))
-
-   ((and (memory? dst) (constant? src))
-    (let ((val (ref-value src)))
+       ((constant? src) (jit-movi (gpr dst) (constant src)))
+       ((gpr? src)      (jit-movr (gpr dst) (gpr src)))
+       ((fpr? src)      (fpr->gpr (gpr dst) (fpr src)))
+       ((memory? src)   (memory-ref (gpr dst) src))
+       (else (err))))
+     ((fpr? dst)
       (cond
-       ((fixnum? val)
-        (jit-movi r0 (constant src))
-        (memory-set! dst r0))
-       ((flonum? val)
-        (jit-movi-d f0 (constant src))
-        (memory-set!/f dst f0)))))
-   ((and (memory? dst) (gpr? src))
-    (memory-set! dst (gpr src)))
-   ((and (memory? dst) (fpr? src))
-    (memory-set!/f dst (fpr src)))
-   ((and (memory? dst) (memory? src))
-    (memory-set! dst (memory-ref r0 src)))
-
-   (else
-    (debug 1 "XXX move: ~a ~a~%" dst src))))
+       ((constant? src) (let ((val (ref-value src)))
+                          (cond
+                           ((and (number? val) (flonum? val))
+                            (jit-movi-d (fpr dst) (constant src)))
+                           ((and (number? val) (exact? val))
+                            (jit-movi r0 (constant src))
+                            (gpr->fpr (fpr dst) r0))
+                           (else
+                            (err)))))
+       ((gpr? src)      (gpr->fpr (fpr dst) (gpr src)))
+       ((fpr? src)      (jit-movr-d (fpr dst) (fpr src)))
+       ((memory? src)   (memory-ref/f (fpr dst) src))
+       (else (err))))
+     ((memory? dst)
+      (cond
+       ((constant? src) (let ((val (ref-value src)))
+                          (cond
+                           ((fixnum? val)
+                            (jit-movi r0 (constant src))
+                            (memory-set! dst r0))
+                           ((flonum? val)
+                            (jit-movi-d f0 (constant src))
+                            (memory-set!/f dst f0)))))
+       ((gpr? src)      (memory-set! dst (gpr src)))
+       ((fpr? src)      (memory-set!/f dst (fpr src)))
+       ((memory? src)   (memory-set! dst (memory-ref r0 src)))
+       (else (err))))
+     (else
+      (err)))))
 
 (define-native (%move (int dst) (int src))
   (move dst src))
