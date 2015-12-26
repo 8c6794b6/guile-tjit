@@ -842,7 +842,7 @@ later by the linker."
       (emit-receive asm dst proc nlocals)
       (begin
         (emit-receive-values asm proc #t 1)
-        (emit-mov* asm dst (1+ proc))
+        (emit-fmov* asm dst (1+ proc))
         (emit-reset-frame asm nlocals))))
 
 (define (emit-text asm instructions)
