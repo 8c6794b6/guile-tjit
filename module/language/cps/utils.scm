@@ -124,9 +124,9 @@ member, or @code{#f} otherwise."
 
 (define (intmap-map proc map)
   (persistent-intmap
-   (intmap-fold (lambda (k v out) (intmap-replace! out k (proc k v)))
+   (intmap-fold (lambda (k v out) (intmap-add! out k (proc k v)))
                 map
-                map)))
+                empty-intmap)))
 
 (define (intmap-keys map)
   "Return an intset of the keys in @var{map}."
