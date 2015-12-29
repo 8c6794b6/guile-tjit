@@ -934,8 +934,31 @@ referenced by dst and src value at runtime."
        (let ((,dst/v (%rsh ,dst/v 8)))
          ,(next)))))
 
-;; XXX: vector-ref
-;; XXX: vector-ref/immediate
+(define-ir (vector-ref (scm dst) (scm src) (u64 idx))
+  (let ((dst/v (var-ref dst))
+        (dst/l (let ((src/l (local-ref src))
+                     (idx/l (local-ref idx)))
+                 (if (vector? src/l)
+                     (vector-ref src/l idx/l)
+                     (tjitc-error 'vector-ref "not a vector ~s" src/l))))
+        (src/v (var-ref src))
+        (idx/v (var-ref idx)))
+    `(let ((,dst/v (%add ,idx/v 1)))
+       (let ((,dst/v (%cref ,src/v ,dst/v)))
+         ,(with-unboxing (type-of dst/l) dst/v
+            next)))))
+
+(define-ir (vector-ref/immediate (scm dst) (scm src) (const idx))
+  (let ((dst/v (var-ref dst))
+        (dst/l (let ((src/l (local-ref src)))
+                 (if (vector? src/l)
+                     (vector-ref src/l idx)
+                     (tjitc-error 'vector-ref "not a vector ~s" src/l))))
+        (src/v (var-ref src)))
+    `(let ((,dst/v (%cref ,src/v ,(+ idx 1))))
+       ,(with-unboxing (type-of dst/l) dst/v
+          next))))
+
 ;; XXX: vector-set!
 ;; XXX: vector-set!/immediate
 

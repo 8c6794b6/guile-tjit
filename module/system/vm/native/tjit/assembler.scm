@@ -912,25 +912,48 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (err)))))))
 
 ;; Cell object reference.
-(define-native (%cref (int dst) (int src) (void n))
-  (let ((nw (* (ref-value n) %word-size)))
+(define-native (%cref (int dst) (int src) (int n))
+  (let-syntax
+      ((op3a
+        (syntax-rules ()
+          ((_ dst)
+           (let ((nw (* (ref-value n) %word-size)))
+             (cond
+              ((constant? src) (jit-ldi dst (imm (+ (ref-value src) nw))))
+              ((gpr? src)      (jit-ldxi dst (gpr src) (imm nw)))
+              ((fpr? src)      (jit-ldxi dst (fpr->gpr r0 (fpr src)) (imm nw)))
+              ((memory? src)   (jit-ldxi dst (memory-ref r0 src) (imm nw)))
+              (else (err)))
+             dst))))
+       (op3b
+        (syntax-rules ()
+          ((_ dst)
+           (begin
+             (cond
+              ((constant? src) (jit-ldxi dst r0 (imm (ref-value src))))
+              ((gpr? src)      (jit-ldxr dst (gpr src) r0))
+              ((fpr? src)      (jit-ldxr dst (fpr->gpr r1 (fpr src)) r0))
+              ((memory? src)   (jit-ldxr dst (memory-ref r1 src) r0))
+              (else (err)))
+             dst)))))
     (cond
-     ((not (constant? n))
-      (err))
-     ((gpr? dst)
+     ((constant? n)
       (cond
-       ((constant? src) (jit-ldi (gpr dst) (imm (+ (ref-value src) nw))))
-       ((gpr? src)      (jit-ldxi (gpr dst) (gpr src) (imm nw)))
-       ((fpr? src)      (jit-ldxi (gpr dst) (fpr->gpr r0 (fpr src)) (imm nw)))
-       ((memory? src)   (jit-ldxi (gpr dst) (memory-ref r0 src) (imm nw)))
+       ((gpr? dst)    (op3a (gpr dst)))
+       ((memory? dst) (memory-set! dst (op3a r0)))
        (else (err))))
-     ((memory? dst)
+     ((gpr? n)
+      (jit-lshi r0 (gpr n) (imm 3))     ; Left shift to multiply by word size.
       (cond
-       ((constant? src) (jit-ldi r0 (imm (+ (ref-value src) nw))))
-       ((gpr? src)      (jit-ldxi r0 (gpr src) (imm nw)))
-       ((memory? src)   (jit-ldxi r0 (memory-ref r0 src) (imm nw)))
-       (else (err)))
-      (memory-set! dst r0))
+       ((gpr? dst)    (op3b (gpr dst)))
+       ((memory? dst) (memory-set! dst (op3b r1)))
+       (else (err))))
+     ((memory? n)
+      (jit-lshi r0 (memory-ref r0 n) (imm 3))
+      (cond
+       ((gpr? dst)    (op3b (gpr dst)))
+       ((memory? dst) (memory-set! dst (op3b r1)))
+       (else (err))))
      (else
       (err)))))
 
