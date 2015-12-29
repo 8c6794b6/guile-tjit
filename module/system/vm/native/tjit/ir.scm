@@ -1100,6 +1100,6 @@ referenced by dst and src value at runtime."
 
 (define-br-binary-u64-scm br-if-u64-=-scm = %eq %ne)
 (define-br-binary-u64-scm br-if-u64-<-scm < %lt %ge)
-(define-br-binary-u64-scm br-if-u64-<=scm <= %le %gt)
+(define-br-binary-u64-scm br-if-u64-<=-scm <= %le %gt)
 (define-br-binary-u64-scm br-if-u64->-scm > %gt %le)
 (define-br-binary-u64-scm br-if-u64->=-scm >= %ge %lt)
