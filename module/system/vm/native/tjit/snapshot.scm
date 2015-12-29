@@ -158,10 +158,11 @@
   dynamic-link?
   (offset dynamic-link-offset))
 
-;; Data type to contain past frame data.
+;; Data type to contain outline of recorded traces.
 ;;
-;; Stores dynamic link, return addresses, and locals of caller procedure when
-;; inlined procedure exist in trace.
+;; Stores various information used for compiling IR, such as dynamic links and
+;; return addresses, past frame locals, locals of caller procedure in inlined
+;; procedure ... etc.
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
                  sp-offset fp-offset
@@ -380,7 +381,7 @@
    ((eq? type &procedure) (yellow "proc"))
    ((eq? type &pointer) (yellow "ptr"))
    ((eq? type &pair) (yellow "pair"))
-   ((eq? type &vector) (yellow "vctr"))
+   ((eq? type &vector) (yellow "vect"))
    ((eq? type &box) (yellow "box"))
    ((eq? type &struct) (yellow "strc"))
    ((eq? type &hash-table) (yellow "htbl"))
@@ -456,7 +457,6 @@
         (type-of (stack-element locals (- i sp-offset) type)))
        (else
         (tjitc-error 'make-snapshot "unknown local ~s ~s" type i)))))
-
   (let lp ((is indices) (acc '()))
     (match is
       ((i . is)

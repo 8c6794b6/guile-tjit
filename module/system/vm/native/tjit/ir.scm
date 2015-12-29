@@ -299,16 +299,13 @@ referenced by dst and src value at runtime."
   (identifier-syntax 3))
 
 (define-syntax-rule (current-sp-offset)
-  (vector-ref (outline-sp-offsets (ir-outline ir))
-              (ir-bytecode-index ir)))
+  (vector-ref (outline-sp-offsets (ir-outline ir)) (ir-bytecode-index ir)))
 
 (define-syntax-rule (current-fp-offset)
-  (vector-ref (outline-fp-offsets (ir-outline ir))
-              (ir-bytecode-index ir)))
+  (vector-ref (outline-fp-offsets (ir-outline ir)) (ir-bytecode-index ir)))
 
 (define-syntax-rule (local-ref n)
-  (let ((t (outline-type-ref (ir-outline ir)
-                                (+ n (current-sp-offset)))))
+  (let ((t (outline-type-ref (ir-outline ir) (+ n (current-sp-offset)))))
     (stack-element locals n t)))
 
 (define-syntax-rule (var-ref n)
@@ -945,7 +942,14 @@ referenced by dst and src value at runtime."
 ;; XXX: logxor
 ;; XXX: make-vector
 ;; XXX: make-vector/immediate
-;; XXX: vector-length
+
+(define-ir (vector-length (u64 dst) (scm src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((,dst/v (%cref ,src/v 0)))
+       (let ((,dst/v (%rsh ,dst/v 8)))
+         ,(next)))))
+
 ;; XXX: vector-ref
 ;; XXX: vector-ref/immediate
 ;; XXX: vector-set!

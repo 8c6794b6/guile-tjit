@@ -140,7 +140,8 @@
      ((memory? src)
       (memory-ref/f f0 src)
       (sp-set!/f local f0))))
-   ((memq type (list &char &box &procedure &pair &hash-table &u64))
+   ((memq type (list &char &box &procedure &pair &hash-table &u64
+                     &vector))
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))
@@ -166,7 +167,7 @@
     (jit-movi r0 *scm-null*)
     (sp-set! local r0))
    (else
-    (tjitc-error 'store-frame "~s ~s ~s" local type src))))
+    (tjitc-error 'store-frame "~s ~a ~s" local (pretty-type type) src))))
 
 (define (maybe-store asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES.

@@ -850,7 +850,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (load-constant *scm-undefined* guard?))
         ((eq? type &null)
          (load-constant *scm-null* guard?))
-        ((memq type (list &char &box &procedure &pair &hash-table &u64))
+        ((memq type (list &char &box &procedure &pair &hash-table &u64
+                          &vector))
          ;; XXX: Add guard for each type.
          (cond
           ((gpr? dst)
@@ -910,7 +911,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        (else
         (err)))))))
 
-;; Cell reference.
+;; Cell object reference.
 (define-native (%cref (int dst) (int src) (void n))
   (let ((nw (* (ref-value n) %word-size)))
     (cond
@@ -952,7 +953,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (memory-set!/f dst f0))
      (else (err)))))
 
-;; Cell set.
+;; Set cell object.
 (define-native (%cset (int cell) (void n) (int src))
   (let ((nw (constant-word n)))
     (cond
