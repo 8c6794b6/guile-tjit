@@ -95,7 +95,28 @@
     (begin
       (debug 1 "NYI: ~a~%" (car op))
       (values #f (car op))))
+  (define-syntax-rule (scan-call proc nlocals)
+    (let* ((stack-size (vector-length locals))
+           (sp-proc (- stack-size proc 1)))
+      (unless initialized?
+        (add! sp-proc (+ sp-proc 1) (+ sp-proc 2)))
+      (let lp ((n 0))
+        (when (< n nlocals)
+          (set-type! ((- sp-proc n) 'scm))
+          (lp (+ n 1))))
+      (save-sp-offset!)
+      (save-fp-offset!)
+      (push-fp-offset! proc)
+      (push-sp-offset! (- (+ proc nlocals) stack-size))
+      (ret)))
+  (define-syntax-rule (scan-tail-call nlocals)
+    (let ((stack-size (vector-length locals)))
+      (add! (- stack-size 1))
+      (save-sp-offset!)
+      (save-fp-offset!)
+      (ret)))
 
+  ;; Look for the type of returned value from C function.
   (unless initialized?
     (let ((ret-types (outline-ret-types ol)))
       (if (eq? 'subr-call prev-op)
@@ -110,13 +131,6 @@
              (set-outline-ret-types! ol (cons #f ret-types))))
           (set-outline-ret-types! ol (cons #f ret-types)))))
 
-  (cond
-   ((hashq-ref *element-type-scanners* (car op))
-    => (lambda (proc)
-         (apply proc ol (outline-sp-offset ol) (cdr op))))
-   (else
-    (values)))
-
   ;; Lookup accumulating procedure stored in *index-scanners* and apply
   ;; the procedure when found.
   ;;
@@ -124,45 +138,13 @@
   ;; in *index-scanners* and treated specially.
   (match op
     (('call proc nlocals)
-     (let* ((stack-size (vector-length locals))
-            (sp-proc (- stack-size proc 1)))
-       (unless initialized?
-         (add! sp-proc (+ sp-proc 1) (+ sp-proc 2)))
-       (let lp ((n 0))
-         (when (< n nlocals)
-           (set-type! ((- sp-proc n) 'scm))
-           (lp (+ n 1))))
-       (save-sp-offset!)
-       (save-fp-offset!)
-       (push-fp-offset! proc)
-       (push-sp-offset! (- (+ proc nlocals) stack-size))
-       (ret)))
+     (scan-call proc nlocals))
     (('call-label proc nlocals _)
-     (let* ((stack-size (vector-length locals))
-            (sp-proc (- stack-size proc 1)))
-       (unless initialized?
-         (add! sp-proc (+ sp-proc 1) (+ sp-proc 2)))
-       (let lp ((n 0))
-         (when (< n nlocals)
-           (set-type! ((- sp-proc n) 'scm))
-           (lp (+ n 1))))
-       (save-sp-offset!)
-       (save-fp-offset!)
-       (push-fp-offset! proc)
-       (push-sp-offset! (- (+ proc nlocals) stack-size))
-       (ret)))
+     (scan-call proc nlocals))
     (('tail-call nlocals)
-     (let ((stack-size (vector-length locals)))
-       (add! (- stack-size 1))
-       (save-sp-offset!)
-       (save-fp-offset!)
-       (ret)))
+     (scan-tail-call nlocals))
     (('tail-call-label nlocals _)
-     (let ((stack-size (vector-length locals)))
-       (add! (- stack-size 1))
-       (save-sp-offset!)
-       (save-fp-offset!)
-       (ret)))
+     (scan-tail-call nlocals))
     (('subr-call)
      ;; XXX: Multiple value return not supported.
      (let ((stack-size (vector-length locals)))
@@ -218,14 +200,11 @@
      (ret))
     (_
      (cond
-      ((hashq-ref *index-scanners* (car op))
+      ((hashq-ref *scan-procedures* (car op))
        => (lambda (proc)
-            (if (not initialized?)
-                (begin
-                  (apply proc ol (outline-sp-offset ol) (cdr op))
-                  (save-sp-offset!)
-                  (save-fp-offset!)
-                  (ret))
-                (values #t (car op)))))
+            (apply proc ol initialized? (cdr op))
+            (save-sp-offset!)
+            (save-fp-offset!)
+            (ret)))
       (else
        (nyi))))))

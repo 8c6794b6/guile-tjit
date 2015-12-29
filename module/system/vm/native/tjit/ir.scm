@@ -54,8 +54,7 @@
             take-snapshot
             with-frame-ref
             *ir-procedures*
-            *element-type-scanners*
-            *index-scanners*))
+            *scan-procedures*))
 
 ;;;
 ;;; Auxiliary, exported
@@ -182,10 +181,7 @@
 ;;; Auxiliary, internal
 ;;;
 
-(define *index-scanners*
-  (make-hash-table 255))
-
-(define *element-type-scanners*
+(define *scan-procedures*
   (make-hash-table 255))
 
 (define-syntax define-ir-syntax-parameters
@@ -199,40 +195,29 @@
 
 (define-ir-syntax-parameters ir ip ra dl locals next)
 
-(define-syntax put-index!
-  (syntax-rules ()
-    ((_ ol offset arg)
-     (let ((indices (assq-set! (outline-local-indices ol)
-                               (+ arg offset) #t)))
-       (set-outline-local-indices! ol indices)))))
-
-(define-syntax put-element-type!
-  (syntax-rules ()
-    ((_ ol offset arg type)
-     (let ((types (assq-set! (outline-types ol) (+ arg offset) type)))
-       (set-outline-types! ol types)))))
-
 (define-syntax gen-put-index
   (syntax-rules (const)
-    ((_ ol sp-offset)
+    ((_ ol)
      ol)
-    ((_ ol sp-offset (const arg) . rest)
-     (gen-put-index ol sp-offset . rest))
-    ((_ ol sp-offset (other arg) . rest)
-     (begin
-       (put-index! ol sp-offset arg)
-       (gen-put-index ol sp-offset . rest)))))
+    ((_ ol (const arg) . rest)
+     (gen-put-index ol . rest))
+    ((_ ol (other arg) . rest)
+     (let ((indices (assq-set! (outline-local-indices ol)
+                               (+ arg (outline-sp-offset ol)) #t)))
+       (set-outline-local-indices! ol indices)
+       (gen-put-index ol . rest)))))
 
 (define-syntax gen-put-element-type
   (syntax-rules (scm u64 f64 const)
-    ((_ ol sp-offset)
+    ((_ ol)
      ol)
-    ((_ ol sp-offset (const arg) . rest)
-     (gen-put-element-type ol sp-offset . rest))
-    ((_ ol sp-offset (other arg) . rest)
-     (begin
-       (put-element-type! ol sp-offset arg 'other)
-       (gen-put-element-type ol sp-offset . rest)))))
+    ((_ ol (const arg) . rest)
+     (gen-put-element-type ol . rest))
+    ((_ ol (other arg) . rest)
+     (let ((types (assq-set! (outline-types ol)
+                             (+ arg (outline-sp-offset ol)) 'other)))
+       (set-outline-types! ol types)
+       (gen-put-element-type ol . rest)))))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -258,12 +243,11 @@ referenced by dst and src value at runtime."
                 . body))))
        (hashq-set! *ir-procedures* 'name proc)))
     ((_ (name (flag arg) ...) . body)
-     (let ((index-proc (lambda (ol sp-offset arg ...)
-                         (gen-put-index ol sp-offset (flag arg) ...)))
-           (type-proc (lambda (ol sp-offset arg ...)
-                        (gen-put-element-type ol sp-offset (flag arg) ...))))
-       (hashq-set! *index-scanners* 'name index-proc)
-       (hashq-set! *element-type-scanners* 'name type-proc)
+     (let ((scan-proc (lambda (ol initialized? arg ...)
+                        (unless initialized?
+                          (gen-put-index ol (flag arg) ...))
+                        (gen-put-element-type ol (flag arg) ...))))
+       (hashq-set! *scan-procedures* 'name scan-proc)
        (define-ir (name arg ...) . body)))
     ((_ (name arg ...) . body)
      (let ((proc
