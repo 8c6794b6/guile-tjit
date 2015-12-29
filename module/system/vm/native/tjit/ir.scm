@@ -279,9 +279,6 @@ referenced by dst and src value at runtime."
 (define-syntax-rule (dereference-scm addr)
   (pointer->scm (dereference-pointer (make-pointer addr))))
 
-(define-syntax br-op-size
-  (identifier-syntax 3))
-
 (define-syntax-rule (current-sp-offset)
   (vector-ref (outline-sp-offsets (ir-outline ir)) (ir-bytecode-index ir)))
 
@@ -324,12 +321,12 @@ referenced by dst and src value at runtime."
     (set-ir-handle-interrupts! ir #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
-   ((memq type (list &char &pair &hash-table))
+   ((memq type (list &char &false &pair &vector &hash-table))
     (proc var))
    (else
-    (nyi "with-boxing: ~s ~s ~s" type var tmp))))
+    (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
 
-;; XXX: Tag more types. Add guard.
+;; XXX: Tag more types. Add type guard.
 (define-syntax-rule (with-unboxing type var thunk)
   (cond
    ((eq? type &exact-integer)
@@ -338,10 +335,11 @@ referenced by dst and src value at runtime."
    ((eq? type &flonum)
     `(let ((,var ,(to-double var)))
        ,(thunk)))
-   ((memq type (list &char &null &pair &procedure &hash-table))
+   ((memq type (list &char &false &true &null &pair &vector &procedure
+                     &hash-table))
     (thunk))
    (else
-    (nyi "with-unboxing: ~a ~a" type var))))
+    (nyi "with-unboxing: ~a ~a" (pretty-type type) var))))
 
 (define-syntax-rule (expand-stack nlocals)
   (expand-outline (ir-outline ir) (current-sp-offset) nlocals))
@@ -349,7 +347,7 @@ referenced by dst and src value at runtime."
 
 ;;; *** Call and return
 
-;;; XXX: halt is not defined, but might not necessary.
+;;; XXX: halt is not defined, might not necessary.
 
 (define-ir (call proc nlocals)
   ;; When procedure get inlined, taking snapshot of previous frame.
@@ -616,8 +614,8 @@ referenced by dst and src value at runtime."
             (dest (if (and (number? ra)
                            (number? rb))
                       (if (test ra rb)
-                          (if invert? offset br-op-size)
-                          (if invert? br-op-size offset))
+                          (if invert? offset 3)
+                          (if invert? 3 offset))
                       (tjitc-error "~s: got ~s ~s" 'name ra rb))))
        . body))))
 
@@ -942,11 +940,14 @@ referenced by dst and src value at runtime."
                      (vector-ref src/l idx/l)
                      (tjitc-error 'vector-ref "not a vector ~s" src/l))))
         (src/v (var-ref src))
-        (idx/v (var-ref idx)))
-    `(let ((,dst/v (%add ,idx/v 1)))
-       (let ((,dst/v (%cref ,src/v ,dst/v)))
-         ,(with-unboxing (type-of dst/l) dst/v
-            next)))))
+        (idx/v (var-ref idx))
+        (r2 (make-tmpvar 2)))
+    `(let ((,r2 (%add ,idx/v 1)))
+       (let ((,r2 (%cref ,src/v ,r2)))
+         ,(with-unboxing (type-of dst/l) r2
+            (lambda ()
+              `(let ((,dst/v ,r2))
+                 ,(next))))))))
 
 (define-ir (vector-ref/immediate (scm dst) (scm src) (const idx))
   (let ((dst/v (var-ref dst))
@@ -954,14 +955,36 @@ referenced by dst and src value at runtime."
                  (if (vector? src/l)
                      (vector-ref src/l idx)
                      (tjitc-error 'vector-ref "not a vector ~s" src/l))))
-        (src/v (var-ref src)))
-    `(let ((,dst/v (%cref ,src/v ,(+ idx 1))))
-       ,(with-unboxing (type-of dst/l) dst/v
-          next))))
+        (src/v (var-ref src))
+        (r2 (make-tmpvar 2)))
+    `(let ((,r2 (%cref ,src/v ,(+ idx 1))))
+       ,(with-unboxing (type-of dst/l) r2
+          (lambda ()
+            `(let ((,dst/v ,r2))
+               ,(next)))))))
 
-;; XXX: vector-set!
-;; XXX: vector-set!/immediate
+(define-ir (vector-set! (scm dst) (u64 idx) (scm src))
+  (let ((dst/v (var-ref dst))
+        (idx/v (var-ref idx))
+        (src/v (var-ref src))
+        (src/l (local-ref src))
+        (r1 (make-tmpvar 1))
+        (r2 (make-tmpvar 2)))
+    (with-boxing (type-of src/l) src/v r2
+      (lambda (boxed)
+        `(let ((,r1 (%add ,idx/v 1)))
+           (let ((_ (%cset ,dst/v ,r1 ,boxed)))
+             ,(next)))))))
 
+(define-ir (vector-set!/immediate (scm dst) (const idx) (scm src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src))
+        (src/l (local-ref src))
+        (r0 (make-tmpvar 0)))
+    (with-boxing (type-of src/l) src/v r0
+      (lambda (boxed)
+        `(let ((_ (%cset ,dst/v ,(+ idx 1) ,boxed)))
+           ,(next))))))
 
 ;;; *** Structs and GOOPS
 

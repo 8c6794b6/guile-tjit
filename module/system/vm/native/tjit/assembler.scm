@@ -570,12 +570,14 @@ was constant. And, uses OP-RR when both arguments were register or memory."
            (jit-movi r0 (constant a))
            (cond
             ((gpr? b)    (jump (op-rr r0 (gpr b)) (bailout)))
+            ((fpr? b)    (jump (op-rr r0 (fpr->gpr r1 b)) (bailout)))
             ((memory? b) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
             (else (err))))))
         ((gpr? a)
          (cond
           ((constant? b) (jump (op-ri (gpr a) (constant b)) (bailout)))
           ((gpr? b)      (jump (op-rr (gpr a) (gpr b)) (bailout)))
+          ((fpr? b)      (jump (op-rr (gpr a) (fpr->gpr r1 b)) (bailout)))
           ((memory? b)   (jump (op-rr (gpr a) (memory-ref r1 b)) (bailout)))
           (else (err))))
         ((memory? a)
@@ -583,6 +585,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (cond
           ((constant? b) (jump (op-ri r0 (constant b)) (bailout)))
           ((gpr? b)      (jump (op-rr r0 (gpr b)) (bailout)))
+          ((fpr? b)      (jump (op-rr r0 (fpr->gpr r1 b)) (bailout)))
           ((memory? b)   (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
           (else (err))))
         (else
@@ -943,13 +946,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        ((memory? dst) (memory-set! dst (op3a r0)))
        (else (err))))
      ((gpr? n)
-      (jit-lshi r0 (gpr n) (imm 3))     ; Left shift to multiply by word size.
+      (jit-lshi r0 (gpr n) (imm %word-size-in-bits))
       (cond
        ((gpr? dst)    (op3b (gpr dst)))
        ((memory? dst) (memory-set! dst (op3b r1)))
        (else (err))))
      ((memory? n)
-      (jit-lshi r0 (memory-ref r0 n) (imm 3))
+      (jit-lshi r0 (memory-ref r0 n) (imm %word-size-in-bits))
       (cond
        ((gpr? dst)    (op3b (gpr dst)))
        ((memory? dst) (memory-set! dst (op3b r1)))
@@ -977,21 +980,45 @@ was constant. And, uses OP-RR when both arguments were register or memory."
      (else (err)))))
 
 ;; Set cell object.
-(define-native (%cset (int cell) (void n) (int src))
-  (let ((nw (constant-word n)))
+(define-native (%cset (int cell) (int n) (int src))
+  (letrec-syntax
+      ((op3a (syntax-rules ()
+               ((_ dst)
+                (let ((nw (* (ref-value n) %word-size)))
+                  (cond
+                   ((constant? src) (jit-sti dst (imm (+ (ref-value src) nw))))
+                   ((gpr? src)      (jit-stxi (imm nw) dst (gpr src)))
+                   ((memory? src)   (jit-stxi (imm nw) dst (memory-ref r0 src)))
+                   (else (err)))))))
+       (op3b (syntax-rules ()
+               ((_ dst)
+                (cond
+                 ((constant? src) (jit-stxr r0 dst (movi r1 src)))
+                 ((gpr? src)      (jit-stxr r0 dst (gpr src)))
+                 ((memory? src)   (jit-stxr r0 dst (memory-ref r1 src)))))))
+       (movi (syntax-rules ()
+               ((_ dst src)
+                (begin
+                  (jit-movi dst (imm src))
+                  dst)))))
     (cond
-     ((not (constant? n))
-      (err))
-     ((gpr? cell)
+     ((constant? n)
       (cond
-       ((gpr? src)    (jit-stxi nw (gpr cell) (gpr src)))
-       ((memory? src) (jit-stxi nw (gpr cell) (memory-ref r0 src)))
+       ((gpr? cell)    (op3a (gpr cell)))
+       ((memory? cell) (op3a (memory-ref r0 cell)))
        (else (err))))
-     ((memory? cell)
-      (memory-ref r0 cell)
+     ((gpr? n)
+      (jit-lshi r0 (gpr n) (imm %word-size-in-bits))
       (cond
-       ((gpr? src)    (jit-stxi nw r0 (gpr src)))
-       ((memory? src) (jit-stxi nw r0 (memory-ref r1 src)))
+       ((gpr? cell)    (op3b (gpr cell)))
+       ((memory? cell) (op3b (memory-ref r2 cell)))
+       (else (err))))
+     ((memory? n)
+      (memory-ref r0 n)
+      (jit-lshi r0 (gpr n) (imm %word-size-in-bits))
+      (cond
+       ((gpr? cell)    (op3b (gpr cell)))
+       ((memory? cell) (op3b (memory-ref r2 cell)))
        (else (err))))
      (else (err)))))
 
@@ -1087,11 +1114,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                           (cond
                            ((and (number? val) (flonum? val))
                             (jit-movi-d (fpr dst) (constant src)))
-                           ((and (number? val) (exact? val))
-                            (jit-movi r0 (constant src))
-                            (gpr->fpr (fpr dst) r0))
                            (else
-                            (err)))))
+                            (jit-movi r0 (constant src))
+                            (gpr->fpr (fpr dst) r0)))))
        ((gpr? src)      (gpr->fpr (fpr dst) (gpr src)))
        ((fpr? src)      (jit-movr-d (fpr dst) (fpr src)))
        ((memory? src)   (memory-ref/f (fpr dst) src))

@@ -127,7 +127,9 @@ TESTS = \
 	t-u64-02.scm \
 	t-vector-length-01.scm \
 	t-vector-ref-01.scm \
-	t-vector-ref-02.scm
+	t-vector-ref-02.scm \
+	t-vector-set-01.scm \
+	t-vector-set-02.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 
