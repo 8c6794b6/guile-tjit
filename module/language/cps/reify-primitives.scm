@@ -76,6 +76,13 @@
       bytevector-ieee-double-native-ref bytevector-ieee-double-native-set!)
      '(rnrs bytevectors))
     ((class-of) '(oop goops))
+    ((u8vector-ref
+      u8vector-set! s8vector-ref s8vector-set!
+      u16vector-ref u16vector-set! s16vector-ref s16vector-set!
+      u32vector-ref u32vector-set! s32vector-ref s32vector-set!
+      u64vector-ref u64vector-set! s64vector-ref s64vector-set!
+      f32vector-ref f32vector-set! f64vector-ref f64vector-set!)
+     '(srfi srfi-4))
     (else '(guile))))
 
 (define (primitive-ref cps name k src)
