@@ -105,17 +105,11 @@
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))
-      (jit-lshi r0 r0 (imm 2))
-      (jit-addi r0 r0 (imm 2))
       (sp-set! local r0))
      ((gpr? src)
-      (jit-lshi r0 (gpr src) (imm 2))
-      (jit-addi r0 r0 (imm 2))
-      (sp-set! local r0))
+      (sp-set! local (gpr src)))
      ((memory? src)
       (memory-ref r0 src)
-      (jit-lshi r0 r0 (imm 2))
-      (jit-addi r0 r0 (imm 2))
       (sp-set! local r0))))
    ((eq? type &flonum)
     (cond

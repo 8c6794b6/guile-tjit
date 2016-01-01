@@ -699,7 +699,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 
 ;;;
-;;; Exact integer
+;;; Bitwise arithmetic
 ;;;
 
 ;;; XXX: This macro does not manage overflow and underflow. Make another macro
@@ -736,6 +736,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
           ((memory? dst) (memory-set! dst (op3a r0)))
           (else (err))))))))
 
+(define-binary-arith-int %band logand jit-andi jit-andr)
+
+
+;;;
+;;; Integer arithmetic
+;;;
+
 (define (rsh a b) (ash a b))
 (define (lsh a b) (ash a (- b)))
 
@@ -743,21 +750,11 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-int %sub - jit-subi jit-subr)
 (define-binary-arith-int %rsh rsh jit-rshi jit-rshr)
 (define-binary-arith-int %lsh lsh jit-lshi jit-lshr)
-
-(define-native (%mod (int dst) (int a) (int b))
-  (cond
-   ((and (gpr? dst) (gpr? a) (constant? b))
-    (jit-remi (gpr dst) (gpr a) (constant b)))
-   ((and (gpr? dst) (gpr? a) (gpr? b))
-    (jit-remr (gpr dst) (gpr a) (gpr b)))
-   ((and (gpr? dst) (memory? a) (gpr? b))
-    (jit-remr (gpr dst) (memory-ref r0 a) (gpr b)))
-   (else
-    (err))))
+(define-binary-arith-int %mod modulo jit-remi jit-remr)
 
 
 ;;;
-;;; Floating point
+;;; Floating point arithmetic
 ;;;
 
 (define-syntax define-binary-arith-double
@@ -787,6 +784,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                      (begin (jit-movi-d x (constant y))
                             x)))))
          (cond
+          ((gpr? dst)    (fpr->gpr (gpr dst) (op3a f0)))
           ((fpr? dst)    (op3a (fpr dst)))
           ((memory? dst) (memory-set!/f dst (op3a f0)))
           (else (err))))))))
@@ -810,13 +808,10 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                       (syntax-rules ()
                         ((_ constant #f)
                          (cond
-                          ((gpr? dst)
-                           (jit-movr (gpr dst) src))
-                          ((memory? dst)
-                           (memory-set! dst src))
-                          (else
-                           (tjitc-error 'unbox-stack-element "~s ~s"
-                                        dst type))))
+                          ((gpr? dst)    (jit-movr (gpr dst) src))
+                          ((memory? dst) (memory-set! dst src))
+                          (else (tjitc-error 'unbox-stack-element "~s ~s"
+                                             dst type))))
                         ((_ constant any)
                          (begin
                            (jump (jit-bnei src constant) (bailout))
@@ -839,9 +834,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (maybe-guard guard? (jump (scm-not-inump src) (bailout)))
          (cond
           ((gpr? dst)
-           (jit-rshi (gpr dst) src (imm 2)))
+           (jit-movr (gpr dst) src))
           ((memory? dst)
-           (jit-rshi r0 src (imm 2))
+           (jit-movr r0 src)
            (memory-set! dst r0))))
         ((eq? type &false)
          (load-constant *scm-false* guard?))
@@ -979,7 +974,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (memory-set!/f dst f0))
      (else (err)))))
 
-;; Set cell object.
+;; Set cell object. This operation uses `r2' register when the argument `cell'
+;; was memory and argument `n' was not constant.
 (define-native (%cset (int cell) (int n) (int src))
   (letrec-syntax
       ((op3a (syntax-rules ()
@@ -1079,6 +1075,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (cond
      ((constant? src) (begin (jit-movi-d f0 (constant src))
                              (scm-from-double (gpr dst) f0)))
+     ((gpr? src)      (scm-from-double (gpr dst) (gpr->fpr f0 (gpr src))))
      ((fpr? src)      (scm-from-double (gpr dst) (fpr src)))
      ((memory? src)   (scm-from-double (gpr dst) (memory-ref/f f0 src)))
      (else (err))))

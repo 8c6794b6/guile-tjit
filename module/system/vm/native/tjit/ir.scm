@@ -270,9 +270,6 @@ referenced by dst and src value at runtime."
          (set-ir-handle-interrupts! ir #t)
          . body)))))
 
-(define-syntax-rule (to-fixnum scm)
-  `(%rsh ,scm 2))
-
 (define-syntax-rule (to-double scm)
   `(%cref/f ,scm 2))
 
@@ -313,33 +310,56 @@ referenced by dst and src value at runtime."
 ;; XXX: Tag more types.
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
-   ((eq? type &exact-integer)
-    `(let ((,tmp (%lsh ,var 2)))
-       (let ((,tmp (%add ,tmp 2)))
-         ,(proc tmp))))
    ((eq? type &flonum)
     (set-ir-handle-interrupts! ir #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
-   ((memq type (list &char &false &pair &vector &hash-table))
+   ((memq type (list &exact-integer &char &false &pair &vector &hash-table))
     (proc var))
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
 
-;; XXX: Tag more types. Add type guard.
+(define %tc2-int
+  (@@ (system base types) %tc2-int))
+
+;; XXX: Tag more types, and add more guards.
 (define-syntax-rule (with-unboxing type var thunk)
-  (cond
-   ((eq? type &exact-integer)
-    `(let ((,var ,(to-fixnum var)))
-       ,(thunk)))
-   ((eq? type &flonum)
-    `(let ((,var ,(to-double var)))
-       ,(thunk)))
-   ((memq type (list &char &false &true &null &pair &vector &procedure
-                     &hash-table))
-    (thunk))
-   (else
-    (nyi "with-unboxing: ~a ~a" (pretty-type type) var))))
+  (let ((tmp (if (equal? var (make-tmpvar 2))
+                 (make-tmpvar 1)
+                 (make-tmpvar 2))))
+    (cond
+     ((eq? type &exact-integer)
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((,tmp (%band ,var ,%tc2-int)))
+           (let ((_ (%ne ,tmp 0)))
+             ,(thunk)))))
+     ((eq? type &flonum)
+      `(let ((,var (%cref/f ,var 2)))
+         ,(thunk)))
+     ((eq? type &false)
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((_ (%eq ,var #f)))
+           ,(thunk))))
+     ((eq? type &true)
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((_ (%eq ,var #t)))
+           ,(thunk))))
+     ((eq? type &null)
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((_ (%eq ,var ())))
+           ,(thunk))))
+     ((eq? type &pair)
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((,tmp (%band ,var 6)))
+           (let ((_ (%eq ,tmp 0)))
+             (let ((,tmp (%cref ,var 1)))
+               (let ((,tmp (%band ,tmp 1)))
+                 (let ((_ (%eq ,tmp 0)))
+                   ,(thunk))))))))
+     ((memq type (list &char &vector &procedure &hash-table))
+      (thunk))
+     (else
+      (nyi "with-unboxing: ~a ~a" (pretty-type type) var)))))
 
 (define-syntax-rule (expand-stack nlocals)
   (expand-outline (ir-outline ir) (current-sp-offset) nlocals))
@@ -488,21 +508,24 @@ referenced by dst and src value at runtime."
 
 (define-ir (subr-call)
   (let* ((stack-size (vector-length locals))
-         (vdst (var-ref (- stack-size 2)))
-         (subr/val (local-ref (- stack-size 1)))
-         (ccode (and (program? subr/val)
-                     (program-code subr/val)))
+         (dst/v (var-ref (- stack-size 2)))
+         (subr/l (local-ref (- stack-size 1)))
+         (ccode (and (program? subr/l)
+                     (program-code subr/l)))
          (ret-type (current-ret-type))
-         (emit-next (lambda ()
-                      `(let ((,vdst (%ccall ,(pointer-address
-                                              (scm->pointer subr/val)))))
-                         ,(if ret-type
-                              (with-unboxing ret-type vdst next)
-                              (next)))))
-         (tmp0 (make-tmpvar 0)))
+         (r2 (make-tmpvar 2))
+         (emit-next
+          (lambda ()
+            `(let ((,r2 (%ccall ,(pointer-address (scm->pointer subr/l)))))
+               ,(if ret-type
+                    (with-unboxing ret-type r2
+                      (lambda ()
+                        `(let ((,dst/v ,r2))
+                           ,(next))))
+                    (next))))))
     (debug 1 ";;; subr-call: (~a) (~s ~{~a~^ ~})~%"
            (pretty-type (current-ret-type))
-           (procedure-name subr/val)
+           (procedure-name subr/l)
            (let lp ((n 0) (acc '()))
              (if (< n (- stack-size 1))
                  (begin
@@ -514,14 +537,14 @@ referenced by dst and src value at runtime."
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))
-              (let ((n/var (var-ref n))
-                    (n/val (local-ref n)))
-                (with-boxing (type-of n/val) n/var n/var
+              (let ((n/v (var-ref n))
+                    (n/l (local-ref n)))
+                (with-boxing (type-of n/l) n/v n/v
                   (lambda (boxed)
                     `(let ((_ (%carg ,boxed)))
                        ,(lp (+ n 1))))))
               (emit-next)))
-        (tjitc-error 'subr-call "not a primitive ~s" subr/val))))
+        (tjitc-error 'subr-call "not a primitive ~s" subr/l))))
 
 ;; XXX: foreign-call
 ;; XXX: continuation-call
@@ -579,20 +602,26 @@ referenced by dst and src value at runtime."
   ;; Nothing to emit for br.
   (next))
 
-;; XXX: br-if-true
-
-;; XXX: If `br-if-null' was commented out, the workaround in "tjit.scm" for
-;; avoiding the compilation of traces in "system/vm/linker.scm" could be
-;; removed. So this IR should relate to the cause of segfault in linker.scm
-;; somehow.
-(define-ir (br-if-null (scm test) (const invert) (const offset))
-  (let* ((rtest (local-ref test))
-         (vtest (var-ref test))
-         (dest (if (null? rtest)
+(define-ir (br-if-true (scm test) (const invert) (const offset))
+  (let* ((test/v (var-ref test))
+         (test/l (local-ref test))
+         (dest (if test/l
                    (if invert offset 2)
-                   (if invert 2 offset))))
+                   (if invert 2 offset)))
+         (op (if test/l '%ne '%eq)))
     `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((_ ,(if (null? rtest) `(%eq ,vtest ()) `(%ne ,vtest ()))))
+       (let ((_ (,op ,test/v #f)))
+         ,(next)))))
+
+(define-ir (br-if-null (scm test) (const invert) (const offset))
+  (let* ((test/l (local-ref test))
+         (test/v (var-ref test))
+         (dest (if (null? test/l)
+                   (if invert offset 2)
+                   (if invert 2 offset)))
+         (op (if (null? test/l) '%eq '%ne)))
+    `(let ((_ ,(take-snapshot! ip dest)))
+       (let ((_ (,op ,test/v ())))
          ,(next)))))
 
 ;; XXX: br-if-nil
@@ -637,8 +666,7 @@ referenced by dst and src value at runtime."
                             `(op-fl-t ,va ,vb)
                             `(op-fl-f ,va ,vb))))
                 ,(next))))
-          ;; XXX: Delegate other types to C function, e.g.: SCM bignum, complex,
-          ;; ... etc.
+          ;; XXX: Delegate bignum, complex ... etc to C function
           (else
            (nyi "~s: ~a ~a~%" 'name ra rb))))))))
 
@@ -675,9 +703,13 @@ referenced by dst and src value at runtime."
                    (let ((var (local-ref src)))
                      (if (variable? var)
                          (variable-ref var)
-                         (tjitc-error 'box-ref "got ~s" var))))))
-    `(let ((,vdst (%cref ,vsrc 1)))
-       ,(with-unboxing (type-of rsrc) vdst next))))
+                         (tjitc-error 'box-ref "got ~s" var)))))
+        (r2 (make-tmpvar 2)))
+    `(let ((,r2 (%cref ,vsrc 1)))
+       ,(with-unboxing (type-of rsrc) r2
+          (lambda ()
+            `(let ((,vdst ,r2))
+               ,(next)))))))
 
 (define-ir (box-set! (scm dst) (scm src))
   (let* ((vdst (var-ref dst))
@@ -687,11 +719,11 @@ referenced by dst and src value at runtime."
                       (if (variable? var)
                           (variable-ref var)
                           (tjitc-error 'box-set! "got ~s~%" var)))))
-         (r0 (make-tmpvar 0))
+         (r2 (make-tmpvar 2))
          (emit-next (lambda (tmp)
                       `(let ((_ (%cset ,vdst 1 ,tmp)))
                          ,(next)))))
-    (with-boxing (type-of rdst) vsrc r0
+    (with-boxing (type-of rdst) vsrc r2
       emit-next)))
 
 ;; XXX: make-closure
@@ -702,20 +734,17 @@ referenced by dst and src value at runtime."
 ;;; *** Immediates and statically allocated non-immediates
 
 (define-ir (make-short-immediate (scm dst) (const low-bits))
-  ;; XXX: `make-short-immediate' could be used for other value than small
-  ;; integer, e.g: '(). Check type from value of `low-bits' and choose
-  ;; the type appropriately.
-  `(let ((,(var-ref dst) ,(ash low-bits -2)))
+  `(let ((,(var-ref dst) ,low-bits))
      ,(next)))
 
 (define-ir (make-long-immediate (scm dst) (const low-bits))
-  `(let ((,(var-ref dst) ,(ash low-bits -2)))
+  `(let ((,(var-ref dst) ,low-bits))
      ,(next)))
 
 (define-ir (make-long-long-immediate (scm dst)
                                      (const high-bits)
                                      (const low-bits))
-  `(let ((,(var-ref dst) ,(ash (logior (ash high-bits 32) low-bits) -2)))
+  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
      ,(next)))
 
 ;; XXX: make-non-immediate
@@ -784,8 +813,8 @@ referenced by dst and src value at runtime."
   (let* ((vdst (var-ref dst))
          (vx (var-ref x))
          (vy (var-ref y))
-         (r0 (make-tmpvar 0))
          (r1 (make-tmpvar 1))
+         (r2 (make-tmpvar 2))
          (lx (local-ref x))
          (ly (local-ref y))
          (emit-cons (lambda (a)
@@ -796,31 +825,41 @@ referenced by dst and src value at runtime."
                    (with-boxing (type-of ly) vy r1
                      (emit-cons a))))
          (emit-x (lambda ()
-                   (with-boxing (type-of lx) vx r0
+                   (with-boxing (type-of lx) vx r2
                      emit-y))))
     (emit-x)))
 
 (define-ir (car (scm dst) (scm src))
-  (let ((rdst (local-ref dst))
-        (rsrc (local-ref src))
-        (vdst (var-ref dst))
-        (vsrc (var-ref src)))
-    (when (not (pair? rsrc))
-      (tjitc-error 'car "~a ~a~%" rdst rsrc))
-    `(let ((,vdst (%cref ,vsrc 0)))
-       ,(let ((rcar (car rsrc)))
-          (with-unboxing (type-of rcar) vdst next)))))
+  (let ((dst/l (local-ref dst))
+        (src/l (local-ref src))
+        (dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    (when (not (pair? src/l))
+      (tjitc-error 'car "~a ~a~%" dst/l src/l))
+    (let ((car/l (car src/l))
+          (r2 (make-tmpvar 2)))
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((,r2 (%cref ,src/v 0)))
+           ,(with-unboxing (type-of car/l) r2
+              (lambda ()
+                `(let ((,dst/v ,r2))
+                   ,(next)))))))))
 
 (define-ir (cdr (scm dst) (scm src))
-  (let ((rdst (local-ref dst))
-        (rsrc (local-ref src))
-        (vdst (var-ref dst))
-        (vsrc (var-ref src)))
-    (when (not (pair? rsrc))
-      (tjitc-error 'cdr "~a ~a~%" rdst rsrc))
-    `(let ((,vdst (%cref ,vsrc 1)))
-       ,(let ((rcdr (cdr rsrc)))
-          (with-unboxing (type-of rcdr) vdst next)))))
+  (let ((dst/l (local-ref dst))
+        (src/l (local-ref src))
+        (dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    (when (not (pair? src/l))
+      (tjitc-error 'cdr "~a ~a~%" dst/l src/l))
+    (let ((cdr/l (cdr src/l))
+          (r2 (make-tmpvar 2)))
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((,r2 (%cref ,src/v 1)))
+           ,(with-unboxing (type-of cdr/l) r2
+              (lambda ()
+                `(let ((,dst/v ,r2))
+                   ,(next)))))))))
 
 ;; XXX: set-car!
 ;; XXX: set-cdr!
@@ -830,7 +869,7 @@ referenced by dst and src value at runtime."
 
 (define-syntax define-binary-arith-scm-scm
   (syntax-rules ()
-    ((_ name op-fx op-fl)
+    ((_ name op-fx1 op-fx2 op-fl)
      (define-ir (name (scm dst) (scm a) (scm b))
        (let ((ra (local-ref a))
              (rb (local-ref b))
@@ -839,13 +878,16 @@ referenced by dst and src value at runtime."
              (vb (var-ref b)))
          (cond
           ((and (fixnum? ra) (fixnum? rb))
-           `(let ((,vdst (op-fx ,va ,vb)))
-              ,(next)))
+           `(let ((,vdst (op-fx1 ,va ,vb)))
+              (let ((,vdst (op-fx2 ,vdst 2)))
+                ,(next))))
           ((and (fixnum? ra) (flonum? rb))
-           (let ((f0 (make-tmpvar/f 0)))
-             `(let ((,f0 (%i2d ,va)))
-                (let ((,vdst (op-fl ,f0 ,vb)))
-                  ,(next)))))
+           (let ((r0 (make-tmpvar 0))
+                 (f0 (make-tmpvar/f 0)))
+             `(let ((,r0 (%rsh ,va 2)))
+                (let ((,f0 (%i2d ,r0)))
+                  (let ((,vdst (op-fl ,f0 ,vb)))
+                    ,(next))))))
           ((and (flonum? ra) (flonum? rb))
            `(let ((,vdst (op-fl ,va ,vb)))
               ,(next)))
@@ -861,14 +903,14 @@ referenced by dst and src value at runtime."
              (vsrc (var-ref src)))
          (cond
           ((fixnum? rsrc)
-           `(let ((,vdst (op-fx ,vsrc ,imm)))
+           `(let ((,vdst (op-fx ,vsrc ,(* imm 4))))
               ,(next)))
           (else
            (nyi "~s: ~a ~a" 'name (local-ref dst) rsrc))))))))
 
-(define-binary-arith-scm-scm add %add %fadd)
+(define-binary-arith-scm-scm add %add %sub %fadd)
 (define-binary-arith-scm-imm add/immediate %add)
-(define-binary-arith-scm-scm sub %sub %fsub)
+(define-binary-arith-scm-scm sub %sub %add %fsub)
 (define-binary-arith-scm-imm sub/immediate %sub)
 
 (define-ir (mul (scm dst) (scm a) (scm b))
@@ -913,8 +955,13 @@ referenced by dst and src value at runtime."
         (vb (var-ref b)))
     (cond
      ((and (fixnum? ra) (fixnum? rb))
-      `(let ((,vdst (%mod ,va ,vb)))
-         ,(next)))
+      (let ((r2 (make-tmpvar 2)))
+        `(let ((,r2 (%rsh ,va 2)))
+           (let ((,vdst (%rsh ,vb 2)))
+             (let ((,vdst (%mod ,r2 ,vdst)))
+               (let ((,vdst (%lsh ,vdst 2)))
+                 (let ((,vdst (%add ,vdst 2)))
+                   ,(next))))))))
      (else
       (nyi "mod: ~a ~a ~a" (local-ref dst) ra rb)))))
 
@@ -942,6 +989,7 @@ referenced by dst and src value at runtime."
         (src/v (var-ref src))
         (idx/v (var-ref idx))
         (r2 (make-tmpvar 2)))
+    (vector-set! locals dst (scm->pointer dst/l))
     `(let ((,r2 (%add ,idx/v 1)))
        (let ((,r2 (%cref ,src/v ,r2)))
          ,(with-unboxing (type-of dst/l) r2
@@ -980,8 +1028,8 @@ referenced by dst and src value at runtime."
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/l (local-ref src))
-        (r0 (make-tmpvar 0)))
-    (with-boxing (type-of src/l) src/v r0
+        (r2 (make-tmpvar 2)))
+    (with-boxing (type-of src/l) src/v r2
       (lambda (boxed)
         `(let ((_ (%cset ,dst/v ,(+ idx 1) ,boxed)))
            ,(next))))))
@@ -1046,12 +1094,17 @@ referenced by dst and src value at runtime."
 ;; XXX: apply-non-program
 
 (define-ir (scm->u64 (u64 dst) (scm src))
-  `(let ((,(var-ref dst) ,(var-ref src)))
-     ,(next)))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((,dst/v (%rsh ,src/v 2)))
+       ,(next))))
 
 (define-ir (u64->scm (scm dst) (u64 src))
-  `(let ((,(var-ref dst) ,(var-ref src)))
-     ,(next)))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((,dst/v (%lsh ,src/v 2)))
+       (let ((,dst/v (%add ,dst/v 2)))
+         ,(next)))))
 
 ;; XXX: bv-length
 
@@ -1115,11 +1168,13 @@ referenced by dst and src value at runtime."
     ((_ name op-scm op-fx-t op-fx-f)
      (define-ir (name (u64 a) (scm b) (const invert?) (const offset))
        (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-        `(let ((_ ,(take-snapshot! ip dest)))
-           (let ((_ ,(if (op-scm ra rb)
-                         `(op-fx-t ,va ,vb)
-                         `(op-fx-f ,va ,vb))))
-             ,(next))))))))
+         (let ((r2 (make-tmpvar 2)))
+           `(let ((_ ,(take-snapshot! ip dest)))
+              (let ((,r2 (%rsh ,vb 2)))
+                (let ((_ ,(if (op-scm ra rb)
+                              `(op-fx-t ,va ,r2)
+                              `(op-fx-f ,va ,r2))))
+                  ,(next))))))))))
 
 (define-br-binary-u64-scm br-if-u64-=-scm = %eq %ne)
 (define-br-binary-u64-scm br-if-u64-<-scm < %lt %ge)
