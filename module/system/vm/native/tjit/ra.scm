@@ -209,6 +209,7 @@
        ((number? x) #t)
        ((null? x) #t)
        ((undefined? x) #t)
+       ((unspecified? x) #t)
        (else #f)))
     (define (assign-term term acc)
       (match term
