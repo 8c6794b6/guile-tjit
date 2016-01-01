@@ -252,6 +252,8 @@
       (bytevector-s8-set! 1)
       (bytevector-u8-set! 1)))
   (define word-size (sizeof '*))
+  (define src-path
+    (search-path %load-path src))
   (let-values (((info-port get-info-bv) (open-bytevector-output-port))
                ((abbrev-port get-abbrev-bv) (open-bytevector-output-port))
                ((line-port get-line-bv) (open-bytevector-output-port)))
@@ -262,13 +264,13 @@
                               ((eq? word-size 4) u32)
                               ((eq? word-size 8) u64)
                               (else (error "Unknown word-size"))))
-                    ((src) (string-table-intern! strtab src)))
+                    ((src-code) (string-table-intern! strtab src-path)))
         (u32 0)                         ; Length, updated later
-        (u16 2)                         ; DWARF version 4
+        (u16 2)                         ; DWARF version 2
         (u32 0)                         ; Abbrev offset
         (u8 word-size)                  ; Address size
         (uleb128 1)                     ; Abbrev #1: DW_TAG_compile_unit
-        (u32 src)                       ; DW_AT_name
+        (u32 src-code)                  ; DW_AT_name
         (uword naddr)                   ; DW_AT_low_pc
         (uword (+ naddr nsize))         ; DW_AT_high_pc
         (u32 0)                         ; DW_AT_stmt_list
@@ -305,7 +307,8 @@
                               ((eq? word-size 4) u32)
                               ((eq? word-size 8) u64)
                               (else (error "Unknown word-size"))))
-                    ((src-code) (string-table-intern! strtab src))
+                    ((src-code) (string-table-intern! strtab src-path))
+                    ((src-bv) (string->utf8 src-path))
                     ((extended-op) (lambda (op payload-len)
                                      (u8 0)
                                      (uleb128 (+ payload-len 1))
@@ -326,12 +329,12 @@
 
         (u8 0)                          ; Directory table
 
-        (put-bytevector line-port (string->utf8 src)) ; File name
-        (u8 0)                                        ; Terminate string
-        (uleb128 0)                                   ; Directory
-        (uleb128 0)                                   ; Mtime
-        (uleb128 0)                                   ; Size
-        (u8 0)                                        ; Terminate file list
+        (put-bytevector line-port src-bv) ; File name
+        (u8 0)                            ; Terminate string
+        (uleb128 0)                       ; Directory
+        (uleb128 0)                       ; Mtime
+        (uleb128 0)                       ; Size
+        (u8 0)                            ; Terminate file list
 
         ;; Patch prologue length
         (let ((offset (port-position line-port)))
