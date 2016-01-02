@@ -44,7 +44,7 @@
             primops-entry
             primops-loop
             primops-nspills
-            ir->primops))
+            anf->primops))
 
 ;;;
 ;;; Record type
@@ -179,23 +179,14 @@
             (_
              (reverse! acc))))))
     (define (get-dst-type! op dst)
-      ;; Assign new register. Overwrite register used for dst if type
-      ;; differs from already assigned register.
+      ;; Get assigned register. Will assign new register if not assigned yet.
       (let ((type (car (lookup-prim-type op)))
             (assigned (hashq-ref env dst)))
         (cond
-         ((and assigned
-               (or (and (= type int)
-                        (not (fpr? assigned)))
-                   (and (= type double)
-                        (not (gpr? assigned)))))
-          assigned)
-         ((= type int)
-          (get-gpr! dst))
-         ((= type double)
-          (get-fpr! dst))
-         (else
-          (tjitc-error 'get-dst-types! "dst ~s ~s" dst type)))))
+         (assigned        assigned)
+         ((= type int)    (get-gpr! dst))
+         ((= type double) (get-fpr! dst))
+         (else (tjitc-error 'get-dst-types! "dst ~s ~s" dst type)))))
     (define (ref k)
       (cond
        ((constant? k) (make-constant k))
@@ -258,7 +249,7 @@
 ;;; IR to list of primitive operations
 ;;;
 
-(define (ir->primops term tj initial-snapshot vars snapshots)
+(define (anf->primops term tj initial-snapshot vars snapshots)
   (let ((parent-snapshot (tj-parent-snapshot tj))
         (initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))

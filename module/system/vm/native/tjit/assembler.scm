@@ -733,6 +733,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                             x)))))
          (cond
           ((gpr? dst)    (op3a (gpr dst)))
+          ((fpr? dst)    (gpr->fpr (fpr dst) (op3a r0)))
           ((memory? dst) (memory-set! dst (op3a r0)))
           (else (err))))))))
 
@@ -775,6 +776,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                      (begin
                        (cond
                         ((constant? a) (op3b dst (movi f2 a)))
+                        ((gpr? a)      (op3b dst (gpr->fpr f2 (gpr a))))
                         ((fpr? a)      (op3b dst (fpr a)))
                         ((memory? a)   (op3b dst (memory-ref/f f2 a)))
                         (else (err)))
@@ -961,6 +963,11 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (cond
      ((not (constant? n))
       (err))
+     ((gpr? dst)
+      (cond
+       ((gpr? src)    (jit-ldxi-d f0 (gpr src) nw))
+       ((memory? src) (jit-ldxi-d f0 (memory-ref r0 src) nw)))
+      (fpr->gpr (gpr dst) f0))
      ((fpr? dst)
       (cond
        ((gpr? src)    (jit-ldxi-d (fpr dst) (gpr src) nw))
@@ -978,19 +985,22 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;; was memory and argument `n' was not constant.
 (define-native (%cset (int cell) (int n) (int src))
   (letrec-syntax
-      ((op3a (syntax-rules ()
-               ((_ dst)
-                (let ((nw (* (ref-value n) %word-size)))
-                  (cond
-                   ((constant? src) (jit-sti dst (imm (+ (ref-value src) nw))))
-                   ((gpr? src)      (jit-stxi (imm nw) dst (gpr src)))
-                   ((memory? src)   (jit-stxi (imm nw) dst (memory-ref r0 src)))
-                   (else (err)))))))
+      ((op3a
+        (syntax-rules ()
+          ((_ dst)
+           (let ((nw (* (ref-value n) %word-size)))
+             (cond
+              ((constant? src) (jit-sti dst (imm (+ (ref-value src) nw))))
+              ((gpr? src)      (jit-stxi (imm nw) dst (gpr src)))
+              ((fpr? src)      (jit-stxi (imm nw) dst (fpr->gpr r0 (fpr src))))
+              ((memory? src)   (jit-stxi (imm nw) dst (memory-ref r0 src)))
+              (else (err)))))))
        (op3b (syntax-rules ()
                ((_ dst)
                 (cond
                  ((constant? src) (jit-stxr r0 dst (movi r1 src)))
                  ((gpr? src)      (jit-stxr r0 dst (gpr src)))
+                 ((fpr? src)      (jit-stxr r0 dst (fpr->gpr r1 (fpr src))))
                  ((memory? src)   (jit-stxr r0 dst (memory-ref r1 src)))))))
        (movi (syntax-rules ()
                ((_ dst src)
@@ -1001,12 +1011,14 @@ was constant. And, uses OP-RR when both arguments were register or memory."
      ((constant? n)
       (cond
        ((gpr? cell)    (op3a (gpr cell)))
+       ((fpr? cell)    (op3a (fpr->gpr r0 (fpr cell))))
        ((memory? cell) (op3a (memory-ref r0 cell)))
        (else (err))))
      ((gpr? n)
       (jit-lshi r0 (gpr n) (imm %word-size-in-bits))
       (cond
        ((gpr? cell)    (op3b (gpr cell)))
+       ((fpr? cell)    (op3b (fpr->gpr r2 cell)))
        ((memory? cell) (op3b (memory-ref r2 cell)))
        (else (err))))
      ((memory? n)
@@ -1014,6 +1026,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (jit-lshi r0 (gpr n) (imm %word-size-in-bits))
       (cond
        ((gpr? cell)    (op3b (gpr cell)))
+       ((fpr? cell)    (op3b (fpr->gpr r2 cell)))
        ((memory? cell) (op3b (memory-ref r2 cell)))
        (else (err))))
      (else (err)))))

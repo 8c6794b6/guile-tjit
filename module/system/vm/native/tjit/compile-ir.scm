@@ -65,8 +65,8 @@
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (tj-id tj))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
-    (let ((primops (ir->primops anf tj (hashq-ref snapshots 0) vars
-                                snapshots)))
+    (let ((primops (anf->primops anf tj (hashq-ref snapshots 0) vars
+                                 snapshots)))
       (values snapshots anf primops))))
 
 (define (compile-anf tj trace)
