@@ -408,6 +408,20 @@
            ((x y)
             (or (fold-binary-branch cps label names vars k kt src name x y)
                 cps))))
+        (($ $branch kt ($ $values (arg)))
+         ;; We might be able to fold branches on values.
+         (call-with-values (lambda () (lookup-pre-type types label arg))
+           (lambda (type min max)
+             (cond
+              ((zero? (logand type (logior &false &nil)))
+               (with-cps cps
+                 (setk label
+                       ($kargs names vars ($continue kt src ($values ()))))))
+              ((zero? (logand type (lognot (logior &false &nil))))
+               (with-cps cps
+                 (setk label
+                       ($kargs names vars ($continue k src ($values ()))))))
+              (else cps)))))
         (_ cps)))
     (let lp ((label start) (cps cps))
       (if (<= label end)
