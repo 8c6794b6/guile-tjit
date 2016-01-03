@@ -28,14 +28,11 @@ GOBJECTS = $(SOURCES:%.scm=%.go)
 GUILE_WARNINGS =
 GUILE_OPTIMIZATIONS = -O1
 nobase_noinst_DATA = $(GOBJECTS) ice-9/eval.go
-CLEANFILES = $(GOBJECTS) ice-9/eval.go ice-9/psyntax-pp.go
+CLEANFILES = $(GOBJECTS) ice-9/eval.go
 
 # We must build the evaluator first, so that we can be sure to control
-# the stack.  Then we really need to build the expander before other
-# things, otherwise the compile time for everything else is dominated by
-# the expander.
-ice-9/psyntax-pp.go: ice-9/eval.go
-$(GOBJECTS): ice-9/psyntax-pp.go
+# the stack.
+$(GOBJECTS): ice-9/eval.go
 
 VM_TARGETS := system/vm/assembler.go system/vm/disassembler.go
 $(VM_TARGETS): $(top_builddir)/libguile/vm-operations.h
@@ -61,6 +58,7 @@ SUFFIXES = .scm .go
 # these in any order; the order below is designed to hopefully result in
 # the lowest total compile time.
 SOURCES =					\
+  ice-9/psyntax-pp.scm				\
   language/cps/intmap.scm			\
   language/cps/intset.scm			\
   language/cps/utils.scm			\
