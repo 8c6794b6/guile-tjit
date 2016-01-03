@@ -773,7 +773,7 @@
            (build-term ($continue k src ($primcall 'apply args*)))))))
 
     (($ <conditional> src test consequent alternate)
-     (define (convert-test cps kt kf)
+     (define (convert-test cps test kt kf)
        (match test
          (($ <primcall> src (? branching-primitive? name) args)
           (convert-args cps args
@@ -781,6 +781,13 @@
               (with-cps cps
                 (build-term ($continue kf src
                               ($branch kt ($primcall name args))))))))
+         (($ <conditional> src test consequent alternate)
+          (with-cps cps
+            (let$ t (convert-test consequent kt kf))
+            (let$ f (convert-test alternate kt kf))
+            (letk kt* ($kargs () () ,t))
+            (letk kf* ($kargs () () ,f))
+            ($ (convert-test test kt* kf*))))
          (_ (convert-arg cps test
               (lambda (cps test)
                 (with-cps cps
@@ -791,7 +798,7 @@
        (let$ f (convert alternate k subst))
        (letk kt ($kargs () () ,t))
        (letk kf ($kargs () () ,f))
-       ($ (convert-test kt kf))))
+       ($ (convert-test test kt kf))))
 
     (($ <lexical-set> src name gensym exp)
      (convert-arg cps exp
