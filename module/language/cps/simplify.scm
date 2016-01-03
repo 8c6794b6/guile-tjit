@@ -111,34 +111,34 @@
 ;;; as candidates.  This prevents back-edges and so breaks SCCs, and is
 ;;; optimal if labels are sorted.  If the labels aren't sorted it's
 ;;; suboptimal but cheap.
-(define (compute-eta-reductions conts kfun)
-  (let ((singly-used (compute-singly-referenced-vars conts)))
-    (define (singly-used? vars)
-      (match vars
-        (() #t)
-        ((var . vars)
-         (and (intset-ref singly-used var) (singly-used? vars)))))
-    (define (visit-fun kfun body eta)
-      (define (visit-cont label eta)
-        (match (intmap-ref conts label)
-          (($ $kargs names vars ($ $continue k src ($ $values vars)))
-           (intset-maybe-add! eta label
-                              (match (intmap-ref conts k)
-                                (($ $kargs)
-                                 (and (not (eqv? label k)) ; A
-                                      (not (intset-ref eta label)) ; B
-                                      (singly-used? vars)))
-                                (_ #f))))
-          (_
-           eta)))
-      (intset-fold visit-cont body eta))
-    (persistent-intset
-     (intmap-fold visit-fun
-                  (compute-reachable-functions conts kfun)
-                  empty-intset))))
+(define (compute-eta-reductions conts kfun singly-used)
+  (define (singly-used? vars)
+    (match vars
+      (() #t)
+      ((var . vars)
+       (and (intset-ref singly-used var) (singly-used? vars)))))
+  (define (visit-fun kfun body eta)
+    (define (visit-cont label eta)
+      (match (intmap-ref conts label)
+        (($ $kargs names vars ($ $continue k src ($ $values vars)))
+         (intset-maybe-add! eta label
+                            (match (intmap-ref conts k)
+                              (($ $kargs)
+                               (and (not (eqv? label k)) ; A
+                                    (not (intset-ref eta label)) ; B
+                                    (singly-used? vars)))
+                              (_ #f))))
+        (_
+         eta)))
+    (intset-fold visit-cont body eta))
+  (persistent-intset
+   (intmap-fold visit-fun
+                (compute-reachable-functions conts kfun)
+                empty-intset)))
 
 (define (eta-reduce conts kfun)
-  (let ((label-set (compute-eta-reductions conts kfun)))
+  (let* ((singly-used (compute-singly-referenced-vars conts))
+         (label-set (compute-eta-reductions conts kfun singly-used)))
     ;; Replace any continuation to a label in LABEL-SET with the label's
     ;; continuation.  The label will denote a $kargs continuation, so
     ;; only terms that can continue to $kargs need be taken into
@@ -155,6 +155,19 @@
               (($ $kargs names syms ($ $continue kf src ($ $branch kt exp)))
                ($kargs names syms
                  ($continue (subst kf) src ($branch (subst kt) ,exp))))
+              (($ $kargs names syms ($ $continue k src ($ $const val)))
+               ,(match (intmap-ref conts k)
+                  (($ $kargs (_)
+                             ((? (lambda (var) (intset-ref singly-used var))
+                                 var))
+                      ($ $continue kf _ ($ $branch kt ($ $values (var)))))
+                   (build-cont
+                     ($kargs names syms
+                       ($continue (subst (if val kt kf)) src ($values ())))))
+                  (_
+                   (build-cont
+                     ($kargs names syms
+                       ($continue (subst k) src ($const val)))))))
               (($ $kargs names syms ($ $continue k src exp))
                ($kargs names syms
                  ($continue (subst k) src ,exp)))
