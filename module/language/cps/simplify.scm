@@ -37,12 +37,6 @@
 (define (intset-maybe-add! set k add?)
   (if add? (intset-add! set k) set))
 
-(define (intset-add* set k*)
-  (let lp ((set set) (k* k*))
-    (match k*
-      ((k . k*) (lp (intset-add set k) k*))
-      (() set))))
-
 (define (intset-add*! set k*)
   (fold1 (lambda (k set) (intset-add! set k)) k* set))
 
