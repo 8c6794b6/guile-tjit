@@ -131,6 +131,12 @@
             (()
              acc)))
         '()))
+  (define (merge-types dst src)
+    (let lp ((src src) (dst dst))
+      (match src
+        (((n . t) . src)
+         (lp src (assq-set! dst n (type->stack-element-type t))))
+        (() dst))))
 
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
@@ -155,15 +161,22 @@
         (debug 1 ";;; trace ~a: ~a~%" trace-id msg)
         (tjit-increment-compilation-failure! entry-ip)))
     (define (compile-traces traces outline)
-      (let* ((initial-types (if (or (not parent-fragment) loop?)
-                                (copy-tree (outline-types outline))
-                                (snapshot-locals parent-snapshot)))
+      ;; Copy outline types before scanning backward. Then if this trace was
+      ;; side trace, update the initial stack item types with locals from parent
+      ;; snapshot.
+      (let* ((initial-stack-item-types (copy-tree (outline-types outline)))
              (outline (scan-backward traces outline parent-snapshot
                                      initial-sp-offset
                                      initial-fp-offset))
+             (initial-stack-item-types
+              (if (or (not parent-fragment) loop?)
+                  initial-stack-item-types
+                  (merge-types (outline-types outline)
+                               (snapshot-locals parent-snapshot))))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
-                          loop? downrec? uprec? #f initial-types)))
+                          loop? downrec? uprec? #f
+                          initial-stack-item-types)))
         (let-values (((snapshots anf ops) (compile-ir tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
           (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))

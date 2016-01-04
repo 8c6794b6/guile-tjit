@@ -84,84 +84,100 @@
 (define (store-frame asm local type src)
   (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
          local (pretty-type type) src)
-  (cond
-   ((return-address? type)
-    ;; Moving value coupled with type to frame local. Return address of VM frame
-    ;; need to be recovered when taking exit from inlined procedure call. The
-    ;; actual value for return address is captured at the time of Scheme IR
-    ;; conversion and stored in snapshot as pointer.
-    (jit-movi r0 (return-address-ip type))
-    (sp-set! local r0))
+  (let ((err (lambda ()
+               (tjitc-error 'store-frame "~s ~a ~s"
+                            local (pretty-type type) src))))
+    (cond
+     ((return-address? type)
+      ;; Moving value coupled with type to frame local. Return address of VM
+      ;; frame need to be recovered when taking exit from inlined procedure
+      ;; call. The actual value for return address is captured at the time of
+      ;; Scheme IR conversion and stored in snapshot as pointer.
+      (jit-movi r0 (return-address-ip type))
+      (sp-set! local r0))
 
-   ((dynamic-link? type)
-    ;; Storing fp to local. Dynamic link is stored as offset in type. VM's fp
-    ;; could move, may use different value at the time of compilation and
-    ;; execution.
-    (jit-movi r0 (imm (dynamic-link-offset type)))
-    (sp-set! local r0))
+     ((dynamic-link? type)
+      ;; Storing fp to local. Dynamic link is stored as offset in type. VM's fp
+      ;; could move, may use different value at the time of compilation and
+      ;; execution.
+      (jit-movi r0 (imm (dynamic-link-offset type)))
+      (sp-set! local r0))
 
-   ;; Check type, recover SCM value.
-   ((eq? type &exact-integer)
-    (cond
-     ((constant? src)
-      (jit-movi r0 (constant src))
+     ;; Check type, recover SCM value.
+     ((eq? type &exact-integer)
+      (cond
+       ((constant? src)
+        (jit-movi r0 (constant src))
+        (sp-set! local r0))
+       ((gpr? src)
+        (sp-set! local (gpr src)))
+       ((fpr? src)
+        (fpr->gpr r0 (fpr src))
+        (sp-set! local r0))
+       ((memory? src)
+        (memory-ref r0 src)
+        (sp-set! local r0))
+       (else (err))))
+     ((eq? type &flonum)
+      (cond
+       ((constant? src)
+        (jit-movi-d f0 (constant src))
+        (scm-from-double asm r0 f0)
+        (sp-set! local r0))
+       ((gpr? src)
+        (gpr->fpr f0 (gpr src))
+        (scm-from-double asm r0 f0)
+        (sp-set! local r0))
+       ((fpr? src)
+        (scm-from-double asm r0 (fpr src))
+        (sp-set! local r0))
+       ((memory? src)
+        (memory-ref/f f0 src)
+        (scm-from-double asm r0 f0)
+        (sp-set! local r0))
+       (else (err))))
+     ((eq? type &f64)
+      (cond
+       ((constant? src)
+        (jit-movi-d f0 (constant src))
+        (sp-set!/f local f0))
+       ((fpr? src)
+        (sp-set!/f local (fpr src)))
+       ((memory? src)
+        (memory-ref/f f0 src)
+        (sp-set!/f local f0))
+       (else (err))))
+     ((memq type (list &char &box &procedure &pair &hash-table &u64
+                       &vector))
+      (cond
+       ((constant? src)
+        (jit-movi r0 (constant src))
+        (sp-set! local r0))
+       ((gpr? src)
+        (sp-set! local (gpr src)))
+       ((fpr? src)
+        (fpr->gpr r0 (fpr src))
+        (sp-set! local r0))
+       ((memory? src)
+        (memory-ref r0 src)
+        (sp-set! local r0))
+       (else (err))))
+     ((eq? type &false)
+      (jit-movi r0 *scm-false*)
       (sp-set! local r0))
-     ((gpr? src)
-      (sp-set! local (gpr src)))
-     ((memory? src)
-      (memory-ref r0 src)
-      (sp-set! local r0))))
-   ((eq? type &flonum)
-    (cond
-     ((constant? src)
-      (jit-movi-d f0 (constant src))
-      (scm-from-double asm r0 f0)
+     ((eq? type &true)
+      (jit-movi r0 *scm-true*)
       (sp-set! local r0))
-     ((fpr? src)
-      (scm-from-double asm r0 (fpr src))
+     ((eq? type &undefined)
+      (jit-movi r0 *scm-undefined*)
       (sp-set! local r0))
-     ((memory? src)
-      (memory-ref/f f0 src)
-      (scm-from-double asm r0 f0)
-      (sp-set! local r0))))
-   ((eq? type &f64)
-    (cond
-     ((constant? src)
-      (jit-movi-d f0 (constant src))
-      (sp-set!/f local f0))
-     ((fpr? src)
-      (sp-set!/f local (fpr src)))
-     ((memory? src)
-      (memory-ref/f f0 src)
-      (sp-set!/f local f0))))
-   ((memq type (list &char &box &procedure &pair &hash-table &u64
-                     &vector))
-    (cond
-     ((constant? src)
-      (jit-movi r0 (constant src))
+     ((eq? type &unspecified)
+      (jit-movi r0 *scm-unspecified*)
       (sp-set! local r0))
-     ((gpr? src)
-      (sp-set! local (gpr src)))
-     ((memory? src)
-      (memory-ref r0 src)
-      (sp-set! local r0))))
-   ((eq? type &false)
-    (jit-movi r0 *scm-false*)
-    (sp-set! local r0))
-   ((eq? type &true)
-    (jit-movi r0 *scm-true*)
-    (sp-set! local r0))
-   ((eq? type &undefined)
-    (jit-movi r0 *scm-undefined*)
-    (sp-set! local r0))
-   ((eq? type &unspecified)
-    (jit-movi r0 *scm-unspecified*)
-    (sp-set! local r0))
-   ((eq? type &null)
-    (jit-movi r0 *scm-null*)
-    (sp-set! local r0))
-   (else
-    (tjitc-error 'store-frame "~s ~a ~s" local (pretty-type type) src))))
+     ((eq? type &null)
+      (jit-movi r0 *scm-null*)
+      (sp-set! local r0))
+     (else (err)))))
 
 (define (maybe-store asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES.

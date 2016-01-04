@@ -57,6 +57,8 @@
             make-signed-pointer
             spilled-offset
             constant-word
+            gpr->fpr
+            fpr->gpr
             move
             jump
             jumpi
@@ -164,6 +166,73 @@
        (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
 
+;;;
+;;; Tags
+;;;
+
+(define-syntax define-tcx
+  (syntax-rules ()
+    ((_ name ...)
+     (begin
+       (define name
+         (@@ (system base types) name))
+       ...))))
+
+(define-tcx
+  %tc2-int
+  %tc3-imm24
+  %tc3-cons
+  %tc8-char
+  %tc3-struct
+  %tc7-symbol
+  %tc7-variable
+  %tc7-vector
+  %tc7-wvect
+  %tc7-string
+  %tc7-number
+  %tc7-hashtable
+  %tc7-pointer
+  %tc7-fluid
+  %tc7-stringbuf
+  %tc7-keyword
+  %tc7-program
+  %tc7-bytevector
+  %tc7-array
+  %tc7-bitvector
+  %tc16-real)
+
+(define-syntax guard-tc2
+  (syntax-rules ()
+    ((_ obj tc2)
+     (jump (jit-bmci obj (imm tc2)) (bailout)))))
+
+(define-syntax guard-tc8
+  (syntax-rules ()
+    ((_ obj tc8)
+     (let ((typ8 (if (equal? obj r0) r1 r0)))
+       (jit-andi typ8 obj (imm #xff))
+       (jump (jit-bnei typ8 (imm tc8)) (bailout))))))
+
+(define-syntax define-cell-guard
+  (syntax-rules ()
+    ((_ name mask)
+     (define-syntax name
+       (syntax-rules ()
+         ((_ obj tcx)
+          (let ((typx (if (equal? obj r0) r1 r0)))
+            (name obj tcx typx)))
+         ((_ obj tcx typx)
+          (begin
+            (jump (scm-imp obj) (bailout))
+            (jit-ldr typx obj)
+            (jit-andi typx typx (imm mask))
+            (jump (jit-bnei typx (imm tcx)) (bailout)))))))))
+
+(define-cell-guard guard-tc1 #x1)
+(define-cell-guard guard-tc3 #x7)
+(define-cell-guard guard-tc7 #x7f)
+(define-cell-guard guard-tc16 #xffff)
+
 
 ;;;
 ;;; Scheme constants
@@ -175,11 +244,17 @@
 (define *scm-true*
   (scm->pointer #t))
 
+(define *scm-nil*
+  (scm->pointer #nil))
+
 (define *scm-unspecified*
   (scm->pointer *unspecified*))
 
 (define *scm-undefined*
   (make-pointer #x904))
+
+(define *scm-unbound*
+  (make-pointer #xb04))
 
 (define *scm-null*
   (scm->pointer '()))
@@ -365,6 +440,9 @@
   (cond
    ((gpr? dst)
     (jit-retval (gpr dst)))
+   ((fpr? dst)
+    (jit-retval r0)
+    (gpr->fpr (fpr dst) r0))
    ((memory? dst)
     (jit-retval r0)
     (memory-set! dst r0))
@@ -447,16 +525,16 @@
   (jit-bmsi obj (imm 6)))
 
 (define-syntax-rule (scm-inump obj)
-  (jit-bmsi obj (imm (@@ (system base types) %tc2-int))))
+  (jit-bmsi obj (imm %tc2-int)))
 
 (define-syntax-rule (scm-not-inump obj)
-  (jit-bmci obj (imm (@@ (system base types) %tc2-int))))
+  (jit-bmci obj (imm %tc2-int)))
 
 (define-syntax-rule (scm-realp tag)
-  (jit-beqi tag (imm (@@ (system base types) %tc16-real))))
+  (jit-beqi tag (imm %tc16-real)))
 
 (define-syntax-rule (scm-not-realp tag)
-  (jit-bnei tag (imm (@@ (system base types) %tc16-real))))
+  (jit-bnei tag (imm %tc16-real)))
 
 
 ;;;
@@ -579,6 +657,14 @@ was constant. And, uses OP-RR when both arguments were register or memory."
           ((gpr? b)      (jump (op-rr (gpr a) (gpr b)) (bailout)))
           ((fpr? b)      (jump (op-rr (gpr a) (fpr->gpr r1 b)) (bailout)))
           ((memory? b)   (jump (op-rr (gpr a) (memory-ref r1 b)) (bailout)))
+          (else (err))))
+        ((fpr? a)
+         (fpr->gpr r0 (fpr a))
+         (cond
+          ((constant? b) (jump (op-ri r0 (constant b)) (bailout)))
+          ((gpr? b)      (jump (op-rr r0 (gpr b)) (bailout)))
+          ((fpr? b)      (jump (op-rr r0 (fpr->gpr r1 b)) (bailout)))
+          ((memory? b)   (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
           (else (err))))
         ((memory? a)
          (memory-ref r0 a)
@@ -714,7 +800,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                      (cond
                       ((constant? b) (op-ri dst a (constant b)))
                       ((gpr? b)      (op-rr dst a (gpr b)))
-                      ((fpr? b)      (op-rr dst a (fpr->gpr r1 b)))
+                      ((fpr? b)      (op-rr dst a (fpr->gpr r1 (fpr b))))
                       ((memory? b)   (op-rr dst a (memory-ref r1 b)))
                       (else (err))))))
             (op3a (syntax-rules ()
@@ -806,61 +892,113 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     ((_ dst src type guard?)
      ;; Passing `guard?' parameter to control expansion of `(bailout)' at
      ;; macro-expansion time, since it uses syntax paramter `asm'.
-     (letrec-syntax ((load-constant
-                      (syntax-rules ()
-                        ((_ constant #f)
-                         (cond
-                          ((gpr? dst)    (jit-movr (gpr dst) src))
-                          ((memory? dst) (memory-set! dst src))
-                          (else (tjitc-error 'unbox-stack-element "~s ~s"
-                                             dst type))))
-                        ((_ constant any)
-                         (begin
-                           (jump (jit-bnei src constant) (bailout))
-                           (load-constant constant #f)))))
-                     (maybe-guard
-                      (syntax-rules ()
-                        ((_ #f exp)
-                         (values))
-                        ((_ any exp)
-                         exp))))
+     (letrec-syntax
+         ((err
+           (syntax-rules ()
+             ((_)
+              (tjitc-error 'unbox-stack-element "~a ~a ~s"
+                           (physical-name dst) (pretty-type type)
+                           guard?))))
+          (maybe-guard
+           (syntax-rules ()
+             ((_ #f exp)
+              (values))
+             ((_ any exp)
+              exp)))
+          (load-constant
+           (syntax-rules ()
+             ((_ constant)
+              (begin
+                (maybe-guard guard? (jump (jit-bnei src constant) (bailout)))
+                (cond
+                 ((gpr? dst)
+                  (jit-movr (gpr dst) src))
+                 ((fpr? dst)
+                  (jit-movr r0 src)
+                  (gpr->fpr (fpr dst) r0))
+                 ((memory? dst)
+                  (memory-set! dst src))
+                 (else (err)))))))
+          (move-stack-element
+           (syntax-rules ()
+             ((_)
+              (cond
+               ((gpr? dst) (jit-movr (gpr dst) src))
+               ((fpr? dst) (gpr->fpr (fpr dst) src))
+               ((memory? dst) (memory-set! dst src))
+               (else (err))))))
+          (load-tc1
+           (syntax-rules ()
+             ((_ tc1)
+              (begin
+                (maybe-guard guard? (guard-tc1 src tc1))
+                (move-stack-element)))))
+          (load-tc2
+           (syntax-rules ()
+             ((_ tc2)
+              (begin
+                (maybe-guard guard? (guard-tc2 src tc2))
+                (move-stack-element)))))
+          (load-tc3
+           (syntax-rules ()
+             ((_ tc3)
+              (begin
+                (maybe-guard guard? (guard-tc3 src tc3))
+                (move-stack-element)))))
+          (load-tc7
+           (syntax-rules ()
+             ((_ tc7)
+              (begin
+                (maybe-guard guard? (guard-tc7 src tc7))
+                (move-stack-element)))))
+          (load-tc8
+           (syntax-rules ()
+             ((_ tc8)
+              (begin
+                (maybe-guard guard? (guard-tc8 src tc8))
+                (move-stack-element)))))
+          (load-tc16/f
+           (syntax-rules ()
+             ((_ tc16)
+              (begin
+                (maybe-guard guard? (guard-tc16 src tc16))
+                (cond
+                 ((gpr? dst)
+                  (scm-real-value f0 src)
+                  (fpr->gpr (gpr dst) f0))
+                 ((fpr? dst)
+                  (scm-real-value (fpr dst) src))
+                 ((memory? dst)
+                  (scm-real-value f0 src)
+                  (memory-set!/f dst f0))
+                 (else (err))))))))
        (cond
-        ((eq? type &flonum)
-         (cond
-          ((fpr? dst)
-           (scm-real-value (fpr dst) src))
-          ((memory? dst)
-           (scm-real-value f0 src)
-           (memory-set!/f dst f0))))
-        ((eq? type &exact-integer)
-         (maybe-guard guard? (jump (scm-not-inump src) (bailout)))
-         (cond
-          ((gpr? dst)
-           (jit-movr (gpr dst) src))
-          ((memory? dst)
-           (jit-movr r0 src)
-           (memory-set! dst r0))))
-        ((eq? type &false)
-         (load-constant *scm-false* guard?))
-        ((eq? type &true)
-         (load-constant *scm-true* guard?))
-        ((eq? type &unspecified)
-         (load-constant *scm-unspecified* guard?))
-        ((eq? type &undefined)
-         (load-constant *scm-undefined* guard?))
-        ((eq? type &null)
-         (load-constant *scm-null* guard?))
-        ((memq type (list &char &box &procedure &pair &hash-table &u64
-                          &vector))
-         ;; XXX: Add guard for each type.
-         (cond
-          ((gpr? dst)
-           (jit-movr (gpr dst) src))
-          ((memory? dst)
-           (memory-set! dst src))))
-        (else
-         (tjitc-error 'unbox-stack-element "~a ~a ~s" (physical-name dst)
-                      (pretty-type type) guard?)))))))
+        ((eq? type &exact-integer) (load-tc2 %tc2-int))
+        ((eq? type &flonum) (load-tc16/f %tc16-real))
+        ((eq? type &char) (load-tc8 %tc8-char))
+        ((eq? type &unspecified) (load-constant *scm-unspecified*))
+        ((eq? type &unbound) (load-constant *scm-unspecified*))
+        ((eq? type &undefined) (load-constant *scm-undefined*))
+        ((eq? type &false) (load-constant *scm-false*))
+        ((eq? type &true) (load-constant *scm-true*))
+        ((eq? type &nil) (load-constant *scm-nil*))
+        ((eq? type &null) (load-constant *scm-null*))
+        ((eq? type &symbol) (load-tc7 %tc7-symbol))
+        ((eq? type &keyword) (load-tc7 %tc7-keyword))
+        ((eq? type &procedure) (load-tc7 %tc7-program))
+        ((eq? type &pointer) (load-tc7 %tc7-pointer))
+        ((eq? type &fluid) (load-tc7 %tc7-fluid))
+        ((eq? type &pair) (load-tc1 %tc3-cons))
+        ((eq? type &vector) (load-tc7 %tc7-vector))
+        ((eq? type &box) (load-tc7 %tc7-variable))
+        ((eq? type &struct) (load-tc3 %tc3-struct)) ;; XXX: struct
+        ((eq? type &string) (load-tc7 %tc7-string))
+        ((eq? type &bytevector) (load-tc7 %tc7-bytevector))
+        ((eq? type &bitvector) (load-tc7 %tc7-bitvector))
+        ((eq? type &array) (load-tc7 %tc7-array))
+        ((eq? type &hash-table) (load-tc7 %tc7-hashtable))
+        ((memq type (list &s64 &u64)) (move-stack-element))
+        (else (err)))))))
 
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
 ;;; instructions with expected type as done in bytecode, to have vector-ref,
@@ -896,20 +1034,25 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (cond
        ((fpr? dst)
         (scm-real-value (fpr dst) r0))
+       ((gpr? dst)
+        (scm-real-value f0 r0)
+        (fpr->gpr (gpr dst) f0))
        ((memory? dst)
         (scm-real-value f0 r0)
         (memory-set!/f dst f0))
-       (else
-        (err))))
+       (else (err))))
      ((= t &f64)
       (cond
        ((fpr? dst)
         (sp-ref/f (fpr dst) (ref-value n)))
+       ((gpr? dst)
+        (sp-ref/f f0 (ref-value n))
+        (fpr->gpr (gpr dst) f0))
        ((memory? dst)
         (sp-ref/f f0 (ref-value n))
         (memory-set!/f dst f0))
-       (else
-        (err)))))))
+       (else (err))))
+     (else (err)))))
 
 ;; Cell object reference.
 (define-native (%cref (int dst) (int src) (int n))
@@ -1065,23 +1208,25 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Type conversion
 ;;;
 
-;; integer -> floating point
+;; Integer -> floating point
 (define-native (%i2d (double dst) (int src))
   (cond
    ((fpr? dst)
     (cond
      ((gpr? src)    (jit-extr-d (fpr dst) (gpr src)))
+     ((fpr? src)    (jit-extr-d (fpr dst) (fpr->gpr r0 (fpr src))))
      ((memory? src) (jit-extr-d (fpr dst) (memory-ref r0 src)))
      (else (err))))
    ((memory? dst)
     (cond
      ((gpr? src)    (jit-extr-d f0 (gpr src)))
+     ((fpr? src)    (jit-extr-d f0 (fpr->gpr r0 (fpr src))))
      ((memory? src) (jit-extr-d f0 (memory-ref r0 src)))
      (else (err)))
     (memory-set!/f dst f0))
    (else (err))))
 
-;; floating point -> SCM
+;; Floating point -> SCM
 (define-native (%d2s (int dst) (double src))
   (cond
    ((gpr? dst)

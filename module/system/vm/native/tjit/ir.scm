@@ -314,7 +314,8 @@ referenced by dst and src value at runtime."
     (set-ir-handle-interrupts! ir #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
-   ((memq type (list &exact-integer &char &false &pair &vector &hash-table))
+   ((memq type (list &exact-integer &char &false &pair &vector &string &struct
+                     &hash-table))
     (proc var))
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
@@ -356,7 +357,7 @@ referenced by dst and src value at runtime."
                (let ((,tmp (%band ,tmp 1)))
                  (let ((_ (%eq ,tmp 0)))
                    ,(thunk))))))))
-     ((memq type (list &char &vector &procedure &hash-table))
+     ((memq type (list &char &vector &procedure &string &struct &hash-table))
       (thunk))
      (else
       (nyi "with-unboxing: ~a ~a" (pretty-type type) var)))))
@@ -464,6 +465,11 @@ referenced by dst and src value at runtime."
                    (lp vars))))
                 (()
                  (next)))))))
+
+    ;; (let ((dst/i (- stack-size dst 1))
+    ;;       (src/i (- stack-size proc 2)))
+    ;;   (vector-set! locals dst/i (scm->pointer (local-ref src/i))))
+
     `(let ((,vdst ,vsrc))
        ,(if (<= (current-fp-offset) 0)
             (next)

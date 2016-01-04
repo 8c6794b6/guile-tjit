@@ -127,17 +127,31 @@
 
       (define (add-initial-loads exp-body)
         (debug 3 ";;; add-initial-loads:~%")
-        (debug 3 ";;;   initial-locals=~a~%" initial-locals)
+        (debug 3 ";;;   initial-locals=~a~%"
+               (let lp ((copy (vector-copy initial-locals))
+                        (i (- (vector-length initial-locals) 1)))
+                 (if (< i 0)
+                     copy
+                     (let ((addr (pointer-address (vector-ref copy i))))
+                       (vector-set! copy i (format #f "#x~x" addr))
+                       (lp copy (- i 1))))))
         (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
+        (debug 3 ";;;   initial-types=~a~%" (tj-initial-types tj))
         (let ((snapshot0 (hashq-ref snapshots 0)))
           (define (type-from-snapshot n)
             (let ((i (- n (snapshot-sp-offset snapshot0))))
               (assq-ref (snapshot-locals snapshot0) i)))
-          (define (type-from-runtime-value i)
+          (define (type-from-runtime i)
             (let* ((type (outline-type-ref (tj-outline tj)
                                            (+ i initial-sp-offset)))
                    (local (stack-element initial-locals i type)))
-              (type-of local)))
+              (cond
+               ((eq? type 'f64) &f64)
+               ((eq? type 'u64) &u64)
+               ((eq? type 's64) &s64)
+               ((eq? type 'scm) (type-of local))
+               (else (tjitc-error 'type-from-runtime "~s ~s ~s"
+                                  i type local)))))
           (define (type-from-parent n)
             (assq-ref parent-snapshot-locals n))
           (let lp ((vars (reverse vars)))
@@ -149,6 +163,8 @@
                       (pretty-type (type-from-parent n)))
                (debug 3 ";;;   from snapshot: ~a~%"
                       (pretty-type (type-from-snapshot n)))
+               (debug 3 ";;;   from runtime: ~a~%"
+                      (pretty-type (type-from-runtime n)))
                (cond
                 ;; When local was passed from parent and snapshot 0 contained
                 ;; the local with same type, no need to load from frame. If type
@@ -182,11 +198,7 @@
                        (lp vars)
                        (let* ((i (- n (snapshot-sp-offset snapshot0)))
                               (type (or (assq-ref (snapshot-locals snapshot0) n)
-                                        (and=>
-                                         (hashq-ref snapshots 1)
-                                         (lambda (s1)
-                                           (assq-ref (snapshot-locals s1) n)))
-                                        (type-from-runtime-value i))))
+                                        (type-from-runtime i))))
                          (debug 3 ";;;   type: ~a~%" (pretty-type type))
                          (with-frame-ref lp vars var type j)))))))
               (()
@@ -225,26 +237,24 @@
             (let* ((arg-indices (filter (lambda (n)
                                           (<= 0 n (- initial-nlocals 1)))
                                         (reverse local-indices)))
-                   (snapshot (make-snapshot 0 0 0
-                                            initial-nlocals initial-locals
-                                            #f arg-indices (tj-outline tj)
-                                            initial-ip))
-                   (_ (hashq-set! snapshots 0 snapshot))
-                   (snap (take-snapshot! *ip-key-set-loop-info!*
-                                         0 initial-locals vars)))
+                   (snap0 (make-snapshot 0 0 0
+                                         initial-nlocals initial-locals
+                                         #f arg-indices (tj-outline tj)
+                                         initial-ip))
+                   (_ (hashq-set! snapshots 0 snap0))
+                   (snapl (take-snapshot! *ip-key-set-loop-info!*
+                                          0 initial-locals vars)))
               `(letrec ((entry (lambda ()
                                  (let ((_ (%snap 0)))
                                    ,(add-initial-loads
-                                     `(let ((_ ,snap))
+                                     `(let ((_ ,snapl))
                                         (loop ,@args))))))
                         (loop (lambda ,args
                                 ,(emit))))
                  entry)))
            ((tj-loop? tj)
             (let ((args-from-vars (reverse! (map cdr vars)))
-                  (snap (take-snapshot! initial-ip
-                                        0
-                                        initial-locals
+                  (snap (take-snapshot! initial-ip 0 initial-locals
                                         vars-from-parent)))
               `(letrec ((entry (lambda ,args-from-parent
                                  (let ((_ ,snap))
@@ -254,10 +264,8 @@
                                 ,(emit))))
                  entry)))
            (else
-            (let ((snap (take-snapshot! initial-ip
-                                        0
-                                        initial-locals
-                                        '())))
+            (let ((snap (take-snapshot! initial-ip 0 initial-locals
+                                        vars-from-parent)))
               `(letrec ((patch (lambda ,args-from-parent
                                  (let ((_ ,snap))
                                    ,(add-initial-loads

@@ -133,6 +133,7 @@
                &vector
                &box
                &struct
+               &string
                &bytevector
                &bitvector
                &array
@@ -384,6 +385,10 @@
    ((eq? type &vector) (yellow "vect"))
    ((eq? type &box) (yellow "box"))
    ((eq? type &struct) (yellow "strc"))
+   ((eq? type &string) (yellow "strn"))
+   ((eq? type &bytevector) (yellow "bytv"))
+   ((eq? type &bitvector) (yellow "bitv"))
+   ((eq? type &array) (yellow "arry"))
    ((eq? type &hash-table) (yellow "htbl"))
    ((eq? type &f64) (magenta "f64"))
    ((eq? type &u64) (blue "u64"))
