@@ -116,6 +116,7 @@
 
 (define (cps-default-optimization-options)
   (list ;; #:split-rec? #t
+   #:simplify? #t
    #:eliminate-dead-code? #t
    #:prune-top-level-scopes? #t
    #:contify? #t
