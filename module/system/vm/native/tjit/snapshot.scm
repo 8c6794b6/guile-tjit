@@ -109,7 +109,30 @@
             unbound?
             type-of
             pretty-type
+            *unbound*
             &undefined
+
+            %tc2-int
+            %tc3-imm24
+            %tc3-cons
+            %tc8-char
+            %tc3-struct
+            %tc7-symbol
+            %tc7-variable
+            %tc7-vector
+            %tc7-wvect
+            %tc7-string
+            %tc7-number
+            %tc7-hashtable
+            %tc7-pointer
+            %tc7-fluid
+            %tc7-stringbuf
+            %tc7-keyword
+            %tc7-program
+            %tc7-bytevector
+            %tc7-array
+            %tc7-bitvector
+            %tc16-real
 
             stack-element
             type->stack-element-type)
@@ -332,6 +355,9 @@
 (define (true? x)
   (eq? x #t))
 
+(define *unbound*
+  (pointer->scm (make-pointer #xb04)))
+
 ;; Extra type for #<undefined> values.
 (define &undefined
   ;; XXX: Any better number to use ...?
@@ -401,6 +427,41 @@
            (hex-ip (number->string addr 16)))
       (string-append "ra:" (cyan hex-ip))))
    (else type)))
+
+;;;
+;;; Tags
+;;;
+
+(define-syntax define-tcx
+  (syntax-rules ()
+    ((_ name ...)
+     (begin
+       (define name
+         (@@ (system base types) name))
+       ...))))
+
+(define-tcx
+  %tc2-int
+  %tc3-imm24
+  %tc3-cons
+  %tc8-char
+  %tc3-struct
+  %tc7-symbol
+  %tc7-variable
+  %tc7-vector
+  %tc7-wvect
+  %tc7-string
+  %tc7-number
+  %tc7-hashtable
+  %tc7-pointer
+  %tc7-fluid
+  %tc7-stringbuf
+  %tc7-keyword
+  %tc7-program
+  %tc7-bytevector
+  %tc7-array
+  %tc7-bitvector
+  %tc16-real)
 
 
 ;;;

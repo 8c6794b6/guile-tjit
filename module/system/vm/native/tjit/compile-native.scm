@@ -103,21 +103,7 @@
       (jit-movi r0 (imm (dynamic-link-offset type)))
       (sp-set! local r0))
 
-     ;; Check type, recover SCM value.
-     ((eq? type &exact-integer)
-      (cond
-       ((constant? src)
-        (jit-movi r0 (constant src))
-        (sp-set! local r0))
-       ((gpr? src)
-        (sp-set! local (gpr src)))
-       ((fpr? src)
-        (fpr->gpr r0 (fpr src))
-        (sp-set! local r0))
-       ((memory? src)
-        (memory-ref r0 src)
-        (sp-set! local r0))
-       (else (err))))
+     ;; Floating point values
      ((eq? type &flonum)
       (cond
        ((constant? src)
@@ -147,21 +133,8 @@
         (memory-ref/f f0 src)
         (sp-set!/f local f0))
        (else (err))))
-     ((memq type (list &char &box &procedure &pair &hash-table &u64
-                       &vector))
-      (cond
-       ((constant? src)
-        (jit-movi r0 (constant src))
-        (sp-set! local r0))
-       ((gpr? src)
-        (sp-set! local (gpr src)))
-       ((fpr? src)
-        (fpr->gpr r0 (fpr src))
-        (sp-set! local r0))
-       ((memory? src)
-        (memory-ref r0 src)
-        (sp-set! local r0))
-       (else (err))))
+
+     ;; Immediates
      ((eq? type &false)
       (jit-movi r0 *scm-false*)
       (sp-set! local r0))
@@ -177,6 +150,24 @@
      ((eq? type &null)
       (jit-movi r0 *scm-null*)
       (sp-set! local r0))
+
+     ;; Cell values and small integers
+     ((memq type (list &exact-integer &char &symbol &keyword &procedure &pointer
+                       &pair &fluid &vector &box &struct &string &bytevector
+                       &bitvector &array &hash-table &u64 &s64))
+      (cond
+       ((constant? src)
+        (jit-movi r0 (constant src))
+        (sp-set! local r0))
+       ((gpr? src)
+        (sp-set! local (gpr src)))
+       ((fpr? src)
+        (fpr->gpr r0 (fpr src))
+        (sp-set! local r0))
+       ((memory? src)
+        (memory-ref r0 src)
+        (sp-set! local r0))
+       (else (err))))
      (else (err)))))
 
 (define (maybe-store asm local-x-types srcs references shift)

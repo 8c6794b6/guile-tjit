@@ -142,16 +142,14 @@
             (let ((i (- n (snapshot-sp-offset snapshot0))))
               (assq-ref (snapshot-locals snapshot0) i)))
           (define (type-from-runtime i)
-            (let* ((type (outline-type-ref (tj-outline tj)
-                                           (+ i initial-sp-offset)))
-                   (local (stack-element initial-locals i type)))
+            (let ((type (outline-type-ref (tj-outline tj)
+                                          (+ i initial-sp-offset))))
               (cond
                ((eq? type 'f64) &f64)
                ((eq? type 'u64) &u64)
                ((eq? type 's64) &s64)
-               ((eq? type 'scm) (type-of local))
-               (else (tjitc-error 'type-from-runtime "~s ~s ~s"
-                                  i type local)))))
+               ((eq? type 'scm) (type-of (stack-element initial-locals i type)))
+               (else (tjitc-error 'type-from-runtime "~s ~s" i type)))))
           (define (type-from-parent n)
             (assq-ref parent-snapshot-locals n))
           (let lp ((vars (reverse vars)))
@@ -163,8 +161,6 @@
                       (pretty-type (type-from-parent n)))
                (debug 3 ";;;   from snapshot: ~a~%"
                       (pretty-type (type-from-snapshot n)))
-               (debug 3 ";;;   from runtime: ~a~%"
-                      (pretty-type (type-from-runtime n)))
                (cond
                 ;; When local was passed from parent and snapshot 0 contained
                 ;; the local with same type, no need to load from frame. If type

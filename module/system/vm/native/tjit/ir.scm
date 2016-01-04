@@ -307,60 +307,96 @@ referenced by dst and src value at runtime."
       (set-ir-snapshot-id! ir (+ old-id 1)))
     ret))
 
-;; XXX: Tag more types.
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
    ((eq? type &flonum)
     (set-ir-handle-interrupts! ir #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
+   ;; XXX: Add more types.
    ((memq type (list &exact-integer &char &false &pair &vector &string &struct
                      &hash-table))
     (proc var))
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
 
-(define %tc2-int
-  (@@ (system base types) %tc2-int))
-
-;; XXX: Tag more types, and add more guards.
 (define-syntax-rule (with-unboxing type var thunk)
   (let ((tmp (if (equal? var (make-tmpvar 2))
                  (make-tmpvar 1)
                  (make-tmpvar 2))))
-    (cond
-     ((eq? type &exact-integer)
-      `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((,tmp (%band ,var ,%tc2-int)))
-           (let ((_ (%ne ,tmp 0)))
-             ,(thunk)))))
-     ((eq? type &flonum)
-      `(let ((,var (%cref/f ,var 2)))
-         ,(thunk)))
-     ((eq? type &false)
-      `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((_ (%eq ,var #f)))
-           ,(thunk))))
-     ((eq? type &true)
-      `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((_ (%eq ,var #t)))
-           ,(thunk))))
-     ((eq? type &null)
-      `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((_ (%eq ,var ())))
-           ,(thunk))))
-     ((eq? type &pair)
-      `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((,tmp (%band ,var 6)))
-           (let ((_ (%eq ,tmp 0)))
-             (let ((,tmp (%cref ,var 1)))
-               (let ((,tmp (%band ,tmp 1)))
-                 (let ((_ (%eq ,tmp 0)))
-                   ,(thunk))))))))
-     ((memq type (list &char &vector &procedure &string &struct &hash-table))
-      (thunk))
-     (else
-      (nyi "with-unboxing: ~a ~a" (pretty-type type) var)))))
+    (letrec-syntax
+        ((guard-const
+          (syntax-rules ()
+            ((_ val)
+             `(let ((_ ,(take-snapshot! ip 0)))
+                (let ((_ (%eq ,var val)))
+                  ,(thunk))))))
+         (gen-guard-imm
+          (syntax-rules ()
+            ((_ mask tcx)
+             `(let ((_ ,(take-snapshot! ip 0)))
+                (let ((,tmp (%band ,var ,mask)))
+                  (let ((_ (%eq ,tmp ,tcx)))
+                    ,(thunk)))))))
+         (gen-guard-cell
+          (syntax-rules ()
+            ((_ mask tcx expr)
+             `(let ((_ ,(take-snapshot! ip 0)))
+                (let ((,tmp (%band ,var 6)))
+                  (let ((_ (%eq ,tmp 0)))
+                    (let ((,tmp (%cref ,var 0)))
+                      (let ((,tmp (%band ,tmp mask)))
+                        (let ((_ (%eq ,tmp ,tcx)))
+                          expr)))))))
+            ((_ mask tcx)
+             (gen-guard-cell mask tcx ,(thunk)))))
+         (guard-tc1
+          (syntax-rules ()
+            ((_ tag) (gen-guard-cell #x1 tag))))
+         (guard-tc2
+          (syntax-rules ()
+            ((_ tag) (gen-guard-imm #x2 tag))))
+         (guard-tc3
+          (syntax-rules ()
+            ((_ tag) (gen-guard-cell #x7 tag))))
+         (guard-tc7
+          (syntax-rules ()
+            ((_ tag) (gen-guard-cell #x7f tag))))
+         (guard-tc8
+          (syntax-rules ()
+            ((_ tag) (gen-guard-imm #xff tag))))
+         (guard-tc16/f
+          (syntax-rules ()
+            ((_ tag) (gen-guard-cell #xffff tag
+                                      (let ((,var (%cref/f ,var 2)))
+                                        ,(thunk)))))))
+      (cond
+       ((eq? type &exact-integer) (guard-tc2 %tc2-int))
+       ((eq? type &flonum) (guard-tc16/f %tc16-real))
+       ((eq? type &char) (guard-tc8 %tc8-char))
+       ((eq? type &unspecified) (guard-const *unspecified*))
+       ((eq? type &unbound) (guard-const *unbound*))
+       ((eq? type &false) (guard-const #f))
+       ((eq? type &true) (guard-const #t))
+       ((eq? type &nil) (guard-const #nil))
+       ((eq? type &null) (guard-const ()))
+       ((eq? type &symbol) (guard-tc7 %tc7-symbol))
+       ((eq? type &keyword) (guard-tc7 %tc7-keyword))
+       ((eq? type &procedure) (guard-tc7 %tc7-program))
+       ((eq? type &pointer) (guard-tc7 %tc7-pointer))
+       ((eq? type &pair) (guard-tc1 %tc3-cons))
+       ((eq? type &fluid) (guard-tc7 %tc7-fluid))
+       ((eq? type &vector) (guard-tc7 %tc7-vector))
+       ((eq? type &box) (guard-tc7 %tc7-variable))
+       ((eq? type &struct) (guard-tc3 %tc3-struct))
+       ((eq? type &string) (guard-tc7 %tc7-string))
+       ((eq? type &bytevector) (guard-tc7 %tc7-bytevector))
+       ((eq? type &bitvector) (guard-tc7 %tc7-bitvector))
+       ((eq? type &array) (guard-tc7 %tc7-array))
+       ((eq? type &hash-table) (guard-tc7 %tc7-hashtable))
+       ;; XXX: Add more numbers: bignum, complex, rational.
+       (else
+        (nyi "with-unboxing: ~a ~a" (pretty-type type) var))))))
 
 (define-syntax-rule (expand-stack nlocals)
   (expand-outline (ir-outline ir) (current-sp-offset) nlocals))
@@ -703,18 +739,19 @@ referenced by dst and src value at runtime."
 ;; XXX: Add test for box contents not being other type than scm (no u64, no f64).
 
 (define-ir (box-ref (scm dst) (scm src))
-  (let ((vdst (var-ref dst))
-        (vsrc (var-ref src))
-        (rsrc (and (< src (vector-length locals))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src))
+        (src/l (and (< src (vector-length locals))
                    (let ((var (local-ref src)))
                      (if (variable? var)
                          (variable-ref var)
                          (tjitc-error 'box-ref "got ~s" var)))))
         (r2 (make-tmpvar 2)))
-    `(let ((,r2 (%cref ,vsrc 1)))
-       ,(with-unboxing (type-of rsrc) r2
+    (vector-set! locals dst (scm->pointer src/l))
+    `(let ((,r2 (%cref ,src/v 1)))
+       ,(with-unboxing (type-of src/l) r2
           (lambda ()
-            `(let ((,vdst ,r2))
+            `(let ((,dst/v ,r2))
                ,(next)))))))
 
 (define-ir (box-set! (scm dst) (scm src))
@@ -929,6 +966,13 @@ referenced by dst and src value at runtime."
      ((and (flonum? ra) (flonum? rb))
       `(let ((,vdst (%fmul ,va ,vb)))
          ,(next)))
+     ((and (flonum? ra) (fixnum? rb))
+      (let ((r2 (make-tmpvar 2))
+            (f2 (make-tmpvar/f 2)))
+        `(let ((,r2 (%rsh ,vb 2)))
+           (let ((,f2 (%i2d ,r2)))
+             (let ((,vdst (%fmul ,va ,f2)))
+               ,(next))))))
      (else
       (nyi "mul: ~a ~a ~a" (local-ref dst) ra rb)))))
 
@@ -943,10 +987,12 @@ referenced by dst and src value at runtime."
 ;;       `(let ((,vdst (%fdiv ,va ,vb)))
 ;;          ,(next)))
 ;;      ((and (fixnum? ra) (flonum? rb))
-;;       (let ((f0 (make-tmpvar/f 0)))
-;;         `(let ((,f0 (%i2d ,va)))
-;;            (let ((,vdst (%fdiv ,f0 ,vb)))
-;;              ,(next)))))
+;;       (let ((r2 (make-tmpvar 2))
+;;             (f2 (make-tmpvar/f 2)))
+;;         `(let ((,r2 (%rsh ,va 2)))
+;;            (let ((,f2 (%i2d ,r2)))
+;;              (let ((,vdst (%fdiv ,f2 ,vb)))
+;;                ,(next))))))
 ;;      (else
 ;;       (nyi "div: ~a ~a ~a" (local-ref dst) ra rb)))))
 

@@ -167,39 +167,8 @@
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
 
 ;;;
-;;; Tags
+;;; Type guards
 ;;;
-
-(define-syntax define-tcx
-  (syntax-rules ()
-    ((_ name ...)
-     (begin
-       (define name
-         (@@ (system base types) name))
-       ...))))
-
-(define-tcx
-  %tc2-int
-  %tc3-imm24
-  %tc3-cons
-  %tc8-char
-  %tc3-struct
-  %tc7-symbol
-  %tc7-variable
-  %tc7-vector
-  %tc7-wvect
-  %tc7-string
-  %tc7-number
-  %tc7-hashtable
-  %tc7-pointer
-  %tc7-fluid
-  %tc7-stringbuf
-  %tc7-keyword
-  %tc7-program
-  %tc7-bytevector
-  %tc7-array
-  %tc7-bitvector
-  %tc16-real)
 
 (define-syntax guard-tc2
   (syntax-rules ()
@@ -991,7 +960,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((eq? type &pair) (load-tc1 %tc3-cons))
         ((eq? type &vector) (load-tc7 %tc7-vector))
         ((eq? type &box) (load-tc7 %tc7-variable))
-        ((eq? type &struct) (load-tc3 %tc3-struct)) ;; XXX: struct
+        ((eq? type &struct) (load-tc3 %tc3-struct))
         ((eq? type &string) (load-tc7 %tc7-string))
         ((eq? type &bytevector) (load-tc7 %tc7-bytevector))
         ((eq? type &bitvector) (load-tc7 %tc7-bitvector))

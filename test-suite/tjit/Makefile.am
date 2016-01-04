@@ -91,6 +91,7 @@ TESTS = \
 	t-pairs-08.scm \
 	t-pairs-09.scm \
 	t-pairs-10.scm \
+	t-pairs-11.scm \
 	t-rec-01.scm \
 	t-rec-02.scm \
 	t-rec-03.scm \
