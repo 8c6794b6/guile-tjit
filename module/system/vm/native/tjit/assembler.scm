@@ -731,6 +731,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                 (when (not (equal? reg dst))
                   (load-volatile reg)))
               volatiles)
+    (load-vp r0)
+    (vm-cache-sp r0)
     (set-asm-cargs! asm '())))
 
 ;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
