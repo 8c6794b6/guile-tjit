@@ -63,7 +63,7 @@
 (define-record-type <ir>
   (make-ir snapshots snapshot-id parent-snapshot vars
            min-sp-offset max-sp-offset bytecode-index
-           outline handle-interrupts?)
+           outline handle-interrupts? return-subr?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -91,7 +91,10 @@
   (outline ir-outline)
 
   ;; Flag for handle interrupts
-  (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!))
+  (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!)
+
+  ;; Flag for subr call.
+  (return-subr? ir-return-subr? set-ir-return-subr!))
 
 
 (define (make-var index)
@@ -454,18 +457,13 @@ referenced by dst and src value at runtime."
 ;; XXX: tail-call/shuffle
 
 (define-ir (receive dst proc nlocals)
-  ;; Two locals below callee procedure in VM frame contain dynamic link and
-  ;; return address. VM interpreter refills these two with #f, doing the same
-  ;; thing in `emit-next'.
-  ;;
   (let* ((stack-size (vector-length locals))
          (vdst (var-ref (- stack-size dst 1)))
          (vsrc (var-ref (- (- stack-size proc) 2)))
-         (vdl (var-ref (- stack-size proc)))
-         (vra (var-ref (+ (- stack-size proc) 1)))
          (sp-offset (current-sp-offset))
          (min-local-index (+ (- stack-size proc 1) sp-offset 2))
          (max-local-index (+ stack-size sp-offset))
+         (return-subr? (ir-return-subr? ir))
          (load-previous-frame
           (lambda ()
             (let lp ((vars (reverse (ir-vars ir))))
@@ -505,9 +503,10 @@ referenced by dst and src value at runtime."
     ;; (let ((dst/i (- stack-size dst 1))
     ;;       (src/i (- stack-size proc 2)))
     ;;   (vector-set! locals dst/i (scm->pointer (local-ref src/i))))
-
+    (set-ir-return-subr! ir #f)
     `(let ((,vdst ,vsrc))
-       ,(if (<= (current-fp-offset) 0)
+       ,(if (or (<= (current-fp-offset) 0)
+                return-subr?)
             (next)
             `(let ((_ ,(take-snapshot! ip 0)))
                ,(load-previous-frame))))))
@@ -517,6 +516,10 @@ referenced by dst and src value at runtime."
   (nyi "receive-values"))
 
 (define-interrupt-ir (return-values nlocals)
+  ;; Two locals below callee procedure in VM frame contain dynamic link and
+  ;; return address. VM interpreter refills these two with #f, doing the same
+  ;; thing in `emit-next'.
+  ;;
   (let ((ra/val (make-return-address (make-pointer ra)))
         (dl/val (make-dynamic-link dl))
         (stack-size (vector-length locals)))
@@ -524,6 +527,7 @@ referenced by dst and src value at runtime."
                                      ra/val dl/val))
   (let ((snapshot (take-snapshot! ip 0)))
     (pop-outline! (ir-outline ir) (current-sp-offset) locals)
+    (set-ir-return-subr! ir #f)
     `(let ((_ ,snapshot))
        ,(if (< (current-fp-offset) 0)
             (next)
@@ -576,6 +580,7 @@ referenced by dst and src value at runtime."
                          (cons (pretty-type (type-of arg)) acc))))
                  acc)))
     (pop-outline! (ir-outline ir) (current-sp-offset) locals)
+    (set-ir-return-subr! ir #t)
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))
