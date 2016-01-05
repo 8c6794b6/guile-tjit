@@ -1197,24 +1197,24 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;; Floating point -> SCM
 (define-native (%d2s (int dst) (double src))
-  (cond
-   ((gpr? dst)
+  (let-syntax
+      ((op3
+        (syntax-rules ()
+          ((_ dst)
+           (begin
+             (cond
+              ((constant? src) (begin (jit-movi-d f0 (constant src))
+                                      (scm-from-double dst f0)))
+              ((gpr? src)      (scm-from-double dst (gpr->fpr f0 (gpr src))))
+              ((fpr? src)      (scm-from-double dst (fpr src)))
+              ((memory? src)   (scm-from-double dst (memory-ref/f f0 src)))
+              (else (err)))
+             dst)))))
     (cond
-     ((constant? src) (begin (jit-movi-d f0 (constant src))
-                             (scm-from-double (gpr dst) f0)))
-     ((gpr? src)      (scm-from-double (gpr dst) (gpr->fpr f0 (gpr src))))
-     ((fpr? src)      (scm-from-double (gpr dst) (fpr src)))
-     ((memory? src)   (scm-from-double (gpr dst) (memory-ref/f f0 src)))
-     (else (err))))
-   ((memory? dst)
-    (cond
-     ((constant? src) (begin (jit-movi-d f0 (constant src))
-                             (scm-from-double r0 f0)))
-     ((fpr? src)      (scm-from-double r0 (fpr src)))
-     ((memory? src)   (scm-from-double r0 (memory-ref/f f0 src)))
-     (else (err)))
-    (memory-set! dst r0))
-   (else (err))))
+     ((gpr? dst)    (op3 (gpr dst)))
+     ((fpr? dst)    (gpr->fpr (fpr dst) (op3 r0)))
+     ((memory? dst) (memory-set! dst (op3 r0)))
+     (else (err)))))
 
 
 ;;;
