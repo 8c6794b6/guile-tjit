@@ -284,7 +284,9 @@ option was set to true."
             (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
                     '%ccall
                     (pretty-register dst)
-                    (pointer->scm (make-pointer addr))))
+                    (let ((proc (pointer->scm (make-pointer addr))))
+                      (and (procedure? proc)
+                           (cyan (symbol->string (procedure-name proc)))))))
            (_
             (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
                     (car op)

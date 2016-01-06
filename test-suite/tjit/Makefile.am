@@ -95,6 +95,7 @@ TESTS = \
 	t-rec-01.scm \
 	t-rec-02.scm \
 	t-rec-03.scm \
+	t-reset-frame-01.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \

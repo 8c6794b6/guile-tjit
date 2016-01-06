@@ -317,8 +317,8 @@ referenced by dst and src value at runtime."
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    ;; XXX: Add more types.
-   ((memq type (list &exact-integer &char &false &pair &vector &string &struct
-                     &hash-table))
+   ((memq type (list &exact-integer &char &false &undefined &symbol &pair
+                     &vector &string &struct &hash-table))
     (proc var))
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
@@ -552,7 +552,7 @@ referenced by dst and src value at runtime."
         (tjitc-error 'current-ret-type "index ~s out of range ~s"
                      idx ret-types))))
 
-(define-ir (subr-call)
+(define-interrupt-ir (subr-call)
   (let* ((stack-size (vector-length locals))
          (dst/v (var-ref (- stack-size 2)))
          (subr/l (local-ref (- stack-size 1)))
@@ -621,12 +621,21 @@ referenced by dst and src value at runtime."
   ;; XXX: Same as assert-nargs-ee
   (next))
 
-;; XXX: alloc-frame
-(define-ir (alloc-frame (const nlocals))
-  ;; XXX: Remove `const' annotation, update `scan-locals'.
-  (next))
+(define-ir (alloc-frame nlocals)
+  (let ((stack-size (vector-length locals))
+        (undefined (pointer->scm (make-pointer #x904))))
+    (if (< stack-size nlocals)
+        (begin
+          (expand-stack (- nlocals stack-size))
+          (let lp ((n 0))
+            (if (< n (- nlocals stack-size))
+                `(let ((,(var-ref (- n)) ,undefined))
+                   ,(lp (+ n 1)))
+                (next))))
+        (next))))
 
-;; XXX: reset-frame
+(define-ir (reset-frame nlocals)
+  (next))
 
 (define-ir (assert-nargs-ee/locals expected nlocals)
   (let* ((stack-size (vector-length locals))

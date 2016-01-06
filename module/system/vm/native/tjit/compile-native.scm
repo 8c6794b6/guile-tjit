@@ -575,13 +575,16 @@ are local index number."
        (jit-prolog)
        (jit-tramp (imm (* 4 %word-size)))
        (match snapshot
-         (($ $snapshot _ sp-offset fp-offset nlocals local-x-types)
+         (($ $snapshot id sp-offset fp-offset nlocals local-x-types)
 
           ;; Store contents of args to frame. No need to recover the frame with
-          ;; snapshot when local-x-types were null.  Still snapshot data is used,
-          ;; so that the bytevector of compiled native code could be stored in
-          ;; fragment, to avoid garbage collection.
-          (when (not (null? local-x-types))
+          ;; snapshot when local-x-types were null OR snapshot 0 of root trace.
+          ;; Still snapshot data is used, so that the bytevector of compiled
+          ;; native code could be stored in fragment, to avoid garbage
+          ;; collection.
+          (when (or (not (null? local-x-types))
+                    (and (not (tj-parent-fragment tj))
+                         (zero? id)))
             (let lp ((local-x-types local-x-types)
                      (args args))
               (match (list local-x-types args)

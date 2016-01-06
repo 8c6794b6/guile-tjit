@@ -115,6 +115,19 @@
       (save-sp-offset!)
       (save-fp-offset!)
       (ret)))
+  (define-syntax-rule (scan-frame nlocals)
+    (let* ((stack-size (vector-length locals))
+           (diff (- nlocals stack-size)))
+      (pop-fp-offset! (- stack-size 2))
+      (when (< stack-size nlocals)
+        (push-sp-offset! diff)
+        (let lp ((n 0))
+          (when (< n diff)
+            (add! n)
+            (lp (+ n 1)))))
+      (save-sp-offset!)
+      (save-fp-offset!)
+      (ret)))
 
   ;; Look for the type of returned value from C function.
   (unless initialized?
@@ -184,6 +197,10 @@
      (save-sp-offset!)
      (save-fp-offset!)
      (ret))
+    (('alloc-frame nlocals)
+     (scan-frame nlocals))
+    (('reset-frame nlocals)
+     (scan-frame nlocals))
     (('mov dst src)
      (unless initialized?
        (set-index! dst src))
