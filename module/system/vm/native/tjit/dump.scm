@@ -280,10 +280,11 @@ option was set to true."
                       '%return
                       (cyan (number->string addr 16))
                       (basename (car sinfo)) (cdr sinfo))))
-           (('%ccall dst (const . addr))
-            (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
+           (('%ccall dst proc (const . addr))
+            (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
                     '%ccall
                     (pretty-register dst)
+                    (pretty-constant proc)
                     (let ((proc (pointer->scm (make-pointer addr))))
                       (and (procedure? proc)
                            (cyan (symbol->string (procedure-name proc)))))))

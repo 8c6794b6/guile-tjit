@@ -220,7 +220,7 @@
                                           (get-max-sp-offset initial-sp-offset
                                                              initial-fp-offset
                                                              initial-nlocals)
-                                          0 (tj-outline tj) #f #f)))
+                                          0 (tj-outline tj) #f #f 0)))
                         (let* ((anf (trace->anf tj ir trace))
                                (interrupts? (ir-handle-interrupts? ir)))
                           (set-tj-handle-interrupts! tj interrupts?)

@@ -63,7 +63,7 @@
 (define-record-type <ir>
   (make-ir snapshots snapshot-id parent-snapshot vars
            min-sp-offset max-sp-offset bytecode-index
-           outline handle-interrupts? return-subr?)
+           outline handle-interrupts? return-subr? proc-local)
   ir?
 
   ;; Hash table containing snapshots.
@@ -94,7 +94,12 @@
   (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!)
 
   ;; Flag for subr call.
-  (return-subr? ir-return-subr? set-ir-return-subr!))
+  (return-subr? ir-return-subr? set-ir-return-subr!)
+
+  ;; Local index for inlined local of inlined procedure. Set from `call',
+  ;; referred by `subr-call' to get the amount of shifted FP when procedure were
+  ;; not inlined.
+  (proc-local ir-proc-local set-ir-proc-local!))
 
 
 (define (make-var index)
@@ -434,8 +439,10 @@ referenced by dst and src value at runtime."
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
          ,(if (< 0 (current-fp-offset))
-              `(let ((_ (%scall ,proc)))
-                 ,(next))
+              (begin
+                (set-ir-proc-local! ir proc)
+                `(let ((_ (%scall ,proc)))
+                   ,(next)))
               (next))))))
 
 ;; XXX: call-label
@@ -503,6 +510,7 @@ referenced by dst and src value at runtime."
     ;; (let ((dst/i (- stack-size dst 1))
     ;;       (src/i (- stack-size proc 2)))
     ;;   (vector-set! locals dst/i (scm->pointer (local-ref src/i))))
+
     (set-ir-return-subr! ir #f)
     `(let ((,vdst ,vsrc))
        ,(if (or (<= (current-fp-offset) 0)
@@ -560,9 +568,11 @@ referenced by dst and src value at runtime."
                      (program-code subr/l)))
          (ret-type (current-ret-type))
          (r2 (make-tmpvar 2))
+         (proc-local (ir-proc-local ir))
+         (proc-addr (pointer-address (scm->pointer subr/l)))
          (emit-next
           (lambda ()
-            `(let ((,r2 (%ccall ,(pointer-address (scm->pointer subr/l)))))
+            `(let ((,r2 (%ccall ,proc-local ,proc-addr)))
                ,(if ret-type
                     (with-unboxing ret-type r2
                       (lambda ()
@@ -581,6 +591,7 @@ referenced by dst and src value at runtime."
                  acc)))
     (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     (set-ir-return-subr! ir #t)
+    (set-ir-proc-local! ir 0)
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))
