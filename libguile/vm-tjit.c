@@ -246,7 +246,7 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
   int opcode, i, num_locals;
   SCM locals, trace;
   SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (vp->fp));
-  SCM s_dl = SCM_I_MAKINUM (SCM_FRAME_DYNAMIC_LINK (vp->fp));
+  SCM s_dl_diff = SCM_I_MAKINUM (vp->fp[1].as_uint);
 
   opcode = *ip & 0xff;
 
@@ -261,7 +261,7 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
     scm_c_vector_set_x (locals, i, scm_from_pointer (sp[i].as_ptr, NULL));
 
   trace = scm_inline_cons (thread, locals, SCM_EOL);
-  trace = scm_inline_cons (thread, s_dl, trace);
+  trace = scm_inline_cons (thread, s_dl_diff, trace);
   trace = scm_inline_cons (thread, s_ra, trace);
   trace = scm_inline_cons (thread, SCM_I_MAKINUM (ip), trace);
 
@@ -371,17 +371,14 @@ scm_make_tjit_state (void)
         /* function, might return incorrect result.                  */ \
         if (scm_is_true (fragment))                                     \
           {                                                             \
-            call_native (s_ip, ip, fragment, thread, vp, registers, tj, \
-                         &nlocals);                                     \
+            scm_t_uint32 *previous_ip =                                 \
+              TTYPE == SCM_TJIT_TRACE_TCALL ? END_IP : ip;              \
+                                                                        \
+            call_native (s_ip, previous_ip, fragment, thread, vp,       \
+                         registers, tj, &nlocals);                      \
                                                                         \
             /* Update `sp' and `ip' in C code. */                       \
             CACHE_REGISTER ();                                          \
-                                                                        \
-            /* Setting vp->sp with number of locals returnd from     */ \
-            /* native code, vp->sp need to be recovered after taking */ \
-            /* side exit. */                                            \
-            if (nlocals != FRAME_LOCALS_COUNT ())                       \
-              ALLOC_FRAME (nlocals);                                    \
           }                                                             \
         else                                                            \
           SCM_TJIT_INCREMENT_HOT_IP (JUMP, END_IP, TTYPE, REF);         \
@@ -411,6 +408,7 @@ scm_make_tjit_state (void)
     switch (tj->trace_type)                                             \
       {                                                                 \
       case SCM_TJIT_TRACE_JUMP:                                         \
+      case SCM_TJIT_TRACE_TCALL:                                        \
         if (link_found)                                                 \
           {                                                             \
             if (SCM_DOWNREC_P (fragment))                               \

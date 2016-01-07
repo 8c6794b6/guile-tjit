@@ -20,7 +20,8 @@
 
 ;;; Commentary:
 ;;;
-;;; A module containing definitions to compile bytecode to IR used in vm-tjit.
+;;; A module containing definition of operations to compile bytecode to ANF IR
+;;; used in vm-tjit.
 ;;;
 ;;; Code:
 
@@ -63,7 +64,7 @@
 (define-record-type <ir>
   (make-ir snapshots snapshot-id parent-snapshot vars
            min-sp-offset max-sp-offset bytecode-index
-           outline handle-interrupts? return-subr? proc-local)
+           outline handle-interrupts? return-subr? inside-scall?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -96,10 +97,8 @@
   ;; Flag for subr call.
   (return-subr? ir-return-subr? set-ir-return-subr!)
 
-  ;; Local index for inlined local of inlined procedure. Set from `call',
-  ;; referred by `subr-call' to get the amount of shifted FP when procedure were
-  ;; not inlined.
-  (proc-local ir-proc-local set-ir-proc-local!))
+  ;; Flag for telling inside a scheme procedure call.
+  (inside-scall? ir-inside-scall? set-ir-inside-scall!))
 
 
 (define (make-var index)
@@ -236,8 +235,8 @@ accumulator when arguments in definition are lists. E.g:
     ...)
 
 will define two procedures: one for IR compilation taking two arguments, and
-another procedure for accumulator taking two arguments and saving index
-referenced by dst and src value at runtime."
+another procedure for scanner. The procedure for scanner takes two arguments and
+saves index referenced by dst and src values at runtime."
     ((_ (name) . body)
      (let ((proc
             (lambda (%ir %next %ip %ra %dl %locals)
@@ -440,7 +439,7 @@ referenced by dst and src value at runtime."
        (let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
          ,(if (< 0 (current-fp-offset))
               (begin
-                (set-ir-proc-local! ir proc)
+                (set-ir-inside-scall! ir #t)
                 `(let ((_ (%scall ,proc)))
                    ,(next)))
               (next))))))
@@ -452,78 +451,79 @@ referenced by dst and src value at runtime."
 (define-ir (tail-call nlocals)
   (let* ((stack-size (vector-length locals))
          (proc-index (- stack-size 1))
-         (vproc (var-ref proc-index))
-         (rproc (local-ref proc-index)))
-    `(let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
+         (proc/v (var-ref proc-index))
+         (proc/l (local-ref proc-index))
+         (proc-addr (pointer-address (scm->pointer proc/l))))
+    `(let ((_ (%eq ,proc/v ,proc-addr)))
        ,(next))))
 
 (define-ir (tail-call-label nlocals label)
   (next))
 
+(define-syntax gen-receive-thunk
+  (syntax-rules ()
+    ((_ proc skip-var?)
+     (let* ((return-subr? (ir-return-subr? ir))
+            (stack-size (vector-length locals))
+            (sp-offset (current-sp-offset))
+            (min-local-index (+ (- stack-size proc 1) sp-offset 2))
+            (max-local-index (+ stack-size sp-offset))
+            (se-type (lambda (i e n)
+                       (cond
+                        ((eq? 'f64 e) &f64)
+                        ((eq? 'u64 e) &u64)
+                        ((eq? 's64 e) &s64)
+                        ((eq? 'scm e) (type-of (stack-element locals i e)))
+                        (else
+                         (tjitc-error 'receive "unknown type ~s at ~s" e n))))))
+       (lambda ()
+         (set-ir-return-subr! ir #f)
 
-;; XXX: tail-call/shuffle
+         ;; Ignoring `unspecified' values when loading from previous
+         ;; frame. Those values might came from dead slots in stack
+         ;; which were overwritten by gc. See `scm_i_vm_mark_stack' in
+         ;; "libguile/vm.c".
+         ;;
+         ;; XXX: Add tests to check that this strategy works with
+         ;; explicitly given `unspecified' values.
+         ;;
+         (if (or (<= (current-fp-offset) 0)
+                 return-subr?)
+             (next)
+             `(let ((_ ,(take-snapshot! ip 0)))
+                ,(let lp ((vars (reverse (ir-vars ir))))
+                   (match vars
+                     (((n . var) . vars)
+                      (if (skip-var? var)
+                          (lp vars)
+                          (cond
+                           ((< min-local-index n max-local-index)
+                            (let* ((i (- n sp-offset))
+                                   (e (outline-type-ref (ir-outline ir) n))
+                                   (t (se-type i e n)))
+                              (if (eq? t &unspecified)
+                                  (lp vars)
+                                  (with-frame-ref lp vars var t n))))
+                           (else
+                            (lp vars)))))
+                     (()
+                      (next)))))))))))
 
 (define-ir (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
          (vdst (var-ref (- stack-size dst 1)))
          (vsrc (var-ref (- (- stack-size proc) 2)))
-         (sp-offset (current-sp-offset))
-         (min-local-index (+ (- stack-size proc 1) sp-offset 2))
-         (max-local-index (+ stack-size sp-offset))
-         (return-subr? (ir-return-subr? ir))
-         (load-previous-frame
-          (lambda ()
-            (let lp ((vars (reverse (ir-vars ir))))
-              (match vars
-                (((n . var) . vars)
-                 (cond
-                  ((eq? var vdst)
-                   (lp vars))
-                  ((< min-local-index n max-local-index)
-                   (let* ((i (- n sp-offset))
-                          (elem (outline-type-ref (ir-outline ir) n))
-                          (type (cond
-                                 ((eq? 'f64 elem) &f64)
-                                 ((eq? 'u64 elem) &u64)
-                                 ((eq? 's64 elem) &s64)
-                                 ((eq? 'scm elem)
-                                  (type-of (stack-element locals i elem)))
-                                 (else
-                                  (tjitc-error 'receive "unknown type ~s at ~s"
-                                               elem n)))))
-                     ;; Ignoring `unspecified' values when loading from previous
-                     ;; frame. Those values might came from dead slots in stack
-                     ;; which were overwritten by gc. See `scm_i_vm_mark_stack'
-                     ;; in "libguile/vm.c".
-                     ;;
-                     ;; XXX: Add tests to check that this strategy works with
-                     ;; explicitly given `unspecified' values.
-                     ;;
-                     (if (eq? type &unspecified)
-                         (lp vars)
-                         (with-frame-ref lp vars var type n))))
-                  (else
-                   (lp vars))))
-                (()
-                 (next)))))))
-
-    ;; (let ((dst/i (- stack-size dst 1))
-    ;;       (src/i (- stack-size proc 2)))
-    ;;   (vector-set! locals dst/i (scm->pointer (local-ref src/i))))
-
-    (set-ir-return-subr! ir #f)
+         (thunk (gen-receive-thunk proc (lambda (v) (eq? v vdst)))))
     `(let ((,vdst ,vsrc))
-       ,(if (or (<= (current-fp-offset) 0)
-                return-subr?)
-            (next)
-            `(let ((_ ,(take-snapshot! ip 0)))
-               ,(load-previous-frame))))))
+       ,(thunk))))
 
-;; XXX: receive-values
-(define-ir (receive-values proc allow-extra? nvalues)
-  (nyi "receive-values"))
+(define-ir (receive-values proc allow-extra? nlocals)
+  (let ((thunk (gen-receive-thunk proc (lambda _ #f))))
+    (thunk)))
 
-(define-interrupt-ir (return-values nlocals)
+;; XXX: tail-call/shuffle
+
+(define-ir (return-values nlocals)
   ;; Two locals below callee procedure in VM frame contain dynamic link and
   ;; return address. VM interpreter refills these two with #f, doing the same
   ;; thing in `emit-next'.
@@ -568,8 +568,8 @@ referenced by dst and src value at runtime."
                      (program-code subr/l)))
          (ret-type (current-ret-type))
          (r2 (make-tmpvar 2))
-         (proc-local (ir-proc-local ir))
          (proc-addr (pointer-address (scm->pointer subr/l)))
+         (proc-local (if (ir-inside-scall? ir) dl 0))
          (emit-next
           (lambda ()
             `(let ((,r2 (%ccall ,proc-local ,proc-addr)))
@@ -591,7 +591,7 @@ referenced by dst and src value at runtime."
                  acc)))
     (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     (set-ir-return-subr! ir #t)
-    (set-ir-proc-local! ir 0)
+    (set-ir-inside-scall! ir #f)
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))

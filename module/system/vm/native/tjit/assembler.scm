@@ -745,16 +745,16 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
-(define-native (%return (void ip))
+(define-native (%return (void ra))
   (let ((vp r0)
         (vp->fp r1)
         (tmp r2))
-    (when (not (constant? ip))
-      (tjitc-error '%return "got non-constant ip ~s" ip))
+    (when (not (constant? ra))
+      (tjitc-error '%return "got non-constant ra: ~s" ra))
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
-    (jump (jit-bnei tmp (constant ip)) (bailout))
+    (jump (jit-bnei tmp (constant ra)) (bailout))
 
     (scm-frame-dynamic-link tmp vp->fp)
     (jit-lshi tmp tmp (imm %word-size-in-bits))

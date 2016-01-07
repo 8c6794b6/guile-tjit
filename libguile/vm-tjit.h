@@ -31,6 +31,7 @@ enum scm_tjit_trace_type
   {
     SCM_TJIT_TRACE_JUMP,    /* backward jump */
     SCM_TJIT_TRACE_CALL,    /* procedure call */
+    SCM_TJIT_TRACE_TCALL,   /* procedure tail-call */
     SCM_TJIT_TRACE_RETURN,  /* procedure return */
   };
 

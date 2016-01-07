@@ -235,7 +235,7 @@
 #  define VM_TJIT_TAIL_CALL(old_ip)                                     \
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
-      SCM_TJIT_ENTER (0, old_ip, SCM_TJIT_TRACE_JUMP, tjit_hot_call);   \
+      SCM_TJIT_ENTER (0, old_ip, SCM_TJIT_TRACE_TCALL, tjit_hot_call);  \
     else                                                                \
       NEXT (0);                                                         \
   } while (0)

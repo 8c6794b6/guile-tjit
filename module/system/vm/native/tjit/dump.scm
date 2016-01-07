@@ -274,12 +274,13 @@ option was set to true."
                     (pretty-register dst)
                     (pretty-constant n)
                     (pretty-type (cdr type))))
-           (('%return (const . addr))
-            (let ((sinfo (addr->source-line addr)))
+           (('%return (const . ra))
+            (let ((sinfo (addr->source-line ra)))
               (format #t "~4,,,'0@a ~a (~7a ~a/~a:~a)~%" idx mark
                       '%return
-                      (cyan (number->string addr 16))
-                      (basename (car sinfo)) (cdr sinfo))))
+                      (cyan (number->string ra 16))
+                      (basename (car sinfo))
+                      (cdr sinfo))))
            (('%ccall dst proc (const . addr))
             (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
                     '%ccall

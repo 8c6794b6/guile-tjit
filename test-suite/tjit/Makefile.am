@@ -47,6 +47,7 @@ TESTS = \
 	t-call-03.scm \
 	t-call-04.scm \
 	t-deoptimize-01.scm \
+	t-deoptimize-02.scm \
 	t-escape-01.scm \
 	t-f64-01.scm \
 	t-f64-02.scm \
@@ -81,6 +82,8 @@ TESTS = \
 	t-nest-17.scm \
 	t-nest-18.scm \
 	t-nest-19.scm \
+	t-nest-20.scm \
+	t-nest-21.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \
 	t-pairs-03.scm \

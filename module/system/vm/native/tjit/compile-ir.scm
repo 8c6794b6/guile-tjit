@@ -137,10 +137,12 @@
                        (lp copy (- i 1))))))
         (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
         (debug 3 ";;;   initial-types=~a~%" (tj-initial-types tj))
+        (debug 3 ";;;   locals0=~a~%"
+               (sort (snapshot-locals (hashq-ref snapshots 0))
+                     (lambda (a b) (< (car a) (car b)))))
         (let ((snapshot0 (hashq-ref snapshots 0)))
           (define (type-from-snapshot n)
-            (let ((i (- n (snapshot-sp-offset snapshot0))))
-              (assq-ref (snapshot-locals snapshot0) i)))
+            (assq-ref (snapshot-locals snapshot0) n))
           (define (type-from-runtime i)
             (let ((type (outline-type-ref (tj-outline tj)
                                           (+ i initial-sp-offset))))
@@ -155,48 +157,50 @@
           (let lp ((vars (reverse vars)))
             (match vars
               (((n . var) . vars)
-               (debug 3 ";;; add-initial-loads: n=~a~%" n)
-               (debug 3 ";;;   var: ~a~%" var)
-               (debug 3 ";;;   from parent: ~a~%"
-                      (pretty-type (type-from-parent n)))
-               (debug 3 ";;;   from snapshot: ~a~%"
-                      (pretty-type (type-from-snapshot n)))
-               (cond
-                ;; When local was passed from parent and snapshot 0 contained
-                ;; the local with same type, no need to load from frame. If type
-                ;; does not match, the value passed from parent has different
-                ;; was untagged with different type, reload from frame.
-                ;;
-                ;; When locals index was found in parent snapshot locals and not
-                ;; from snapshot 0 of this trace, the local will be passed from
-                ;; parent fragment, ignoreing.
-                ;;
-                ;; If initial offset is positive and local index is negative,
-                ;; locals from lower frame won't be passed as argument. Loading
-                ;; later with '%fref' or '%fref/f'.
-                ;;
-                ((let ((parent-type (type-from-parent n))
-                       (snapshot-type (type-from-snapshot n))
-                       (i (- n (snapshot-sp-offset snapshot0))))
-                   (or (and (not (tj-loop? tj))
-                            (or (and parent-type
-                                     snapshot-type
-                                     (eq? parent-type snapshot-type))
-                                (and (not snapshot-type)
-                                     parent-type)
-                                (and (<= 0 initial-sp-offset)
-                                     (< n 0))))
-                       (not (<= 0 i (- (vector-length initial-locals) 1)))))
-                 (lp vars))
-                (else
-                 (let ((j (+ n initial-sp-offset)))
-                   (if (< j 0)
-                       (lp vars)
-                       (let* ((i (- n (snapshot-sp-offset snapshot0)))
-                              (type (or (assq-ref (snapshot-locals snapshot0) n)
-                                        (type-from-runtime i))))
-                         (debug 3 ";;;   type: ~a~%" (pretty-type type))
-                         (with-frame-ref lp vars var type j)))))))
+               (let ((j (+ n initial-sp-offset))
+                     (i (- n (snapshot-sp-offset snapshot0))))
+                 (cond
+                  ;; When local was passed from parent and snapshot 0 contained
+                  ;; the local with same type, no need to load from frame. If
+                  ;; type does not match, the value passed from parent has
+                  ;; different was untagged with different type, reload from
+                  ;; frame.
+                  ;;
+                  ;; When locals index was found in parent snapshot locals and
+                  ;; not from snapshot 0 of this trace, the local will be passed
+                  ;; from parent fragment, ignoreing.
+                  ;;
+                  ;; If initial offset is positive and local index is negative,
+                  ;; locals from lower frame won't be passed as
+                  ;; argument. Loading later with '%fref' or '%fref/f'.
+                  ;;
+                  ((let ((parent-type (type-from-parent j))
+                         (snapshot-type (type-from-snapshot j)))
+                     (debug 3 ";;; add-initial-loads:~%")
+                     (debug 3 ";;;   n + initial-sp-offset: ~a~%" j)
+                     (debug 3 ";;;   var: ~a~%" var)
+                     (debug 3 ";;;   from parent: ~a~%"
+                            (pretty-type parent-type))
+                     (debug 3 ";;;   from snapshot: ~a~%"
+                            (pretty-type snapshot-type))
+                     (or (< j 0)
+                         (not (<= 0 i (- (vector-length initial-locals) 1)))
+                         (and (not (tj-loop? tj))
+                              (or (and parent-type
+                                       snapshot-type
+                                       (eq? parent-type snapshot-type))
+                                  (and (not snapshot-type)
+                                       parent-type)
+                                  (or (dynamic-link? parent-type)
+                                      (return-address? parent-type))
+                                  (and (<= 0 initial-sp-offset)
+                                       (< n 0))))))
+                   (lp vars))
+                  (else
+                   (let* ((type (or (assq-ref (snapshot-locals snapshot0) n)
+                                    (type-from-runtime i))))
+                     (debug 3 ";;;   type: ~a~%" (pretty-type type))
+                     (with-frame-ref lp vars var type n))))))
               (()
                exp-body)))))
       (define (make-anf)
@@ -220,7 +224,7 @@
                                           (get-max-sp-offset initial-sp-offset
                                                              initial-fp-offset
                                                              initial-nlocals)
-                                          0 (tj-outline tj) #f #f 0)))
+                                          0 (tj-outline tj) #f #f #f)))
                         (let* ((anf (trace->anf tj ir trace))
                                (interrupts? (ir-handle-interrupts? ir)))
                           (set-tj-handle-interrupts! tj interrupts?)
@@ -295,7 +299,7 @@
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
     (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-outline ir) op #f locals #t)
+      (scan-locals (ir-outline ir) op #f dl locals #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (proc)

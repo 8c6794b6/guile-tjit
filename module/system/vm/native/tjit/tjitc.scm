@@ -93,7 +93,9 @@
            (let*-values (((len op) (disassemble-one bytecode offset))
                          ((implemented? prev-op)
                           (if so-far-so-good?
-                              (scan-locals ol op prev-op (cadddr trace))
+                              (let ((locals (cadddr trace))
+                                    (dl (caddr trace)))
+                                (scan-locals ol op prev-op dl locals))
                               (values #f (car op)))))
              (lp (cons (cons op trace) acc) (+ offset len) traces ol
                  (and so-far-so-good? implemented?) prev-op)))
@@ -112,10 +114,10 @@
       (let lp ((traces (reverse traces))
                (index (- (vector-length sp-offsets) 1)))
         (match traces
-          (((op _ _ _ locals) . traces)
+          (((op _ _ dl locals) . traces)
            (set-outline-sp-offset! ol (vector-ref sp-offsets index))
            (set-outline-fp-offset! ol (vector-ref fp-offsets index))
-           (scan-locals ol op #f locals #t #t)
+           (scan-locals ol op #f dl locals #t #t)
            (lp traces (- index 1)))
           (()
            (set-outline-sp-offset! ol sp)

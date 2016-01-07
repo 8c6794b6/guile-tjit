@@ -687,6 +687,7 @@ are local index number."
       (_
        (tjitc-error 'compile-link "not a snapshot ~s" snapshot)))))
 
+;; XXX: Incomplete
 (define (compile-downrec tj asm loop? snapshot initial-nlocals dsts)
   (let* ((last-sp-offset (snapshot-sp-offset snapshot))
          (last-fp-offset (snapshot-fp-offset snapshot))
@@ -715,6 +716,7 @@ are local index number."
       (let ((linked-fragment (get-root-trace (tj-linked-ip tj))))
         (jumpi (fragment-loop-address linked-fragment))))))
 
+;; XXX: Incomplete
 (define (compile-uprec tj asm snapshot dst-locals dst-vars)
   (define (make-local-var-table locals vars)
     (let ((t (make-hash-table)))
