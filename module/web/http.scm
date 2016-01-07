@@ -1,6 +1,6 @@
 ;;; HTTP messages
 
-;; Copyright (C)  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2011, 2012, 2013, 2014, 2016 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -848,10 +848,15 @@ as an ordered alist."
     (display-digits (date-second date) 2 port)
     (display " GMT" port)))
 
+;; Following https://tools.ietf.org/html/rfc7232#section-2.3, an entity
+;; tag should really be a qstring.  However there are a number of
+;; servers that emit etags as unquoted strings.  Assume that if the
+;; value doesn't start with a quote, it's an unquoted strong etag.
 (define (parse-entity-tag val)
-  (if (string-prefix? "W/" val)
-      (cons (parse-qstring val 2) #f)
-      (cons (parse-qstring val) #t)))
+  (cond
+   ((string-prefix? "W/" val) (cons (parse-qstring val 2) #f))
+   ((string-prefix? "\"" val) (cons (parse-qstring val) #t))
+   (else (cons val #t))))
 
 (define (entity-tag? val)
   (and (pair? val)

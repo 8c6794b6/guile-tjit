@@ -1,6 +1,6 @@
 ;;;; web-uri.test --- URI library          -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010, 2011, 2014 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011, 2014, 2016 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -343,6 +343,7 @@
   (pass-if-parse age "30" 30)
   (pass-if-parse etag "\"foo\"" '("foo" . #t))
   (pass-if-parse etag "W/\"foo\"" '("foo" . #f))
+  (pass-if-parse etag "foo" '("foo" . #t))
   (pass-if-parse location "http://other-place"
                  (build-uri 'http #:host "other-place"))
   (pass-if-parse location "#foo"
