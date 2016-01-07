@@ -109,7 +109,9 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-9 gnu)
-  #:autoload   (ice-9 format) (format)
+  #:use-module (ice-9 format)
+  #:use-module (ice-9 match)
+  #:use-module (ice-9 vlist)
   #:use-module (system vm vm)
   #:use-module (system vm frame)
   #:use-module (system vm debug)
@@ -666,8 +668,7 @@ none is available."
             (statprof-stats-cum-secs-in-proc y))
          diff))))
 
-(define* (statprof-display #:optional (port (current-output-port))
-                           (state (existing-profiler-state)))
+(define* (statprof-display/flat port state)
   "Displays a gprof-like summary of the statistics collected. Unless an
 optional @var{port} argument is passed, uses the current output port."
   (cond
@@ -720,11 +721,11 @@ optional @var{port} argument is passed, uses the current output port."
       (for-each display-stats-line sorted-stats)
 
       (display "---\n" port)
-      (simple-format #t "Sample count: ~A\n" (statprof-sample-count state))
-      (simple-format #t "Total time: ~A seconds (~A seconds in GC)\n"
-                     (statprof-accumulated-time state)
-                     (/ (gc-time-taken state)
-                        1.0 internal-time-units-per-second))))))
+      (format #t "Sample count: ~A\n" (statprof-sample-count state))
+      (format #t "Total time: ~A seconds (~A seconds in GC)\n"
+              (statprof-accumulated-time state)
+              (/ (gc-time-taken state)
+                 1.0 internal-time-units-per-second))))))
 
 (define* (statprof-display-anomalies #:optional (state
                                                  (existing-profiler-state)))
@@ -735,15 +736,15 @@ statistics.@code{}"
      (when (and (call-counts state)
                 (zero? (call-data-call-count data))
                 (positive? (call-data-cum-sample-count data)))
-       (simple-format #t
-                      "==[~A ~A ~A]\n"
-                      (call-data-name data)
-                      (call-data-call-count data)
-                      (call-data-cum-sample-count data))))
+       (format #t
+               "==[~A ~A ~A]\n"
+               (call-data-name data)
+               (call-data-call-count data)
+               (call-data-cum-sample-count data))))
    #f
    state)
-  (simple-format #t "Total time: ~A\n" (statprof-accumulated-time state))
-  (simple-format #t "Sample count: ~A\n" (statprof-sample-count state)))
+  (format #t "Total time: ~A\n" (statprof-accumulated-time state))
+  (format #t "Sample count: ~A\n" (statprof-sample-count state)))
 
 (define (statprof-display-anomolies)
   (issue-deprecation-warning "statprof-display-anomolies is a misspelling. "
@@ -768,15 +769,6 @@ statistics.@code{}"
   "Returns a list of stacks, as they were captured since the last call
 to @code{statprof-reset}."
   (stack-samples->callee-lists state))
-
-(define procedure=?
-  (lambda (a b)
-    (cond
-     ((eq? a b))
-     ((and (program? a) (program? b))
-      (eq? (program-code a) (program-code b)))
-     (else
-      #f))))
 
 ;; tree ::= (car n . tree*)
 
@@ -806,6 +798,58 @@ to @code{statprof-reset}."
           n-terminal
           (acons (caar in) (list (cdar in)) tails))))))
 
+(define (collect-cycles items)
+  (define (find-cycle item stack)
+    (match (vhash-assoc item stack)
+      (#f #f)
+      ((_ . pos)
+       (let ((size (- (vlist-length stack) pos)))
+         (and (<= (1- (* size 2)) (vlist-length stack))
+              (let lp ((i 0))
+                (if (= i (1- size))
+                    size
+                    (and (equal? (car (vlist-ref stack i))
+                                 (car (vlist-ref stack (+ i size))))
+                         (lp (1+ i))))))))))
+  (define (collect-cycle stack size)
+    (vlist-fold-right (lambda (pair cycle)
+                        (cons (car pair) cycle))
+                      '()
+                      (vlist-take stack size)))
+  (define (detect-cycle items stack)
+    (match items
+      (() stack)
+      ((item . items)
+       (let* ((cycle-size (find-cycle item stack)))
+         (if cycle-size
+             (chomp-cycles (collect-cycle stack cycle-size)
+                           items
+                           (vlist-drop stack (1- (* cycle-size 2))))
+             (chomp-cycles (list item) items stack))))))
+  (define (skip-cycles cycle items)
+    (let lp ((a cycle) (b items))
+      (match a
+        (() (skip-cycles cycle b))
+        ((a . a*)
+         (match b
+           (() items)
+           ((b . b*)
+            (if (equal? a b)
+                (lp a* b*)
+                items)))))))
+  (define (chomp-cycles cycle items stack)
+    (detect-cycle (skip-cycles cycle items)
+                  (vhash-cons (match cycle
+                                ((item) item)
+                                (cycle cycle))
+                              (vlist-length stack)
+                              stack)))
+  (vlist-fold
+   (lambda (pair out)
+     (cons (car pair) out))
+   '()
+   (detect-cycle items vlist-null)))
+
 (define* (statprof-fetch-call-tree #:optional (state (existing-profiler-state)))
   "Return a call tree for the previous statprof run.
 
@@ -816,22 +860,64 @@ The return value is a list of nodes, each of which is of the type:
   (define (callee->printable callee)
     (cond
      ((number? callee)
-      (addr->printable callee (find-program-debug-info callee)))
+      (let* ((pdi (find-program-debug-info callee))
+             (name (or (and=> (and pdi (program-debug-info-name pdi))
+                              symbol->string)
+                       (string-append "#x" (number->string callee 16))))
+             (loc (and=> (find-source-for-addr callee) source->string)))
+        (if loc
+            (string-append name " at " loc)
+            name)))
+     ((list? callee)
+      (string-join (map callee->printable callee) ", "))
      (else
       (with-output-to-string (lambda () (write callee))))))
-  (define (memoizev/1 proc table)
+  (define (memoize/1 proc table)
     (lambda (x)
       (cond
-       ((hashv-get-handle table x) => cdr)
+       ((hash-get-handle table x) => cdr)
        (else
         (let ((res (proc x)))
-          (hashv-set! table x res)
+          (hash-set! table x res)
           res)))))
-  (let ((callee->printable (memoizev/1 callee->printable (make-hash-table))))
+  (let ((callee->printable (memoize/1 callee->printable (make-hash-table))))
     (cons #t (lists->trees (map (lambda (callee-list)
-                                  (map callee->printable callee-list))
+                                  (map callee->printable
+                                       (collect-cycles (reverse callee-list))))
                                 (stack-samples->callee-lists state))
                            equal?))))
+
+(define (statprof-display/tree port state)
+  (match (statprof-fetch-call-tree state)
+    ((#t total-count . trees)
+     (define (print-tree tree indent)
+       (define (print-subtree tree) (print-tree tree (+ indent 2)))
+       (match tree
+         ((callee count . trees)
+          (format port "~vt~,1f% ~a\n" indent (* 100. (/ count total-count))
+                  callee)
+          (for-each print-subtree trees))))
+     (for-each (lambda (tree) (print-tree tree 0)) trees)))
+  (display "---\n" port)
+  (format port "Sample count: ~A\n" (statprof-sample-count state))
+  (format port "Total time: ~A seconds (~A seconds in GC)\n"
+          (statprof-accumulated-time state)
+          (/ (gc-time-taken state)
+             1.0 internal-time-units-per-second)))
+
+(define* (statprof-display #:optional (port (current-output-port))
+                           (state (existing-profiler-state))
+                           #:key (style 'flat))
+  "Displays a summary of the statistics collected. Unless an optional
+@var{port} argument is passed, uses the current output port."
+  (case style
+    ((flat) (statprof-display/flat port state))
+    ((anomalies)
+     (with-output-to-port port
+       (lambda ()
+         (statprof-display-anomalies state))))
+    ((tree) (statprof-display/tree port state))
+    (else (error "Unknown statprof display style" style))))
 
 (define (call-thunk thunk)
   (call-with-values (lambda () (thunk))
@@ -839,7 +925,8 @@ The return value is a list of nodes, each of which is of the type:
       (apply values results))))
 
 (define* (statprof thunk #:key (loop 1) (hz 100) (count-calls? #f)
-                   (port (current-output-port)) full-stacks?)
+                   (port (current-output-port)) full-stacks?
+                   (display-style 'flat))
   "Profile the execution of @var{thunk}, and return its return values.
 
 The stack will be sampled @var{hz} times per second, and the thunk
@@ -865,7 +952,7 @@ operation is somewhat expensive."
           (call-thunk thunk))
         (lambda ()
           (statprof-stop state)
-          (statprof-display port state))))))
+          (statprof-display port state #:style display-style))))))
 
 (define-macro (with-statprof . args)
   "Profile the expressions in the body, and return the body's return values.
