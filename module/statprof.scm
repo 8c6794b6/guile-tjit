@@ -850,42 +850,52 @@ to @code{statprof-reset}."
    '()
    (detect-cycle items vlist-null)))
 
-(define* (statprof-fetch-call-tree #:optional (state (existing-profiler-state)))
+(define* (statprof-fetch-call-tree #:optional (state (existing-profiler-state))
+                                   #:key precise?)
   "Return a call tree for the previous statprof run.
 
 The return value is a list of nodes, each of which is of the type:
 @code
  node ::= (@var{proc} @var{count} . @var{nodes})
 @end code"
-  (define (callee->printable callee)
+  (define-syntax-rule (define-memoized (fn arg) body)
+    (define fn
+      (let ((table (make-hash-table)))
+        (lambda (arg)
+          (cond
+           ((hash-get-handle table arg) => cdr)
+           (else
+            (let ((res body))
+              (hash-set! table arg res)
+              res)))))))
+  (define-memoized (callee->printable callee)
     (cond
      ((number? callee)
       (let* ((pdi (find-program-debug-info callee))
              (name (or (and=> (and pdi (program-debug-info-name pdi))
                               symbol->string)
                        (string-append "#x" (number->string callee 16))))
-             (loc (and=> (find-source-for-addr callee) source->string)))
+             (loc (and=> (find-source-for-addr
+                          (or (and (not precise?)
+                                   (and=> pdi program-debug-info-addr))
+                              callee))
+                         source->string)))
         (if loc
             (string-append name " at " loc)
             name)))
-     ((list? callee)
-      (string-join (map callee->printable callee) ", "))
      (else
       (with-output-to-string (lambda () (write callee))))))
-  (define (memoize/1 proc table)
-    (lambda (x)
-      (cond
-       ((hash-get-handle table x) => cdr)
-       (else
-        (let ((res (proc x)))
-          (hash-set! table x res)
-          res)))))
-  (let ((callee->printable (memoize/1 callee->printable (make-hash-table))))
-    (cons #t (lists->trees (map (lambda (callee-list)
-                                  (map callee->printable
-                                       (collect-cycles (reverse callee-list))))
-                                (stack-samples->callee-lists state))
-                           equal?))))
+  (define (munge-stack stack)
+    ;; We collect the sample in newest-to-oldest
+    ;; order.  Change to have the oldest first.
+    (let ((stack (reverse stack)))
+      (define (cycle->printable item)
+        (if (string? item)
+            item
+            (string-join (map cycle->printable item) ", ")))
+      (map cycle->printable (collect-cycles (map callee->printable stack)))))
+  (let ((stacks (map munge-stack (stack-samples->callee-lists state))))
+    (cons #t (lists->trees stacks equal?))))
 
 (define (statprof-display/tree port state)
   (match (statprof-fetch-call-tree state)
