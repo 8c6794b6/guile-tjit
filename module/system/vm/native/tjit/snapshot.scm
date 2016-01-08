@@ -99,6 +99,9 @@
             dynamic-link?
             dynamic-link-offset
 
+            &undefined
+            &port
+
             fixnum?
             flonum?
             unbound?
@@ -110,7 +113,6 @@
             type-of
             pretty-type
             *unbound*
-            &undefined
 
             %tc2-int
             %tc3-imm24
@@ -132,6 +134,7 @@
             %tc7-bytevector
             %tc7-array
             %tc7-bitvector
+            %tc7-port
             %tc16-real
 
             stack-element
@@ -328,106 +331,6 @@
   ;; Bytecode IP of this snapshot to return.
   (ip snapshot-ip))
 
-
-;;;
-;;; Type checker based on runtime values
-;;;
-
-(define (fixnum? val)
-  (and (exact-integer? val)
-       (<= most-negative-fixnum val most-positive-fixnum)))
-
-(define (flonum? val)
-  (and (real? val) (inexact? val)))
-
-(define (undefined? x)
-  (= (pointer-address (scm->pointer x)) #x904))
-
-(define (eof? x)
-  (= (pointer-address (scm->pointer x)) #xa04))
-
-(define (unbound? x)
-  (= (pointer-address (scm->pointer x)) #xb04))
-
-(define (false? x)
-  (not x))
-
-(define (true? x)
-  (eq? x #t))
-
-(define *unbound*
-  (pointer->scm (make-pointer #xb04)))
-
-;; Extra type for #<undefined> values.
-(define &undefined
-  ;; XXX: Any better number to use ...?
-  0)
-
-(define (type-of obj)
-  (cond
-   ((fixnum? obj) &exact-integer)
-   ((flonum? obj) &flonum)
-   ((char? obj) &char)
-   ((unspecified? obj) &unspecified)
-   ((undefined? obj) &undefined)
-   ((false? obj) &false)
-   ((true? obj) &true)
-   ((null? obj) &null)
-   ((symbol? obj) &symbol)
-   ((keyword? obj) &keyword)
-   ((procedure? obj) &procedure)
-   ((pointer? obj) &pointer)
-   ((fluid? obj) &fluid)
-   ((pair? obj) &pair)
-   ((vector? obj) &vector)
-   ((variable? obj) &box)
-   ((struct? obj) &struct)
-   ((string? obj) &string)
-   ((bytevector? obj) &bytevector)
-   ((bitvector? obj) &bitvector)
-   ((array? obj) &array)
-   ((hash-table? obj) &hash-table)
-   (else
-    (tjitc-error 'type-of "~s" obj))))
-
-(define (pretty-type type)
-  "Show string representation of TYPE."
-  (cond
-   ((eq? type &exact-integer) (blue "snum"))
-   ((eq? type &flonum) (magenta "fnum"))
-   ((eq? type &char) (blue "char"))
-   ((eq? type &unspecified) (green "uspc"))
-   ((eq? type &unbound) (green "ubnd"))
-   ((eq? type &undefined) (green "udef"))
-   ((eq? type &false) (green "fals"))
-   ((eq? type &true) (green "true"))
-   ((eq? type &nil) (green "nil"))
-   ((eq? type &null) (green "null"))
-   ((eq? type &symbol) (blue "symb"))
-   ((eq? type &keyword) (blue "keyw"))
-   ((eq? type &procedure) (yellow "proc"))
-   ((eq? type &pointer) (yellow "ptr"))
-   ((eq? type &pair) (yellow "pair"))
-   ((eq? type &vector) (yellow "vect"))
-   ((eq? type &box) (yellow "box"))
-   ((eq? type &struct) (yellow "strc"))
-   ((eq? type &string) (yellow "strn"))
-   ((eq? type &bytevector) (yellow "bytv"))
-   ((eq? type &bitvector) (yellow "bitv"))
-   ((eq? type &array) (yellow "arry"))
-   ((eq? type &hash-table) (yellow "htbl"))
-   ((eq? type &f64) (magenta "f64"))
-   ((eq? type &u64) (blue "u64"))
-   ((eq? type &s64) (blue "s64"))
-   ((dynamic-link? type)
-    (let ((diff (number->string (dynamic-link-offset type))))
-      (string-append "dl:" (cyan diff))))
-   ((return-address? type)
-    (let* ((addr (pointer-address (return-address-ip type)))
-           (hex-ip (number->string addr 16)))
-      (string-append "ra:" (cyan hex-ip))))
-   (else type)))
-
 ;;;
 ;;; Tags
 ;;;
@@ -461,7 +364,119 @@
   %tc7-bytevector
   %tc7-array
   %tc7-bitvector
+  %tc7-port
   %tc16-real)
+
+
+;;;
+;;; Extra types
+;;;
+
+;; XXX: Any better number to use ...?
+(define &undefined 0)
+
+(define &port %tc7-port)
+
+
+;;;
+;;; Type checker based on runtime values
+;;;
+
+(define (fixnum? val)
+  (and (exact-integer? val)
+       (<= most-negative-fixnum val most-positive-fixnum)))
+
+(define (flonum? val)
+  (and (real? val) (inexact? val)))
+
+(define (undefined? x)
+  (= (pointer-address (scm->pointer x)) #x904))
+
+(define (eof? x)
+  (= (pointer-address (scm->pointer x)) #xa04))
+
+(define (unbound? x)
+  (= (pointer-address (scm->pointer x)) #xb04))
+
+(define (false? x)
+  (not x))
+
+(define (true? x)
+  (eq? x #t))
+
+(define *unbound*
+  (pointer->scm (make-pointer #xb04)))
+
+(define (type-of obj)
+  (cond
+   ;; From (@ language cps types)
+   ((fixnum? obj) &exact-integer)
+   ((flonum? obj) &flonum)
+   ((char? obj) &char)
+   ((unspecified? obj) &unspecified)
+   ((false? obj) &false)
+   ((true? obj) &true)
+   ((null? obj) &null)
+   ((symbol? obj) &symbol)
+   ((keyword? obj) &keyword)
+   ((procedure? obj) &procedure)
+   ((pointer? obj) &pointer)
+   ((fluid? obj) &fluid)
+   ((pair? obj) &pair)
+   ((vector? obj) &vector)
+   ((variable? obj) &box)
+   ((struct? obj) &struct)
+   ((string? obj) &string)
+   ((bytevector? obj) &bytevector)
+   ((bitvector? obj) &bitvector)
+   ((array? obj) &array)
+   ((hash-table? obj) &hash-table)
+   ;; Not from (@ language cps types)
+   ((undefined? obj) &undefined)
+   ((port? obj) &port)
+   (else
+    (tjitc-error 'type-of "~s" obj))))
+
+(define (pretty-type type)
+  "Show string representation of TYPE."
+  (cond
+   ;; From (@ language cps types)
+   ((eq? type &exact-integer) (blue "snum"))
+   ((eq? type &flonum) (magenta "fnum"))
+   ((eq? type &char) (blue "char"))
+   ((eq? type &unspecified) (green "uspc"))
+   ((eq? type &unbound) (green "ubnd"))
+   ((eq? type &false) (green "fals"))
+   ((eq? type &true) (green "true"))
+   ((eq? type &nil) (green "nil"))
+   ((eq? type &null) (green "null"))
+   ((eq? type &symbol) (blue "symb"))
+   ((eq? type &keyword) (blue "keyw"))
+   ((eq? type &procedure) (yellow "proc"))
+   ((eq? type &pointer) (yellow "ptr"))
+   ((eq? type &pair) (yellow "pair"))
+   ((eq? type &vector) (yellow "vect"))
+   ((eq? type &box) (yellow "box"))
+   ((eq? type &struct) (yellow "strc"))
+   ((eq? type &string) (yellow "strn"))
+   ((eq? type &bytevector) (yellow "bytv"))
+   ((eq? type &bitvector) (yellow "bitv"))
+   ((eq? type &array) (yellow "arry"))
+   ((eq? type &hash-table) (yellow "htbl"))
+   ((eq? type &f64) (magenta "f64"))
+   ((eq? type &u64) (blue "u64"))
+   ((eq? type &s64) (blue "s64"))
+   ;; Not from (@ language cps types)
+   ((eq? type &undefined) (green "udef"))
+   ((eq? type &port) (yellow "port"))
+   ((dynamic-link? type)
+    (let ((diff (number->string (dynamic-link-offset type))))
+      (string-append "dl:" (cyan diff))))
+   ((return-address? type)
+    (let* ((addr (pointer-address (return-address-ip type)))
+           (hex-ip (number->string addr 16)))
+      (string-append "ra:" (cyan hex-ip))))
+   (else type)))
 
 
 ;;;

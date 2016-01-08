@@ -154,7 +154,7 @@
      ;; Cell values and small integers
      ((memq type (list &exact-integer &char &symbol &keyword &procedure &pointer
                        &pair &fluid &vector &box &struct &string &bytevector
-                       &bitvector &array &hash-table &u64 &s64))
+                       &bitvector &array &hash-table &port &u64 &s64))
       (cond
        ((constant? src)
         (jit-movi r0 (constant src))

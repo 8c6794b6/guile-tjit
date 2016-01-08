@@ -968,6 +968,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((eq? type &bitvector) (load-tc7 %tc7-bitvector))
         ((eq? type &array) (load-tc7 %tc7-array))
         ((eq? type &hash-table) (load-tc7 %tc7-hashtable))
+        ((eq? type &port) (load-tc7 %tc7-port))
         ((memq type (list &s64 &u64)) (move-stack-element))
         (else (err)))))))
 

@@ -334,7 +334,7 @@ saves index referenced by dst and src values at runtime."
        ,(proc tmp)))
    ;; XXX: Add more types.
    ((memq type (list &exact-integer &char &false &undefined &symbol &pair
-                     &vector &string &struct &hash-table))
+                     &vector &string &struct &hash-table &port))
     (proc var))
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
@@ -413,6 +413,7 @@ saves index referenced by dst and src values at runtime."
        ((eq? type &bitvector) (guard-tc7 %tc7-bitvector))
        ((eq? type &array) (guard-tc7 %tc7-array))
        ((eq? type &hash-table) (guard-tc7 %tc7-hashtable))
+       ((eq? type &port) (guard-tc7 %tc7-port))
        ;; XXX: Add more numbers: bignum, complex, rational.
        (else
         (nyi "with-unboxing: ~a ~a" (pretty-type type) var))))))
