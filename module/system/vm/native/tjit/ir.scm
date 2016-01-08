@@ -47,7 +47,6 @@
             ir-outline
             ir-handle-interrupts?
             ir-return-subr? set-ir-return-subr!
-            ir-inside-scall? set-ir-inside-scall!
 
             define-ir
             define-interrupt-ir
@@ -80,7 +79,7 @@
 (define-record-type <ir>
   (make-ir snapshots snapshot-id parent-snapshot vars
            min-sp-offset max-sp-offset bytecode-index
-           outline handle-interrupts? return-subr? inside-scall?)
+           outline handle-interrupts? return-subr?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -111,10 +110,7 @@
   (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!)
 
   ;; Flag for subr call.
-  (return-subr? ir-return-subr? set-ir-return-subr!)
-
-  ;; Flag for telling inside a scheme procedure call.
-  (inside-scall? ir-inside-scall? set-ir-inside-scall!))
+  (return-subr? ir-return-subr? set-ir-return-subr!))
 
 
 (define (make-var index)

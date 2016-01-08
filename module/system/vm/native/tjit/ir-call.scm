@@ -30,7 +30,8 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit variables))
+  #:use-module (system vm native tjit variables)
+  #:use-module (system vm program))
 
 ;;; XXX: halt is not defined, might not necessary.
 
@@ -44,6 +45,9 @@
   ;; is added to test the procedure value, to bailout when procedure has been
   ;; redefined.
   ;;
+  ;; Call to C subroutines (a.k.a: primitive-code) are inlined, will not emit
+  ;; native operation.
+  ;;
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
@@ -54,15 +58,16 @@
          (vdl (var-ref (+ fp 1)))
          (vproc (var-ref (- fp 1)))
          (rproc (local-ref (- fp 1)))
+         (primitive? (and (program? rproc)
+                          (primitive-code? (program-code rproc))))
          (snapshot (take-snapshot! ip 0)))
     (push-outline! (ir-outline ir) rdl rra sp-offset locals)
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,vproc ,(pointer-address (scm->pointer rproc)))))
-         ,(if (< 0 (current-fp-offset))
-              (begin
-                (set-ir-inside-scall! ir #t)
-                `(let ((_ (%scall ,proc)))
-                   ,(next)))
+         ,(if (and (< 0 (current-fp-offset))
+                   (not primitive?))
+              `(let ((_ (%scall ,proc)))
+                 ,(next))
               (next))))))
 
 ;; XXX: call-label

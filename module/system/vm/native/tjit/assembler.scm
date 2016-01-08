@@ -705,7 +705,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;;; C function call. Appears when Scheme primitive procedure defined as `gsubr'
 ;;; in C were called.
-(define-native (%ccall (int dst) (void proc) (void cfunc))
+(define-native (%ccall (int dst) (void cfunc))
   (let ((volatiles (asm-volatiles asm))
         (cargs (asm-cargs asm)))
     (define (subrf subr-addr)
@@ -733,13 +733,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
               volatiles)
     (load-vp r0)
     (vm-cache-sp r0)
-    (unless (zero? (ref-value proc))
-      (let ((vp r0)
-            (vp->fp r1))
-        (load-vp vp)
-        (load-vp->fp vp->fp vp)
-        (jit-addi vp->fp vp->fp (constant-word proc))
-        (store-vp->fp vp vp->fp)))
     (set-asm-cargs! asm '())))
 
 ;;; Return from Scheme procedure call. Shift current FP to the one from dynamic

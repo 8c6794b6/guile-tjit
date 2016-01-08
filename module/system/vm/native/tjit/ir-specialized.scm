@@ -52,10 +52,9 @@
          (ret-type (current-ret-type))
          (r2 (make-tmpvar 2))
          (proc-addr (pointer-address (scm->pointer subr/l)))
-         (proc-local (if (ir-inside-scall? ir) dl 0))
          (emit-next
           (lambda ()
-            `(let ((,r2 (%ccall ,proc-local ,proc-addr)))
+            `(let ((,r2 (%ccall ,proc-addr)))
                ,(if ret-type
                     (with-unboxing ret-type r2
                       (lambda ()
@@ -74,7 +73,6 @@
                  acc)))
     (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     (set-ir-return-subr! ir #t)
-    (set-ir-inside-scall! ir #f)
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))
