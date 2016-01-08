@@ -166,7 +166,14 @@
       ;; Copy outline types before scanning backward. Then if this trace was
       ;; side trace, update the initial stack item types with locals from parent
       ;; snapshot.
+      ;;
+      ;; Also save the last SP offset after initial scanning. Note that the last
+      ;; SP offset may differ from the SP offset coupled with last recorded
+      ;; bytecode operation, because some bytecode operations modify SP offset
+      ;; after saving the SP offset.
+      ;;
       (let* ((initial-stack-item-types (copy-tree (outline-types outline)))
+             (last-sp-offset (outline-sp-offset outline))
              (outline (scan-backward traces outline parent-snapshot
                                      initial-sp-offset
                                      initial-fp-offset))
@@ -178,7 +185,7 @@
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f
-                          initial-stack-item-types)))
+                          initial-stack-item-types last-sp-offset)))
         (let-values (((snapshots anf ops) (compile-ir tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
           (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))

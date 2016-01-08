@@ -114,6 +114,7 @@
       (add! (- stack-size 1))
       (save-sp-offset!)
       (save-fp-offset!)
+      (push-sp-offset! (- nlocals stack-size))
       (ret)))
   (define-syntax-rule (scan-frame nlocals)
     (let* ((stack-size (vector-length locals))

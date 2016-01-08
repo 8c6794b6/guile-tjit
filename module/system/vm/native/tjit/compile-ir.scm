@@ -288,10 +288,7 @@
 
 (define (trace->anf tj ir traces)
   (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
-         (last-sp-offset (let* ((sp-offsets (outline-sp-offsets
-                                             (tj-outline tj)))
-                                (i (- (vector-length sp-offsets) 1)))
-                           (vector-ref sp-offsets i)))
+         (last-sp-offset (tj-last-sp-offset tj))
          (last-fp-offset (let* ((fp-offsets (outline-fp-offsets
                                              (tj-outline tj)))
                                 (i (- (vector-length fp-offsets) 1)))
