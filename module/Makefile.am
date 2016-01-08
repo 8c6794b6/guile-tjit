@@ -351,6 +351,16 @@ SOURCES =					\
   system/vm/native/tjit/state.scm		\
   system/vm/native/tjit/assembler.scm		\
   system/vm/native/tjit/ir.scm			\
+  system/vm/native/tjit/ir-call.scm		\
+  system/vm/native/tjit/ir-specialized.scm	\
+  system/vm/native/tjit/ir-prologue.scm		\
+  system/vm/native/tjit/ir-branch.scm		\
+  system/vm/native/tjit/ir-lexical.scm		\
+  system/vm/native/tjit/ir-immediate.scm	\
+  system/vm/native/tjit/ir-mutable.scm		\
+  system/vm/native/tjit/ir-pair.scm		\
+  system/vm/native/tjit/ir-numeric.scm		\
+  system/vm/native/tjit/ir-misc.scm		\
   system/vm/native/tjit/ra.scm			\
   system/vm/native/tjit/fragment.scm		\
   system/vm/native/tjit/scan.scm		\
