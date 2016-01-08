@@ -368,10 +368,15 @@
             (('call proc nlocals)
              (lambda ()
                (let* ((next-sp (- last-fp-offset proc nlocals))
-                      (sp-shift (if (tj-parent-fragment tj)
-                                    (length (fragment-loop-locals
-                                             (tj-parent-fragment tj)))
-                                    initial-nlocals))
+                      (sp-shift
+                       (cond
+                        ((and=> (tj-parent-fragment tj)
+                                (lambda (fragment)
+                                  (fragment-loop-locals fragment)))
+                         => (lambda (loop-locals)
+                              (length loop-locals)))
+                        (else
+                         initial-nlocals)))
                       (next-sp-offset (+ next-sp sp-shift)))
                  `(let ((_ ,(take-entry-snapshot! ir *ip-key-downrec* 0
                                                   (dr-locals proc nlocals)

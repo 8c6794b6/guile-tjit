@@ -44,7 +44,7 @@
          (ly (local-ref y))
          (emit-cons (lambda (a)
                       (lambda (b)
-                        `(let ((,vdst (%cons ,a ,b)))
+                        `(let ((,vdst (%cell ,a ,b)))
                            ,(next)))))
          (emit-y (lambda (a)
                    (with-boxing (type-of ly) vy r1

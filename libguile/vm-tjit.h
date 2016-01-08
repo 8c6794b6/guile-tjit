@@ -71,7 +71,8 @@ SCM_API void scm_tjit_dump_locals (SCM trace_id, int n,
                                    struct scm_vm *vp);
 
 SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
-SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM x, SCM y);
+SCM_API SCM scm_do_inline_cell (scm_i_thread *thread,
+                                scm_t_bits x, scm_t_bits y);
 SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
                                      union scm_vm_stack_element *new_sp);
 

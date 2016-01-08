@@ -40,6 +40,7 @@ TESTS = \
 	t-box-01.scm \
 	t-box-02.scm \
 	t-box-03.scm \
+	t-box-04.scm \
 	t-br-if-null-01.scm \
 	t-br-if-true-01.scm \
 	t-call-01.scm \

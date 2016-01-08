@@ -590,9 +590,9 @@ scm_do_inline_from_double (scm_i_thread *thread, double val)
 }
 
 SCM
-scm_do_inline_cons (scm_i_thread *thread, SCM x, SCM y)
+scm_do_inline_cell (scm_i_thread *thread, scm_t_bits x, scm_t_bits y)
 {
-  return scm_inline_cons (thread, x, y);
+  return scm_inline_cell (thread, x, y);
 }
 
 void

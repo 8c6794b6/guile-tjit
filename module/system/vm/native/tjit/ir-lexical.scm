@@ -43,6 +43,18 @@
 ;; XXX: long-fmov
 ;; XXX: box
 
+(define-ir (box (scm dst) (scm src))
+  (let ((r1 (make-tmpvar 1))
+        (r2 (make-tmpvar 2))
+        (dst/v (var-ref dst))
+        (src/v (var-ref src))
+        (src/l (local-ref src)))
+    `(let ((,r2 ,%tc7-variable))
+       ,(with-boxing (type-of src/l) src/v r1
+          (lambda (src/v)
+            `(let ((,dst/v (%cell ,r2 ,src/v)))
+               ,(next)))))))
+
 ;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'.
 ;; Boxing back tagged value every time will make the loop slow, need
 ;; more analysis when the storing could be removed from native code loop

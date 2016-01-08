@@ -275,8 +275,8 @@
                      (load-volatile reg)))
                  volatiles)))))
 
-(define %scm-inline-cons
-  (dynamic-pointer "scm_do_inline_cons" (dynamic-link)))
+(define %scm-inline-cell
+  (dynamic-pointer "scm_do_inline_cell" (dynamic-link)))
 
 (define %scm-async-tick
   (dynamic-pointer "scm_async_tick" (dynamic-link)))
@@ -1157,9 +1157,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Heap objects
 ;;;
 
-;; Call C function `scm_do_inline_cons'. Save volatile registers before calling,
+;; Call C function `scm_do_inline_cell'. Save volatile registers before calling,
 ;; restore after getting returned value.
-(define-native (%cons (int dst) (int x) (int y))
+(define-native (%cell (int dst) (int x) (int y))
   (let ((volatiles (asm-volatiles asm))
         (x-overwritten? (equal? x (argr 1)))
         (y-overwritten? (or (equal? y (argr 1))
@@ -1174,7 +1174,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (jit-pushargr %thread)
     (push-as-gpr x x-overwritten?)
     (push-as-gpr y y-overwritten?)
-    (jit-calli %scm-inline-cons)
+    (jit-calli %scm-inline-cell)
     (retval-to-gpr-or-mem dst)
     (for-each (lambda (reg)
                 (when (not (equal? reg dst))
