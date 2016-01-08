@@ -141,6 +141,7 @@ TESTS = \
 	t-vector-length-01.scm \
 	t-vector-ref-01.scm \
 	t-vector-ref-02.scm \
+	t-vector-ref-03.scm \
 	t-vector-set-01.scm \
 	t-vector-set-02.scm
 
