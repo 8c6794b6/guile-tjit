@@ -71,12 +71,12 @@
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
-  (let-values (((vars snapshots anf) (compile-anf tj trace)))
+  (let*-values (((vars snapshots anf) (compile-anf tj trace))
+                ((snapshot0) (hashq-ref snapshots 0)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (tj-id tj))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
-    (let ((primops (anf->primops anf tj (hashq-ref snapshots 0) vars
-                                 snapshots)))
+    (let ((primops (anf->primops anf tj snapshot0 vars snapshots)))
       (values snapshots anf primops))))
 
 (define (compile-anf tj trace)
@@ -94,20 +94,14 @@
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id)))
     (define (take-snapshot! ip dst-offset locals vars)
-      (let*-values (((ret snapshot)
-                     (take-snapshot ip
-                                    dst-offset
-                                    locals
-                                    vars
-                                    snapshot-id
-                                    initial-sp-offset
-                                    initial-fp-offset
-                                    lowest-offset
-                                    (get-max-sp-offset initial-sp-offset
-                                                       initial-fp-offset
-                                                       (vector-length locals))
-                                    parent-snapshot
-                                    (tj-outline tj))))
+      (let-values (((ret snapshot)
+                    (take-snapshot ip dst-offset locals vars snapshot-id
+                                   initial-sp-offset initial-fp-offset
+                                   lowest-offset
+                                   (get-max-sp-offset initial-sp-offset
+                                                      initial-fp-offset
+                                                      (vector-length locals))
+                                   parent-snapshot (tj-outline tj))))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))

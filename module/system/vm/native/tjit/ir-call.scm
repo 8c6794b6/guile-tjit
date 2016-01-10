@@ -137,10 +137,18 @@
 
 (define-ir (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
-         (vdst (var-ref (- stack-size dst 1)))
-         (vsrc (var-ref (- (- stack-size proc) 2)))
-         (thunk (gen-receive-thunk proc (lambda (v) (eq? v vdst)))))
-    `(let ((,vdst ,vsrc))
+         (dst/i (- stack-size dst 1))
+         (dst/v (var-ref dst/i))
+         (src/i (- (- stack-size proc) 2))
+         (src/v (var-ref src/i))
+         (thunk (gen-receive-thunk proc (lambda (v) (eq? v dst/v))))
+         (last-local-index (- (vector-length locals) 1)))
+    ;; Update values in local, so that snapshot can resolve value from stack
+    ;; element type.
+    (when (and (<= 0 src/i last-local-index)
+               (<= 0 dst/i last-local-index))
+      (vector-set! locals dst/i (scm->pointer (local-ref src/i))))
+    `(let ((,dst/v ,src/v))
        ,(thunk))))
 
 (define-ir (receive-values proc allow-extra? nlocals)
