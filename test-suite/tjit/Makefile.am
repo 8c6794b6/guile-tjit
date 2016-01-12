@@ -131,6 +131,8 @@ TESTS = \
 	t-tail-call-04.scm \
 	t-tail-call-05.scm \
 	t-tail-call-05b.scm \
+	t-tail-call-05c.scm \
+	t-tail-call-05d.scm \
 	t-tail-call-label-01.scm \
 	t-toplevel-box-01.scm \
 	t-toplevel-box-02.scm \

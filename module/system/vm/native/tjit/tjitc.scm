@@ -224,6 +224,11 @@
           (failure "NYI found, aborted"))
          (uprec?
           (failure "NYI up recursion"))
+         ((and (not parent-snapshot)
+               (not downrec?)
+               loop?
+               (not (zero? (outline-sp-offset outline))))
+          (failure "NYI looping root trace with SP shift"))
          (else
           (with-nyi-handler entry-ip
             (compile-traces traces outline))))))))
