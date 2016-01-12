@@ -40,6 +40,7 @@
             <ir>
             ir-snapshots set-ir-snapshots!
             ir-snapshot-id set-ir-snapshot-id!
+            ir-parent-snapshot
             ir-min-sp-offset set-ir-min-sp-offset!
             ir-max-sp-offset set-ir-max-sp-offset!
             ir-bytecode-index set-ir-bytecode-index!

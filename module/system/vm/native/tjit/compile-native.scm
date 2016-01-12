@@ -484,15 +484,13 @@ are local index number."
            => (lambda (snapshot)
                 (cond
                  ((snapshot-downrec? snapshot)
-                  (let-values (((loop? dsts)
-                                (if (tj-parent-fragment tj)
-                                    (let ((linked-fragment
-                                           (get-root-trace
-                                            (tj-linked-ip tj))))
-                                      (values #f
-                                              (fragment-loop-vars
-                                               linked-fragment)))
-                                    (values #t loop-vars))))
+                  (let-values
+                      (((loop? dsts)
+                        (if (tj-parent-fragment tj)
+                            (let* ((linked-ip (tj-linked-ip tj))
+                                   (linked-fragment (get-root-trace linked-ip)))
+                              (values #f (fragment-loop-vars linked-fragment)))
+                            (values #t loop-vars))))
                     (compile-downrec tj asm loop? snapshot
                                      (snapshot-nlocals (hashq-ref snapshots 0))
                                      dsts))
