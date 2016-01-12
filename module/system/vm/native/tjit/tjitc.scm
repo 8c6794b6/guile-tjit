@@ -177,6 +177,16 @@
              (outline (scan-backward traces outline parent-snapshot
                                      initial-sp-offset
                                      initial-fp-offset))
+             (_ (when parent-snapshot
+                  (let lp ((dst (outline-local-indices outline))
+                           (src (map car (snapshot-locals parent-snapshot))))
+                    (if (null? src)
+                        (set-outline-local-indices! outline (sort dst >))
+                        (let* ((elem (car src))
+                               (dst (if (memq elem dst)
+                                        dst
+                                        (cons elem dst))))
+                          (lp dst (cdr src)))))))
              (initial-stack-item-types
               (if (or (not parent-fragment) loop?)
                   initial-stack-item-types

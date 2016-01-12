@@ -307,10 +307,10 @@
                            ,loop-body)))
             entry)
          (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
+
                 (sort-variables-in-env env))
-         (let*-values (((_)
-                        (set-initial-args! entry-args initial-local-x-types))
-                       ((entry-ops snapshot-idx)
+         (set-initial-args! entry-args initial-local-x-types)
+         (let*-values (((entry-ops snapshot-idx)
                         (assign-registers entry-body snapshots
                                           env free-gprs free-fprs mem-idx
                                           0))
@@ -330,7 +330,7 @@
          ;; Refill variables. Using the locals assigned to snapshot, which are
          ;; determined at the time of exit from parent trace.
          (match parent-snapshot
-           (($ $snapshot id sp-offset fp-offset nlocals locals variables code ip)
+           (($ $snapshot _ _ _ _ locals variables _ _)
             ;; The number of assigned variables might fewer than the number of
             ;; locals. Reversed and assigning from highest frame to lowest
             ;; frame.
@@ -348,7 +348,7 @@
                     (when (<= (variable-ref mem-idx) n)
                       (variable-set! mem-idx (+ n 1))))
                    (_
-                    (tjitc-error 'ir->primops "var ~a at local ~a, type ~a~%"
+                    (tjitc-error 'ir->primops "var ~a at local ~a, type ~a"
                                  var local type)))
                  (lp vars locals))
                 (_
