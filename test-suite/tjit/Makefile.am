@@ -85,6 +85,7 @@ TESTS = \
 	t-nest-19.scm \
 	t-nest-20.scm \
 	t-nest-21.scm \
+	t-nest-22.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \
 	t-pairs-03.scm \
