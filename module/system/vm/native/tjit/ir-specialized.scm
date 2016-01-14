@@ -54,13 +54,17 @@
          (proc-addr (pointer-address (scm->pointer subr/l)))
          (emit-next
           (lambda ()
+            (pop-outline! (ir-outline ir) (current-sp-offset) locals)
+            (next)))
+         (emit-ccall
+          (lambda ()
             `(let ((,r2 (%ccall ,proc-addr)))
                ,(if ret-type
                     (with-unboxing ret-type r2
                       (lambda ()
                         `(let ((,dst/v ,r2))
-                           ,(next))))
-                    (next))))))
+                           ,(emit-next))))
+                    (emit-next))))))
     (debug 1 ";;; subr-call: (~a) (~s ~{~a~^ ~})~%"
            (pretty-type (current-ret-type))
            (procedure-name subr/l)
@@ -71,7 +75,6 @@
                      (lp (+ n 1)
                          (cons (pretty-type (type-of arg)) acc))))
                  acc)))
-    (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     (set-ir-return-subr! ir #t)
     (if (primitive-code? ccode)
         (let lp ((n 0))
@@ -82,7 +85,7 @@
                   (lambda (boxed)
                     `(let ((_ (%carg ,boxed)))
                        ,(lp (+ n 1))))))
-              (emit-next)))
+              (emit-ccall)))
         (tjitc-error 'subr-call "not a primitive ~s" subr/l))))
 
 ;; XXX: foreign-call
