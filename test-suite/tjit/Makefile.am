@@ -101,6 +101,7 @@ TESTS = \
 	t-rec-01.scm \
 	t-rec-02.scm \
 	t-rec-03.scm \
+	t-repl-01.scm \
 	t-reset-frame-01.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
@@ -127,6 +128,7 @@ TESTS = \
 	t-subr-call-06.scm \
 	t-subr-call-07.scm \
 	t-subr-call-08.scm \
+	t-subr-call-09.scm \
 	t-tail-call-01.scm \
 	t-tail-call-02.scm \
 	t-tail-call-03.scm \

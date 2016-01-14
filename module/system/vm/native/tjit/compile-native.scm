@@ -147,12 +147,10 @@
      ((eq? type &unspecified)
       (jit-movi r0 *scm-unspecified*)
       (sp-set! local r0))
-     ((eq? type &null)
-      (jit-movi r0 *scm-null*)
-      (sp-set! local r0))
 
      ;; Cell values and small integers
-     ((memq type (list &exact-integer &char &symbol &keyword &procedure &pointer
+     ((memq type (list &exact-integer &char &null &nil
+                       &symbol &keyword &procedure &pointer
                        &pair &fluid &vector &box &struct &string &bytevector
                        &bitvector &array &hash-table &port &u64 &s64))
       (cond

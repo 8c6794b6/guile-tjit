@@ -452,7 +452,7 @@
    ((eq? type &null) (green "null"))
    ((eq? type &symbol) (blue "symb"))
    ((eq? type &keyword) (blue "keyw"))
-   ((eq? type &procedure) (yellow "proc"))
+   ((eq? type &procedure) (red "proc"))
    ((eq? type &pointer) (yellow "ptr"))
    ((eq? type &pair) (yellow "pair"))
    ((eq? type &vector) (yellow "vect"))
