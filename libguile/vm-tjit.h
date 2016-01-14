@@ -29,10 +29,10 @@ enum scm_tjit_vm_state
 
 enum scm_tjit_trace_type
   {
-    SCM_TJIT_TRACE_JUMP,    /* backward jump */
-    SCM_TJIT_TRACE_CALL,    /* procedure call */
-    SCM_TJIT_TRACE_TCALL,   /* procedure tail-call */
-    SCM_TJIT_TRACE_RETURN,  /* procedure return */
+    SCM_TJIT_TRACE_JUMP = 0, /* backward jump */
+    SCM_TJIT_TRACE_CALL,     /* procedure call */
+    SCM_TJIT_TRACE_TCALL,    /* procedure tail-call */
+    SCM_TJIT_TRACE_RETURN,   /* procedure return */
   };
 
 struct scm_tjit_state
@@ -47,6 +47,7 @@ struct scm_tjit_state
   int parent_fragment_id;   /* fragment ID of parent trace, or 0 for root*/
   int parent_exit_id;       /* exit id of parent trace, or 0 for root */
   int nunrolled;            /* current number of unrolled recursion */
+  size_t start_seen;        /* flag for whether start has seen */
 };
 
 struct scm_tjit_retval

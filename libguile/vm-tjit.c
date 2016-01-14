@@ -87,7 +87,7 @@
         scm_t_uint16 count = hot_ip_ref ((scm_t_uintptr) (ip + JUMP));  \
                                                                         \
         if (REF < SCM_I_MAKINUM (count))                                \
-          start_recording (tj, ip + JUMP, END_IP, TTYPE);               \
+          start_recording (tj, ip + JUMP, END_IP, TTYPE, 1);            \
         else                                                            \
           hot_ip_set ((scm_t_uintptr) (ip + JUMP), count + 1);          \
       }                                                                 \
@@ -211,12 +211,13 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
 static inline void
 start_recording (struct scm_tjit_state *tj,
                  scm_t_uint32 *start, scm_t_uint32 *end,
-                 enum scm_tjit_trace_type trace_type)
+                 enum scm_tjit_trace_type trace_type, size_t start_seen)
 {
   tj->vm_state = SCM_TJIT_VM_STATE_RECORD;
   tj->trace_type = trace_type;
   tj->loop_start = (scm_t_uintptr) start;
   tj->loop_end = (scm_t_uintptr) end;
+  tj->start_seen = start_seen;
 }
 
 static inline void
@@ -228,6 +229,7 @@ stop_recording (struct scm_tjit_state *tj)
   tj->parent_fragment_id = 0;
   tj->parent_exit_id = 0;
   tj->nunrolled = 0;
+  tj->start_seen = 0;
 }
 
 static inline void
@@ -269,9 +271,9 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
 }
 
 static inline void
-call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
-             scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
-             struct scm_tjit_state *tj, scm_t_uint32 *nlocals_out)
+call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
+             scm_i_jmp_buf *registers, struct scm_tjit_state *tj,
+             scm_t_uint32 *nlocals_out)
 {
   scm_t_native_code f;
   scm_t_uint32 nlocals;
@@ -308,19 +310,18 @@ call_native (SCM s_ip, scm_t_uint32 *previous_ip, SCM fragment,
       scm_t_uint32 *start = vp->ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-      /* When start and end is the same IP, assuming as guard failure in
-         entry clause of the native code has happened. Recording starts
-         when VM entered the same loop next time. To prevent the VM
-         interpreter to stop recording immediately without visiting
-         bytecode of the loop, setting end to the IP before the backward
-         jump. Result of record will be a looping side trace starting
-         from entry IP of parent trace. */
-      if (start == end)
-        end = previous_ip;
-
       tj->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
       tj->parent_exit_id = (int) SCM_I_INUM (exit_id);
-      start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP);
+
+      /* When start and end is the same IP, assuming the guard in entry
+         clause of the native code has failed. Recording starts when VM
+         entered the same loop next time. To prevent the VM interpreter
+         to stop recording immediately without visiting bytecode of the
+         loop, setting `tj->start_seen' flag to 0. Result of record will
+         be a looping side trace starting from entry IP of parent
+         trace. */
+      start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP,
+                       start == end ? 0 : 1);
     }
 
   *nlocals_out = nlocals;
@@ -343,6 +344,7 @@ scm_make_tjit_state (void)
   t->parent_fragment_id = 0;
   t->parent_exit_id = 0;
   t->nunrolled = 0;
+  t->start_seen = 0;
 
   return t;
 }
@@ -371,11 +373,8 @@ scm_make_tjit_state (void)
         /* function, might return incorrect result.                  */ \
         if (scm_is_true (fragment))                                     \
           {                                                             \
-            scm_t_uint32 *previous_ip =                                 \
-              TTYPE == SCM_TJIT_TRACE_TCALL ? END_IP : ip;              \
-                                                                        \
-            call_native (s_ip, previous_ip, fragment, thread, vp,       \
-                         registers, tj, &nlocals);                      \
+            call_native (s_ip, fragment, thread, vp, registers, tj,     \
+                         &nlocals);                                     \
                                                                         \
             /* Update `sp' and `ip' in C code. */                       \
             CACHE_REGISTER ();                                          \
@@ -424,8 +423,18 @@ scm_make_tjit_state (void)
           }                                                             \
         else if (ip == end_ip)                                          \
           {                                                             \
-            record (tj, thread, vp, ip, sp);                            \
-            SCM_TJITC (s_ip, SCM_BOOL_T);                               \
+            if (tj->start_seen)                                         \
+              {                                                         \
+                if (tj->loop_start != tj->loop_end)                     \
+                  record (tj, thread, vp, ip, sp);                      \
+                                                                        \
+                SCM_TJITC (s_ip, SCM_BOOL_T);                           \
+              }                                                         \
+            else                                                        \
+              {                                                         \
+                record (tj, thread, vp, ip, sp);                        \
+                tj->start_seen = 1;                                     \
+              }                                                         \
           }                                                             \
         else                                                            \
           record (tj, thread, vp, ip, sp);                              \
