@@ -580,9 +580,12 @@ are local index number."
           ;; Still snapshot data is used, so that the bytevector of compiled
           ;; native code could be stored in fragment, to avoid garbage
           ;; collection.
-          (when (or (not (null? local-x-types))
-                    (and (not (tj-parent-fragment tj))
-                         (zero? id)))
+          (unless (or (null? local-x-types)
+                      (and (not (tj-parent-fragment tj))
+                           (zero? id))
+                      (and (tj-parent-fragment tj)
+                           (tj-loop? tj)
+                           (zero? id)))
             (let lp ((local-x-types local-x-types)
                      (args args))
               (match (list local-x-types args)
