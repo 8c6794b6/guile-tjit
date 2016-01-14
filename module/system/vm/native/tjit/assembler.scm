@@ -876,20 +876,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
               (values))
              ((_ any exp)
               exp)))
-          (load-constant
-           (syntax-rules ()
-             ((_ constant)
-              (begin
-                (maybe-guard guard? (jump (jit-bnei src constant) (bailout)))
-                (cond
-                 ((gpr? dst)
-                  (jit-movr (gpr dst) src))
-                 ((fpr? dst)
-                  (jit-movr r0 src)
-                  (gpr->fpr (fpr dst) r0))
-                 ((memory? dst)
-                  (memory-set! dst src))
-                 (else (err)))))))
           (move-stack-element
            (syntax-rules ()
              ((_)
@@ -898,6 +884,12 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                ((fpr? dst) (gpr->fpr (fpr dst) src))
                ((memory? dst) (memory-set! dst src))
                (else (err))))))
+          (load-constant
+           (syntax-rules ()
+             ((_ constant)
+              (begin
+                (maybe-guard guard? (jump (jit-bnei src constant) (bailout)))
+                (move-stack-element)))))
           (load-tc1
            (syntax-rules ()
              ((_ tc1)
