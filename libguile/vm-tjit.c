@@ -399,11 +399,9 @@ scm_make_tjit_state (void)
     /* Avoid looking up fragment of looping-side-trace itself. */       \
     int link_found = has_root && ip != start_ip;                        \
                                                                         \
-    if (has_root)                                                       \
-      fragment =                                                        \
-        scm_hashq_ref (tjit_root_trace_table, s_ip, SCM_BOOL_F);        \
-    else                                                                \
-      fragment = SCM_BOOL_F;                                            \
+    fragment = has_root ?                                               \
+      scm_hashq_ref (tjit_root_trace_table, s_ip, SCM_BOOL_F) :         \
+      SCM_BOOL_F;                                                       \
                                                                         \
     switch (tj->trace_type)                                             \
       {                                                                 \
