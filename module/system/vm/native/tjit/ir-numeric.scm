@@ -228,3 +228,17 @@
 
 (define-binary-arith-u64-imm uadd/immediate %add)
 (define-binary-arith-u64-imm usub/immediate %sub)
+
+;; XXX: uadd
+;; XXX: usub
+;; XXX: umul
+;; XXX: umul/immediate
+
+;; XXX: ulogand
+;; XXX: ulogior
+;; XXX: ulogsub
+
+;; XXX: ursh
+;; XXX: ulsh
+;; XXX: ursh/immediate
+;; XXX: ulsh/immediate

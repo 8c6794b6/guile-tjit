@@ -55,14 +55,6 @@
        (let ((,dst/v (%add ,dst/v 2)))
          ,(next)))))
 
-;; XXX: bv-length
-
-;; XXX: uadd
-;; XXX: usub
-;; XXX: umul
-
-;; XXX: umul/immediate
-
 ;; XXX: load-f64
 
 (define-ir (load-u64 (u64 dst) (const high-bits) (const low-bits))
@@ -77,12 +69,4 @@
 
 ;; XXX: logsub
 
-;; XXX: ulogand
-;; XXX: ulogior
-;; XXX: ulogsub
-;; XXX: ursh
-;; XXX: ulsh
 ;; XXX: scm->u64/truncate
-
-;; XXX: ursh/immediate
-;; XXX: ulsh/immediate

@@ -360,6 +360,7 @@ SOURCES =					\
   system/vm/native/tjit/ir-mutable.scm		\
   system/vm/native/tjit/ir-pair.scm		\
   system/vm/native/tjit/ir-numeric.scm		\
+  system/vm/native/tjit/ir-array.scm		\
   system/vm/native/tjit/ir-misc.scm		\
   system/vm/native/tjit/ra.scm			\
   system/vm/native/tjit/fragment.scm		\

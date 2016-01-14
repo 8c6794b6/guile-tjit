@@ -448,28 +448,3 @@ saves index referenced by dst and src values at runtime."
 ;; XXX: struct-ref/immediate
 ;; XXX: struct-set!/immediate
 ;; XXX: class-of
-
-;;; *** Arrays, packed uniform arrays, and bytevectors
-
-;; XXX: load-typed-array
-;; XXX: make-array
-;; XXX: bv-u8-ref
-;; XXX: bv-s8-ref
-;; XXX: bv-u16-ref
-;; XXX: bv-s16-ref
-;; XXX: bv-u32-ref
-;; XXX: bv-s32-ref
-;; XXX: bv-u64-ref
-;; XXX: bv-s64-ref
-;; XXX: bv-f32-ref
-;; XXX: bv-f64-ref
-;; XXX: bv-u8-set!
-;; XXX: bv-s8-set!
-;; XXX: bv-u16-set!
-;; XXX: bv-s16-set!
-;; XXX: bv-u32-set!
-;; XXX: bv-s32-set!
-;; XXX: bv-u64-set!
-;; XXX: bv-s64-set!
-;; XXX: bv-f32-set!
-;; XXX: bv-f64-set!

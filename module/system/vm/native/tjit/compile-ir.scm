@@ -44,6 +44,7 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit ir-array)
   #:use-module (system vm native tjit ir-branch)
   #:use-module (system vm native tjit ir-call)
   #:use-module (system vm native tjit ir-immediate)
@@ -80,19 +81,15 @@
       (values snapshots anf primops))))
 
 (define (compile-anf tj trace)
-  (define root-trace?
-    (not (tj-parent-fragment tj)))
-  (define (get-initial-snapshot-id)
-    ;; For root trace, initial snapshot already added in `make-anf'.
-    (if root-trace? 1 0))
   (let* ((parent-snapshot (tj-parent-snapshot tj))
+         (root-trace? (not parent-snapshot))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
          (local-indices (outline-local-indices (tj-outline tj)))
          (vars (make-vars local-indices))
          (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
-         (snapshot-id (get-initial-snapshot-id)))
+         (snapshot-id (if root-trace? 1 0)))
     (define (take-snapshot! ip dst-offset locals vars)
       (let-values (((ret snapshot)
                     (take-snapshot ip dst-offset locals vars snapshot-id
