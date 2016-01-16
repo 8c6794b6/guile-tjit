@@ -146,31 +146,23 @@
     (($ $snapshot _ _ fp-offset) fp-offset)
     (_ 0)))
 
-(define (take-snapshot ip dst-offset locals vars id
-                       sp-offset fp-offset min-sp-offset max-sp-offset
-                       parent-snapshot outline)
+(define (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
+                       min-sp-offset max-sp-offset parent-snapshot outline)
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
-         (args-and-indices
-          (let lp ((vars vars) (args '()) (indices '()))
-            (match vars
-              (((n . var) . vars)
-               (if (<= min-sp-offset n max-sp-offset)
-                   (lp vars (cons var args) (cons n indices))
-                   (lp vars args indices)))
-              (()
-               (cons args indices)))))
-         (args (car args-and-indices))
-         (indices (cdr args-and-indices))
-         (snapshot (make-snapshot id
-                                  sp-offset
-                                  fp-offset
-                                  nlocals
-                                  locals
-                                  parent-snapshot
-                                  indices
-                                  outline
-                                  dst-ip)))
+         (indices (filter (lambda (i)
+                            (<= min-sp-offset i max-sp-offset))
+                          indices))
+         (args (let lp ((vars vars) (acc '()))
+                 (match vars
+                   (((n . var) . vars)
+                    (if (memq n indices)
+                        (lp vars (cons var acc))
+                        (lp vars acc)))
+                   (()
+                    acc))))
+         (snapshot (make-snapshot id sp-offset fp-offset nlocals locals
+                                  parent-snapshot indices outline dst-ip)))
     (values `(%snap ,id ,@args) snapshot)))
 
 (define-syntax-rule (with-frame-ref next args var type idx)
@@ -215,24 +207,60 @@
 
 (define-ir-syntax-parameters ir ip ra dl locals next)
 
+(define-syntax-rule (gen-write-index ol arg rest)
+  (let* ((i (+ arg (outline-sp-offset ol)))
+         (indices (assq-set! (outline-local-indices ol) i #t))
+         (writes (outline-write-indices ol)))
+    (set-outline-local-indices! ol indices)
+    (unless (memq i writes)
+      (set-outline-write-indices! ol (cons i writes)))
+    (gen-put-index ol . rest)))
+
+(define-syntax-rule (gen-read-index ol arg rest)
+  (let* ((i (+ arg (outline-sp-offset ol)))
+         (indices (assq-set! (outline-local-indices ol) i #t))
+         (reads (outline-read-indices ol)))
+    (set-outline-local-indices! ol indices)
+    (unless (memq i reads)
+      (set-outline-read-indices! ol (cons i reads)))
+    (gen-put-index ol . rest)))
+
 (define-syntax gen-put-index
-  (syntax-rules (const)
+  (syntax-rules (scm scm! u64 u64! f64 f64! const)
     ((_ ol)
      ol)
     ((_ ol (const arg) . rest)
      (gen-put-index ol . rest))
+    ((_ ol (scm! arg) . rest)
+     (gen-write-index ol arg rest))
+    ((_ ol (u64! arg) . rest)
+     (gen-write-index ol arg rest))
+    ((_ ol (f64! arg) . rest)
+     (gen-write-index ol arg rest))
     ((_ ol (other arg) . rest)
-     (let ((indices (assq-set! (outline-local-indices ol)
-                               (+ arg (outline-sp-offset ol)) #t)))
-       (set-outline-local-indices! ol indices)
-       (gen-put-index ol . rest)))))
+     (gen-read-index ol arg rest))))
 
 (define-syntax gen-put-element-type
-  (syntax-rules (scm u64 f64 const)
+  (syntax-rules (scm scm! u64 u64! f64 f64! const)
     ((_ ol)
      ol)
     ((_ ol (const arg) . rest)
      (gen-put-element-type ol . rest))
+    ((_ ol (scm! arg) . rest)
+     (let ((types (assq-set! (outline-types ol)
+                             (+ arg (outline-sp-offset ol)) 'scm)))
+       (set-outline-types! ol types)
+       (gen-put-element-type ol . rest)))
+    ((_ ol (u64! arg) . rest)
+     (let ((types (assq-set! (outline-types ol)
+                             (+ arg (outline-sp-offset ol)) 'u64)))
+       (set-outline-types! ol types)
+       (gen-put-element-type ol . rest)))
+    ((_ ol (f64! arg) . rest)
+     (let ((types (assq-set! (outline-types ol)
+                             (+ arg (outline-sp-offset ol)) 'f64)))
+       (set-outline-types! ol types)
+       (gen-put-element-type ol . rest)))
     ((_ ol (other arg) . rest)
      (let ((types (assq-set! (outline-types ol)
                              (+ arg (outline-sp-offset ol)) 'other)))
@@ -315,6 +343,7 @@ saves index referenced by dst and src values at runtime."
                                dst-offset
                                locals
                                (ir-vars ir)
+                               (outline-write-indices (ir-outline ir))
                                (ir-snapshot-id ir)
                                (current-sp-offset)
                                (current-fp-offset)

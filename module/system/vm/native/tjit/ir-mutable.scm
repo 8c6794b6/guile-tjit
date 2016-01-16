@@ -36,7 +36,7 @@
 ;; XXX: resolve
 ;; XXX: define!
 
-(define-ir (toplevel-box (scm dst) (const var-offset) (const mod-offset)
+(define-ir (toplevel-box (scm! dst) (const var-offset) (const mod-offset)
                          (const sym-offset) (const bound?))
   (let ((vdst (var-ref dst))
         (var (dereference-scm (+ ip (* var-offset 4)))))
@@ -45,7 +45,7 @@
            ,(next))
         (nyi "toplevel-box: not a variable ~s" var))))
 
-(define-ir (module-box (scm dst) (const var-offset) (const mod-offset)
+(define-ir (module-box (scm! dst) (const var-offset) (const mod-offset)
                        (const sym-offset) (const bound?))
   (let ((vdst (var-ref dst))
         (var (dereference-scm (+ ip (* var-offset 4)))))

@@ -78,14 +78,16 @@
                   (else ""))))
       (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
               trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
-  (define (traced-ops bytecode traces sp-offset fp-offset types)
+  (define (traced-ops bytecode traces sp-offset fp-offset parent-snapshot)
     (define disassemble-one
       (@@ (system vm disassembler) disassemble-one))
     (define (go)
       (let lp ((acc '())
                (offset 0)
                (traces (reverse! traces))
-               (ol (make-outline types sp-offset fp-offset))
+               (ol (make-outline (get-initial-types parent-snapshot)
+                                 sp-offset fp-offset
+                                 (get-initial-write-indices parent-snapshot)))
                (so-far-so-good? #t)
                (prev-op #f))
         (match traces
@@ -110,6 +112,8 @@
           (fp-offsets (outline-fp-offsets ol))
           (linked (get-root-trace linked-ip)))
       (when linked
+        (debug 1 ";;; [tjitc] fragment-loop-locals=~s~%"
+               (fragment-loop-locals linked))
         (merge-outline-types! ol (fragment-loop-locals linked)))
       (let lp ((traces (reverse traces))
                (index (- (vector-length sp-offsets) 1)))
@@ -125,20 +129,31 @@
            ol)))))
   (define (get-initial-types snapshot)
     (if snapshot
-        (let lp ((locals (snapshot-locals snapshot)) (acc '()))
-          (match locals
-            (((local . type) . locals)
-             (let ((etype (type->stack-element-type type)))
-               (lp locals (cons (cons local etype) acc))))
-            (()
-             acc)))
+        (copy-tree (snapshot-outline-types snapshot))
         '()))
-  (define (merge-types dst src)
-    (let lp ((src src) (dst dst))
-      (match src
-        (((n . t) . src)
-         (lp src (assq-set! dst n (type->stack-element-type t))))
-        (() dst))))
+  (define (get-initial-write-indices snapshot)
+    (if snapshot
+        (map car (snapshot-locals snapshot))
+        '()))
+
+  ;; (define (merge-types dst src)
+  ;;   (let lp ((src src) (dst dst))
+  ;;     (match src
+  ;;       (((n . t) . src)
+  ;;        (lp src (assq-set! dst n (type->stack-element-type t))))
+  ;;       (() dst))))
+
+  (define (merge-types dsts snapshot)
+    (let ((sp (snapshot-sp-offset snapshot))
+          (nlocals (snapshot-nlocals snapshot)))
+      (let lp ((dsts dsts) (srcs (snapshot-outline-types snapshot)))
+        (match srcs
+          (((n . t) . srcs)
+           (if (<= sp n (- (+ sp nlocals) 1))
+               (lp (assq-set! dsts n t) srcs)
+               (lp dsts srcs)))
+          (_
+           dsts)))))
 
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
@@ -187,15 +202,22 @@
                                         dst
                                         (cons elem dst))))
                           (lp dst (cdr src)))))))
+
              (initial-stack-item-types
               (if (or (not parent-fragment) loop?)
                   initial-stack-item-types
-                  (merge-types (outline-types outline)
-                               (snapshot-locals parent-snapshot))))
+                  ;; (merge-types initial-stack-item-types
+                  ;;              (snapshot-locals parent-snapshot))
+                  (merge-types initial-stack-item-types parent-snapshot)
+                  ))
+
+             (_ (debug 1 ";;; [tjitc] isit: ~s~%"
+                       (sort initial-stack-item-types
+                             (lambda (a b) (< (car a) (car b))))))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f
-                          initial-stack-item-types last-sp-offset)))
+                          initial-stack-item-types last-sp-offset #f #f)))
         (let-values (((snapshots anf ops) (compile-ir tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
           (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
@@ -204,17 +226,24 @@
             (tjit-increment-id!)
             (when (tjit-dump-ncode? dump-option)
               (dump-ncode trace-id entry-ip code size adjust
-                          loop-address snapshots trampoline)))
+                          loop-address snapshots trampoline
+                          (not parent-snapshot))))
           (when (tjit-dump-time? dump-option)
             (let ((log (get-tjit-time-log trace-id))
                   (t (get-internal-run-time)))
               (set-tjit-time-log-end! log t))))))
 
+    (debug 1 ";;; [tjitc] sot: ~s~%"
+           (and=> parent-snapshot
+                  (lambda (snapshot)
+                    (sort (snapshot-outline-types snapshot)
+                          (lambda (a b)
+                            (< (car a) (car b)))))))
+
     (with-tjitc-error-handler entry-ip
       (let-values (((traces outline implemented?)
-                    (traced-ops bytecode traces
-                                initial-sp-offset initial-fp-offset
-                                (get-initial-types parent-snapshot))))
+                    (traced-ops bytecode traces initial-sp-offset
+                                initial-fp-offset parent-snapshot)))
         (dump tjit-dump-jitc? implemented? (show-sline sline parent-fragment))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond
@@ -224,12 +253,14 @@
           (failure "NYI found, aborted"))
          (uprec?
           (failure "NYI up recursion"))
+         (downrec?
+          (failure "NYI down recursion"))
          ((and (not parent-snapshot)
-               (not downrec?)
                loop?
                (not (zero? (outline-sp-offset outline))))
           (failure "NYI looping root trace with SP shift"))
          (else
+          (debug 1 ";;; [tjitc] outline: ~s~%" outline)
           (with-nyi-handler entry-ip
             (compile-traces traces outline))))))))
 
@@ -242,5 +273,8 @@
   "Dummy procedure for @code{autoload}."
   #t)
 
+;; Call `load-extension' from top-level after defining `tjitc',
+;; "scm_bootstrap_vm_tjit" will lookup `tjitc' variable and assign to C
+;; variable.
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_bootstrap_vm_tjit")

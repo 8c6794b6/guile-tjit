@@ -43,7 +43,7 @@
 ;; XXX: long-fmov
 ;; XXX: box
 
-(define-ir (box (scm dst) (scm src))
+(define-interrupt-ir (box (scm! dst) (scm src))
   (let ((r1 (make-tmpvar 1))
         (r2 (make-tmpvar 2))
         (dst/v (var-ref dst))
@@ -63,7 +63,7 @@
 ;; XXX: Add test for nested boxes.
 ;; XXX: Add test for box contents not being other type than scm (no u64, no f64).
 
-(define-ir (box-ref (scm dst) (scm src))
+(define-ir (box-ref (scm! dst) (scm src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/l (and (< src (vector-length locals))

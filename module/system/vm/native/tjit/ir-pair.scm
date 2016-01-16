@@ -34,7 +34,7 @@
 ;; expects current thread as first argument. The value of current thread is not
 ;; stored in frame but in non-volatile register, and currently there is no way
 ;; to tell the register value as a variable from IR to assembler.
-(define-interrupt-ir (cons (scm dst) (scm x) (scm y))
+(define-interrupt-ir (cons (scm! dst) (scm x) (scm y))
   (let* ((vdst (var-ref dst))
          (vx (var-ref x))
          (vy (var-ref y))
@@ -54,7 +54,7 @@
                      emit-y))))
     (emit-x)))
 
-(define-ir (car (scm dst) (scm src))
+(define-ir (car (scm! dst) (scm src))
   (let ((dst/l (local-ref dst))
         (src/l (local-ref src))
         (dst/v (var-ref dst))
@@ -70,7 +70,7 @@
                 `(let ((,dst/v ,r2))
                    ,(next)))))))))
 
-(define-ir (cdr (scm dst) (scm src))
+(define-ir (cdr (scm! dst) (scm src))
   (let ((dst/l (local-ref dst))
         (src/l (local-ref src))
         (dst/v (var-ref dst))

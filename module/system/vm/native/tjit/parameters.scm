@@ -214,7 +214,7 @@ fields to @code{#f}."
   (hash-fold proc init *tjit-time-logs*))
 
 (define (default-disassembler trace-id entry-ip code code-size adjust
-          loop-address snapshots trampoline)
+          loop-address snapshots trampoline root?)
   "Disassemble CODE with size CODE-SIZE, using ADDR as offset address.
 
 TRACE-ID is the trace-id of given code, ENTRY-IP is the starting IP of the trace
@@ -239,6 +239,9 @@ assumes `objdump' executable already installed."
              (lp rxs)))
         (()
          #f))))
+  (define (done-line? line)
+    (let ((rx (make-regexp "mov +rsp,rbp")))
+      (regexp-exec rx line)))
   (let* ((path (format #f "/tmp/trace-~a-~x" trace-id entry-ip))
          (loop-address/i (if (pointer? loop-address)
                              (pointer-address loop-address)
@@ -256,25 +259,27 @@ assumes `objdump' executable already installed."
 --prefix-address --dwarf-start=1 --adjust-vma=~a ~a")
            (objdump (format #f fmt adjust path))
            (pipe (open-input-pipe objdump)))
-      (let lp ((line (read-line pipe)) (n 0))
-        (when (not (eof-object? line))
-          (when (<= 2 n)
-            (when (and (pointer? loop-address)
-                       (regexp-exec loop-start/rx line))
-              (display "loop:\n"))
-            (display line)
-            (when (and (pointer? loop-address)
-                       (regexp-exec loop-jump/rx line))
-              (display "    ->loop"))
-            (cond
-             ((side-exit-jump? line)
-              => (lambda (id)
-                   (display "    ->")
-                   (display id)))
-             (else
-              (values)))
-            (newline))
-          (lp (read-line pipe) (+ n 1))))
+      (let lp ((line (read-line pipe)) (n 0) (done? #f))
+        (let ((done? (or (eof-object? line)
+                         (done-line? line))))
+          (when (not done?)
+            (when (<= (if root? 17 2) n)
+              (when (and (pointer? loop-address)
+                         (regexp-exec loop-start/rx line))
+                (display "loop:\n"))
+              (display line)
+              (when (and (pointer? loop-address)
+                         (regexp-exec loop-jump/rx line))
+                (display "    ->loop"))
+              (cond
+               ((side-exit-jump? line)
+                => (lambda (id)
+                     (display "    ->")
+                     (display id)))
+               (else
+                (values)))
+              (newline))
+            (lp (read-line pipe) (+ n 1) done?))))
       (close-pipe pipe)
       (delete-file path))))
 

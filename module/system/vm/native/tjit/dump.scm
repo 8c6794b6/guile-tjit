@@ -312,10 +312,10 @@ option was set to true."
      (format #t ";;; primops: ~a~%" plist))))
 
 (define (dump-ncode trace-id entry-ip code code-size adjust
-                           loop-address snapshots trampoline)
+                    loop-address snapshots trampoline root?)
   (format #t ";;; trace ~a: ncode~%" trace-id)
   ((tjit-disassembler) trace-id entry-ip code code-size adjust
-   loop-address snapshots trampoline))
+   loop-address snapshots trampoline root?))
 
 (define (dump-tjit-stats)
   (if (eq? 'tjit (vm-engine))

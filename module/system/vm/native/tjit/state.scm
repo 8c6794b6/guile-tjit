@@ -42,13 +42,17 @@
             tj-handle-interrupts?
             set-tj-handle-interrupts!
             tj-initial-types
-            tj-last-sp-offset))
+            tj-last-sp-offset
+            tj-loop-locals
+            set-tj-loop-locals!
+            tj-loop-vars
+            set-tj-loop-vars!))
 
 (define-record-type $tj
   (make-tj id entry-ip linked-ip
            parent-exit-id parent-fragment parent-snapshot outline
            loop? downrec? uprec? handle-interrupts? initial-types
-           last-sp-offset)
+           last-sp-offset loop-locals loop-vars)
   tj?
 
   ;; Trace ID of this compilation.
@@ -88,4 +92,10 @@
   (initial-types tj-initial-types)
 
   ;; Last SP offset.
-  (last-sp-offset tj-last-sp-offset))
+  (last-sp-offset tj-last-sp-offset)
+
+  ;; Loop locals for root trace.
+  (loop-locals tj-loop-locals set-tj-loop-locals!)
+
+  ;; Loop vars for root trace.
+  (loop-vars tj-loop-vars set-tj-loop-vars!))

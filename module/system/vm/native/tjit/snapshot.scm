@@ -46,17 +46,19 @@
             snapshot-fp-offset
             snapshot-nlocals
             snapshot-locals
+            set-snapshot-locals!
             snapshot-variables
             set-snapshot-variables!
             set-snapshot-code!
             snapshot-ip
+            snapshot-outline-types
+            snapshot-read-indices
+            set-snapshot-read-indices!
 
             snapshot-link?
-            snapshot-set-loop-info?
             snapshot-downrec?
             snapshot-uprec?
             *ip-key-link*
-            *ip-key-set-loop-info!*
             *ip-key-downrec*
             *ip-key-uprec*
 
@@ -81,6 +83,10 @@
             set-outline-fp-offset!
             outline-ret-types
             set-outline-ret-types!
+            outline-write-indices
+            set-outline-write-indices!
+            outline-read-indices
+            set-outline-read-indices!
 
             pop-outline!
             push-outline!
@@ -192,8 +198,7 @@
 ;; procedure ... etc.
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
-                 sp-offset fp-offset
-                 ret-types)
+                 sp-offset fp-offset ret-types write-indices read-indices)
   outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -224,24 +229,32 @@
   (fp-offset outline-fp-offset set-outline-fp-offset!)
 
   ;; Returned types from C functions.
-  (ret-types outline-ret-types set-outline-ret-types!))
+  (ret-types outline-ret-types set-outline-ret-types!)
 
-(define (make-outline types sp-offset fp-offset)
+  ;; Local indices for write.
+  (write-indices outline-write-indices set-outline-write-indices!)
+
+  ;; Local indices for read.
+  (read-indices outline-read-indices set-outline-read-indices!))
+
+(define (make-outline types sp-offset fp-offset write-indices)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset
-                 '()))
+                 '() write-indices '()))
 
 (define (arrange-outline outline)
   (let ((locals/list (sort (map car (outline-local-indices outline)) >))
         (sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
         (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline))))
-        (ret-types/vec (list->vector (reverse! (outline-ret-types outline)))))
+        (ret-types/vec (list->vector (reverse! (outline-ret-types outline))))
+        (writes/list (sort (outline-write-indices outline) <)))
     (set-outline-local-indices! outline locals/list)
     (set-outline-sp-offsets! outline sp-offsets/vec)
     (set-outline-fp-offsets! outline fp-offsets/vec)
     (set-outline-ret-types! outline ret-types/vec)
+    (set-outline-write-indices! outline writes/list)
     outline))
 
 (define (push-outline! outline dl ra sp-offset locals)
@@ -304,7 +317,8 @@
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
-  (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip)
+  (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
+                  outline-types read-indices)
   snapshot?
 
   ;; ID number of this snapshot.
@@ -320,7 +334,7 @@
   (nlocals snapshot-nlocals)
 
   ;; Association list of (local . type).
-  (locals snapshot-locals)
+  (locals snapshot-locals set-snapshot-locals!)
 
   ;; Variables used at the time of taking exit.
   (variables snapshot-variables set-snapshot-variables!)
@@ -329,7 +343,13 @@
   (code snapshot-code set-snapshot-code!)
 
   ;; Bytecode IP of this snapshot to return.
-  (ip snapshot-ip))
+  (ip snapshot-ip)
+
+  ;; Types from outline.
+  (outline-types snapshot-outline-types)
+
+  ;; Read indices
+  (read-indices snapshot-read-indices set-snapshot-read-indices!))
 
 ;;;
 ;;; Tags
@@ -485,6 +505,7 @@
 
 (define (stack-element locals n type)
   (let ((elem (vector-ref locals n)))
+    (debug 1 ";;; stack-element ~s ~s => ~s~%" n type elem)
     (cond
      ((eq? 'u64 type)
       (pointer-address elem))
@@ -521,7 +542,7 @@
 ;;;
 
 (define (make-snapshot id sp-offset fp-offset nlocals locals
-                       parent-snapshot indices outline ip)
+                       parent-snapshot write-indices outline ip)
   (define initial-offset
     (or (and=> parent-snapshot snapshot-sp-offset)))
   (define parent-locals
@@ -530,15 +551,28 @@
     (and parent-snapshot (assq-ref parent-locals i)))
   (define-syntax-rule (local-ref i)
     (let ((type (outline-type-ref outline i)))
+      (debug 1 ";;; [ms] local-ref ~s => " i)
       (cond
-       ((eq? 'f64 type) &f64)
-       ((eq? 'u64 type) &u64)
-       ((eq? 's64 type) &s64)
+       ((eq? 'f64 type) (debug 1 "~s~%" 'f64) &f64)
+       ((eq? 'u64 type) (debug 1 "~s~%" 'u64) &u64)
+       ((eq? 's64 type) (debug 1 "~s~%" 's64) &s64)
        ((eq? 'scm type)
+        (debug 1 "~s~%" 'scm)
         (type-of (stack-element locals (- i sp-offset) type)))
        (else
         (tjitc-error 'make-snapshot "unknown local ~s ~s" type i)))))
-  (let lp ((is indices) (acc '()))
+  (let ((car-< (lambda (a b) (< (car a) (car b)))))
+    (debug 1 ";;; [ms] id:~s sp:~s fp:~s nlocals:~s~%"
+           id sp-offset fp-offset nlocals)
+    (debug 1 ";;;      write-indices:~s~%" write-indices)
+    (debug 1 ";;;      locals:~a~%"
+           (let lp ((i (- (vector-length locals) 1)) (acc '()))
+             (if (< i 0)
+                 acc
+                 (lp (- i 1) (cons (format #f "0x~x"
+                                           (pointer-address (vector-ref locals i)))
+                                   acc))))))
+  (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
        (define (dl-or-ra i)
@@ -594,6 +628,7 @@
                 (cond
                  ((outline-local-ref outline i)
                   => (lambda (e)
+                       (debug 1 ";;; [ms] outline-local-ref ~s => ~s~%" i e)
                        (cond
                         ((or (dynamic-link? e) (return-address? e))
                          (add-val e))
@@ -611,8 +646,13 @@
          (debug 3 "XXX: local for i=~a not found~%" i)
          (add-local #f))))
       (()
-       (%make-snapshot id sp-offset fp-offset (vector-length locals)
-                       (reverse! acc) #f #f ip)))))
+       (let ((copied-types (copy-tree (outline-types outline))))
+         (debug 1 ";;; [ms] copied-types=~s~%"
+                (sort copied-types (lambda (a b)
+                                     (< (car a) (car b)))))
+         (%make-snapshot id sp-offset fp-offset (vector-length locals)
+                         (reverse! acc) #f #f ip copied-types
+                         (outline-read-indices outline)))))))
 
 
 ;;;
@@ -620,15 +660,11 @@
 ;;;
 
 (define *ip-key-link* 0)
-(define *ip-key-set-loop-info!* 1)
-(define *ip-key-downrec* 2)
-(define *ip-key-uprec* 3)
+(define *ip-key-downrec* 1)
+(define *ip-key-uprec* 2)
 
 (define (snapshot-link? snapshot)
   (= (snapshot-ip snapshot) *ip-key-link*))
-
-(define (snapshot-set-loop-info? snapshot)
-  (= (snapshot-ip snapshot) *ip-key-set-loop-info!*))
 
 (define (snapshot-downrec? snapshot)
   (= (snapshot-ip snapshot) *ip-key-downrec*))

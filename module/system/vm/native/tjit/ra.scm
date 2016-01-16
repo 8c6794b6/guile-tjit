@@ -35,6 +35,7 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
+  #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
@@ -134,8 +135,8 @@
                 (gen-mem))
             var))
 
-(define (assign-registers term snapshots arg-env
-                          arg-free-gprs arg-free-fprs arg-mem-idx snapshot-id)
+(define (assign-registers term snapshots arg-env arg-free-gprs arg-free-fprs
+                          arg-mem-idx snapshot-id)
   "Compile ANF term to list of primitive operations."
   (syntax-parameterize
       ((env (identifier-syntax arg-env))
@@ -183,7 +184,21 @@
       (let ((type (car (lookup-prim-type op)))
             (assigned (hashq-ref env dst)))
         (cond
-         (assigned        assigned)
+         (assigned
+          ;; Doing additional check for `%fref' and `%fref/f' operations, to
+          ;; support suited register assignments in looping side trace started
+          ;; from guard failure in parent trace's entry clause,
+          (cond
+           ((and (eq? op '%fref/f)
+                 (not (fpr? assigned))
+                 (not (memory? assigned)))
+            (get-fpr! dst))
+           ((and (eq? op '%fref)
+                 (not (gpr? assigned))
+                 (not (memory? assigned)))
+            (get-gpr! dst))
+           (else
+            assigned)))
          ((= type int)    (get-gpr! dst))
          ((= type double) (get-fpr! dst))
          (else (tjitc-error 'get-dst-types! "dst ~s ~s" dst type)))))
@@ -191,8 +206,7 @@
       (cond
        ((constant? k) (make-constant k))
        ((symbol? k) (hashq-ref env k))
-       (else
-        (tjitc-error 'assign-registers "ref ~s not found" k))))
+       (else (tjitc-error 'assign-registers "ref ~s not found" k))))
     (define (constant? x)
       (cond
        ((boolean? x) #t)
@@ -244,6 +258,12 @@
     (let ((plist (reverse! (assign-term term '()))))
       (values plist snapshot-id))))
 
+(define (copy-hash-table src)
+  (let ((dst (make-hash-table)))
+    (hash-for-each (lambda (k v)
+                     (hashq-set! dst k v))
+                   src)
+    dst))
 
 ;;;
 ;;; IR to list of primitive operations
@@ -256,9 +276,36 @@
         (initial-mem-idx (make-variable 0))
         (initial-env (make-hash-table))
         (initial-local-x-types (snapshot-locals initial-snapshot)))
+    (define (merge-env env)
+      (hash-for-each
+       (lambda (k v)
+         (hashq-set! initial-env k v)
+         (cond
+          ((gpr? v)
+           (let ((i (ref-value v)))
+             (when (<= 0 i)
+               (vector-set! initial-free-gprs i #f))))
+          ((fpr? v)
+           (let ((i (ref-value v)))
+             (when (<= 0 i)
+               (vector-set! initial-free-fprs i #f))))
+          ((memory? v)
+           (let ((i (ref-value v)))
+             (when (< (variable-ref initial-mem-idx) i)
+               (variable-set! initial-mem-idx (+ i 1)))))
+          (else
+           (tjitc-error 'anf->primops "unknown var ~s" v))))
+       env))
 
-    ;; Set relations between reserved symbols for tmporary variables to scratch
-    ;; registers.
+    ;; Sharing registers and memory offset for side trace to share variables
+    ;; with parent trace. Also sharing registers and variables for loop-less
+    ;; root tracec.
+    (and=> (and=> (tj-parent-fragment tj) fragment-env) merge-env)
+    (when (and (not (tj-parent-fragment tj))
+               (not (tj-loop? tj)))
+      (and=> (and=> (get-root-trace (tj-linked-ip tj)) fragment-env) merge-env))
+
+    ;; Assign scratch registers to tmporary variables.
     (hashq-set! initial-env (make-tmpvar 0) (make-gpr -1))
     (hashq-set! initial-env (make-tmpvar 1) (make-gpr -2))
     (hashq-set! initial-env (make-tmpvar 2) (make-gpr -3))
@@ -299,6 +346,9 @@
                 (< (var-index (car a))
                    (var-index (car b))))))
 
+      (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
+             (sort-variables-in-env env))
+
       (match term
         ;; ANF with entry clause and loop body.
         (`(letrec ((entry (lambda ,entry-args
@@ -306,17 +356,14 @@
                    (loop (lambda ,loop-args
                            ,loop-body)))
             entry)
-         (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
-
-                (sort-variables-in-env env))
          (set-initial-args! entry-args initial-local-x-types)
          (let*-values (((entry-ops snapshot-idx)
-                        (assign-registers entry-body snapshots
-                                          env free-gprs free-fprs mem-idx
+                        (assign-registers entry-body snapshots env
+                                          free-gprs free-fprs mem-idx
                                           0))
                        ((loop-ops snapshot-idx)
-                        (assign-registers loop-body snapshots
-                                          env free-gprs free-fprs mem-idx
+                        (assign-registers loop-body snapshots env
+                                          free-gprs free-fprs mem-idx
                                           snapshot-idx)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))
@@ -355,8 +402,7 @@
                  (values)))))
            (_
             (debug 2 ";;; ir->primops: perhaps loop-less root trace~%")))
-         (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
-                (sort-variables-in-env env))
+
          (let-values (((patch-ops snapshot-idx)
                        (assign-registers patch-body snapshots
                                          env free-gprs free-fprs mem-idx

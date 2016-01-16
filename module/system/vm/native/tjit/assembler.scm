@@ -93,7 +93,7 @@
   "Make negative pointer with ADDR."
   (when (< 0 addr)
     (tjitc-error 'make-negative-pointer "non-negative address ~s" addr))
-  (make-pointer (+ (expt 2 (* 8 %word-size)) addr)))
+  (make-pointer (+ (ash 2 (- (* 8 %word-size) 1)) addr)))
 
 (define (make-signed-pointer addr)
   (if (<= 0 addr)

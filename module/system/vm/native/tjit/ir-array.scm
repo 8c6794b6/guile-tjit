@@ -67,7 +67,7 @@
 ;; XXX: bv-f32-set!
 ;; XXX: bv-f64-set!
 
-(define-ir (bv-length (u64 dst) (scm src))
+(define-ir (bv-length (u64! dst) (scm src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
     `(let ((,dst/v (%cref ,src/v 1)))

@@ -32,23 +32,23 @@
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables))
 
-(define-ir (scm->f64 (f64 dst) (scm src))
+(define-ir (scm->f64 (f64! dst) (scm src))
   `(let ((,(var-ref dst) ,(var-ref src)))
      ,(next)))
 
-(define-ir (f64->scm (scm dst) (f64 src))
+(define-ir (f64->scm (scm! dst) (f64 src))
   `(let ((,(var-ref dst) ,(var-ref src)))
      ,(next)))
 
 ;; XXX: apply-non-program
 
-(define-ir (scm->u64 (u64 dst) (scm src))
+(define-ir (scm->u64 (u64! dst) (scm src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
     `(let ((,dst/v (%rsh ,src/v 2)))
        ,(next))))
 
-(define-ir (u64->scm (scm dst) (u64 src))
+(define-ir (u64->scm (scm! dst) (u64 src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
     `(let ((,dst/v (%lsh ,src/v 2)))
@@ -57,7 +57,7 @@
 
 ;; XXX: load-f64
 
-(define-ir (load-u64 (u64 dst) (const high-bits) (const low-bits))
+(define-ir (load-u64 (u64! dst) (const high-bits) (const low-bits))
   `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
      ,(next)))
 

@@ -32,15 +32,15 @@
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables))
 
-(define-ir (make-short-immediate (scm dst) (const low-bits))
+(define-ir (make-short-immediate (scm! dst) (const low-bits))
   `(let ((,(var-ref dst) ,low-bits))
      ,(next)))
 
-(define-ir (make-long-immediate (scm dst) (const low-bits))
+(define-ir (make-long-immediate (scm! dst) (const low-bits))
   `(let ((,(var-ref dst) ,low-bits))
      ,(next)))
 
-(define-ir (make-long-long-immediate (scm dst)
+(define-ir (make-long-long-immediate (scm! dst)
                                      (const high-bits)
                                      (const low-bits))
   `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
@@ -48,7 +48,7 @@
 
 ;; XXX: make-non-immediate
 
-(define-ir (static-ref (scm dst) (const offset))
+(define-ir (static-ref (scm! dst) (const offset))
   ;; XXX: Needs type check.
   `(let ((,(var-ref dst) ,(dereference-scm (+ ip (* 4 offset)))))
      ,(next)))

@@ -34,7 +34,7 @@
 (define-syntax define-binary-arith-scm-scm
   (syntax-rules ()
     ((_ name op-fx1 op-fx2 op-fl)
-     (define-ir (name (scm dst) (scm a) (scm b))
+     (define-ir (name (scm! dst) (scm a) (scm b))
        (let ((ra (local-ref a))
              (rb (local-ref b))
              (vdst (var-ref dst))
@@ -61,7 +61,7 @@
 (define-syntax define-binary-arith-scm-imm
   (syntax-rules ()
     ((_ name op-fx)
-     (define-ir (name (scm dst) (scm src) (const imm))
+     (define-ir (name (scm! dst) (scm src) (const imm))
        (let ((rsrc (local-ref src))
              (vdst (var-ref dst))
              (vsrc (var-ref src)))
@@ -77,7 +77,7 @@
 (define-binary-arith-scm-scm sub %sub %add %fsub)
 (define-binary-arith-scm-imm sub/immediate %sub)
 
-(define-ir (mul (scm dst) (scm a) (scm b))
+(define-ir (mul (scm! dst) (scm a) (scm b))
   (let ((ra (local-ref a))
         (rb (local-ref b))
         (vdst (var-ref dst))
@@ -120,7 +120,7 @@
 ;; XXX: quo
 ;; XXX: rem
 
-(define-ir (mod (scm dst) (scm a) (scm b))
+(define-ir (mod (scm! dst) (scm a) (scm b))
   (let ((ra (local-ref a))
         (rb (local-ref b))
         (vdst (var-ref dst))
@@ -145,14 +145,14 @@
 ;; XXX: make-vector
 ;; XXX: make-vector/immediate
 
-(define-ir (vector-length (u64 dst) (scm src))
+(define-ir (vector-length (u64! dst) (scm src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
     `(let ((,dst/v (%cref ,src/v 0)))
        (let ((,dst/v (%rsh ,dst/v 8)))
          ,(next)))))
 
-(define-ir (vector-ref (scm dst) (scm src) (u64 idx))
+(define-ir (vector-ref (scm! dst) (scm src) (u64 idx))
   (let ((dst/v (var-ref dst))
         (dst/l (let ((src/l (local-ref src))
                      (idx/l (local-ref idx)))
@@ -170,7 +170,7 @@
               `(let ((,dst/v ,r2))
                  ,(next))))))))
 
-(define-ir (vector-ref/immediate (scm dst) (scm src) (const idx))
+(define-ir (vector-ref/immediate (scm! dst) (scm src) (const idx))
   (let ((dst/v (var-ref dst))
         (dst/l (let ((src/l (local-ref src)))
                  (if (vector? src/l)
@@ -210,7 +210,7 @@
 (define-syntax define-binary-arith-f64-f64
   (syntax-rules ()
     ((_ name op)
-     (define-ir (name (f64 dst) (f64 a) (f64 b))
+     (define-ir (name (f64! dst) (f64 a) (f64 b))
        `(let ((,(var-ref dst) (op ,(var-ref a) ,(var-ref b))))
           ,(next))))))
 
@@ -222,7 +222,7 @@
 (define-syntax define-binary-arith-u64-imm
   (syntax-rules ()
     ((_ name op)
-     (define-ir (name (u64 dst) (u64 src) (const imm))
+     (define-ir (name (u64! dst) (u64 src) (const imm))
        `(let ((,(var-ref dst) (op ,(var-ref src) ,imm)))
           ,(next))))))
 

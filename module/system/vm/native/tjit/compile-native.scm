@@ -214,6 +214,16 @@ for SHIFT."
     (op vp->sp vp->sp (imm (* (abs sp-offset) %word-size)))
     (vm-sync-sp vp->sp)))
 
+(define (env->src-table env shift)
+  (hash-fold (lambda (k v acc)
+               (let ((k/str (symbol->string k)))
+                 (when (char=? #\v (string-ref k/str 0))
+                   (let ((n (string->number (substring k/str 1))))
+                     (hashq-set! acc (- n shift) v)))
+                 acc))
+             (make-hash-table)
+             env))
+
 (define (move-or-load-carefully dsts srcs types)
   "Move SRCS to DSTS or load with TYPES without overwriting.
 
@@ -332,75 +342,81 @@ are local index number."
   (with-jit-state
    (jit-prolog)
    (let-values
-       (((trampoline loop-label loop-locals loop-vars fp-offset gen-bailouts)
+       (((trampoline loop-label fp-offset bailouts env)
          (compile-entry tj primops snapshots)))
-     (let ((epilog-label (jit-label)))
-       (jit-patch epilog-label)
-       (jit-retr %retval)
-       (jit-epilog)
-       (jit-realize)
-       (let* ((estimated-size (jit-code-size))
-              (code (make-bytevector estimated-size)))
-         (jit-set-code (bytevector->pointer code) (imm estimated-size))
-         (let* ((ptr (jit-emit))
-                (size (jit-code-size))
-                (exit-counts (make-hash-table))
-                (loop-address (and loop-label (jit-address loop-label)))
-                (end-address (or (and=> (tj-parent-fragment tj)
-                                        fragment-end-address)
-                                 (jit-address epilog-label)))
-                (parent-id (or (and=> (tj-parent-fragment tj)
-                                      fragment-id)
-                               0))
-                (verbosity (lightning-verbosity))
-                (gdb-jit-entry
-                 (if (and verbosity (< 0 verbosity))
-                     (let* ((addr (pointer-address (bytevector->pointer code)))
-                            (elf (make-gdb-jit-elf (tj-id tj) addr size
-                                                   (car sline) (cdr sline))))
-                       (tjit-register-gdb-jit-entry! elf))
-                     #f)))
-           (make-bytevector-executable! code)
+     (let* ((epilog-label (jit-label))
+            (_ (begin
+                 (jit-patch epilog-label)
+                 (jit-retr %retval)
+                 (jit-epilog)
+                 (jit-realize)))
+            (estimated-size (jit-code-size))
+            (code (make-bytevector estimated-size))
+            (_ (jit-set-code (bytevector->pointer code) (imm estimated-size)))
+            (ptr (jit-emit))
+            (size (jit-code-size))
+            (exit-counts (make-hash-table))
+            (loop-address (and loop-label (jit-address loop-label)))
+            (end-address (or (and=> (tj-parent-fragment tj)
+                                    fragment-end-address)
+                             (jit-address epilog-label)))
+            (parent-id (or (and=> (tj-parent-fragment tj)
+                                  fragment-id)
+                           0))
+            (verbosity (lightning-verbosity))
+            (gdb-jit-entry
+             (if (and verbosity (< 0 verbosity))
+                 (let* ((addr (pointer-address (bytevector->pointer code)))
+                        (elf (make-gdb-jit-elf (tj-id tj) addr size
+                                               (car sline) (cdr sline))))
+                   (tjit-register-gdb-jit-entry! elf))
+                 #f))
+            (loop-vars
+             (if (list? (tj-loop-vars tj))
+                 (let lp ((vars (reverse (tj-loop-vars tj))) (acc '()))
+                   (if (null? vars)
+                       (reverse! acc)
+                       (lp (cdr vars) (cons (hashq-ref env (car vars)) acc))))
+                 #f)))
+       (make-bytevector-executable! code)
 
-           ;; Emit bailouts with end address of this code.
-           ;; Side traces need to jump to the address of
-           ;; epilogue of parent root trace, to manage
-           ;; non-volatile registers.
-           (for-each (lambda (proc)
-                       (proc end-address))
-                     gen-bailouts)
+       ;; Emit bailouts with end address of this code. Side traces need to
+       ;; jump to the address of epilogue of parent root trace, to manage
+       ;; non-volatile registers.
+       (for-each (lambda (proc) (proc end-address)) bailouts)
 
-           ;; Same entry-ip could be used when side exit 0 was
-           ;; taken for multiple times. Using trace ID as hash
-           ;; table key.
-           (put-fragment! (tj-id tj)
-                          (make-fragment (tj-id tj)
-                                         code
-                                         exit-counts
-                                         (tj-downrec? tj)
-                                         (tj-uprec? tj)
-                                         (tj-entry-ip tj)
-                                         parent-id
-                                         (tj-parent-exit-id tj)
-                                         loop-address
-                                         loop-locals
-                                         loop-vars
-                                         snapshots
-                                         trampoline
-                                         fp-offset
-                                         end-address
-                                         gdb-jit-entry))
+       ;; Same entry-ip could be used when side exit 0 was taken for
+       ;; multiple times. Using trace ID as hash table key.
+       (put-fragment! (tj-id tj)
+                      (make-fragment (tj-id tj)
+                                     code
+                                     exit-counts
+                                     (tj-downrec? tj)
+                                     (tj-uprec? tj)
+                                     (tj-entry-ip tj)
+                                     parent-id
+                                     (tj-parent-exit-id tj)
+                                     loop-address
+                                     (tj-loop-locals tj)
+                                     loop-vars
+                                     snapshots
+                                     trampoline
+                                     fp-offset
+                                     end-address
+                                     gdb-jit-entry
+                                     env))
 
-           (debug 4 ";;; jit-print:~%~a~%" (jit-print))
-           ;; When this trace is a side trace, replace the native code
-           ;; of trampoline in parent fragment.
-           (let ((fragment (tj-parent-fragment tj)))
-             (when fragment
-               (let ((trampoline (fragment-trampoline fragment)))
-                 (trampoline-set! trampoline (tj-parent-exit-id tj) ptr)
-                 (set-snapshot-code! (tj-parent-snapshot tj) code))))
-           (values code size (pointer-address ptr)
-                   loop-address trampoline)))))))
+       (debug 4 ";;; jit-print:~%~a~%" (jit-print))
+
+       ;; When this trace is a side trace, replace the native code
+       ;; of trampoline in parent fragment.
+       (let ((fragment (tj-parent-fragment tj))
+             (code-address (pointer-address ptr)))
+         (when fragment
+           (let ((trampoline (fragment-trampoline fragment)))
+             (trampoline-set! trampoline (tj-parent-exit-id tj) ptr)
+             (set-snapshot-code! (tj-parent-snapshot tj) code)))
+         (values code size code-address loop-address trampoline))))))
 
 (define (compile-entry tj primops snapshots)
   (when (tjit-dump-time? (tjit-dump-option))
@@ -470,11 +486,8 @@ are local index number."
     (compile-body tj primops snapshots fp-offset trampoline)))
 
 (define (compile-body tj primops snapshots fp-offset trampoline)
-  (define (compile-ops asm ops loop-locals loop-vars acc)
-    (let lp ((ops ops)
-             (loop-locals loop-locals)
-             (loop-vars loop-vars)
-             (acc acc))
+  (define (compile-ops asm ops env acc)
+    (let lp ((ops ops) (acc acc))
       (match ops
         ((('%snap snapshot-id . args) . ops)
          (cond
@@ -488,23 +501,18 @@ are local index number."
                             (let* ((linked-ip (tj-linked-ip tj))
                                    (linked-fragment (get-root-trace linked-ip)))
                               (values #f (fragment-loop-vars linked-fragment)))
-                            (values #t loop-vars))))
+                            (values #t (tj-loop-vars tj)))))
                     (compile-downrec tj asm loop? snapshot
                                      (snapshot-nlocals (hashq-ref snapshots 0))
                                      dsts))
-                  (lp ops loop-locals loop-vars acc))
+                  (lp ops acc))
                  ((snapshot-uprec? snapshot)
-                  (compile-uprec tj asm snapshot loop-locals loop-vars)
-                  (lp ops loop-locals loop-vars acc))
-                 ((snapshot-set-loop-info? snapshot)
-                  (match snapshot
-                    (($ $snapshot _ _ _ _ local-x-types)
-                     (lp ops local-x-types args acc))
-                    (else
-                     (tjitc-error 'compile-body "no snapshot loop info"))))
+                  (compile-uprec tj asm snapshot (tj-loop-locals tj)
+                                 (tj-loop-vars tj))
+                  (lp ops acc))
                  ((snapshot-link? snapshot)
-                  (compile-link tj asm args snapshot)
-                  (lp ops loop-locals loop-vars acc))
+                  (compile-link tj asm args snapshot env)
+                  (lp ops acc))
                  (else
                   (let ((out-code (trampoline-ref trampoline snapshot-id))
                         (gen-bailout (compile-bailout tj asm snapshot
@@ -513,7 +521,7 @@ are local index number."
                     (let ((exit (jit-forward)))
                       (jit-patch-abs exit out-code)
                       (set-asm-exit! asm exit))
-                    (lp ops loop-locals loop-vars (cons gen-bailout acc)))))))
+                    (lp ops (cons gen-bailout acc)))))))
           (else
            (tjitc-error 'compile-ops "no snapshot ~s" snapshot-id))))
         (((op-name . args) . ops)
@@ -524,38 +532,34 @@ are local index number."
                   (when (and verbosity (<= 4 verbosity))
                     (jit-note (format #f "~a" (cons op-name args)) 0)))
                 (apply proc asm args)
-                (lp ops loop-locals loop-vars acc)))
+                (lp ops acc)))
           (else
            (tjitc-error 'compile-ops "op not found ~s" op-name))))
         (()
-         (values loop-locals loop-vars acc)))))
-  (define (compile-loop asm loop gen-bailouts loop-locals loop-vars)
+         acc))))
+  (define (compile-loop asm loop env gen-bailouts)
     (if (null? loop)
         (values #f gen-bailouts)
         (let ((loop-label (jit-label)))
           (jit-note "loop" 0)
+          (jit-patch loop-label)
           (when (tj-handle-interrupts? tj)
             (vm-handle-interrupts asm))
-          (let-values
-              (((unused-loop-locals unused-loop-vars gen-bailouts)
-                (compile-ops asm loop loop-locals loop-vars gen-bailouts)))
+          (let ((gen-bailouts (compile-ops asm loop env gen-bailouts)))
             (jump loop-label)
             (values loop-label gen-bailouts)))))
   (match primops
     (($ $primops entry loop mem-idx env)
-     (let*-values (((fragment) (tj-parent-fragment tj))
-                   ((end-address)
-                    (or (and=> fragment
-                               fragment-end-address)
-                        (and=> (get-root-trace (tj-linked-ip tj))
-                               fragment-end-address)))
-                   ((asm) (make-asm env end-address))
-                   ((loop-locals loop-vars gen-bailouts)
-                    (compile-ops asm entry #f #f '()))
-                   ((loop-label gen-bailouts)
-                    (compile-loop asm loop gen-bailouts loop-locals loop-vars)))
-       (values trampoline loop-label loop-locals loop-vars fp-offset
-               gen-bailouts)))
+     (let* ((fragment (tj-parent-fragment tj))
+            (end-address (or (and=> fragment
+                                    fragment-end-address)
+                             (and=> (get-root-trace (tj-linked-ip tj))
+                                    fragment-end-address)))
+            (asm (make-asm env end-address))
+            (gen-bailouts (compile-ops asm entry env '())))
+       (let-values (((loop-label gen-bailouts)
+                     (compile-loop asm loop env gen-bailouts)))
+         (values trampoline loop-label fp-offset gen-bailouts env))))
     (_
      (tjitc-error 'compile-body "not a $primops" primops))))
 
@@ -594,7 +598,7 @@ are local index number."
                  (values)))))
 
           ;; Shift SP.
-          (when (not (= sp-offset 0))
+          (when (not (zero? sp-offset))
             (shift-sp sp-offset))
 
           ;; Shift FP for inlined procedure.
@@ -650,38 +654,37 @@ are local index number."
            (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline id ptr)))))))
 
-(define (compile-link tj asm args snapshot)
+(define (compile-link tj asm args snapshot env)
   (let* ((linked-fragment (get-root-trace (tj-linked-ip tj)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot
-      (($ $snapshot sid sp-offset fp-offset _ local-x-types)
+      (($ $snapshot _ sp-offset fp-offset _ local-x-types vars)
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
        (let* ((type-table (make-hash-table))
-              (dst-table (make-hash-table)))
-         (let lp ((locals loop-locals)
+              (dst-table (make-hash-table))
+              (src-table (env->src-table env sp-offset)))
+         (let lp ((loop-locals loop-locals)
                   (dsts (fragment-loop-vars linked-fragment)))
-           (match (list locals dsts)
-             ((((local . type) . locals) (dst . dsts))
-              (hashq-set! type-table local type)
-              (hashq-set! dst-table local dst)
-              (lp locals dsts))
+           (match (list loop-locals dsts)
+             ((((n . type) . loop-locals) (dst . dsts))
+              (hashq-set! type-table n type)
+              (hashq-set! dst-table n dst)
+              (lp loop-locals dsts))
              (_
-              (values))))
-         (let ((src-table (maybe-store asm local-x-types args dst-table
-                                       sp-offset)))
-           (move-or-load-carefully dst-table src-table type-table)))
-
-       ;; Shift SP.
-       (when (not (= sp-offset 0))
-         (shift-sp sp-offset))
+              ;; Store locals not passed to linked trace, shift SP, then move
+              ;; or load locals for linked trace.
+              (maybe-store asm local-x-types args dst-table sp-offset)
+              (when (not (zero? sp-offset))
+                (shift-sp sp-offset))
+              (move-or-load-carefully dst-table src-table type-table)))))
 
        ;; Shift FP for loop-less root trace.
        (when (not (tj-parent-fragment tj))
          (shift-fp fp-offset))
 
-       ;; Jump to the beginning of linked trace.
+       ;; Jump to the beginning of the loop in linked trace.
        (jumpi (fragment-loop-address linked-fragment)))
       (_
        (tjitc-error 'compile-link "not a snapshot ~s" snapshot)))))
