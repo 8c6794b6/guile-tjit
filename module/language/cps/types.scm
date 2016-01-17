@@ -978,13 +978,17 @@ minimum, and maximum."
      ((and closed? (eqv? a-type &exact-integer) (eqv? b-type &exact-integer))
       (define! result &exact-integer min* max*))
      (else
-      ;; Fractions may become integers.
-      (let ((type (logior a-type b-type)))
-        (define! result
-                 (if (zero? (logand type &fraction))
-                     type
-                     (logior type &exact-integer))
-                 min* max*))))))
+      (let* ((type (logior a-type b-type))
+             ;; Fractions may become integers.
+             (type (if (zero? (logand type &fraction))
+                       type
+                       (logior type &exact-integer)))
+             ;; Integers may become fractions under division.
+             (type (if (or closed?
+                           (zero? (logand type (logior &exact-integer))))
+                       type
+                       (logior type &fraction))))
+        (define! result type min* max*))))))
 
 (define-simple-type-checker (add &number &number))
 (define-type-aliases add add/immediate)
