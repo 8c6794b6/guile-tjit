@@ -96,8 +96,8 @@
       ((_ i ...)
        (let* ((reads (outline-read-indices ol))
               (reads (if (memq (+ i (outline-sp-offset ol)) reads)
-                          reads
-                          (cons (+ i (outline-sp-offset ol)) reads)))
+                         reads
+                         (cons (+ i (outline-sp-offset ol)) reads)))
               ...)
          (set-outline-read-indices! ol reads)))))
   (define-syntax add!
@@ -154,7 +154,10 @@
 
   ;; Look for the type of returned value from C function.
   (unless initialized?
-    (let ((ret-types (outline-ret-types ol)))
+    (let* ((ret-types (outline-ret-types ol))
+           (fill-false
+            (lambda ()
+              (set-outline-ret-types! ol (cons #f ret-types)))))
       (if (eq? 'subr-call prev-op)
           (match op
             (('receive dst proc nlocals)
@@ -163,9 +166,17 @@
                     (val (stack-element locals idx 'scm))
                     (type (type-of val)))
                (set-outline-ret-types! ol (cons type ret-types))))
+            (('receive-values proc _ nvalues)
+             (if (= nvalues 1)
+                 (let* ((stack-size (vector-length locals))
+                        (idx (- stack-size proc 2))
+                        (val (stack-element locals idx 'scm))
+                        (type (type-of val)))
+                   (set-outline-ret-types! ol (cons type ret-types)))
+                 (fill-false)))
             (_
-             (set-outline-ret-types! ol (cons #f ret-types))))
-          (set-outline-ret-types! ol (cons #f ret-types)))))
+             (fill-false)))
+          (fill-false))))
 
   ;; Lookup accumulating procedure stored in *index-scanners* and apply
   ;; the procedure when found.

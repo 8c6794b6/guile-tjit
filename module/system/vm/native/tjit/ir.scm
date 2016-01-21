@@ -373,9 +373,32 @@ saves index referenced by dst and src values at runtime."
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    ;; XXX: Add more types.
-   ((memq type (list &exact-integer &char &false #;&null
-                     &undefined &symbol &pair
-                     &vector &string &struct &hash-table &port))
+   ((memq type (list &exact-integer
+                     ;; &complex
+                     ;; &fraction
+                     &char
+                     ;; &unspecified
+                     ;; &unbound
+                     &false
+                     ;; &true
+                     ;; &nil
+                     ;; &null
+                     &symbol
+                     ;; &keyword
+                     &procedure
+                     ;; &pointer
+                     &pair
+                     ;; &fluid
+                     &vector
+                     ;; &box
+                     &struct
+                     &string
+                     ;; &bytevector
+                     ;; &bitvector
+                     ;; &array
+                     &hash-table
+                     &port
+                     &undefined))
     (proc var))
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))

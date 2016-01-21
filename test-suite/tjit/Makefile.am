@@ -47,6 +47,9 @@ TESTS = \
 	t-call-02.scm \
 	t-call-03.scm \
 	t-call-04.scm \
+	t-call-label-01.scm \
+	t-call-label-02.scm \
+	t-call-label-03.scm \
 	t-deoptimize-01.scm \
 	t-deoptimize-02.scm \
 	t-escape-01.scm \

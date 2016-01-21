@@ -46,10 +46,12 @@
   `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
      ,(next)))
 
-;; XXX: make-non-immediate
+(define-ir (make-non-immediate (scm! dst) (const offset))
+  `(let ((,(var-ref dst) ,(+ ip (* 4 offset))))
+     ,(next)))
 
 (define-ir (static-ref (scm! dst) (const offset))
-  ;; XXX: Needs type check.
+  ;; XXX: Needs type check?
   `(let ((,(var-ref dst) ,(dereference-scm (+ ip (* 4 offset)))))
      ,(next)))
 
