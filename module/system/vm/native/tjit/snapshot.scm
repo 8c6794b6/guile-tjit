@@ -46,7 +46,6 @@
             snapshot-fp-offset
             snapshot-nlocals
             snapshot-locals
-            set-snapshot-locals!
             snapshot-variables
             set-snapshot-variables!
             set-snapshot-code!
@@ -334,7 +333,7 @@
   (nlocals snapshot-nlocals)
 
   ;; Association list of (local . type).
-  (locals snapshot-locals set-snapshot-locals!)
+  (locals snapshot-locals)
 
   ;; Variables used at the time of taking exit.
   (variables snapshot-variables set-snapshot-variables!)
@@ -551,13 +550,11 @@
     (and parent-snapshot (assq-ref parent-locals i)))
   (define-syntax-rule (local-ref i)
     (let ((type (outline-type-ref outline i)))
-      (debug 1 ";;; [ms] local-ref ~s => " i)
       (cond
-       ((eq? 'f64 type) (debug 1 "~s~%" 'f64) &f64)
-       ((eq? 'u64 type) (debug 1 "~s~%" 'u64) &u64)
-       ((eq? 's64 type) (debug 1 "~s~%" 's64) &s64)
+       ((eq? 'f64 type) &f64)
+       ((eq? 'u64 type) &u64)
+       ((eq? 's64 type) &s64)
        ((eq? 'scm type)
-        (debug 1 "~s~%" 'scm)
         (type-of (stack-element locals (- i sp-offset) type)))
        (else
         (tjitc-error 'make-snapshot "unknown local ~s ~s" type i)))))
@@ -647,9 +644,6 @@
          (add-local #f))))
       (()
        (let ((copied-types (copy-tree (outline-types outline))))
-         (debug 1 ";;; [ms] copied-types=~s~%"
-                (sort copied-types (lambda (a b)
-                                     (< (car a) (car b)))))
          (%make-snapshot id sp-offset fp-offset (vector-length locals)
                          (reverse! acc) #f #f ip copied-types
                          (outline-read-indices outline)))))))

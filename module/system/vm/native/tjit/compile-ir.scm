@@ -90,13 +90,10 @@
          (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
          (snapshot-id (if root-trace? 1 0)))
-    (define* (take-snapshot! ip dst-offset locals vars
-                             #:optional (all-indices? #f))
+    (define* (take-snapshot! ip dst-offset locals vars)
       (let-values (((ret snapshot)
                     (take-snapshot ip dst-offset locals vars
-                                   (if all-indices?
-                                       (map car vars)
-                                       (outline-write-indices (tj-outline tj)))
+                                   (outline-write-indices (tj-outline tj))
                                    snapshot-id
                                    initial-sp-offset initial-fp-offset
                                    lowest-offset
@@ -431,7 +428,6 @@
          (let ((last-op (gen-last-op op ip locals)))
            (convert-one ir op ip ra dl locals last-op)))
         (((op ip ra dl locals) . rest)
-         (debug 1 ";;; [convert] ~s~%" op)
          (convert-one ir op ip ra dl locals rest))
         (last-op
          (last-op))))

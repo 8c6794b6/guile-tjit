@@ -112,8 +112,6 @@
           (fp-offsets (outline-fp-offsets ol))
           (linked (get-root-trace linked-ip)))
       (when linked
-        (debug 1 ";;; [tjitc] fragment-loop-locals=~s~%"
-               (fragment-loop-locals linked))
         (merge-outline-types! ol (fragment-loop-locals linked)))
       (let lp ((traces (reverse traces))
                (index (- (vector-length sp-offsets) 1)))
@@ -135,14 +133,6 @@
     (if snapshot
         (map car (snapshot-locals snapshot))
         '()))
-
-  ;; (define (merge-types dst src)
-  ;;   (let lp ((src src) (dst dst))
-  ;;     (match src
-  ;;       (((n . t) . src)
-  ;;        (lp src (assq-set! dst n (type->stack-element-type t))))
-  ;;       (() dst))))
-
   (define (merge-types dsts snapshot)
     (let ((sp (snapshot-sp-offset snapshot))
           (nlocals (snapshot-nlocals snapshot)))
@@ -202,18 +192,10 @@
                                         dst
                                         (cons elem dst))))
                           (lp dst (cdr src)))))))
-
              (initial-stack-item-types
               (if (or (not parent-fragment) loop?)
                   initial-stack-item-types
-                  ;; (merge-types initial-stack-item-types
-                  ;;              (snapshot-locals parent-snapshot))
-                  (merge-types initial-stack-item-types parent-snapshot)
-                  ))
-
-             (_ (debug 1 ";;; [tjitc] isit: ~s~%"
-                       (sort initial-stack-item-types
-                             (lambda (a b) (< (car a) (car b))))))
+                  (merge-types initial-stack-item-types parent-snapshot)))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f
@@ -232,13 +214,6 @@
             (let ((log (get-tjit-time-log trace-id))
                   (t (get-internal-run-time)))
               (set-tjit-time-log-end! log t))))))
-
-    (debug 1 ";;; [tjitc] sot: ~s~%"
-           (and=> parent-snapshot
-                  (lambda (snapshot)
-                    (sort (snapshot-outline-types snapshot)
-                          (lambda (a b)
-                            (< (car a) (car b)))))))
 
     (with-tjitc-error-handler entry-ip
       (let-values (((traces outline implemented?)

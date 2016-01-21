@@ -169,18 +169,13 @@
      (else (err)))))
 
 (define (maybe-store asm local-x-types srcs references shift)
-  "Store src in SRCS to frame when local is not found in REFERENCES.
-
-Returns a hash-table containing src. Key of the returned hash-table is
-local index in LOCAL-X-TYPES. Locals in returned hash-table is shifted
-for SHIFT."
+  "Store src in SRCS to frame when local is not found in REFERENCES."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
   (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
   (debug 3 ";;;   references:    ~a~%" references)
   (let lp ((local-x-types local-x-types)
-           (srcs srcs)
-           (acc (make-hash-table)))
+           (srcs srcs))
     (match (list local-x-types srcs)
       ((((local . type) . local-x-types) (src . srcs))
        (when (or (dynamic-link? type)
@@ -190,10 +185,8 @@ for SHIFT."
                    (or (not reg)
                        (not (equal? src reg)))))
          (store-frame asm local type src))
-       (hashq-set! acc (- local shift) src)
-       (lp local-x-types srcs acc))
-      (_
-       acc))))
+       (lp local-x-types srcs))
+      (_ (values)))))
 
 (define (shift-fp fp-offset)
   (let ((op (if (< 0 fp-offset)
@@ -215,6 +208,8 @@ for SHIFT."
     (vm-sync-sp vp->sp)))
 
 (define (env->src-table env shift)
+  ;; XXX: Reconsider the type of values in `env' hash table and avoid using
+  ;; combination of `symbol->string' and `string->number'.
   (hash-fold (lambda (k v acc)
                (let ((k/str (symbol->string k)))
                  (when (char=? #\v (string-ref k/str 0))
@@ -648,7 +643,6 @@ are local index number."
               (code (make-bytevector estimated-code-size)))
          (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
          (let ((ptr (jit-emit)))
-           (debug 3 ";;; compile-bailout: ptr=~a~%" ptr)
            (make-bytevector-executable! code)
            (dump-bailout ip id code)
            (set-snapshot-code! snapshot code)
