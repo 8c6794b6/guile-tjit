@@ -56,7 +56,7 @@
 
 (define (main paths)
   (init-vm-tjit #t)
-  (let ((results (map run-tjit-test paths))
+  (let ((results (map run-tjit-test (cdr paths)))
         (nfs (assq-ref (tjit-stats) 'num-fragments))
         (nerrors (hash-count (const #t) (tjitc-errors))))
     (cond
@@ -76,3 +76,5 @@
         (format #t "vm-regular: ~s~%vm-tjit:    ~s~%"
                 (car result) (cadr result)))
       (exit 1)))))
+
+(main (command-line))

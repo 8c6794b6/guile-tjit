@@ -22,8 +22,7 @@
 if BUILD_VM_LIGHTNING
 
 TESTS_ENVIRONMENT = \
-	$(top_builddir)/meta/guile \
-	-l $(srcdir)/run-tjit-tests.scm -e main
+	$(top_builddir)/meta/guile $(srcdir)/run-tjit-tests.scm
 
 TESTS = \
 	t-args-01.scm \
