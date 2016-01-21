@@ -97,7 +97,7 @@
      (else
       (nyi "mul: ~a ~a ~a" (local-ref dst) ra rb)))))
 
-;; (define-ir (div (scm dst) (scm a) (scm b))
+;; (define-ir (div (scm! dst) (scm a) (scm b))
 ;;   (let ((ra (local-ref a))
 ;;         (rb (local-ref b))
 ;;         (vdst (var-ref dst))
