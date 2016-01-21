@@ -146,8 +146,9 @@
     (($ $snapshot _ _ fp-offset) fp-offset)
     (_ 0)))
 
-(define (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
-                       min-sp-offset max-sp-offset parent-snapshot outline)
+(define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
+                        min-sp-offset max-sp-offset parent-snapshot outline
+                        #:optional (refill? #f))
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
          (indices (filter (lambda (i)
@@ -160,9 +161,13 @@
                         (lp vars (cons var acc))
                         (lp vars acc)))
                    (()
-                    acc))))
+                    (if refill?
+                        (append acc (list (make-var (+ sp-offset nlocals))
+                                          (make-var (+ sp-offset nlocals 1))))
+                        acc)))))
          (snapshot (make-snapshot id sp-offset fp-offset nlocals locals
-                                  parent-snapshot indices outline dst-ip)))
+                                  parent-snapshot indices outline dst-ip
+                                  refill?)))
     (values `(%snap ,id ,@args) snapshot)))
 
 (define-syntax-rule (with-frame-ref next args var type idx)
@@ -337,24 +342,29 @@ saves index referenced by dst and src values at runtime."
 (define-syntax-rule (var-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
 
-(define-syntax-rule (take-snapshot! ip dst-offset)
-  (let-values (((ret snapshot)
-                (take-snapshot ip
-                               dst-offset
-                               locals
-                               (ir-vars ir)
-                               (outline-write-indices (ir-outline ir))
-                               (ir-snapshot-id ir)
-                               (current-sp-offset)
-                               (current-fp-offset)
-                               (ir-min-sp-offset ir)
-                               (ir-max-sp-offset ir)
-                               (ir-parent-snapshot ir)
-                               (ir-outline ir))))
-    (let ((old-id (ir-snapshot-id ir)))
-      (hashq-set! (ir-snapshots ir) old-id snapshot)
-      (set-ir-snapshot-id! ir (+ old-id 1)))
-    ret))
+(define-syntax take-snapshot!
+  (syntax-rules ()
+    ((_ ip dst-offset)
+     (take-snapshot! ip dst-offset #f))
+    ((_ ip dst-offset refill?)
+     (let-values (((ret snapshot)
+                   (take-snapshot ip
+                                  dst-offset
+                                  locals
+                                  (ir-vars ir)
+                                  (outline-write-indices (ir-outline ir))
+                                  (ir-snapshot-id ir)
+                                  (current-sp-offset)
+                                  (current-fp-offset)
+                                  (ir-min-sp-offset ir)
+                                  (ir-max-sp-offset ir)
+                                  (ir-parent-snapshot ir)
+                                  (ir-outline ir)
+                                  refill?)))
+       (let ((old-id (ir-snapshot-id ir)))
+         (hashq-set! (ir-snapshots ir) old-id snapshot)
+         (set-ir-snapshot-id! ir (+ old-id 1)))
+       ret))))
 
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
@@ -363,7 +373,8 @@ saves index referenced by dst and src values at runtime."
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    ;; XXX: Add more types.
-   ((memq type (list &exact-integer &char &false &undefined &symbol &pair
+   ((memq type (list &exact-integer &char &false #;&null
+                     &undefined &symbol &pair
                      &vector &string &struct &hash-table &port))
     (proc var))
    (else

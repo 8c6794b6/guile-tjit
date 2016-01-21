@@ -540,8 +540,9 @@
 ;;; Snapshot
 ;;;
 
-(define (make-snapshot id sp-offset fp-offset nlocals locals
-                       parent-snapshot write-indices outline ip)
+(define* (make-snapshot id sp-offset fp-offset nlocals locals
+                        parent-snapshot write-indices outline ip
+                        #:optional (refill-ra-and-dl? #f))
   (define initial-offset
     (or (and=> parent-snapshot snapshot-sp-offset)))
   (define parent-locals
@@ -581,8 +582,6 @@
                     val))))
        (define (add-local type)
          (lp is (cons `(,i . ,type) acc)))
-       (define (add-val val)
-         (lp is (cons `(,i . ,val) acc)))
        (cond
         ;; Inlined local in initial frame in root trace. The frame contents
         ;; should be a scheme stack element, not a dynamic link or a return
@@ -591,7 +590,7 @@
         ((<= sp-offset i (- (+ sp-offset nlocals) 1))
          (cond
           ((and (= ip *ip-key-link*) (dl-or-ra i))
-           => add-val)
+           => add-local)
           (else
            (add-local (local-ref i)))))
 
@@ -600,7 +599,7 @@
         ;; recorded trace might not contain bytecode operation to fill in the
         ;; dynamic link and return address of past frame.
         ((dl-or-ra i)
-         => add-val)
+         => add-local)
 
         ;; Down frame. Taking local from a vector saved at the tme of recording
         ;; the trace.
@@ -628,7 +627,7 @@
                        (debug 1 ";;; [ms] outline-local-ref ~s => ~s~%" i e)
                        (cond
                         ((or (dynamic-link? e) (return-address? e))
-                         (add-val e))
+                         (add-local e))
                         (else
                          (add-local (type-of (resolve-stack-element e)))))))
                  ((parent-snapshot-local-ref i)
@@ -644,9 +643,17 @@
          (add-local #f))))
       (()
        (let ((copied-types (copy-tree (outline-types outline))))
-         (%make-snapshot id sp-offset fp-offset (vector-length locals)
-                         (reverse! acc) #f #f ip copied-types
-                         (outline-read-indices outline)))))))
+         (call-with-values
+             (lambda ()
+               (if refill-ra-and-dl?
+                   (let* ((acc (cons `(,(+ sp-offset nlocals) . ,&false) acc))
+                          (acc (cons `(,(+ sp-offset nlocals 1) . ,&false) acc)))
+                     (values (+ fp-offset 2) (+ nlocals 2) acc))
+                   (values fp-offset nlocals acc)))
+           (lambda (fp-offset nlocals acc)
+             (%make-snapshot id sp-offset fp-offset nlocals
+                             (reverse! acc) #f #f ip copied-types
+                             (outline-read-indices outline)))))))))
 
 
 ;;;

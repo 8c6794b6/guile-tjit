@@ -116,24 +116,23 @@
          (if (or (<= (current-fp-offset) 0)
                  return-subr?)
              (next)
-             `(let ((_ ,(take-snapshot! ip 0)))
-                ,(let lp ((vars (reverse (ir-vars ir))))
-                   (match vars
-                     (((n . var) . vars)
-                      (if (skip-var? var)
-                          (lp vars)
-                          (cond
-                           ((< min-local-index n max-local-index)
-                            (let* ((i (- n sp-offset))
-                                   (e (outline-type-ref (ir-outline ir) n))
-                                   (t (se-type i e n)))
-                              (if (eq? t &unspecified)
-                                  (lp vars)
-                                  (with-frame-ref lp vars var t n))))
-                           (else
-                            (lp vars)))))
-                     (()
-                      (next)))))))))))
+             (let lp ((vars (reverse (ir-vars ir))))
+               (match vars
+                 (((n . var) . vars)
+                  (if (skip-var? var)
+                      (lp vars)
+                      (cond
+                       ((< min-local-index n max-local-index)
+                        (let* ((i (- n sp-offset))
+                               (e (outline-type-ref (ir-outline ir) n))
+                               (t (se-type i e n)))
+                          (if (eq? t &unspecified)
+                              (lp vars)
+                              (with-frame-ref lp vars var t n))))
+                       (else
+                        (lp vars)))))
+                 (()
+                  (next))))))))))
 
 (define-ir (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
@@ -179,4 +178,5 @@
               `(let ((_ (%return ,ra)))
                  (let ((,vra #f))
                    (let ((,vdl #f))
-                     ,(next)))))))))
+                     (let ((_ ,(take-snapshot! ra 0 #t)))
+                       ,(next))))))))))
