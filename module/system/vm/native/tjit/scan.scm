@@ -33,8 +33,7 @@
   #:export (scan-locals))
 
 
-(define* (scan-locals ol op prev-op dl locals #:optional (initialized? #f)
-                      (backward? #f))
+(define (scan-locals ol op prev-op dl locals initialized? backward?)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; Lower frame data is saved at the time of accumulation.  If one of

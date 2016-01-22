@@ -97,7 +97,7 @@
                           (if so-far-so-good?
                               (let ((locals (cadddr trace))
                                     (dl (caddr trace)))
-                                (scan-locals ol op prev-op dl locals))
+                                (scan-locals ol op prev-op dl locals #f #f))
                               (values #f (car op)))))
              (lp (cons (cons op trace) acc) (+ offset len) traces ol
                  (and so-far-so-good? implemented?) prev-op)))
