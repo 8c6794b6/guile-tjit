@@ -48,7 +48,6 @@
             fragment-loop-address
             fragment-loop-locals
             fragment-loop-vars
-            fragment-fp-offset
             fragment-end-address
             fragment-gdb-jit-entry
             fragment-env
@@ -158,8 +157,7 @@
 (define-record-type <fragment>
   (%make-fragment id code exit-counts downrec? uprec? entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
-                  snapshots trampoline fp-offset end-address gdb-jit-entry
-                  env)
+                  snapshots trampoline end-address gdb-jit-entry env)
   fragment?
 
   ;; Trace id number.
@@ -200,9 +198,6 @@
 
   ;; Trampoline, native code containing jump destinations.
   (trampoline fragment-trampoline)
-
-  ;; FP offset in native code.
-  (fp-offset fragment-fp-offset)
 
   ;; End address.
   (end-address fragment-end-address)

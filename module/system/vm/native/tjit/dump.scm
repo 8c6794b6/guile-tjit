@@ -356,5 +356,4 @@ option was set to true."
   (format #t "~19@a: ~a~%" 'loop-address (fragment-loop-address fragment))
   (format #t "~19@a: ~a~%" 'loop-locals (fragment-loop-locals fragment))
   (format #t "~19@a: ~a~%" 'loop-vars (fragment-loop-vars fragment))
-  (format #t "~19@a: ~a~%" 'fp-offset (fragment-fp-offset fragment))
   (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))

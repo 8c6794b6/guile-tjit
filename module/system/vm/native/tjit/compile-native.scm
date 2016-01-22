@@ -188,23 +188,23 @@
        (lp local-x-types srcs))
       (_ (values)))))
 
-(define (shift-fp fp-offset)
-  (let ((op (if (< 0 fp-offset)
+(define (shift-fp offset)
+  (let ((op (if (< 0 offset)
                 jit-addi
                 jit-subi))
         (vp r0)
         (vp->fp r1))
     (load-vp vp)
     (load-vp->fp vp->fp vp)
-    (op vp->fp vp->fp (imm (* (abs fp-offset) %word-size)))
+    (op vp->fp vp->fp (imm (* (abs offset) %word-size)))
     (store-vp->fp vp vp->fp)))
 
-(define (shift-sp sp-offset)
-  (let ((op (if (< 0 sp-offset)
+(define (shift-sp offset)
+  (let ((op (if (< 0 offset)
                 jit-addi
                 jit-subi))
         (vp->sp %sp))
-    (op vp->sp vp->sp (imm (* (abs sp-offset) %word-size)))
+    (op vp->sp vp->sp (imm (* (abs offset) %word-size)))
     (vm-sync-sp vp->sp)))
 
 (define (env->src-table env shift)
@@ -337,7 +337,7 @@ are local index number."
   (with-jit-state
    (jit-prolog)
    (let-values
-       (((trampoline loop-label fp-offset bailouts env)
+       (((trampoline loop-label bailouts env)
          (compile-entry tj primops snapshots)))
      (let* ((epilog-label (jit-label))
             (_ (begin
@@ -396,7 +396,6 @@ are local index number."
                                      loop-vars
                                      snapshots
                                      trampoline
-                                     fp-offset
                                      end-address
                                      gdb-jit-entry
                                      env))
@@ -418,28 +417,26 @@ are local index number."
     (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
   (let* ((trampoline (make-trampoline (hash-count (const #t) snapshots)))
-         (fragment (tj-parent-fragment tj))
-         (fp-offset
-          ;; Root trace allocates spaces for spilled variables, 1 word
-          ;; to store `registers' from argument, and space to save
-          ;; volatile registers. Side trace cannot allocate additional
-          ;; memory, because side trace uses `jit-tramp'. Native code
-          ;; will not work if number of spilled variables exceeds the
-          ;; number returned from parameter `(tjit-max-spills)'.
-          (if (not fragment)
-              (let ((max-spills (tjit-max-spills))
-                    (nspills (primops-nspills primops)))
-                (when (< max-spills nspills)
-                  (tjitc-error 'compile-entry "Too many spills ~s" nspills))
-                (jit-allocai
-                 (imm (* (+ max-spills *num-fpr* *num-volatiles* 1)
-                         %word-size))))
-              (fragment-fp-offset fragment))))
+         (fragment (tj-parent-fragment tj)))
     (cond
      ;; Root trace.
      ((not fragment)
-      (let ((vp r0)
+      (let ((max-spills (tjit-max-spills))
+            (nspills (primops-nspills primops))
+            (vp r0)
             (registers r1))
+        (when (< max-spills nspills)
+          (tjitc-error 'compile-entry "Too many spills ~s" nspills))
+
+        ;; Root trace allocates spaces for spilled variables. One word to store
+        ;; `registers' from argument, and space to save volatile registers.
+        ;;
+        ;; Side trace cannot allocate additional memory, because side trace uses
+        ;; `jit-tramp'. Native code will not work if number of spilled variables
+        ;; exceeds the number returned from parameter `(tjit-max-spills)'.
+        ;;
+        (jit-allocai (imm (* (+ max-spills *num-fpr* *num-volatiles* 1)
+                             %word-size)))
 
         ;; Get arguments.
         (jit-getarg %thread (jit-arg))   ; thread
@@ -478,9 +475,9 @@ are local index number."
                       (tj-parent-exit-id tj))))))
 
     ;; Assemble the primitives.
-    (compile-body tj primops snapshots fp-offset trampoline)))
+    (compile-body tj primops snapshots trampoline)))
 
-(define (compile-body tj primops snapshots fp-offset trampoline)
+(define (compile-body tj primops snapshots trampoline)
   (define (compile-ops asm ops env acc)
     (let lp ((ops ops) (acc acc))
       (match ops
@@ -554,7 +551,7 @@ are local index number."
             (gen-bailouts (compile-ops asm entry env '())))
        (let-values (((loop-label gen-bailouts)
                      (compile-loop asm loop env gen-bailouts)))
-         (values trampoline loop-label fp-offset gen-bailouts env))))
+         (values trampoline loop-label gen-bailouts env))))
     (_
      (tjitc-error 'compile-body "not a $primops" primops))))
 
