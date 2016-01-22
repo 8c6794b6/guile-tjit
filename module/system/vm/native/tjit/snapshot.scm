@@ -32,6 +32,7 @@
   #:use-module (ice-9 format)
   #:use-module (language cps types)
   #:use-module (rnrs bytevectors)
+  #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module (system vm debug)
@@ -244,7 +245,8 @@
                  '() write-indices '()))
 
 (define (arrange-outline outline)
-  (let ((locals/list (sort (map car (outline-local-indices outline)) >))
+  (let ((locals/list
+         (sort! (delete-duplicates (outline-local-indices outline)) >))
         (sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
         (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline))))
         (ret-types/vec (list->vector (reverse! (outline-ret-types outline))))

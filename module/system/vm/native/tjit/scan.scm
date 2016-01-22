@@ -78,7 +78,7 @@
     (syntax-rules ()
       ((_ i ...)
        (let* ((indices (outline-local-indices ol))
-              (indices (assq-set! indices (+ i (outline-sp-offset ol)) #t))
+              (indices (cons (+ i (outline-sp-offset ol)) indices))
               ...)
          (set-outline-local-indices! ol indices)))))
   (define-syntax set-write!
