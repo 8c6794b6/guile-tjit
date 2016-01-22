@@ -67,6 +67,11 @@
       (let ((new-offsets (cons (outline-fp-offset ol)
                                (outline-fp-offsets ol))))
         (set-outline-fp-offsets! ol new-offsets))))
+  (define-syntax-rule (save-write-buf!)
+    (unless initialized?
+      (let ((writes (outline-write-indices ol))
+            (buf (outline-write-buf ol)))
+        (set-outline-write-buf! ol (cons writes buf)))))
   (define-syntax set-type!
     (syntax-rules ()
       ((_ (i t) ...)
@@ -89,7 +94,7 @@
                           writes
                           (cons (+ i (outline-sp-offset ol)) writes)))
               ...)
-         (set-outline-write-indices! ol writes)))))
+         (set-outline-write-indices! ol (sort writes <))))))
   (define-syntax set-read!
     (syntax-rules ()
       ((_ i ...)
@@ -125,15 +130,18 @@
           (lp (+ n 1))))
       (save-sp-offset!)
       (save-fp-offset!)
+      (save-write-buf!)
       (push-fp-offset! proc)
       (push-sp-offset! (- (+ proc nlocals) stack-size))
       (ret)))
   (define-syntax-rule (scan-tail-call nlocals)
     (let ((stack-size (vector-length locals)))
       (add! (- stack-size 1))
-      (set-write! (- stack-size 1))
+      (unless initialized?
+        (set-write! (- stack-size 1)))
       (save-sp-offset!)
       (save-fp-offset!)
+      (save-write-buf!)
       (push-sp-offset! (- nlocals stack-size))
       (ret)))
   (define-syntax-rule (scan-frame nlocals)
@@ -149,6 +157,7 @@
           (pop-sp-offset! (- diff)))
       (save-sp-offset!)
       (save-fp-offset!)
+      (save-write-buf!)
       (ret)))
 
   ;; Look for the type of returned value from C function.
@@ -194,9 +203,12 @@
     (('subr-call)
      ;; XXX: Multiple value return not supported.
      (let ((stack-size (vector-length locals)))
+       (unless initialized?
+         (set-write! stack-size (+ stack-size 1)))
        (save-sp-offset!)
        (pop-sp-offset! (- stack-size 2))
        (save-fp-offset!)
+       (save-write-buf!)
        (pop-fp-offset! dl)
        (ret)))
     (('receive dst proc nlocals)
@@ -209,6 +221,7 @@
        (unless initialized?
          (set-write! (- nlocals dst 1)))
        (save-fp-offset!)
+       (save-write-buf!)
        (ret)))
     (('receive-values proc _ nvalues)
      ;; XXX: Multiple values NYI
@@ -222,13 +235,15 @@
                (lp (- n 1))))
            (save-sp-offset!)
            (save-fp-offset!)
+           (save-write-buf!)
            (ret))
          (nyi)))
     (('return-values nlocals)
      (let ((stack-size (vector-length locals)))
        (add! stack-size (+ stack-size 1))
        (set-read! stack-size (+ stack-size 1))
-       (set-write! stack-size (+ stack-size 1))
+       (unless initialized?
+         (set-write! stack-size (+ stack-size 1)))
        (let lp ((n nlocals))
          (when (<= 2 n)
            (add! (- stack-size n))
@@ -238,16 +253,19 @@
        (pop-sp-offset! (- stack-size nlocals))
        (save-fp-offset!)
        (pop-fp-offset! dl)
+       (save-write-buf!)
        (ret)))
     (('assert-nargs-ee/locals expected nlocals)
      (push-sp-offset! nlocals)
      (let lp ((n nlocals))
        (when (< 0 n)
          (add! (- n 1))
-         (set-write! (- n 1))
+         (unless initialized?
+           (set-write! (- n 1)))
          (lp (- n 1))))
      (save-sp-offset!)
      (save-fp-offset!)
+     (save-write-buf!)
      (ret))
     (('alloc-frame nlocals)
      (scan-frame nlocals))
@@ -268,6 +286,7 @@
                     (set-type! (dst type))))))
      (save-sp-offset!)
      (save-fp-offset!)
+     (save-write-buf!)
      (ret))
     (_
      (cond
@@ -276,6 +295,7 @@
             (apply proc ol initialized? (cdr op))
             (save-sp-offset!)
             (save-fp-offset!)
+            (save-write-buf!)
             (ret)))
       (else
        (nyi))))))

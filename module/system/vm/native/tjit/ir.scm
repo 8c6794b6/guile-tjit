@@ -80,7 +80,7 @@
 (define-record-type <ir>
   (make-ir snapshots snapshot-id parent-snapshot vars
            min-sp-offset max-sp-offset bytecode-index
-           outline handle-interrupts? return-subr?)
+           outline handle-interrupts? return-subr? loop?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -111,7 +111,10 @@
   (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!)
 
   ;; Flag for subr call.
-  (return-subr? ir-return-subr? set-ir-return-subr!))
+  (return-subr? ir-return-subr? set-ir-return-subr!)
+
+  ;; Flag for loop.
+  (loop? ir-loop?))
 
 
 (define (make-var index)
@@ -248,7 +251,9 @@
 (define-syntax gen-put-element-type
   (syntax-rules (scm scm! u64 u64! f64 f64! const)
     ((_ ol)
-     ol)
+     (let ((writes (outline-write-indices ol)))
+       (set-outline-write-indices! ol (sort writes <))
+       ol))
     ((_ ol (const arg) . rest)
      (gen-put-element-type ol . rest))
     ((_ ol (scm! arg) . rest)
@@ -352,7 +357,12 @@ saves index referenced by dst and src values at runtime."
                                   dst-offset
                                   locals
                                   (ir-vars ir)
-                                  (outline-write-indices (ir-outline ir))
+                                  (if (and (ir-parent-snapshot ir)
+                                           (not (ir-loop? ir)))
+                                      (vector-ref
+                                       (outline-write-buf (ir-outline ir))
+                                       (ir-bytecode-index ir))
+                                      (outline-write-indices (ir-outline ir)))
                                   (ir-snapshot-id ir)
                                   (current-sp-offset)
                                   (current-fp-offset)
@@ -382,7 +392,7 @@ saves index referenced by dst and src values at runtime."
                      &false
                      ;; &true
                      ;; &nil
-                     ;; &null
+                     &null
                      &symbol
                      ;; &keyword
                      &procedure

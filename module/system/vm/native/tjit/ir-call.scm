@@ -58,7 +58,11 @@
          (proc/l (local-ref (- fp 1)))
          (primitive? (and (program? proc/l)
                           (primitive-code? (program-code proc/l))))
-         (snapshot (take-snapshot! ip 0)))
+         (snapshot
+          (begin
+            (vector-set! locals (- stack-size proc) (scm->pointer #f))
+            (vector-set! locals (+ (- stack-size proc) 1) (scm->pointer #f))
+            (take-snapshot! ip 0))))
     (push-outline! (ir-outline ir) rdl rra sp-offset locals)
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,proc/v ,(pointer-address (scm->pointer proc/l)))))

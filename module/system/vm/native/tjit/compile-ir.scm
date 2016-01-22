@@ -131,7 +131,9 @@
         (let-values (((ret snapshot)
                       (take-snapshot initial-ip 0 initial-locals
                                      vars-from-parent
-                                     (outline-write-indices (tj-outline tj))
+                                     (if parent-snapshot
+                                         (map car (snapshot-locals parent-snapshot))
+                                         (outline-write-indices (tj-outline tj)))
                                      snapshot-id
                                      initial-sp-offset initial-fp-offset
                                      lowest-offset
@@ -224,31 +226,31 @@
               (()
                exp-body)))))
       (define (make-anf)
-        (let ((emit (lambda ()
-                      (let* ((initial-nlocals
-                              (snapshot-nlocals (hashq-ref snapshots 0)))
-                             (outline (tj-outline tj))
-                             (outline-sp-offset
-                              (vector-ref (outline-sp-offsets outline) 0))
-                             (outline-fp-offset
-                              (vector-ref (outline-fp-offsets outline) 0))
-                             (_ (set-outline-sp-offset! outline
-                                                        outline-sp-offset))
-                             (_ (set-outline-fp-offset! outline
-                                                        outline-fp-offset))
-                             (ir (make-ir snapshots
-                                          snapshot-id
-                                          (tj-parent-snapshot tj)
-                                          vars
-                                          (min initial-sp-offset 0)
-                                          (get-max-sp-offset initial-sp-offset
-                                                             initial-fp-offset
-                                                             initial-nlocals)
-                                          0 (tj-outline tj) #f #f)))
-                        (let* ((anf (trace->anf tj ir trace))
-                               (interrupts? (ir-handle-interrupts? ir)))
-                          (set-tj-handle-interrupts! tj interrupts?)
-                          anf)))))
+        (let ((emit
+               (lambda ()
+                 (let* ((initial-nlocals
+                         (snapshot-nlocals (hashq-ref snapshots 0)))
+                        (outline (tj-outline tj))
+                        (outline-sp-offset
+                         (vector-ref (outline-sp-offsets outline) 0))
+                        (outline-fp-offset
+                         (vector-ref (outline-fp-offsets outline) 0))
+                        (_ (set-outline-sp-offset! outline outline-sp-offset))
+                        (_ (set-outline-fp-offset! outline outline-fp-offset))
+                        (ir (make-ir snapshots
+                                     snapshot-id
+                                     (tj-parent-snapshot tj)
+                                     vars
+                                     (min initial-sp-offset 0)
+                                     (get-max-sp-offset initial-sp-offset
+                                                        initial-fp-offset
+                                                        initial-nlocals)
+                                     0 (tj-outline tj) #f #f (tj-loop? tj)))
+                        (anf (trace->anf tj ir trace))
+                        (interrupts? (ir-handle-interrupts? ir)))
+
+                   (set-tj-handle-interrupts! tj interrupts?)
+                   anf))))
           (merge-outline-types! (tj-outline tj) (tj-initial-types tj))
           (cond
            (root-trace?

@@ -87,6 +87,8 @@
             set-outline-write-indices!
             outline-read-indices
             set-outline-read-indices!
+            outline-write-buf
+            set-outline-write-buf!
 
             pop-outline!
             push-outline!
@@ -198,7 +200,8 @@
 ;; procedure ... etc.
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
-                 sp-offset fp-offset ret-types write-indices read-indices)
+                 sp-offset fp-offset ret-types write-indices read-indices
+                 write-buf)
   outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -235,14 +238,17 @@
   (write-indices outline-write-indices set-outline-write-indices!)
 
   ;; Local indices for read.
-  (read-indices outline-read-indices set-outline-read-indices!))
+  (read-indices outline-read-indices set-outline-read-indices!)
+
+  ;; Buffer to hold write indices.
+  (write-buf outline-write-buf set-outline-write-buf!))
 
 (define (make-outline types sp-offset fp-offset write-indices)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset
-                 '() write-indices '()))
+                 '() write-indices '() (list write-indices)))
 
 (define (arrange-outline outline)
   (let ((locals/list
@@ -250,12 +256,14 @@
         (sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
         (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline))))
         (ret-types/vec (list->vector (reverse! (outline-ret-types outline))))
-        (writes/list (sort (outline-write-indices outline) <)))
+        (writes/list (sort (outline-write-indices outline) <))
+        (write-buf/vec (list->vector (reverse! (outline-write-buf outline)))))
     (set-outline-local-indices! outline locals/list)
     (set-outline-sp-offsets! outline sp-offsets/vec)
     (set-outline-fp-offsets! outline fp-offsets/vec)
     (set-outline-ret-types! outline ret-types/vec)
     (set-outline-write-indices! outline writes/list)
+    (set-outline-write-buf! outline write-buf/vec)
     outline))
 
 (define (push-outline! outline dl ra sp-offset locals)
