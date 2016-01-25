@@ -48,7 +48,7 @@
 ;;;           i)))
 ;;;   (loop 100)
 ;;;   ^D
-;;;   $ gdb --quiet --args guile --tjit --jit-debug=1 /tmp/loop.scm
+;;;   $ gdb --quiet --args guile --tjit --tjit-dump=d /tmp/loop.scm
 ;;;   Reading symbols from guile...done.
 ;;;   (gdb) set breakpoint pending on
 ;;;   (gdb) tb trace1
@@ -61,7 +61,7 @@
 ;;;   Function "trace3" not defined.
 ;;;   Temporary breakpoint 3 (trace3) pending.
 ;;;   (gdb) run
-;;;   Starting program: guile --tjit --jit-debug=1 /tmp/loop.scm
+;;;   Starting program: guile --tjit --tjit-dump=d /tmp/loop.scm
 ;;;   [Thread debugging using libthread_db enabled]
 ;;;   Using host libthread_db library "/lib/libthread_db.so.1".
 ;;;   [New Thread 0x7fc8185ca700 (LWP 12873)]

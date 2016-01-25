@@ -360,7 +360,7 @@ are local index number."
                            0))
             (verbosity (lightning-verbosity))
             (gdb-jit-entry
-             (if (and verbosity (< 0 verbosity))
+             (if (tjit-dump-dwarf? (tjit-dump-option))
                  (let* ((addr (pointer-address (bytevector->pointer code)))
                         (elf (make-gdb-jit-elf (tj-id tj) addr size
                                                (car sline) (cdr sline))))

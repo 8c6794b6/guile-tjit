@@ -59,6 +59,7 @@
 
             tjit-dump-abort?
             tjit-dump-bytecode?
+            tjit-dump-dwarf?
             tjit-dump-ops?
             tjit-dump-ncode?
             tjit-dump-jitc?
@@ -95,10 +96,11 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode ops jitc locals ncode scm time exit)
+  (make-tjit-dump abort bytecode dwarf ops jitc locals ncode scm time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
+  (dwarf tjit-dump-dwarf? set-tjit-dump-dwarf!)
   (ops tjit-dump-ops? set-tjit-dump-ops!)
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-verbose? set-tjit-dump-verbose!)
@@ -109,7 +111,7 @@
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f #f #f #f #f #f #f #f))
+  (make-tjit-dump #f #f #f #f #f #f #f #f #f #f))
 
 (define (parse-tjit-dump-flags str)
   "Parse dump flags in string STR and return <tjit-dump> data.
@@ -119,6 +121,8 @@ Flags are:
 - 'a': Dump abort, without this flag true, aborted traces are not shown.
 
 - 'b': Dump recorded bytecode.
+
+- 'd': Dump DWARF data for GDB.
 
 - 'j': Dump brief info when starting JIT compilation.
 
@@ -152,6 +156,7 @@ fields to @code{#f}."
                                (lp (cdr cs))))))))
         (flags (#\a set-tjit-dump-abort!)
                (#\b set-tjit-dump-bytecode!)
+               (#\d set-tjit-dump-dwarf!)
                (#\j set-tjit-dump-jitc!)
                (#\n set-tjit-dump-ncode!)
                (#\o set-tjit-dump-ops!)
