@@ -291,7 +291,7 @@
                (vector-set! initial-free-fprs i #f))))
           ((memory? v)
            (let ((i (ref-value v)))
-             (when (< (variable-ref initial-mem-idx) i)
+             (when (<= (variable-ref initial-mem-idx) i)
                (variable-set! initial-mem-idx (+ i 1)))))
           (else
            (tjitc-error 'anf->primops "unknown var ~s" v))))
