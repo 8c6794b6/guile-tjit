@@ -31,6 +31,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
   #:use-module (system vm debug)
+  #:use-module (system vm program)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit fragment)
@@ -270,12 +271,16 @@ option was set to true."
                       (basename (car sinfo))
                       (cdr sinfo))))
            (('%ccall dst (const . addr))
-            (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
+            (format #t "~4,,,'0@a ~a (~7a ~a ~a:0x~x)~%" idx mark
                     '%ccall
                     (pretty-register dst)
                     (let ((proc (pointer->scm (make-pointer addr))))
                       (and (procedure? proc)
-                           (cyan (symbol->string (procedure-name proc)))))))
+                           (cyan (symbol->string (procedure-name proc)))))
+                    (let ((proc (pointer->scm (make-pointer addr))))
+                      (and (procedure? proc)
+                           (pointer-address
+                            (program-free-variable-ref proc 0))))))
            (_
             (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
                     (car op)
