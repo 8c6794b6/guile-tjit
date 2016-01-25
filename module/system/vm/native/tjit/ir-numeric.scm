@@ -97,25 +97,25 @@
      (else
       (nyi "mul: ~a ~a ~a" (local-ref dst) ra rb)))))
 
-;; (define-ir (div (scm! dst) (scm a) (scm b))
-;;   (let ((ra (local-ref a))
-;;         (rb (local-ref b))
-;;         (vdst (var-ref dst))
-;;         (va (var-ref a))
-;;         (vb (var-ref b)))
-;;     (cond
-;;      ((and (flonum? ra) (flonum? rb))
-;;       `(let ((,vdst (%fdiv ,va ,vb)))
-;;          ,(next)))
-;;      ((and (fixnum? ra) (flonum? rb))
-;;       (let ((r2 (make-tmpvar 2))
-;;             (f2 (make-tmpvar/f 2)))
-;;         `(let ((,r2 (%rsh ,va 2)))
-;;            (let ((,f2 (%i2d ,r2)))
-;;              (let ((,vdst (%fdiv ,f2 ,vb)))
-;;                ,(next))))))
-;;      (else
-;;       (nyi "div: ~a ~a ~a" (local-ref dst) ra rb)))))
+(define-ir (div (scm! dst) (scm a) (scm b))
+  (let ((ra (local-ref a))
+        (rb (local-ref b))
+        (vdst (var-ref dst))
+        (va (var-ref a))
+        (vb (var-ref b)))
+    (cond
+     ((and (flonum? ra) (flonum? rb))
+      `(let ((,vdst (%fdiv ,va ,vb)))
+         ,(next)))
+     ((and (fixnum? ra) (flonum? rb))
+      (let ((r2 (make-tmpvar 2))
+            (f2 (make-tmpvar/f 2)))
+        `(let ((,r2 (%rsh ,va 2)))
+           (let ((,f2 (%i2d ,r2)))
+             (let ((,vdst (%fdiv ,f2 ,vb)))
+               ,(next))))))
+     (else
+      (nyi "div: ~a ~a ~a" (local-ref dst) ra rb)))))
 
 ;; XXX: quo
 ;; XXX: rem
