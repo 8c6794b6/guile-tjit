@@ -390,34 +390,6 @@
    ((fpr? dst) (jit-ldxi-d (fpr dst) %fp (volatile-offset dst)))
    (else (tjitc-error 'load-volatile "~s" dst))))
 
-(define-syntax-rule (push-as-gpr arg overwritten?)
-  (cond
-   (overwritten?
-    (jit-ldxi r0 %fp (volatile-offset arg))
-    (jit-pushargr r0))
-   ((gpr? arg)
-    (jit-pushargr (gpr arg)))
-   ((fpr? arg)
-    (jit-pushargr (fpr->gpr r0 (fpr arg))))
-   ((memory? arg)
-    (memory-ref r0 arg)
-    (jit-pushargr r0))
-   (else
-    (tjitc-error 'push-as-gpr "unknown arg ~s" arg))))
-
-(define-syntax-rule (retval-to-gpr-or-mem dst)
-  (cond
-   ((gpr? dst)
-    (jit-retval (gpr dst)))
-   ((fpr? dst)
-    (jit-retval r0)
-    (gpr->fpr (fpr dst) r0))
-   ((memory? dst)
-    (jit-retval r0)
-    (memory-set! dst r0))
-   (else
-    (tjitc-error 'retval-to-gpr-or-mem "unknown dst ~s" dst))))
-
 ;;; XXX: Offsets for fields in C structs were manually taken with observing
 ;;; output from `objdump'. It would be nice if the offsets were derived in
 ;;; programmatic manner. Have not tested on architecture other than Linux
@@ -587,6 +559,33 @@
 
 (define-syntax-rule (bailout)
   (asm-exit asm))
+
+(define-syntax-rule (push-as-gpr arg overwritten?)
+  (cond
+   (overwritten?
+    (jit-ldxi r0 %fp (volatile-offset arg))
+    (jit-pushargr r0))
+   ((gpr? arg)
+    (jit-pushargr (gpr arg)))
+   ((fpr? arg)
+    (jit-pushargr (fpr->gpr r0 (fpr arg))))
+   ((memory? arg)
+    (jit-pushargr (memory-ref r0 arg)))
+   (else
+    (tjitc-error 'push-as-gpr "unknown arg ~s" arg))))
+
+(define-syntax-rule (retval-to-gpr-or-mem dst)
+  (cond
+   ((gpr? dst)
+    (jit-retval (gpr dst)))
+   ((fpr? dst)
+    (jit-retval r0)
+    (gpr->fpr (fpr dst) r0))
+   ((memory? dst)
+    (jit-retval r0)
+    (memory-set! dst r0))
+   (else
+    (tjitc-error 'retval-to-gpr-or-mem "unknown dst ~s" dst))))
 
 
 ;;;;
@@ -1244,12 +1243,12 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (cond
        ((constant? src) (let ((val (ref-value src)))
                           (cond
-                           ((fixnum? val)
-                            (jit-movi r0 (constant src))
-                            (memory-set! dst r0))
                            ((flonum? val)
                             (jit-movi-d f0 (constant src))
-                            (memory-set!/f dst f0)))))
+                            (memory-set!/f dst f0))
+                           (else
+                            (jit-movi r0 (constant src))
+                            (memory-set! dst r0)))))
        ((gpr? src)      (memory-set! dst (gpr src)))
        ((fpr? src)      (memory-set!/f dst (fpr src)))
        ((memory? src)   (memory-set! dst (memory-ref r0 src)))
