@@ -67,6 +67,10 @@
 (define-ir (reset-frame nlocals)
   (next))
 
+;; XXX: push
+;; XXX: pop
+;; XXX: drop
+
 (define-ir (assert-nargs-ee/locals expected nlocals)
   (let* ((stack-size (vector-length locals))
          (undefined (pointer->scm (make-pointer #x904))))

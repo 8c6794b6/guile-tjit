@@ -57,18 +57,18 @@
          (emit-next
           (lambda ()
             (pop-outline! (ir-outline ir) (current-sp-offset) locals)
-            (next)))
+            `(let ((,ra/v #f))
+               (let ((,dl/v #f))
+                 ,(next)))))
          (emit-ccall
           (lambda ()
             `(let ((,r2 (%ccall ,proc-addr)))
-               (let ((,ra/v #f))
-                 (let ((,dl/v #f))
-                   ,(if ret-type
-                        (with-unboxing ret-type r2
-                          (lambda ()
-                            `(let ((,dst/v ,r2))
-                               ,(emit-next))))
-                        (emit-next))))))))
+               ,(if ret-type
+                    (with-unboxing ret-type r2
+                      (lambda ()
+                        `(let ((,dst/v ,r2))
+                           ,(emit-next))))
+                    (emit-next))))))
     (debug 1 ";;; subr-call: (~a) (~s ~{~a~^ ~})~%"
            (pretty-type (current-ret-type))
            (procedure-name subr/l)

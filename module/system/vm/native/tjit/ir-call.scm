@@ -97,54 +97,6 @@
 (define-ir (tail-call-label nlocals label)
   (next))
 
-(define-syntax gen-receive-thunk
-  (syntax-rules ()
-    ((_ proc skip-var?)
-     (let* ((return-subr? (ir-return-subr? ir))
-            (stack-size (vector-length locals))
-            (sp-offset (current-sp-offset))
-            (min-local-index (+ (- stack-size proc 1) sp-offset 2))
-            (max-local-index (+ stack-size sp-offset))
-            (se-type (lambda (i e n)
-                       (cond
-                        ((eq? 'f64 e) &f64)
-                        ((eq? 'u64 e) &u64)
-                        ((eq? 's64 e) &s64)
-                        ((eq? 'scm e) (type-of (stack-element locals i e)))
-                        (else
-                         (tjitc-error 'receive "unknown type ~s at ~s" e n))))))
-       (lambda ()
-         (set-ir-return-subr! ir #f)
-
-         ;; Ignoring `unspecified' values when loading from previous
-         ;; frame. Those values might came from dead slots in stack
-         ;; which were overwritten by gc. See `scm_i_vm_mark_stack' in
-         ;; "libguile/vm.c".
-         ;;
-         ;; XXX: Add tests to check that this strategy works with
-         ;; explicitly given `unspecified' values.
-         ;;
-         (if (or (<= (current-fp-offset) 0)
-                 return-subr?)
-             (next)
-             (let lp ((vars (reverse (ir-vars ir))))
-               (match vars
-                 (((n . var) . vars)
-                  (if (skip-var? var)
-                      (lp vars)
-                      (cond
-                       ((< min-local-index n max-local-index)
-                        (let* ((i (- n sp-offset))
-                               (e (outline-type-ref (ir-outline ir) n))
-                               (t (se-type i e n)))
-                          (if (eq? t &unspecified)
-                              (lp vars)
-                              (with-frame-ref lp vars var t n))))
-                       (else
-                        (lp vars)))))
-                 (()
-                  (next))))))))))
-
 (define-ir (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
          (dst/i (- stack-size dst 1))

@@ -57,7 +57,24 @@
          ,(next)))))
 
 ;; XXX: br-if-nil
-;; XXX: br-if-pair
+
+;; (define-ir (br-if-pair (scm test) (const invert) (const offset))
+;;   (let* ((test/l (local-ref test))
+;;          (test/v (var-ref test))
+;;          (dest (if (pair? test/l)
+;;                    (if invert offset 2)
+;;                    (if invert 2 offset)))
+;;          (tmp (make-tmpvar 2)))
+;;     `(let ((_ ,(take-snapshot! ip dest)))
+;;        ,(if (pair? test/l)
+;;             `(let ((,tmp (%band ,test/v 6)))
+;;                (let ((_ (%ne ,tmp 0)))
+;;                  (let ((,tmp (%cref ,test/v 0)))
+;;                    (let ((,tmp (%band ,tmp 1)))
+;;                      (let ((_ (%eq ,tmp 0)))
+;;                        ,(next))))))
+;;             (nyi "br-if-pair ~s ~s ~s" test invert offset)))))
+
 ;; XXX: br-if-struct
 ;; XXX: br-if-char
 ;; XXX: br-if-tc7
