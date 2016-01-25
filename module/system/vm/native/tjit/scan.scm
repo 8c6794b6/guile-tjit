@@ -203,6 +203,7 @@
     (('subr-call)
      ;; XXX: Multiple value return not supported.
      (let ((stack-size (vector-length locals)))
+       (add! stack-size (+ stack-size 1))
        (unless initialized?
          (set-write! stack-size (+ stack-size 1)))
        (save-sp-offset!)
