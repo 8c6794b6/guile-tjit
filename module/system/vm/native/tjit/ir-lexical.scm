@@ -25,7 +25,9 @@
 ;;; Code:
 
 (define-module (system vm native tjit ir-lexical)
+  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
+  #:use-module (system vm program)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit snapshot)
@@ -95,5 +97,19 @@
       emit-next)))
 
 ;; XXX: make-closure
-;; XXX: free-ref
+
+(define-ir (free-ref (scm! dst) (scm src) (const idx))
+  (let* ((dst/v (var-ref dst))
+         (src/v (var-ref src))
+         (src/l (local-ref src))
+         (ref/l (and (program? src/l)
+                     (program-free-variable-ref src/l idx)))
+         (r2 (make-tmpvar 2)))
+    `(let ((,r2 (%add ,src/v ,(* 2 %word-size))))
+       (let ((,r2 (%cref ,r2 ,idx)))
+         ,(with-unboxing (type-of ref/l) r2
+            (lambda ()
+              `(let ((,dst/v ,r2))
+                 ,(next))))))))
+
 ;; XXX: free-set!
