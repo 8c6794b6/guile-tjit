@@ -174,7 +174,9 @@
           (define (type-from-parent n)
             (assq-ref parent-snapshot-locals n))
           (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
-          (let lp ((vars (reverse vars)))
+          (let lp ((vars (if parent-snapshot
+                             (make-vars (outline-read-indices (tj-outline tj)))
+                             (reverse vars))))
             (match vars
               (((n . var) . vars)
                (let ((j (+ n initial-sp-offset))

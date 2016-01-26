@@ -267,18 +267,14 @@
 
 (define-syntax-rule (gen-write-index ol arg rest)
   (let* ((i (+ arg (outline-sp-offset ol)))
-         (indices (outline-local-indices ol))
          (writes (outline-write-indices ol)))
-    (set-outline-local-indices! ol (cons i indices))
     (unless (memq i writes)
       (set-outline-write-indices! ol (cons i writes)))
     (gen-put-index ol . rest)))
 
 (define-syntax-rule (gen-read-index ol arg rest)
   (let* ((i (+ arg (outline-sp-offset ol)))
-         (indices (outline-local-indices ol))
          (reads (outline-read-indices ol)))
-    (set-outline-local-indices! ol (cons i indices))
     (unless (memq i reads)
       (set-outline-read-indices! ol (cons i reads)))
     (gen-put-index ol . rest)))

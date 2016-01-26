@@ -79,13 +79,6 @@
               (types (assq-set! types (+ i (outline-sp-offset ol)) t))
               ...)
          (set-outline-types! ol types)))))
-  (define-syntax set-index!
-    (syntax-rules ()
-      ((_ i ...)
-       (let* ((indices (outline-local-indices ol))
-              (indices (cons (+ i (outline-sp-offset ol)) indices))
-              ...)
-         (set-outline-local-indices! ol indices)))))
   (define-syntax set-write!
     (syntax-rules ()
       ((_ i ...)
@@ -104,25 +97,24 @@
                          (cons (+ i (outline-sp-offset ol)) reads)))
               ...)
          (set-outline-read-indices! ol reads)))))
-  (define-syntax add!
+  (define-syntax set-scm!
     (syntax-rules ()
       ((_ i ...)
-       (begin
-         (unless initialized?
-           (set-index! i ...))
-         (set-type! (i 'scm) ...)))))
+       (set-type! (i 'scm) ...))))
   (define-syntax-rule (ret)
     (values #t (car op)))
   (define-syntax-rule (nyi)
     (begin
       (debug 1 "NYI: ~a~%" (car op))
       (values #f (car op))))
-  (define-syntax-rule (scan-call proc nlocals)
+  (define-syntax-rule (scan-call proc nlocals label?)
     (let* ((stack-size (vector-length locals))
            (sp-proc (- stack-size proc 1)))
       (unless initialized?
-        (add! sp-proc (+ sp-proc 1) (+ sp-proc 2))
-        (set-read! sp-proc (+ sp-proc 1) (+ sp-proc 2))
+        (set-scm! sp-proc (+ sp-proc 1) (+ sp-proc 2))
+        (unless label?
+          (set-read! sp-proc))
+        (set-read! (+ sp-proc 1) (+ sp-proc 2))
         (set-write! (+ sp-proc 1) (+ sp-proc 2)))
       (let lp ((n 0))
         (when (< n nlocals)
@@ -136,7 +128,7 @@
       (ret)))
   (define-syntax-rule (scan-tail-call nlocals)
     (let ((stack-size (vector-length locals)))
-      (add! (- stack-size 1))
+      (set-scm! (- stack-size 1))
       (unless initialized?
         (set-write! (- stack-size 1)))
       (save-sp-offset!)
@@ -152,7 +144,8 @@
             (push-sp-offset! diff)
             (let lp ((n 0))
               (when (< n diff)
-                (add! n)
+                (set-scm! n)
+                (set-read! n)
                 (lp (+ n 1)))))
           (pop-sp-offset! (- diff)))
       (save-sp-offset!)
@@ -193,9 +186,9 @@
   ;; in *index-scanners* and treated specially.
   (match op
     (('call proc nlocals)
-     (scan-call proc nlocals))
+     (scan-call proc nlocals #f))
     (('call-label proc nlocals _)
-     (scan-call proc nlocals))
+     (scan-call proc nlocals #t))
     (('tail-call nlocals)
      (scan-tail-call nlocals))
     (('tail-call-label nlocals _)
@@ -203,7 +196,7 @@
     (('subr-call)
      ;; XXX: Multiple value return not supported.
      (let ((stack-size (vector-length locals)))
-       (add! stack-size (+ stack-size 1))
+       (set-scm! stack-size (+ stack-size 1))
        (unless initialized?
          (set-write! stack-size (+ stack-size 1)))
        (save-sp-offset!)
@@ -215,7 +208,8 @@
     (('receive dst proc nlocals)
      (let* ((stack-size (vector-length locals))
             (fp (- stack-size proc)))
-       (add! (- stack-size dst 1) (- stack-size proc 2))
+       (set-scm! (- stack-size dst 1) (- stack-size proc 2))
+       (set-write! (- stack-size dst 1))
        (set-read! (- stack-size proc 2))
        (save-sp-offset!)
        (pop-sp-offset! (- stack-size nlocals))
@@ -231,7 +225,7 @@
                 (fp (- stack-size proc 1)))
            (let lp ((n nvalues))
              (when (< 0 n)
-               (add! (- fp n))
+               (set-scm! (- fp n))
                (set-read! (- fp n))
                (lp (- n 1))))
            (save-sp-offset!)
@@ -241,13 +235,13 @@
          (nyi)))
     (('return-values nlocals)
      (let ((stack-size (vector-length locals)))
-       (add! stack-size (+ stack-size 1))
+       (set-scm! stack-size (+ stack-size 1))
        (set-read! stack-size (+ stack-size 1))
        (unless initialized?
          (set-write! stack-size (+ stack-size 1)))
        (let lp ((n nlocals))
          (when (<= 2 n)
-           (add! (- stack-size n))
+           (set-scm! (- stack-size n))
            (set-read! (- stack-size n))
            (lp (- n 1))))
        (save-sp-offset!)
@@ -260,7 +254,7 @@
      (push-sp-offset! nlocals)
      (let lp ((n nlocals))
        (when (< 0 n)
-         (add! (- n 1))
+         (set-scm! (- n 1))
          (unless initialized?
            (set-write! (- n 1)))
          (lp (- n 1))))
@@ -274,7 +268,6 @@
      (scan-frame nlocals))
     (('mov dst src)
      (unless initialized?
-       (set-index! dst src)
        (set-read! src)
        (set-write! dst))
      (let ((sp-offset (outline-sp-offset ol)))
