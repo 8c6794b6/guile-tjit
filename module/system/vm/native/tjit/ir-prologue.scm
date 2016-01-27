@@ -65,7 +65,15 @@
         (next))))
 
 (define-ir (reset-frame nlocals)
-  (next))
+  (let ((stack-size (vector-length locals)))
+    (if (and (ir-return-subr? ir)
+             (< (ir-max-sp-offset ir) (+ (current-sp-offset) stack-size)))
+        (begin
+          (set-ir-return-subr! ir #f)
+          (let ((thunk (gen-receive-thunk (- stack-size 2) #t
+                                          (lambda (unused) #f))))
+            (thunk)))
+        (next))))
 
 ;; XXX: push
 ;; XXX: pop

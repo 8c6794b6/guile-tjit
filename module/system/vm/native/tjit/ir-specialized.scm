@@ -56,10 +56,19 @@
          (proc-addr (pointer-address (scm->pointer subr/l)))
          (emit-next
           (lambda ()
-            (pop-outline! (ir-outline ir) (current-sp-offset) locals)
             `(let ((,ra/v #f))
                (let ((,dl/v #f))
                  ,(next)))))
+         (emit-pop
+          (lambda ()
+            (pop-outline! (ir-outline ir) (current-sp-offset) locals)
+            ;; XXX: Any other way to decide emitting `%return' than SP offset
+            ;; comparison?
+            (if (< (ir-max-sp-offset ir) (+ (current-sp-offset) dl))
+                `(let ((_ ,(take-snapshot! ip 0)))
+                   (let ((_ (%return ,ra)))
+                     ,(emit-next)))
+                (emit-next))))
          (emit-ccall
           (lambda ()
             `(let ((,r2 (%ccall ,proc-addr)))
@@ -67,8 +76,8 @@
                     (with-unboxing ret-type r2
                       (lambda ()
                         `(let ((,dst/v ,r2))
-                           ,(emit-next))))
-                    (emit-next))))))
+                           ,(emit-pop))))
+                    (emit-pop))))))
     (debug 1 ";;; subr-call: (~a) (~s ~{~a~^ ~})~%"
            (pretty-type (current-ret-type))
            (procedure-name subr/l)
