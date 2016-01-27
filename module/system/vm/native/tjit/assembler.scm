@@ -648,8 +648,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 (define-binary-guard-int %eq != jit-bnei jit-bner)
 (define-binary-guard-int %ne = jit-beqi jit-beqr)
-(define-binary-guard-int %lt >= jit-bgei jit-bger)
 (define-binary-guard-int %le > jit-bgti jit-bgtr)
+(define-binary-guard-int %lt >= jit-bgei jit-bger)
 (define-binary-guard-int %ge < jit-blti jit-bltr)
 (define-binary-guard-int %gt <= jit-blei jit-bler)
 
@@ -958,7 +958,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((eq? type &array) (load-tc7 %tc7-array))
         ((eq? type &hash-table) (load-tc7 %tc7-hashtable))
         ((eq? type &port) (load-tc7 %tc7-port))
-        ((memq type (list &s64 &u64)) (move-stack-element))
+        ((memq type (list #f &s64 &u64)) (move-stack-element))
         (else (err)))))))
 
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
@@ -974,7 +974,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
               (not (constant? type)))
       (err))
     (sp-ref r0 (ref-value n))
-    (unbox-stack-element dst r0 t #t)))
+    (unbox-stack-element dst r0 t t)))
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.

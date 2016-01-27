@@ -184,11 +184,10 @@ option was set to true."
 (define (dump-primops trace-id plist snapshots)
   (define (mark-op op)
     (case (car op)
-      ((%return
-        %fref %fref/f
-        %eq %ne %lt %le %ge %gt
-        %flt %fge)
+      ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fge)
        "  >")
+      ((%fref)
+       (if (cdr (cadddr op)) "  >" "   "))
       (else
        "   ")))
   (define (pretty-locals locals variables)
@@ -256,7 +255,7 @@ option was set to true."
                     '%fref
                     (pretty-register dst)
                     (pretty-constant n)
-                    (pretty-type (cdr type))))
+                    (if (cdr type) (pretty-type (cdr type)) "---")))
            (('%fref/f dst n type)
             (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
                     '%fref/f

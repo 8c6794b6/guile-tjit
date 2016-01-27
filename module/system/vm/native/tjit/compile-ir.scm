@@ -224,7 +224,7 @@
                      (debug 3 ";;;   type: ~a~%" (pretty-type type))
                      (when loaded-vars
                        (hashq-set! loaded-vars n type))
-                     (with-frame-ref lp vars var type n))))))
+                     (with-frame-ref vars var type n lp))))))
               (()
                exp-body)))))
       (define (make-anf)

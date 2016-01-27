@@ -103,7 +103,7 @@
          (dst/v (var-ref dst/i))
          (src/i (- (- stack-size proc) 2))
          (src/v (var-ref src/i))
-         (thunk (gen-receive-thunk proc (lambda (v) (eq? v dst/v))))
+         (thunk (gen-receive-thunk proc #t (lambda (v) (eq? v dst/v))))
          (last-local-index (- (vector-length locals) 1)))
     ;; Update values in local, so that snapshot can resolve value from stack
     ;; element type.
@@ -114,7 +114,7 @@
        ,(thunk))))
 
 (define-ir (receive-values proc allow-extra? nlocals)
-  (let ((thunk (gen-receive-thunk proc (lambda _ #f))))
+  (let ((thunk (gen-receive-thunk proc #t (lambda _ #f))))
     (thunk)))
 
 ;; XXX: tail-call/shuffle
