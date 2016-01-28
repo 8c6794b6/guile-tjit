@@ -72,8 +72,7 @@
              (< (ir-max-sp-offset ir) (+ (current-sp-offset) stack-size)))
         (begin
           (set-ir-return-subr! ir #f)
-          (let ((thunk (gen-receive-thunk (- stack-size 2) #t
-                                          (lambda (unused) #f))))
+          (let ((thunk (gen-load-thunk (- stack-size 2) nlocals (const #f))))
             (thunk)))
         (next))))
 

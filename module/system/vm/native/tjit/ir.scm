@@ -70,7 +70,7 @@
             get-initial-sp-offset
             get-initial-fp-offset
             take-snapshot
-            gen-receive-thunk
+            gen-load-thunk
             with-frame-ref
             *ir-procedures*
             *scan-procedures*)
@@ -176,11 +176,11 @@
                                   refill?)))
     (values `(%snap ,id ,@args) snapshot)))
 
-(define-syntax gen-receive-thunk
+(define-syntax gen-load-thunk
   (syntax-rules ()
-    ((_ proc guard? skip-var?)
-     (gen-receive-thunk proc guard? skip-var? next))
-    ((_ proc guard? skip-var? thunk)
+    ((_ proc nlocals skip-var?)
+     (gen-load-thunk proc nlocals skip-var? next))
+    ((_ proc nlocals skip-var? thunk)
      (let* ((return-subr? (ir-return-subr? ir))
             (stack-size (vector-length locals))
             (sp-offset (current-sp-offset))
@@ -193,39 +193,57 @@
                         ((eq? 's64 e) &s64)
                         ((eq? 'scm e) (type-of (stack-element locals i e)))
                         (else
-                         (tjitc-error 'receive "unknown type ~s ~s" i e))))))
+                         (tjitc-error 'receive "unknown type ~s ~s" i e)))))
+            (load-down-frame
+             (lambda ()
+               (let lp ((vars (reverse (ir-vars ir))))
+                 (match vars
+                   (((n . var) . vars)
+                    (if (skip-var? var)
+                        (lp vars)
+                        (cond
+                         ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
+                          (when (not (ir-parent-snapshot ir))
+                            (nyi "root trace loading down frame"))
+                          (let* ((i (- n sp-offset)))
+                            (with-frame-ref vars var #f n lp)))
+                         (else
+                          (lp vars)))))
+                   (()
+                    (thunk))))))
+            (load-up-frame
+             (lambda ()
+               ;; Ignoring `unspecified' values when loading from previous
+               ;; frame. Those values might came from dead slots in stack which
+               ;; were overwritten by gc. See `scm_i_vm_mark_stack' in
+               ;; "libguile/vm.c".
+               ;;
+               ;; XXX: Add tests to check that this strategy works with
+               ;; explicitly given `unspecified' values.
+               ;;
+               (let lp ((vars (reverse (ir-vars ir))))
+                 (match vars
+                   (((n . var) . vars)
+                    (if (skip-var? var)
+                        (lp vars)
+                        (cond
+                         ((< min-local-index  n max-local-index)
+                          (let* ((i (- n sp-offset))
+                                 (e (outline-type-ref (ir-outline ir) n))
+                                 (t (se-type i e)))
+                            (if (eq? t &unspecified)
+                                (lp vars)
+                                (with-frame-ref vars var t n lp))))
+                         (else
+                          (lp vars)))))
+                   (()
+                    (load-down-frame)))))))
        (lambda ()
          (set-ir-return-subr! ir #f)
-
-         ;; Ignoring `unspecified' values when loading from previous
-         ;; frame. Those values might came from dead slots in stack
-         ;; which were overwritten by gc. See `scm_i_vm_mark_stack' in
-         ;; "libguile/vm.c".
-         ;;
-         ;; XXX: Add tests to check that this strategy works with
-         ;; explicitly given `unspecified' values.
-         ;;
          (if (or (<= (current-fp-offset) 0)
                  return-subr?)
              (next)
-             (let lp ((vars (reverse (ir-vars ir))))
-               (match vars
-                 (((n . var) . vars)
-                  (if (skip-var? var)
-                      (lp vars)
-                      (cond
-                       ((< min-local-index n max-local-index)
-                        (debug 1 ";;; [grt] loading (~s . ~s)~%" n var)
-                        (let* ((i (- n sp-offset))
-                               (e (outline-type-ref (ir-outline ir) n))
-                               (t (se-type i e)))
-                          (if (eq? t &unspecified)
-                              (lp vars)
-                              (with-frame-ref vars var (if guard? t #f) n lp))))
-                       (else
-                        (lp vars)))))
-                 (()
-                  (thunk))))))))))
+             (load-up-frame)))))))
 
 (define-syntax-rule (with-frame-ref args var type idx next)
   (cond
