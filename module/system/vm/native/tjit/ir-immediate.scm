@@ -29,7 +29,9 @@
   #:use-module (system foreign)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
 (define-ir (make-short-immediate (scm! dst) (const low-bits))

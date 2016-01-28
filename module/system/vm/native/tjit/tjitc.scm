@@ -43,6 +43,7 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)

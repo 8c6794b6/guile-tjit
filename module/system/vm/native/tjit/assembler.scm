@@ -38,6 +38,7 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export (*native-prim-procedures*
             *native-prim-types*

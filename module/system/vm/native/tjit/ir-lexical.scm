@@ -30,7 +30,9 @@
   #:use-module (system vm program)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
 ;; XXX: Assuming both `dst' and `src' have `scm' stack element type. If not,

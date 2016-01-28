@@ -55,11 +55,13 @@
   #:use-module (system vm native tjit ir-pair)
   #:use-module (system vm native tjit ir-prologue)
   #:use-module (system vm native tjit ir-specialized)
+  #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit scan)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
+  #:use-module (system vm native tjit types)
   #:export (compile-ir))
 
 

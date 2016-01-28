@@ -34,7 +34,9 @@
   #:use-module (system vm program)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
+  #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export (make-ir
             <ir>

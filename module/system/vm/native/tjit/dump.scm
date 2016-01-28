@@ -39,6 +39,7 @@
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:use-module (system vm vm)
   #:export (addr->source-line

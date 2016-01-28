@@ -29,6 +29,8 @@
   #:use-module (ice-9 match)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit snapshot)
   #:export (scan-locals))
 
