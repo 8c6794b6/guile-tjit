@@ -488,8 +488,8 @@
    ((eq? type &pair) (yellow "pair"))
    ((eq? type &vector) (yellow "vect"))
    ((eq? type &box) (yellow "box"))
-   ((eq? type &struct) (yellow "strc"))
-   ((eq? type &string) (yellow "strn"))
+   ((eq? type &struct) (yellow "stru"))
+   ((eq? type &string) (yellow "stri"))
    ((eq? type &bytevector) (yellow "bytv"))
    ((eq? type &bitvector) (yellow "bitv"))
    ((eq? type &array) (yellow "arry"))
@@ -575,6 +575,7 @@
     (debug 1 ";;; [ms] id:~s sp:~s fp:~s nlocals:~s~%"
            id sp-offset fp-offset nlocals)
     (debug 1 ";;;      write-indices:~s~%" write-indices)
+    (debug 1 ";;;      read-indices: ~s~%" (outline-read-indices outline))
     (debug 1 ";;;      locals:~a~%"
            (let lp ((i (- (vector-length locals) 1)) (acc '()))
              (if (< i 0)

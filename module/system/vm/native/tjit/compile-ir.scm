@@ -131,9 +131,12 @@
         (let-values (((ret snapshot)
                       (take-snapshot initial-ip 0 initial-locals
                                      vars-from-parent
-                                     (if parent-snapshot
-                                         (map car (snapshot-locals parent-snapshot))
-                                         (outline-write-indices (tj-outline tj)))
+                                     (if (and parent-snapshot
+                                              (not (tj-loop? tj)))
+                                         (map car
+                                              (snapshot-locals parent-snapshot))
+                                         (outline-write-indices
+                                          (tj-outline tj)))
                                      snapshot-id
                                      initial-sp-offset initial-fp-offset
                                      lowest-offset
@@ -220,7 +223,14 @@
                    (lp vars))
                   (else
                    (let* ((type (or (assq-ref (snapshot-locals snapshot0) n)
-                                    (type-from-runtime i))))
+                                    (type-from-runtime i)))
+                          (type (if (and parent-snapshot
+                                         (tj-loop? tj)
+                                         (let ((j (+ n initial-sp-offset)))
+                                           (eq? (type-from-parent j)
+                                                (type-from-snapshot j))))
+                                    #f
+                                    type)))
                      (debug 3 ";;;   type: ~a~%" (pretty-type type))
                      (when loaded-vars
                        (hashq-set! loaded-vars n type))

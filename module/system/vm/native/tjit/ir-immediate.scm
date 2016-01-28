@@ -51,9 +51,13 @@
      ,(next)))
 
 (define-ir (static-ref (scm! dst) (const offset))
-  ;; XXX: Needs type check?
-  `(let ((,(var-ref dst) ,(dereference-scm (+ ip (* 4 offset)))))
-     ,(next)))
+  (let ((src/l (dereference-scm (+ ip (* 4 offset)))))
+    `(let ((,(var-ref dst)
+            ;; XXX: Needs more type check.
+            ,(cond
+              ((flonum? src/l) src/l)
+              (else (pointer-address (scm->pointer src/l))))))
+       ,(next))))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!

@@ -32,8 +32,7 @@
 
 ;; Using dedicated IR for `cons'. Uses C function `scm_inline_cons', which
 ;; expects current thread as first argument. The value of current thread is not
-;; stored in frame but in non-volatile register, and currently there is no way
-;; to tell the register value as a variable from IR to assembler.
+;; stored in frame but in non-volatile register.
 (define-interrupt-ir (cons (scm! dst) (scm x) (scm y))
   (let* ((vdst (var-ref dst))
          (vx (var-ref x))
