@@ -293,6 +293,24 @@
                                   (if f2 (ash 1 1) 0))))))
 
 
+(define-syntax-rule (define-byte-order-swapper name size ref set)
+  (define* (name buf #:optional (start 0) (end (bytevector-length buf)))
+    "Patch up the text buffer @var{buf}, swapping the endianness of each
+N-byte unit."
+    (unless (zero? (modulo (- end start) size))
+      (error "unexpected length"))
+    (let lp ((pos start))
+      (when (< pos end)
+        (set buf pos (ref buf pos (endianness big)) (endianness little))
+        (lp (+ pos size))))))
+
+(define-byte-order-swapper byte-swap/2!
+  2 bytevector-u16-ref bytevector-u16-set!)
+(define-byte-order-swapper byte-swap/4!
+  4 bytevector-u32-ref bytevector-u32-set!)
+(define-byte-order-swapper byte-swap/8!
+  8 bytevector-u64-ref bytevector-u64-set!)
+
 
 
 ;;; A <meta> entry collects metadata for one procedure.  Procedures are
@@ -1516,10 +1534,13 @@ should be .data or .rodata), and return the resulting linker object.
        ((uniform-vector-backing-store? obj)
         (let ((bv (uniform-vector-backing-store-bytes obj)))
           (bytevector-copy! bv 0 buf pos (bytevector-length bv))
-          (unless (or (= 1 (uniform-vector-backing-store-element-size obj))
-                      (eq? endianness (native-endianness)))
-            ;; Need to swap units of element-size bytes
-            (error "FIXME: Implement byte order swap"))))
+          (unless (eq? endianness (native-endianness))
+            (case (uniform-vector-backing-store-element-size obj)
+              ((1) #f) ;; Nothing to do.
+              ((2) (byte-swap/2! buf pos (+ pos (bytevector-length bv))))
+              ((4) (byte-swap/4! buf pos (+ pos (bytevector-length bv))))
+              ((8) (byte-swap/8! buf pos (+ pos (bytevector-length bv))))
+              (else (error "FIXME: Implement byte order swap"))))))
 
        ((array? obj)
         (let-values
@@ -1647,27 +1668,13 @@ The offsets are expected to be expressed in words."
                     (make-linker-symbol label loc))
                   labels))
 
-(define (swap-bytes! buf)
-  "Patch up the text buffer @var{buf}, swapping the endianness of each
-32-bit unit."
-  (unless (zero? (modulo (bytevector-length buf) 4))
-    (error "unexpected length"))
-  (let ((byte-len (bytevector-length buf)))
-    (let lp ((pos 0))
-      (unless (= pos byte-len)
-        (bytevector-u32-set!
-         buf pos
-         (bytevector-u32-ref buf pos (endianness big))
-         (endianness little))
-        (lp (+ pos 4))))))
-
 (define (link-text-object asm)
   "Link the .rtl-text section, swapping the endianness of the bytes if
 needed."
   (let ((buf (make-bytevector (asm-pos asm))))
     (bytevector-copy! (asm-buf asm) 0 buf 0 (bytevector-length buf))
     (unless (eq? (asm-endianness asm) (native-endianness))
-      (swap-bytes! buf))
+      (byte-swap/4! buf))
     (make-object asm '.rtl-text
                  buf
                  (process-relocs buf (asm-relocs asm)
