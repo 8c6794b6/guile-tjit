@@ -919,9 +919,32 @@ lists.  This procedure can be called many times before calling
 ;;; to the table.
 ;;;
 
-(define-inline (immediate? x)
-  "Return @code{#t} if @var{x} is immediate, and @code{#f} otherwise."
-  (not (zero? (logand (object-address x) 6))))
+(define tc2-int 2)
+(define (immediate-bits asm x)
+  "Return the bit pattern to write into the buffer if @var{x} is
+immediate, and @code{#f} otherwise."
+  (let* ((bits (object-address x))
+         (mask (case (asm-word-size asm)
+                 ((4) #xffffffff)
+                 ((8) #xffffffffFFFFFFFF)
+                 (else (error "unexpected word size"))))
+         (fixnum-min (1- (ash mask -3)))
+         (fixnum-max (ash mask -3)))
+    (cond
+     ((not (zero? (logand bits 6)))
+      ;; Object is an immediate on the host.  It's immediate if it can
+      ;; fit into a word on the target.
+      (and (= bits (logand bits mask))
+           bits))
+     ((and (exact-integer? x) (<= fixnum-min x fixnum-max))
+      ;; Object is a bignum that would be an immediate on the target.
+      (let ((fixnum-bits (if (negative? x)
+                             (+ fixnum-max 1 (logand x fixnum-max))
+                             x)))
+        (logior (ash x 2) tc2-int)))
+     (else
+      ;; Otherwise not an immediate.
+      #f))))
 
 (define-record-type <stringbuf>
   (make-stringbuf string)
@@ -1025,7 +1048,7 @@ table, its existing label is used directly."
      (else
       (error "don't know how to intern" obj))))
   (cond
-   ((immediate? obj) #f)
+   ((immediate-bits asm obj) #f)
    ((vhash-assoc obj (asm-constants asm)) => cdr)
    (else
     ;; Note that calling intern may mutate asm-constants and asm-inits.
@@ -1038,7 +1061,7 @@ table, its existing label is used directly."
 (define (intern-non-immediate asm obj)
   "Intern a non-immediate into the constant table, and return its
 label."
-  (when (immediate? obj)
+  (when (immediate-bits asm obj)
     (error "expected a non-immediate" obj))
   (intern-constant asm obj))
 
@@ -1076,15 +1099,15 @@ returned instead."
 
 (define-macro-assembler (load-constant asm dst obj)
   (cond
-   ((immediate? obj)
-    (let ((bits (object-address obj)))
-      (cond
-       ((and (< dst 256) (zero? (ash bits -16)))
-        (emit-make-short-immediate asm dst obj))
-       ((zero? (ash bits -32))
-        (emit-make-long-immediate asm dst obj))
-       (else
-        (emit-make-long-long-immediate asm dst obj)))))
+   ((immediate-bits asm obj)
+    => (lambda (bits)
+         (cond
+          ((and (< dst 256) (zero? (ash bits -16)))
+           (emit-make-short-immediate asm dst obj))
+          ((zero? (ash bits -32))
+           (emit-make-long-immediate asm dst obj))
+          (else
+           (emit-make-long-long-immediate asm dst obj)))))
    ((statically-allocatable? obj)
     (emit-make-non-immediate asm dst (intern-non-immediate asm obj)))
    (else
@@ -1290,13 +1313,15 @@ corresponding linker symbol for the start of the section."
 ;;; residualizes instructions to initialize constants at load time.
 ;;;
 
-(define (write-immediate asm buf pos x)
-  (let ((val (object-address x))
-        (endianness (asm-endianness asm)))
+(define (write-immediate asm buf pos bits)
+  (let ((endianness (asm-endianness asm)))
     (case (asm-word-size asm)
-      ((4) (bytevector-u32-set! buf pos val endianness))
-      ((8) (bytevector-u64-set! buf pos val endianness))
+      ((4) (bytevector-u32-set! buf pos bits endianness))
+      ((8) (bytevector-u64-set! buf pos bits endianness))
       (else (error "bad word size" asm)))))
+
+(define (write-placeholder asm buf pos)
+  (write-immediate asm buf pos (immediate-bits asm #f)))
 
 (define (emit-init-constants asm)
   "If there is writable data that needs initialization at runtime, emit
@@ -1365,8 +1390,12 @@ should be .data or .rodata), and return the resulting linker object.
         word-size)))
 
     (define (write-constant-reference buf pos x)
-      ;; The asm-inits will fix up any reference to a non-immediate.
-      (write-immediate asm buf pos (if (immediate? x) x #f)))
+      (let ((bits (immediate-bits asm x)))
+        (if bits
+            (write-immediate asm buf pos bits)
+            ;; The asm-inits will fix up any reference to a
+            ;; non-immediate.
+            (write-placeholder asm buf pos))))
 
     (define (write buf pos obj)
       (cond
@@ -1414,19 +1443,19 @@ should be .data or .rodata), and return the resulting linker object.
           (else (error "bad word size"))))
 
        ((cache-cell? obj)
-        (write-immediate asm buf pos #f))
+        (write-placeholder asm buf pos))
 
        ((string? obj)
         (let ((tag (logior tc7-ro-string (ash (string-length obj) 8)))) ; FIXME: unused?
           (case word-size
             ((4)
              (bytevector-u32-set! buf pos tc7-ro-string endianness)
-             (write-immediate asm buf (+ pos 4) #f) ; stringbuf
+             (write-placeholder asm buf (+ pos 4)) ; stringbuf
              (bytevector-u32-set! buf (+ pos 8) 0 endianness)
              (bytevector-u32-set! buf (+ pos 12) (string-length obj) endianness))
             ((8)
              (bytevector-u64-set! buf pos tc7-ro-string endianness)
-             (write-immediate asm buf (+ pos 8) #f) ; stringbuf
+             (write-placeholder asm buf (+ pos 8)) ; stringbuf
              (bytevector-u64-set! buf (+ pos 16) 0 endianness)
              (bytevector-u64-set! buf (+ pos 24) (string-length obj) endianness))
             (else (error "bad word size")))))
@@ -1450,13 +1479,13 @@ should be .data or .rodata), and return the resulting linker object.
                 (lp (1+ i)))))))
 
        ((symbol? obj)
-        (write-immediate asm buf pos #f))
+        (write-placeholder asm buf pos))
 
        ((keyword? obj)
-        (write-immediate asm buf pos #f))
+        (write-placeholder asm buf pos))
 
        ((number? obj)
-        (write-immediate asm buf pos #f))
+        (write-placeholder asm buf pos))
 
        ((simple-uniform-vector? obj)
         (let ((tag (if (bitvector? obj)
@@ -1472,7 +1501,7 @@ should be .data or .rodata), and return the resulting linker object.
                                       (bytevector-length obj))
                                   endianness)                 ; length
              (bytevector-u32-set! buf (+ pos 8) 0 endianness) ; pointer
-             (write-immediate asm buf (+ pos 12) #f))         ; owner
+             (write-placeholder asm buf (+ pos 12)))          ; owner
             ((8)
              (bytevector-u64-set! buf pos tag endianness)
              (bytevector-u64-set! buf (+ pos 8)
@@ -1481,7 +1510,7 @@ should be .data or .rodata), and return the resulting linker object.
                                       (bytevector-length obj))
                                   endianness)                  ; length
              (bytevector-u64-set! buf (+ pos 16) 0 endianness) ; pointer
-             (write-immediate asm buf (+ pos 24) #f))          ; owner
+             (write-placeholder asm buf (+ pos 24)))           ; owner
             (else (error "bad word size")))))
 
        ((uniform-vector-backing-store? obj)
@@ -1502,7 +1531,7 @@ should be .data or .rodata), and return the resulting linker object.
                 ((8) (values bytevector-u64-set! bytevector-s64-set!))
                 (else (error "bad word size")))))
           (bv-set! buf pos tag endianness)
-          (write-immediate asm buf (+ pos word-size) #f) ; root vector (fixed later)
+          (write-placeholder asm buf (+ pos word-size))      ; root vector (fixed later)
           (bv-set! buf (+ pos (* word-size 2)) 0 endianness) ; base
           (let lp ((pos (+ pos (* word-size 3)))
                    (bounds (array-shape obj))
@@ -1548,11 +1577,11 @@ these may be @code{#f}."
     (cond
      ((stringbuf? x) #t)
      ((pair? x)
-      (and (immediate? (car x)) (immediate? (cdr x))))
+      (and (immediate-bits asm (car x)) (immediate-bits asm (cdr x))))
      ((simple-vector? x)
       (let lp ((i 0))
         (or (= i (vector-length x))
-            (and (immediate? (vector-ref x i))
+            (and (immediate-bits asm (vector-ref x i))
                  (lp (1+ i))))))
      ((uniform-vector-backing-store? x) #t)
      (else #f)))
