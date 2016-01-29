@@ -866,7 +866,10 @@ was constant. And, uses OP-RR when both arguments were register or memory."
            (syntax-rules ()
              ((_)
               (tjitc-error 'unbox-stack-element "~a ~a ~s"
-                           (physical-name dst) (pretty-type type)
+                           (if (or (fpr? dst) (gpr? dst))
+                               (physical-name dst)
+                               dst)
+                           (pretty-type type)
                            guard?))))
           (maybe-guard
            (syntax-rules ()
@@ -943,7 +946,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((eq? type &false) (load-constant *scm-false*))
         ((eq? type &true) (load-constant *scm-true*))
         ((eq? type &nil) (load-constant *scm-nil*))
-        ((eq? type &null) (load-constant *scm-null*))
+        ((eq? type &null) (move-stack-element))
         ((eq? type &symbol) (load-tc7 %tc7-symbol))
         ((eq? type &keyword) (load-tc7 %tc7-keyword))
         ((eq? type &procedure) (load-tc7 %tc7-program))

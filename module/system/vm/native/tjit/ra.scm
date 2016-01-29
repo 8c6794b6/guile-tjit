@@ -259,12 +259,6 @@
     (let ((plist (reverse! (assign-term term '()))))
       (values plist snapshot-id))))
 
-(define (copy-hash-table src)
-  (let ((dst (make-hash-table)))
-    (hash-for-each (lambda (k v)
-                     (hashq-set! dst k v))
-                   src)
-    dst))
 
 ;;;
 ;;; IR to list of primitive operations

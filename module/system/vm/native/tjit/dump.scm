@@ -105,7 +105,7 @@ option was set to true."
                      "(unknown file)"))
                (source-line-for-user source))))
    (else
-    (cons "(invalid IP)" #f))))
+    (cons "(unknown source)" #f))))
 
 (define (dump-bytecode trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
