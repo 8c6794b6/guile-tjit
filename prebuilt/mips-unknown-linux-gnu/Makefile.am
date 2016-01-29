@@ -23,3 +23,5 @@ GUILE_TARGET = $(shell basename $(subdir))
 GUILE_BUILD_TAG = PREBUILD $(GUILE_TARGET)
 
 include $(top_srcdir)/am/bootstrap.am
+
+EXTRA_DIST = $(GOBJECTS)
