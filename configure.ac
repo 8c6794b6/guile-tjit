@@ -1645,7 +1645,12 @@ AC_CONFIG_FILES([
   meta/Makefile
   bootstrap/Makefile
   module/Makefile
+  prebuilt/Makefile
+  prebuilt/x86_64-unknown-linux-gnu/Makefile
+  prebuilt/i686-pc-linux-gnu/Makefile
+  prebuilt/mips-unknown-linux-gnu/Makefile
 ])
+
 
 GUILE_CONFIG_SCRIPT([check-guile])
 GUILE_CONFIG_SCRIPT([benchmark-guile])

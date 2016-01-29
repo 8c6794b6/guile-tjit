@@ -41,6 +41,8 @@ SUBDIRS =					\
 	am					\
 	doc
 
+DIST_SUBDIRS = $(SUBDIRS) prebuilt
+
 libguileincludedir = $(pkgincludedir)/$(GUILE_EFFECTIVE_VERSION)
 libguileinclude_HEADERS = libguile.h
 
