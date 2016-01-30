@@ -20,13 +20,13 @@
 
 ;;; Commentary:
 ;;;
-;;; Compile list of bytecode operations to intermediate representation (IR) in
-;;; (almost) A-normal form (ANF).
+;;; Compile list of bytecode operations to intermediate representation in almost
+;;; A-normal form, (ANF).
 ;;;
 ;;; One of the main reasons to convert bytecode to ANF is to do floating point
 ;;; arithmetic efficiently. VM bytecodes uses integer index to refer 'scm stack
 ;;; items, and those locals are not distinguished from floating point values
-;;; from other. In ANF format, it is possible to perform floating point
+;;; from others. In ANF format, it is possible to perform floating point
 ;;; arithmetic directly with unboxed value in floating point register inside
 ;;; loop.
 ;;;
@@ -87,228 +87,220 @@
          (root-trace? (not parent-snapshot))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
+         (initial-trace (car trace))
+         (initial-ip (cadr initial-trace))
+         (initial-locals (list-ref initial-trace 4))
+         (initial-nlocals (vector-length initial-locals))
          (local-indices (outline-local-indices (tj-outline tj)))
          (vars (make-vars local-indices))
          (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
-         (snapshot-id (if root-trace? 1 0)))
-    (define (make-vars-from-parent vars live-vars)
-      (let lp ((vars vars) (acc '()))
-        (match vars
-          (((n . var) . vars)
-           (if (memq var live-vars)
-               (lp vars (cons (cons n var) acc))
-               (lp vars acc)))
-          (()
-           (reverse! acc)))))
-    (let* ((args (map make-var (reverse local-indices)))
-           (initial-trace (car trace))
-           (initial-ip (cadr initial-trace))
-           (initial-locals (list-ref initial-trace 4))
-           (initial-nlocals (vector-length initial-locals))
-           (parent-snapshot-locals (match parent-snapshot
-                                     (($ $snapshot _ _ _ _ locals) locals)
-                                     (_ #f)))
-           (parent-snapshot-vars
-            (or (and=> parent-snapshot snapshot-variables) '()))
-           (vars-in-parent-snapshot
-            (or (and=> (tj-parent-fragment tj)
-                       (lambda (fragment)
-                         (hash-fold (lambda (k v acc)
-                                      (if (memq v parent-snapshot-vars)
-                                          (cons k acc)
-                                          acc))
-                                    '()
-                                    (fragment-env fragment))))
-                '()))
-           (parent-snapshot-read-indices
-            (or (and=> parent-snapshot snapshot-read-indices) '()))
-           (live-vars-in-parent
-            (append! vars-in-parent-snapshot
-                     (map make-var parent-snapshot-read-indices)))
-           (vars-from-parent (make-vars-from-parent vars live-vars-in-parent))
-           (args-from-parent (reverse (map cdr vars-from-parent)))
-           (local-indices-from-parent (map car vars-from-parent)))
-      (define (take-initial-snapshot!)
-        (let-values (((ret snapshot)
-                      (take-snapshot initial-ip 0 initial-locals
-                                     vars-from-parent
-                                     (if (and parent-snapshot
-                                              (not (tj-loop? tj)))
-                                         (map car
-                                              (snapshot-locals parent-snapshot))
-                                         (outline-write-indices
-                                          (tj-outline tj)))
-                                     snapshot-id
-                                     initial-sp-offset initial-fp-offset
-                                     lowest-offset
-                                     (get-max-sp-offset initial-sp-offset
-                                                        initial-fp-offset
-                                                        initial-nlocals)
-                                     parent-snapshot (tj-outline tj))))
-          (hashq-set! snapshots snapshot-id snapshot)
-          (set! snapshot-id (+ snapshot-id 1))
-          ret))
-      (define* (add-initial-loads exp-body #:optional (loaded-vars #f))
-        (debug 3 ";;; add-initial-loads:~%")
-        (debug 3 ";;;   initial-locals=~a~%"
-               (let lp ((copy (vector-copy initial-locals))
-                        (i (- (vector-length initial-locals) 1)))
-                 (if (< i 0)
-                     copy
-                     (let ((addr (pointer-address (vector-ref copy i))))
-                       (vector-set! copy i (format #f "#x~x" addr))
-                       (lp copy (- i 1))))))
-        (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
-        (debug 3 ";;;   initial-types=~a~%" (tj-initial-types tj))
-        (debug 3 ";;;   locals0=~a~%"
-               (sort (snapshot-locals (hashq-ref snapshots 0))
-                     (lambda (a b) (< (car a) (car b)))))
-        (let ((snapshot0 (hashq-ref snapshots 0)))
-          (define (type-from-snapshot n)
-            (assq-ref (snapshot-locals snapshot0) n))
-          (define (type-from-runtime i)
-            (let ((type (outline-type-ref (tj-outline tj)
-                                          (+ i initial-sp-offset))))
-              (cond
-               ((eq? type 'f64) &f64)
-               ((eq? type 'u64) &u64)
-               ((eq? type 's64) &s64)
-               ((eq? type 'scm) (type-of (stack-element initial-locals i type)))
-               (else (tjitc-error 'type-from-runtime "~s ~s" i type)))))
-          (define (type-from-parent n)
-            (assq-ref parent-snapshot-locals n))
-          (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
-          (let lp ((vars (if parent-snapshot
-                             (make-vars (outline-read-indices (tj-outline tj)))
-                             (reverse vars))))
+         (snapshot-id (if root-trace? 1 0))
+         (args (map make-var (reverse local-indices)))
+         (parent-snapshot-locals (match parent-snapshot
+                                   (($ $snapshot _ _ _ _ locals) locals)
+                                   (_ #f)))
+         (parent-snapshot-vars
+          (or (and=> parent-snapshot snapshot-variables) '()))
+         (vars-in-parent-snapshot
+          (or (and=> (tj-parent-fragment tj)
+                     (lambda (fragment)
+                       (hash-fold (lambda (k v acc)
+                                    (if (memq v parent-snapshot-vars)
+                                        (cons k acc)
+                                        acc))
+                                  '()
+                                  (fragment-env fragment))))
+              '()))
+         (parent-snapshot-read-indices
+          (or (and=> parent-snapshot snapshot-read-indices) '()))
+         (live-vars-in-parent
+          (append! vars-in-parent-snapshot
+                   (map make-var parent-snapshot-read-indices)))
+         (vars-from-parent
+          (let lp ((vars vars) (acc '()))
             (match vars
               (((n . var) . vars)
-               (let ((j (+ n initial-sp-offset))
-                     (i (- n (snapshot-sp-offset snapshot0))))
-                 (cond
-                  ;; When local was passed from parent and snapshot 0 contained
-                  ;; the local with same type, no need to load from frame. If
-                  ;; type does not match, the value passed from parent has
-                  ;; different was untagged with different type, reload from
-                  ;; frame.
-                  ;;
-                  ;; When locals index was found in parent snapshot locals and
-                  ;; not from snapshot 0 of this trace, the local will be passed
-                  ;; from parent fragment, ignoreing.
-                  ;;
-                  ;; If initial offset is positive and local index is negative,
-                  ;; locals from lower frame won't be passed as
-                  ;; argument. Loading later with '%fref' or '%fref/f'.
-                  ;;
-                  ((let ((parent-type (type-from-parent j))
-                         (snapshot-type (type-from-snapshot j)))
-                     (debug 3 ";;;   n + initial-sp-offset: ~a~%" j)
-                     (debug 3 ";;;   var: ~a~%" var)
-                     (debug 3 ";;;   parent: ~a~%" (pretty-type parent-type))
-                     (debug 3 ";;;   snap: ~a~%" (pretty-type snapshot-type))
-                     (or (< j 0)
-                         (not (<= 0 i (- (vector-length initial-locals) 1)))
-                         (and (not (tj-loop? tj))
-                              (or (and parent-type
-                                       snapshot-type
-                                       (eq? parent-type snapshot-type))
-                                  (and (not snapshot-type)
-                                       parent-type)
-                                  (or (dynamic-link? parent-type)
-                                      (return-address? parent-type))
-                                  (and (<= 0 initial-sp-offset)
-                                       (< n 0))
-                                  (not (memq n (outline-read-indices
-                                                (tj-outline tj))))
-                                  (memq var live-vars-in-parent)))))
-                   (lp vars))
-                  (else
-                   (let* ((type (or (assq-ref (snapshot-locals snapshot0) n)
-                                    (type-from-runtime i)))
-                          (type (if (and parent-snapshot
-                                         (tj-loop? tj)
-                                         (let ((j (+ n initial-sp-offset)))
-                                           (eq? (type-from-parent j)
-                                                (type-from-snapshot j))))
-                                    #f
-                                    type)))
-                     (debug 3 ";;;   type: ~a~%" (pretty-type type))
-                     (when loaded-vars
-                       (hashq-set! loaded-vars n type))
-                     (with-frame-ref vars var type n lp))))))
+               (if (memq var live-vars-in-parent)
+                   (lp vars (cons (cons n var) acc))
+                   (lp vars acc)))
               (()
-               exp-body)))))
-      (define (make-anf)
-        (let ((emit
-               (lambda ()
-                 (let* ((initial-nlocals
-                         (snapshot-nlocals (hashq-ref snapshots 0)))
-                        (outline (tj-outline tj))
-                        (outline-sp-offset
-                         (vector-ref (outline-sp-offsets outline) 0))
-                        (outline-fp-offset
-                         (vector-ref (outline-fp-offsets outline) 0))
-                        (_ (set-outline-sp-offset! outline outline-sp-offset))
-                        (_ (set-outline-fp-offset! outline outline-fp-offset))
-                        (ir (make-ir snapshots
-                                     snapshot-id
-                                     (tj-parent-snapshot tj)
-                                     vars
-                                     (min initial-sp-offset 0)
-                                     (get-max-sp-offset initial-sp-offset
-                                                        initial-fp-offset
-                                                        initial-nlocals)
-                                     0 (tj-outline tj) #f #f (tj-loop? tj)))
-                        (anf (trace->anf tj ir trace))
-                        (interrupts? (ir-handle-interrupts? ir)))
+               (reverse! acc)))))
+         (args-from-parent (reverse (map cdr vars-from-parent)))
+         (local-indices-from-parent (map car vars-from-parent)))
+    (define (take-initial-snapshot!)
+      (let-values (((ret snapshot)
+                    (take-snapshot initial-ip 0 initial-locals
+                                   vars-from-parent
+                                   (if (and parent-snapshot
+                                            (not (tj-loop? tj)))
+                                       (map car
+                                            (snapshot-locals parent-snapshot))
+                                       (outline-write-indices (tj-outline tj)))
+                                   snapshot-id
+                                   initial-sp-offset initial-fp-offset
+                                   lowest-offset
+                                   (get-max-sp-offset initial-sp-offset
+                                                      initial-fp-offset
+                                                      initial-nlocals)
+                                   parent-snapshot (tj-outline tj))))
+        (hashq-set! snapshots snapshot-id snapshot)
+        (set! snapshot-id (+ snapshot-id 1))
+        ret))
+    (define* (add-initial-loads exp-body #:optional (loaded-vars #f))
+      (debug 3 ";;; add-initial-loads:~%")
+      (debug 3 ";;;   initial-locals=~a~%"
+             (let lp ((copy (vector-copy initial-locals))
+                      (i (- (vector-length initial-locals) 1)))
+               (if (< i 0)
+                   copy
+                   (let ((addr (pointer-address (vector-ref copy i))))
+                     (vector-set! copy i (format #f "#x~x" addr))
+                     (lp copy (- i 1))))))
+      (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
+      (debug 3 ";;;   initial-types=~a~%" (tj-initial-types tj))
+      (debug 3 ";;;   locals0=~a~%"
+             (sort (snapshot-locals (hashq-ref snapshots 0))
+                   (lambda (a b) (< (car a) (car b)))))
+      (let ((snapshot0 (hashq-ref snapshots 0)))
+        (define (type-from-snapshot n)
+          (assq-ref (snapshot-locals snapshot0) n))
+        (define (type-from-runtime i)
+          (let* ((offset (if (tj-linking-roots? tj)
+                             (tj-last-sp-offset tj)
+                             initial-sp-offset))
+                 (type (outline-type-ref (tj-outline tj) (+ i offset))))
+            (cond
+             ((eq? type 'f64) &f64)
+             ((eq? type 'u64) &u64)
+             ((eq? type 's64) &s64)
+             ((eq? type 'scm) (type-of (stack-element initial-locals i type)))
+             (else (tjitc-error 'type-from-runtime "~s ~s" i type)))))
+        (define (type-from-parent n)
+          (assq-ref parent-snapshot-locals n))
+        (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
+        (let lp ((vars (if parent-snapshot
+                           (make-vars (outline-read-indices (tj-outline tj)))
+                           (reverse vars))))
+          (match vars
+            (((n . var) . vars)
+             (let ((j (+ n initial-sp-offset))
+                   (i (- n (snapshot-sp-offset snapshot0))))
+               (cond
+                ;; When local was passed from parent and snapshot 0 contained
+                ;; the local with same type, no need to load from frame. If
+                ;; type does not match, the value passed from parent has
+                ;; different was untagged with different type, reload from
+                ;; frame.
+                ;;
+                ;; When locals index was found in parent snapshot locals and
+                ;; not from snapshot 0 of this trace, the local will be passed
+                ;; from parent fragment, ignoreing.
+                ;;
+                ;; If initial offset is positive and local index is negative,
+                ;; locals from lower frame won't be passed as
+                ;; argument. Loading later with '%fref' or '%fref/f'.
+                ;;
+                ((let ((parent-type (type-from-parent j))
+                       (snapshot-type (type-from-snapshot j)))
+                   (debug 3 ";;;   n + initial-sp-offset: ~a~%" j)
+                   (debug 3 ";;;   var: ~a~%" var)
+                   (debug 3 ";;;   parent: ~a~%" (pretty-type parent-type))
+                   (debug 3 ";;;   snap: ~a~%" (pretty-type snapshot-type))
+                   (or (< j 0)
+                       (not (<= 0 i (- (vector-length initial-locals) 1)))
+                       (and (not (tj-loop? tj))
+                            (or (and parent-type
+                                     snapshot-type
+                                     (eq? parent-type snapshot-type))
+                                (and (not snapshot-type)
+                                     parent-type)
+                                (or (dynamic-link? parent-type)
+                                    (return-address? parent-type))
+                                (and (<= 0 initial-sp-offset)
+                                     (< n 0))
+                                (not (memq n (outline-read-indices
+                                              (tj-outline tj))))
+                                (memq var live-vars-in-parent)))))
+                 (lp vars))
+                (else
+                 (let* ((type (or (assq-ref (snapshot-locals snapshot0) n)
+                                  (type-from-runtime i)))
+                        (type (if (and parent-snapshot
+                                       (tj-loop? tj)
+                                       (let ((j (+ n initial-sp-offset)))
+                                         (eq? (type-from-parent j)
+                                              (type-from-snapshot j))))
+                                  #f
+                                  type)))
+                   (debug 3 ";;;   type: ~a~%" (pretty-type type))
+                   (when loaded-vars
+                     (hashq-set! loaded-vars n type))
+                   (with-frame-ref vars var type n lp))))))
+            (()
+             exp-body)))))
+    (define (make-anf)
+      (let ((emit
+             (lambda ()
+               (let* ((initial-nlocals
+                       (snapshot-nlocals (hashq-ref snapshots 0)))
+                      (outline (tj-outline tj))
+                      (outline-sp-offset
+                       (vector-ref (outline-sp-offsets outline) 0))
+                      (outline-fp-offset
+                       (vector-ref (outline-fp-offsets outline) 0))
+                      (_ (set-outline-sp-offset! outline outline-sp-offset))
+                      (_ (set-outline-fp-offset! outline outline-fp-offset))
+                      (ir (make-ir snapshots snapshot-id vars
+                                   (min initial-sp-offset 0)
+                                   (get-max-sp-offset initial-sp-offset
+                                                      initial-fp-offset
+                                                      initial-nlocals)
+                                   0 #f tj)))
+                 (trace->anf tj ir trace)))))
+        (merge-outline-types! (tj-outline tj) (tj-initial-types tj))
+        (cond
+         (root-trace?
+          (let* ((arg-indices (filter (lambda (n)
+                                        (<= 0 n (- initial-nlocals 1)))
+                                      (reverse local-indices)))
+                 (snap0 (make-snapshot 0 0 0 initial-nlocals initial-locals
+                                       #f arg-indices (tj-outline tj)
+                                       initial-ip))
+                 (_ (hashq-set! snapshots 0 snap0))
+                 (vt (make-hash-table)))
+            `(letrec ((entry (lambda ()
+                               (let ((_ (%snap 0)))
+                                 ,(add-initial-loads `(loop ,@args) vt))))
+                      (loop (lambda ,args
+                              ,(let* ((locals (sort (hash-map->list cons vt)
+                                                    (lambda (a b)
+                                                      (< (car a) (car b)))))
+                                      (vars (map (lambda (l)
+                                                   (make-var (car l)))
+                                                 (reverse locals))))
+                                 (set-tj-loop-vars! tj vars)
+                                 (set-tj-loop-locals! tj locals)
+                                 (emit)))))
+               entry)))
+         ((tj-loop? tj)
+          (let ((args-from-vars (reverse! (map cdr vars)))
+                (snap (take-initial-snapshot!)))
+            `(letrec ((entry (lambda ,args-from-parent
+                               (let ((_ ,snap))
+                                 ,(add-initial-loads
+                                   `(loop ,@args-from-vars)))))
+                      (loop (lambda ,args-from-vars
+                              ,(emit))))
+               entry)))
+         (else
+          (let ((snap (take-initial-snapshot!)))
+            `(letrec ((patch (lambda ,args-from-parent
+                               (let ((_ ,snap))
+                                 ,(add-initial-loads (emit))))))
+               patch))))))
 
-                   (set-tj-handle-interrupts! tj interrupts?)
-                   anf))))
-          (merge-outline-types! (tj-outline tj) (tj-initial-types tj))
-          (cond
-           (root-trace?
-            (let* ((arg-indices (filter (lambda (n)
-                                          (<= 0 n (- initial-nlocals 1)))
-                                        (reverse local-indices)))
-                   (snap0 (make-snapshot 0 0 0
-                                         initial-nlocals initial-locals
-                                         #f arg-indices (tj-outline tj)
-                                         initial-ip))
-                   (_ (hashq-set! snapshots 0 snap0))
-                   (vt (make-hash-table)))
-              `(letrec ((entry (lambda ()
-                                 (let ((_ (%snap 0)))
-                                   ,(add-initial-loads `(loop ,@args) vt))))
-                        (loop (lambda ,args
-                                ,(let* ((locals (sort (hash-map->list cons vt)
-                                                      (lambda (a b)
-                                                        (< (car a) (car b)))))
-                                        (vars (map (lambda (l)
-                                                     (make-var (car l)))
-                                                   (reverse locals))))
-                                   (set-tj-loop-vars! tj vars)
-                                   (set-tj-loop-locals! tj locals)
-                                   (emit)))))
-                 entry)))
-           ((tj-loop? tj)
-            (let ((args-from-vars (reverse! (map cdr vars)))
-                  (snap (take-initial-snapshot!)))
-              `(letrec ((entry (lambda ,args-from-parent
-                                 (let ((_ ,snap))
-                                   ,(add-initial-loads
-                                     `(loop ,@args-from-vars)))))
-                        (loop (lambda ,args-from-vars
-                                ,(emit))))
-                 entry)))
-           (else
-            (let ((snap (take-initial-snapshot!)))
-              `(letrec ((patch (lambda ,args-from-parent
-                                 (let ((_ ,snap))
-                                   ,(add-initial-loads (emit))))))
-                 patch))))))
-
-      (values vars snapshots (make-anf)))))
+    (values vars snapshots (make-anf))))
 
 (define (trace->anf tj ir traces)
   (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
@@ -330,14 +322,10 @@
           ret)))
     (define (gen-last-op op ip locals)
       ;; Last operation is wrapped in a thunk, to assign snapshot ID in last
-      ;; expression after taking snapshots from guard operations defined in
-      ;; `ir-*' modules.
-      ;;
-      ;; Trace with loop will emit `loop', Scheme IR emitted in `make-anf'.
-      ;;
-      ;; Side traces and loop-less root traces are capturing variables with
-      ;; `take-snapshot!' at the end, to pass the register and local information
-      ;; to linked trace.
+      ;; expression after taking snapshots from various works defined in `ir-*'
+      ;; modules. Trace with loop will emit `loop'.  Side traces and loop-less
+      ;; root traces will capture variables with `take-snapshot!' at the end, to
+      ;; pass the register and local information to linked trace.
       ;;
       (cond
        ((tj-downrec? tj)

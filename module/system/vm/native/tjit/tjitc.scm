@@ -197,10 +197,26 @@
               (if (or (not parent-fragment) loop?)
                   initial-stack-item-types
                   (merge-types initial-stack-item-types parent-snapshot)))
+             (linking-roots?
+              (let ((parent-id
+                     ;; XXX: Need to chase grand parent id, grand grand
+                     ;; parent id, and so on until it reaches to root
+                     ;; trace, OR save the origin trace id in fragment
+                     ;; record type.
+                     (and parent-fragment
+                          (zero? (fragment-parent-id parent-fragment))
+                          (fragment-id parent-fragment)))
+                    (linked-id
+                     (and linked-ip
+                          (and=> (get-root-trace linked-ip)
+                                 fragment-id))))
+                (and parent-id linked-id
+                     (not (eq? parent-id linked-id)))))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f
-                          initial-stack-item-types last-sp-offset #f #f)))
+                          initial-stack-item-types last-sp-offset #f #f
+                          linking-roots?)))
         (let-values (((snapshots anf ops) (compile-ir tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
           (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))

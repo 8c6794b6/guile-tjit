@@ -399,8 +399,8 @@
             (debug 2 ";;; ir->primops: perhaps loop-less root trace~%")))
 
          (let-values (((patch-ops snapshot-idx)
-                       (assign-registers patch-body snapshots
-                                         env free-gprs free-fprs mem-idx
+                       (assign-registers patch-body snapshots env
+                                         free-gprs free-fprs mem-idx
                                          0)))
            (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
                   (sort-variables-in-env env))

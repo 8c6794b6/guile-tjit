@@ -36,20 +36,22 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export (make-ir
             <ir>
-            ir-snapshots set-ir-snapshots!
+            ir-snapshots
             ir-snapshot-id set-ir-snapshot-id!
-            ir-parent-snapshot
             ir-min-sp-offset set-ir-min-sp-offset!
             ir-max-sp-offset set-ir-max-sp-offset!
             ir-bytecode-index set-ir-bytecode-index!
             ir-vars
-            ir-outline
-            ir-handle-interrupts?
             ir-return-subr? set-ir-return-subr!
+            ir-tj
+            ir-parent-snapshot
+            ir-outline
+            ir-loop?
 
             define-ir
             define-interrupt-ir
@@ -81,19 +83,15 @@
 ;;;
 
 (define-record-type <ir>
-  (make-ir snapshots snapshot-id parent-snapshot vars
-           min-sp-offset max-sp-offset bytecode-index
-           outline handle-interrupts? return-subr? loop?)
+  (make-ir snapshots snapshot-id vars min-sp-offset max-sp-offset
+           bytecode-index return-subr? tj)
   ir?
 
   ;; Hash table containing snapshots.
-  (snapshots ir-snapshots set-ir-snapshots!)
+  (snapshots ir-snapshots)
 
   ;; Current snapshot ID.
   (snapshot-id ir-snapshot-id set-ir-snapshot-id!)
-
-  ;; Snapshot from parent trace, if any.
-  (parent-snapshot ir-parent-snapshot)
 
   ;; List of symbols for variables.
   (vars ir-vars)
@@ -107,18 +105,20 @@
   ;; Current bytecode index.
   (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
 
-  ;; Past frame.
-  (outline ir-outline)
-
-  ;; Flag for handle interrupts
-  (handle-interrupts? ir-handle-interrupts? set-ir-handle-interrupts!)
-
   ;; Flag for subr call.
   (return-subr? ir-return-subr? set-ir-return-subr!)
 
-  ;; Flag for loop.
-  (loop? ir-loop?))
+  ;; Tjit state for this ir.
+  (tj ir-tj))
 
+(define (ir-parent-snapshot ir)
+  (tj-parent-snapshot (ir-tj ir)))
+
+(define (ir-outline ir)
+  (tj-outline (ir-tj ir)))
+
+(define (ir-loop? ir)
+  (tj-loop? (ir-tj ir)))
 
 (define (make-var index)
   (string->symbol (string-append "v" (number->string index))))
@@ -389,7 +389,7 @@ saves index referenced by dst and src values at runtime."
     ((_ names-and-args . body)
      (define-ir names-and-args
        (begin
-         (set-ir-handle-interrupts! ir #t)
+         (set-tj-handle-interrupts! (ir-tj ir) #t)
          . body)))))
 
 (define-syntax-rule (to-double scm)
@@ -443,7 +443,7 @@ saves index referenced by dst and src values at runtime."
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
    ((eq? type &flonum)
-    (set-ir-handle-interrupts! ir #t)
+    (set-tj-handle-interrupts! (ir-tj ir) #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    ;; XXX: Add more types.

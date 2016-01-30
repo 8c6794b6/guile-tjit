@@ -34,30 +34,20 @@
   #:export ($outline
             make-outline
             outline-locals
-            outline-local-indices
-            set-outline-local-indices!
+            outline-local-indices set-outline-local-indices!
             outline-local-ref
             outline-type-ref
-            outline-sp-offsets
-            set-outline-sp-offsets!
-            outline-fp-offsets
-            set-outline-fp-offsets!
-            outline-types
-            set-outline-types!
+            outline-sp-offsets set-outline-sp-offsets!
+            outline-fp-offsets set-outline-fp-offsets!
+            outline-types set-outline-types!
             outline-dls
             outline-ras
-            outline-sp-offset
-            set-outline-sp-offset!
-            outline-fp-offset
-            set-outline-fp-offset!
-            outline-ret-types
-            set-outline-ret-types!
-            outline-write-indices
-            set-outline-write-indices!
-            outline-read-indices
-            set-outline-read-indices!
-            outline-write-buf
-            set-outline-write-buf!
+            outline-sp-offset set-outline-sp-offset!
+            outline-fp-offset set-outline-fp-offset!
+            outline-ret-types set-outline-ret-types!
+            outline-write-indices set-outline-write-indices!
+            outline-read-indices set-outline-read-indices!
+            outline-write-buf set-outline-write-buf!
 
             pop-outline!
             push-outline!

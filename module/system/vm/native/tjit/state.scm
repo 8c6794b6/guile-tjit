@@ -39,20 +39,18 @@
             tj-loop?
             tj-downrec?
             tj-uprec?
-            tj-handle-interrupts?
-            set-tj-handle-interrupts!
+            tj-handle-interrupts? set-tj-handle-interrupts!
             tj-initial-types
             tj-last-sp-offset
-            tj-loop-locals
-            set-tj-loop-locals!
-            tj-loop-vars
-            set-tj-loop-vars!))
+            tj-loop-locals set-tj-loop-locals!
+            tj-loop-vars set-tj-loop-vars!
+            tj-linking-roots?))
 
 (define-record-type $tj
   (make-tj id entry-ip linked-ip
            parent-exit-id parent-fragment parent-snapshot outline
            loop? downrec? uprec? handle-interrupts? initial-types
-           last-sp-offset loop-locals loop-vars)
+           last-sp-offset loop-locals loop-vars linking-roots?)
   tj?
 
   ;; Trace ID of this compilation.
@@ -98,4 +96,8 @@
   (loop-locals tj-loop-locals set-tj-loop-locals!)
 
   ;; Loop vars for root trace.
-  (loop-vars tj-loop-vars set-tj-loop-vars!))
+  (loop-vars tj-loop-vars set-tj-loop-vars!)
+
+  ;; Flag to tell whether the parent trace origin is different from linked
+  ;; trace.
+  (linking-roots? tj-linking-roots?))

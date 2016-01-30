@@ -111,7 +111,7 @@
 
 (define (stack-element locals n type)
   (let ((elem (vector-ref locals n)))
-    (debug 1 ";;; stack-element ~s ~s => ~s~%" n type elem)
+    ;; (debug 1 ";;; stack-element ~s ~s => ~s~%" n type elem)
     (cond
      ((eq? 'u64 type)
       (pointer-address elem))
