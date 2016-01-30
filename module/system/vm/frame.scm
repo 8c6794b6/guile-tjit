@@ -33,12 +33,17 @@
             binding-slot
             binding-representation
 
+            frame-instruction-pointer-or-primitive-procedure-name
             frame-bindings
             frame-lookup-binding
             frame-binding-ref frame-binding-set!
             frame-call-representation
             frame-environment
             frame-object-binding frame-object-name))
+
+(eval-when (expand compile load eval)
+  (load-extension (string-append "libguile-" (effective-version))
+                  "scm_init_frames_builtins"))
 
 (define-record-type <binding>
   (make-binding idx name slot representation)
@@ -300,14 +305,18 @@
            (lp (cdr bindings))))))
 
 (define (frame-binding-set! frame var val)
-  (let ((binding (or (frame-lookup-binding frame var)
-                     (error "variable not bound in frame" var frame))))
+  (let ((binding (if (binding? var)
+                     var
+                     (or (frame-lookup-binding frame var)
+                         (error "variable not bound in frame" var frame)))))
     (frame-local-set! frame (binding-slot binding) val
                       (binding-representation binding))))
 
 (define (frame-binding-ref frame var)
-  (let ((binding (or (frame-lookup-binding frame var)
-                     (error "variable not bound in frame" var frame))))
+  (let ((binding (if (binding? var)
+                     var
+                     (or (frame-lookup-binding frame var)
+                         (error "variable not bound in frame" var frame)))))
     (frame-local-ref frame (binding-slot binding)
                      (binding-representation binding))))
 
@@ -340,6 +349,16 @@
 (define (frame-arguments frame)
   (cdr (frame-call-representation frame)))
 
+;; Usually the IP is sufficient to identify the procedure being called.
+;; However all primitive applications of the same arity share the same
+;; code.  Perhaps we should change that in the future, but for now we
+;; export this function to avoid having to export frame-local-ref.
+;;
+(define (frame-instruction-pointer-or-primitive-procedure-name frame)
+  (let ((ip (frame-instruction-pointer frame)))
+    (if (primitive-code? ip)
+        (procedure-name (frame-local-ref frame 0 'scm))
+        ip)))
 
 
 ;;;

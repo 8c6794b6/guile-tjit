@@ -115,8 +115,7 @@
       (format port "~aLocal variables:~%" per-line-prefix)
       (for-each
        (lambda (binding)
-         (let ((v (frame-local-ref frame (binding-slot binding)
-                                   (binding-representation binding))))
+         (let ((v (frame-binding-ref frame binding)))
            (display per-line-prefix port)
            (run-hook before-print-hook v)
            (format port "~a = ~v:@y\n" (binding-name binding) width v)))

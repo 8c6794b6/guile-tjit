@@ -162,10 +162,6 @@ SCM_API SCM scm_frame_procedure_name (SCM frame);
 SCM_API SCM scm_frame_call_representation (SCM frame);
 SCM_API SCM scm_frame_arguments (SCM frame);
 SCM_API SCM scm_frame_source (SCM frame);
-SCM_API SCM scm_frame_num_locals (SCM frame);
-SCM_API SCM scm_frame_local_ref (SCM frame, SCM index, SCM representation);
-SCM_API SCM scm_frame_local_set_x (SCM frame, SCM index, SCM val,
-                                   SCM representation);
 SCM_API SCM scm_frame_address (SCM frame);
 SCM_API SCM scm_frame_stack_pointer (SCM frame);
 SCM_API SCM scm_frame_instruction_pointer (SCM frame);

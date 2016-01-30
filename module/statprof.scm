@@ -329,13 +329,8 @@
       (set-buffer! state buffer)
       (set-buffer-pos! state (1+ pos)))
      (else
-      (let ((ip (frame-instruction-pointer frame)))
-        (write-sample-and-continue
-         (if (primitive-code? ip)
-             ;; Grovel and get the primitive name from the gsubr, which
-             ;; we know to be in slot 0.
-             (procedure-name (frame-local-ref frame 0 'scm))
-             ip)))))))
+      (write-sample-and-continue
+       (frame-instruction-pointer-or-primitive-procedure-name frame))))))
 
 (define (reset-sigprof-timer usecs)
   ;; Guile's setitimer binding is terrible.
@@ -382,10 +377,7 @@
       (accumulate-time state (get-internal-run-time))
 
       ;; We know local 0 is a SCM value: the c
-      (let* ((ip (frame-instruction-pointer frame))
-             (key (if (primitive-code? ip)
-                      (procedure-name (frame-local-ref frame 0 'scm))
-                      ip))
+      (let* ((key (frame-instruction-pointer-or-primitive-procedure-name frame))
              (handle (hashv-create-handle! (call-counts state) key 0)))
         (set-cdr! handle (1+ (cdr handle))))
 

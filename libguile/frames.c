@@ -222,9 +222,9 @@ SCM_DEFINE (scm_frame_source, "frame-source", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
-	    (SCM frame),
-	    "")
+static const char s_scm_frame_num_locals[] = "frame-num-locals";
+static SCM
+scm_frame_num_locals (SCM frame)
 #define FUNC_NAME s_scm_frame_num_locals
 {
   union scm_vm_stack_element *fp, *sp;
@@ -262,9 +262,9 @@ scm_to_stack_item_representation (SCM x, const char *subr, int pos)
   return 0;  /* Not reached.  */
 }
 
-SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 3, 0, 0,
-	    (SCM frame, SCM index, SCM representation),
-	    "")
+static const char s_scm_frame_local_ref[] = "frame-local-ref";
+static SCM
+scm_frame_local_ref (SCM frame, SCM index, SCM representation)
 #define FUNC_NAME s_scm_frame_local_ref
 {
   union scm_vm_stack_element *fp, *sp;
@@ -300,10 +300,9 @@ SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 3, 0, 0,
 }
 #undef FUNC_NAME
 
-/* Need same not-yet-active frame logic here as in frame-num-locals */
-SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 4, 0, 0,
-	    (SCM frame, SCM index, SCM val, SCM representation),
-	    "")
+static const char s_scm_frame_local_set_x[] = "frame-local-set!";
+static SCM
+scm_frame_local_set_x (SCM frame, SCM index, SCM val, SCM representation)
 #define FUNC_NAME s_scm_frame_local_set_x
 {
   union scm_vm_stack_element *fp, *sp;
@@ -449,12 +448,28 @@ SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
 #undef FUNC_NAME
 
 
+static void
+scm_init_frames_builtins (void *unused)
+{
+  scm_c_define_gsubr (s_scm_frame_num_locals, 1, 0, 0,
+                      (scm_t_subr) scm_frame_num_locals);
+  scm_c_define_gsubr (s_scm_frame_local_ref, 3, 0, 0,
+                      (scm_t_subr) scm_frame_local_ref);
+  scm_c_define_gsubr (s_scm_frame_local_set_x, 4, 0, 0,
+                      (scm_t_subr) scm_frame_local_set_x);
+}
+
 void
 scm_init_frames (void)
 {
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/frames.x"
 #endif
+
+  scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
+                            "scm_init_frames_builtins",
+                            scm_init_frames_builtins,
+                            NULL);
 }
 
 /*
