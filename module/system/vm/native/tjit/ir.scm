@@ -417,10 +417,7 @@ saves index referenced by dst and src values at runtime."
      (take-snapshot! ip dst-offset #f))
     ((_ ip dst-offset refill?)
      (let-values (((ret snapshot)
-                   (take-snapshot ip
-                                  dst-offset
-                                  locals
-                                  (ir-vars ir)
+                   (take-snapshot ip dst-offset locals (ir-vars ir)
                                   (if (and (ir-parent-snapshot ir)
                                            (not (ir-loop? ir)))
                                       (vector-ref
@@ -428,12 +425,9 @@ saves index referenced by dst and src values at runtime."
                                        (ir-bytecode-index ir))
                                       (outline-write-indices (ir-outline ir)))
                                   (ir-snapshot-id ir)
-                                  (current-sp-offset)
-                                  (current-fp-offset)
-                                  (ir-min-sp-offset ir)
-                                  (ir-max-sp-offset ir)
-                                  (ir-parent-snapshot ir)
-                                  (ir-outline ir)
+                                  (current-sp-offset) (current-fp-offset)
+                                  (ir-min-sp-offset ir) (ir-max-sp-offset ir)
+                                  (ir-parent-snapshot ir) (ir-outline ir)
                                   refill?)))
        (let ((old-id (ir-snapshot-id ir)))
          (hashq-set! (ir-snapshots ir) old-id snapshot)

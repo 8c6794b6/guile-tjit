@@ -82,8 +82,22 @@
     (let ((primops (anf->primops anf tj snapshot0 vars snapshots)))
       (values snapshots anf primops))))
 
+(define (get-live-vars-in-parent env snapshot)
+  (if (and env snapshot)
+      (let* ((parent-snapshot-vars
+              (or (and=> snapshot snapshot-variables) '()))
+             (parent-read-indices
+              (map make-var (snapshot-read-indices snapshot))))
+        (hash-fold (lambda (k v acc)
+                     (if (memq v parent-snapshot-vars)
+                         (cons k acc)
+                         acc))
+                   parent-read-indices env))
+      '()))
+
 (define (compile-anf tj trace)
   (let* ((parent-snapshot (tj-parent-snapshot tj))
+         (outline (tj-outline tj))
          (root-trace? (not parent-snapshot))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
@@ -91,59 +105,36 @@
          (initial-ip (cadr initial-trace))
          (initial-locals (list-ref initial-trace 4))
          (initial-nlocals (vector-length initial-locals))
-         (local-indices (outline-local-indices (tj-outline tj)))
+         (local-indices (outline-local-indices outline))
          (vars (make-vars local-indices))
-         (lowest-offset (min initial-sp-offset 0))
          (snapshots (make-hash-table))
          (snapshot-id (if root-trace? 1 0))
-         (args (map make-var (reverse local-indices)))
          (parent-snapshot-locals (match parent-snapshot
                                    (($ $snapshot _ _ _ _ locals) locals)
-                                   (_ #f)))
-         (parent-snapshot-vars
-          (or (and=> parent-snapshot snapshot-variables) '()))
-         (vars-in-parent-snapshot
-          (or (and=> (tj-parent-fragment tj)
-                     (lambda (fragment)
-                       (hash-fold (lambda (k v acc)
-                                    (if (memq v parent-snapshot-vars)
-                                        (cons k acc)
-                                        acc))
-                                  '()
-                                  (fragment-env fragment))))
-              '()))
-         (parent-snapshot-read-indices
-          (or (and=> parent-snapshot snapshot-read-indices) '()))
+                                   (_ '())))
          (live-vars-in-parent
-          (append! vars-in-parent-snapshot
-                   (map make-var parent-snapshot-read-indices)))
+          (get-live-vars-in-parent (and=> (tj-parent-fragment tj) fragment-env)
+                                   parent-snapshot))
          (vars-from-parent
-          (let lp ((vars vars) (acc '()))
-            (match vars
-              (((n . var) . vars)
-               (if (memq var live-vars-in-parent)
-                   (lp vars (cons (cons n var) acc))
-                   (lp vars acc)))
-              (()
-               (reverse! acc)))))
-         (args-from-parent (reverse (map cdr vars-from-parent)))
-         (local-indices-from-parent (map car vars-from-parent)))
-    (define (take-initial-snapshot!)
+          (filter (match-lambda
+                    ((_ . var) (memq var live-vars-in-parent)))
+                  vars))
+         (args-from-parent (reverse (map cdr vars-from-parent))))
+    (define (initial-snapshot!)
       (let-values (((ret snapshot)
                     (take-snapshot initial-ip 0 initial-locals
                                    vars-from-parent
                                    (if (and parent-snapshot
                                             (not (tj-loop? tj)))
-                                       (map car
-                                            (snapshot-locals parent-snapshot))
-                                       (outline-write-indices (tj-outline tj)))
+                                       (map car parent-snapshot-locals)
+                                       (outline-write-indices outline))
                                    snapshot-id
                                    initial-sp-offset initial-fp-offset
-                                   lowest-offset
+                                   (min initial-sp-offset 0)
                                    (get-max-sp-offset initial-sp-offset
                                                       initial-fp-offset
                                                       initial-nlocals)
-                                   parent-snapshot (tj-outline tj))))
+                                   parent-snapshot outline)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
@@ -162,14 +153,15 @@
       (debug 3 ";;;   locals0=~a~%"
              (sort (snapshot-locals (hashq-ref snapshots 0))
                    (lambda (a b) (< (car a) (car b)))))
-      (let ((snapshot0 (hashq-ref snapshots 0)))
+      (let* ((snapshot0 (hashq-ref snapshots 0))
+             (snapshot0-locals (snapshot-locals snapshot0)))
         (define (type-from-snapshot n)
-          (assq-ref (snapshot-locals snapshot0) n))
+          (assq-ref snapshot0-locals n))
         (define (type-from-runtime i)
           (let* ((offset (if (tj-linking-roots? tj)
                              (tj-last-sp-offset tj)
                              initial-sp-offset))
-                 (type (outline-type-ref (tj-outline tj) (+ i offset))))
+                 (type (outline-type-ref outline (+ i offset))))
             (cond
              ((eq? type 'f64) &f64)
              ((eq? type 'u64) &u64)
@@ -180,7 +172,7 @@
           (assq-ref parent-snapshot-locals n))
         (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
         (let lp ((vars (if parent-snapshot
-                           (make-vars (outline-read-indices (tj-outline tj)))
+                           (make-vars (outline-read-indices outline))
                            (reverse vars))))
           (match vars
             (((n . var) . vars)
@@ -219,12 +211,11 @@
                                     (return-address? parent-type))
                                 (and (<= 0 initial-sp-offset)
                                      (< n 0))
-                                (not (memq n (outline-read-indices
-                                              (tj-outline tj))))
+                                (not (memq n (outline-read-indices outline)))
                                 (memq var live-vars-in-parent)))))
                  (lp vars))
                 (else
-                 (let* ((type (or (assq-ref (snapshot-locals snapshot0) n)
+                 (let* ((type (or (assq-ref snapshot0-locals n)
                                   (type-from-runtime i)))
                         (type (if (and parent-snapshot
                                        (tj-loop? tj)
@@ -244,7 +235,6 @@
              (lambda ()
                (let* ((initial-nlocals
                        (snapshot-nlocals (hashq-ref snapshots 0)))
-                      (outline (tj-outline tj))
                       (outline-sp-offset
                        (vector-ref (outline-sp-offsets outline) 0))
                       (outline-fp-offset
@@ -258,15 +248,15 @@
                                                       initial-nlocals)
                                    0 #f tj)))
                  (trace->anf tj ir trace)))))
-        (merge-outline-types! (tj-outline tj) (tj-initial-types tj))
+        (merge-outline-types! outline (tj-initial-types tj))
         (cond
          (root-trace?
           (let* ((arg-indices (filter (lambda (n)
                                         (<= 0 n (- initial-nlocals 1)))
                                       (reverse local-indices)))
+                 (args (map make-var (reverse local-indices)))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals initial-locals
-                                       #f arg-indices (tj-outline tj)
-                                       initial-ip))
+                                       #f arg-indices outline initial-ip))
                  (_ (hashq-set! snapshots 0 snap0))
                  (vt (make-hash-table)))
             `(letrec ((entry (lambda ()
@@ -285,18 +275,18 @@
                entry)))
          ((tj-loop? tj)
           (let ((args-from-vars (reverse! (map cdr vars)))
-                (snap (take-initial-snapshot!)))
+                (snap0 (initial-snapshot!)))
             `(letrec ((entry (lambda ,args-from-parent
-                               (let ((_ ,snap))
+                               (let ((_ ,snap0))
                                  ,(add-initial-loads
                                    `(loop ,@args-from-vars)))))
                       (loop (lambda ,args-from-vars
                               ,(emit))))
                entry)))
          (else
-          (let ((snap (take-initial-snapshot!)))
+          (let ((snap0 (initial-snapshot!)))
             `(letrec ((patch (lambda ,args-from-parent
-                               (let ((_ ,snap))
+                               (let ((_ ,snap0))
                                  ,(add-initial-loads (emit))))))
                patch))))))
 
@@ -309,7 +299,7 @@
                                              (tj-outline tj)))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i))))
-    (define (take-entry-snapshot! ip locals sp-offset min-sp)
+    (define (entry-snapshot! ip locals sp-offset min-sp)
       (let-values (((ret snapshot)
                     (take-snapshot ip 0 locals (ir-vars ir)
                                    (outline-write-indices (ir-outline ir))
@@ -350,10 +340,9 @@
                            (let* ((i (- end proc n 1))
                                   (e (vector-ref locals i)))
                              (lp (+ n 1) end (cons e acc)))))))
-               `(let ((_ ,(take-entry-snapshot! *ip-key-downrec*
-                                                (dr-locals proc nlocals)
-                                                next-sp-offset
-                                                next-sp-offset)))
+               `(let ((_ ,(entry-snapshot! *ip-key-downrec*
+                                           (dr-locals proc nlocals)
+                                           next-sp-offset next-sp-offset)))
                   (loop ,@(reverse (map cdr (ir-vars ir))))))))
           (('call-label . _)
            ;; XXX: TODO.
@@ -365,9 +354,8 @@
           (('return-values n)
            (lambda ()
              (let* ((next-sp-offset last-sp-offset))
-               `(let ((_ ,(take-entry-snapshot! *ip-key-uprec* locals
-                                                next-sp-offset
-                                                (ir-min-sp-offset ir))))
+               `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals next-sp-offset
+                                           (ir-min-sp-offset ir))))
                   (loop ,@(reverse (map cdr (ir-vars ir))))))))
           (_
            (nyi "uprec with last op ~a" op))))
@@ -376,9 +364,8 @@
           `(loop ,@(reverse (map cdr (ir-vars ir))))))
        (else
         (lambda ()
-          `(let ((_ ,(take-entry-snapshot! *ip-key-link* locals
-                                           last-sp-offset
-                                           (ir-min-sp-offset ir))))
+          `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
+                                      (ir-min-sp-offset ir))))
              _)))))
     (define (convert-one ir op ip ra dl locals rest)
       (scan-locals (ir-outline ir) op #f dl locals #t #f)
