@@ -25,8 +25,11 @@
 ;;; Code:
 
 (define-module (system vm native tjit variables)
+  #:use-module (ice-9 format)
   #:use-module (language cps)
   #:use-module (system foreign)
+  #:use-module ((system base types) #:select (%word-size))
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit registers)
   #:export (ref? ref-value ref-type
             make-constant constant? constant
@@ -35,7 +38,7 @@
             make-fpr fpr? fpr
             make-memory memory?
             make-tmpvar make-tmpvar/f
-            argr fargr))
+            argr fargr moffs physical-name))
 
 ;;;
 ;;; Variable
@@ -118,3 +121,20 @@
   (if (< *num-arg-fprs* n)
       #f
       (make-fpr (- *num-fpr* n))))
+
+(define-syntax-rule (moffs mem)
+  (let ((n (- (+ 2 1 (ref-value mem) *num-volatiles* *num-fpr*))))
+    (make-pointer (+ (ash 2 (- (* 8 %word-size) 1))
+                     (* n %word-size)))))
+
+(define (physical-name x)
+  (if (register? x)
+      (register-name x)
+      (format #f "[@ 0x~x]"
+              (+ (- (case %word-size
+                      ((4) #xffffffff)
+                      ((8) #xffffffffffffffff)
+                      (else tjitc-error 'physical-name "unknown word-size ~s"
+                            %word-size))
+                    (pointer-address (moffs x)))
+                 1))))

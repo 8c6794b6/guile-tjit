@@ -244,9 +244,11 @@ are local index number."
                #f
                srcs))
   (define (dump-move local dst src)
-    (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local dst src))
+    (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local
+           (physical-name dst) (physical-name src)))
   (define (dump-load local dst type)
-    (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local dst type))
+    (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
+           (physical-name dst) type))
   (let ((dsts-list (hash-map->list cons dsts))
         (car-< (lambda (a b) (< (car a) (car b)))))
     (debug 3 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))

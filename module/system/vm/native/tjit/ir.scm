@@ -199,16 +199,15 @@
                (let lp ((vars (reverse (ir-vars ir))))
                  (match vars
                    (((n . var) . vars)
-                    (if (skip-var? var)
-                        (lp vars)
-                        (cond
-                         ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
-                          (when (not (ir-parent-snapshot ir))
-                            (nyi "root trace loading down frame"))
-                          (let* ((i (- n sp-offset)))
-                            (with-frame-ref vars var #f n lp)))
-                         (else
-                          (lp vars)))))
+                    (cond
+                     ((skip-var? var)
+                      (lp vars))
+                     ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
+                      (if (not (ir-parent-snapshot ir))
+                          (nyi "root trace loading down frame")
+                          (with-frame-ref vars var #f n lp)))
+                     (else
+                      (lp vars))))
                    (()
                     (thunk))))))
             (load-up-frame
@@ -224,18 +223,18 @@
                (let lp ((vars (reverse (ir-vars ir))))
                  (match vars
                    (((n . var) . vars)
-                    (if (skip-var? var)
-                        (lp vars)
-                        (cond
-                         ((< min-local-index  n max-local-index)
-                          (let* ((i (- n sp-offset))
-                                 (e (outline-type-ref (ir-outline ir) n))
-                                 (t (se-type i e)))
-                            (if (eq? t &unspecified)
-                                (lp vars)
-                                (with-frame-ref vars var t n lp))))
-                         (else
-                          (lp vars)))))
+                    (cond
+                     ((skip-var? var)
+                      (lp vars))
+                     ((< min-local-index  n max-local-index)
+                      (let* ((i (- n sp-offset))
+                             (e (outline-type-ref (ir-outline ir) n))
+                             (t (se-type i e)))
+                        (if (eq? t &unspecified)
+                            (lp vars)
+                            (with-frame-ref vars var t n lp))))
+                     (else
+                      (lp vars))))
                    (()
                     (load-down-frame)))))))
        (lambda ()

@@ -295,10 +295,6 @@
 (define-syntax-rule (scm-frame-set-dynamic-link! vp->fp src)
   (jit-stxi (imm %word-size) vp->fp src))
 
-(define-syntax-rule (moffs mem)
-  (let ((n (- (+ 2 1 (ref-value mem) *num-volatiles* *num-fpr*))))
-    (make-negative-pointer (* n %word-size))))
-
 (define registers-offset
   (make-negative-pointer (* -1 %word-size)))
 

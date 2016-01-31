@@ -225,13 +225,8 @@ option was set to true."
         arg))
   (define (pretty-register arg)
     (cond
-     ((or (gpr? arg) (fpr? arg))
+     ((or (gpr? arg) (fpr? arg) (memory? arg))
       (physical-name arg))
-     ((memory? arg)
-      (format #f "[@ 0x~x]"
-              (+ (- #xffffffffffffffff
-                    (pointer-address (spilled-offset arg)))
-                 1)))
      ((constant? arg)
       (pretty-constant arg))
      (else
