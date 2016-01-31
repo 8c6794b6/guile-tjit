@@ -160,10 +160,18 @@ The structure of the top stack frame is as follows:
    \------------------/ <- sp
 @end example
 
-In the above drawing, the stack grows downward.  Usually the procedure
-being applied is in local 0, followed by the arguments from local 1.
-After that are enough slots to store the various lexically-bound and
-temporary values that are needed in the function's application.
+In the above drawing, the stack grows downward.  At the beginning of a
+function call, the procedure being applied is in local 0, followed by
+the arguments from local 1.  After the procedure checks that it is being
+passed a compatible set of arguments, the procedure allocates some
+additional space in the frame to hold variables local to the function.
+
+Note that once a value in a local variable slot is no longer needed,
+Guile is free to re-use that slot.  This applies to the slots that were
+initially used for the callee and arguments, too.  For this reason,
+backtraces in Guile aren't always able to show all of the arguments: it
+could be that the slot corresponding to that argument was re-used by
+some other variable.
 
 The @dfn{return address} is the @code{ip} that was in effect before this
 program was applied.  When we return from this activation frame, we will
@@ -274,25 +282,26 @@ We can see how these concepts tie together by disassembling the
 @smallexample
 scheme@@(guile-user)> (define (foo a) (lambda (b) (list foo a b)))
 scheme@@(guile-user)> ,x foo
-Disassembly of #<procedure foo (a)> at #xddb824:
+Disassembly of #<procedure foo (a)> at #xea4ce4:
 
-   0    (assert-nargs-ee/locals 2 0)    ;; 2 slots (1 arg)   at (unknown file):1:0
-   1    (make-closure 1 6 1)            ;; anonymous procedure at #xddb840 (1 free var)
+   0    (assert-nargs-ee/locals 2 0)    ;; 2 slots (1 arg)    at (unknown file):1:0
+   1    (make-closure 1 7 1)            ;; anonymous procedure at #xea4d04 (1 free var)
    4    (free-set! 1 0 0)               ;; free var 0
-   6    (return 1)                      
+   6    (mov 0 1)
+   7    (return-values 2)               ;; 1 value
 
 ----------------------------------------
-Disassembly of anonymous procedure at #xddb840:
+Disassembly of anonymous procedure at #xea4d04:
 
-   0    (assert-nargs-ee/locals 2 2)    ;; 4 slots (1 arg)   at (unknown file):1:16
-   1    (toplevel-box 1 73 57 67 #t)    ;; `foo'
+   0    (assert-nargs-ee/locals 2 2)    ;; 4 slots (1 arg)    at (unknown file):1:16
+   1    (toplevel-box 1 74 58 68 #t)    ;; `foo'
    6    (box-ref 1 1)                   
    7    (make-short-immediate 0 772)    ;; ()                 at (unknown file):1:28
    8    (cons 2 2 0)                    
    9    (free-ref 3 3 0)                ;; free var 0
-  11    (cons 3 3 2)                    
-  12    (cons 3 1 3)                    
-  13    (return 3)                      
+  11    (cons 3 3 2)
+  12    (cons 2 1 3)
+  13    (return-values 2)               ;; 1 value
 @end smallexample
 
 First there's some prelude, where @code{foo} checks that it was called

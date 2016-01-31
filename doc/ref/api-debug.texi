@@ -201,16 +201,32 @@ respectively. @xref{VM Concepts}, for more information.
 @deffnx {Scheme Procedure} frame-mv-return-address frame
 Accessors for the three saved VM registers in a frame: the previous
 frame pointer, the single-value return address, and the multiple-value
-return address. @xref{Stack Layout}, for more information.
+return address.  @xref{Stack Layout}, for more information.
 @end deffn
 
-@deffn {Scheme Procedure} frame-num-locals frame
-@deffnx {Scheme Procedure} frame-local-ref frame i
-@deffnx {Scheme Procedure} frame-local-set! frame i val
-Accessors for the temporary values corresponding to @var{frame}'s
-procedure application. The first local is the first argument given to
-the procedure. After the arguments, there are the local variables, and
-after that temporary values. @xref{Stack Layout}, for more information.
+@deffn {Scheme Procedure} frame-bindings frame
+Return a list of binding records indicating the local variables that are
+live in a frame.
+@end deffn
+
+@deffn {Scheme Procedure} frame-lookup-binding frame var
+Fetch the bindings in @var{frame}, and return the first one whose name
+is @var{var}, or @code{#f} otherwise.
+@end deffn
+
+@deffn {Scheme Procedure} binding-index binding
+@deffnx {Scheme Procedure} binding-name binding
+@deffnx {Scheme Procedure} binding-slot binding
+@deffnx {Scheme Procedure} binding-representation binding
+Accessors for the various fields in a binding.  The implicit ``callee''
+argument is index 0, the first argument is index 1, and so on to the end
+of the arguments.  After that are temporary variables.  Note that if a
+variable is dead, it might not be available.
+@end deffn
+
+@deffn {Scheme Procedure} binding-ref binding
+@deffnx {Scheme Procedure} binding-set! binding val
+Accessors for the values of local variables in a frame.
 @end deffn
 
 @deffn {Scheme Procedure} display-application frame [port [indent]]

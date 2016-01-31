@@ -33,10 +33,11 @@
             binding-slot
             binding-representation
 
-            frame-instruction-pointer-or-primitive-procedure-name
             frame-bindings
             frame-lookup-binding
-            frame-binding-ref frame-binding-set!
+            binding-ref binding-set!
+
+            frame-instruction-pointer-or-primitive-procedure-name
             frame-call-representation
             frame-environment
             frame-object-binding frame-object-name))
@@ -46,8 +47,9 @@
                   "scm_init_frames_builtins"))
 
 (define-record-type <binding>
-  (make-binding idx name slot representation)
+  (make-binding frame idx name slot representation)
   binding?
+  (frame binding-frame)
   (idx binding-index)
   (name binding-name)
   (slot binding-slot)
@@ -206,7 +208,7 @@
         (lp (1+ n) (+ pos (vector-ref parsed n)))))
     killv))
 
-(define (available-bindings arity ip top-frame?)
+(define (available-bindings frame arity ip top-frame?)
   (let* ((defs (list->vector (arity-definitions arity)))
          (code (arity-code arity))
          (parsed (parse-code code))
@@ -282,7 +284,7 @@
                 (if n
                     (match (vector-ref defs n)
                       (#(name def-offset slot representation)
-                       (cons (make-binding n name slot representation)
+                       (cons (make-binding frame n name slot representation)
                              (lp (1+ n)))))
                     '()))))
           (lp (1+ n) (- offset (vector-ref parsed n)))))))
@@ -292,7 +294,7 @@
     (cond
      ((find-program-arity ip)
       => (lambda (arity)
-           (available-bindings arity ip top-frame?)))
+           (available-bindings frame arity ip top-frame?)))
      (else '()))))
 
 (define (frame-lookup-binding frame var)
@@ -304,22 +306,18 @@
           (else
            (lp (cdr bindings))))))
 
-(define (frame-binding-set! frame var val)
-  (let ((binding (if (binding? var)
-                     var
-                     (or (frame-lookup-binding frame var)
-                         (error "variable not bound in frame" var frame)))))
-    (frame-local-set! frame (binding-slot binding) val
-                      (binding-representation binding))))
+(define (binding-ref binding)
+  (frame-local-ref (or (binding-frame binding)
+                       (error "binding has no frame" binding))
+                   (binding-slot binding)
+                   (binding-representation binding)))
 
-(define (frame-binding-ref frame var)
-  (let ((binding (if (binding? var)
-                     var
-                     (or (frame-lookup-binding frame var)
-                         (error "variable not bound in frame" var frame)))))
-    (frame-local-ref frame (binding-slot binding)
-                     (binding-representation binding))))
-
+(define (binding-set! binding val)
+  (frame-local-set! (or (binding-frame binding)
+                        (error "binding has no frame" binding))
+                    (binding-slot binding)
+                    val
+                    (binding-representation binding)))
 
 (define* (frame-procedure-name frame #:key
                                (info (find-program-debug-info
@@ -443,12 +441,13 @@
        => (lambda (arity)
             (if (and top-frame? (eqv? ip (arity-low-pc arity)))
                 (application-arguments)
-                (reconstruct-arguments (available-bindings arity ip top-frame?)
-                                       (arity-nreq arity)
-                                       (arity-nopt arity)
-                                       (arity-keyword-args arity)
-                                       (arity-has-rest? arity)
-                                       1))))
+                (reconstruct-arguments
+                 (available-bindings frame arity ip top-frame?)
+                 (arity-nreq arity)
+                 (arity-nopt arity)
+                 (arity-keyword-args arity)
+                 (arity-has-rest? arity)
+                 1))))
       ((and (primitive-code? ip)
             (program-arguments-alist (frame-local-ref frame 0 'scm) ip))
        => (lambda (args)
@@ -470,12 +469,12 @@
 
 (define (frame-environment frame)
   (map (lambda (binding)
-	 (cons (binding-name binding) (frame-binding-ref frame binding)))
+	 (cons (binding-name binding) (binding-ref binding)))
        (frame-bindings frame)))
 
 (define (frame-object-binding frame obj)
   (do ((bs (frame-bindings frame) (cdr bs)))
-      ((or (null? bs) (eq? obj (frame-binding-ref frame (car bs))))
+      ((or (null? bs) (eq? obj (binding-ref (car bs))))
        (and (pair? bs) (car bs)))))
 
 (define (frame-object-name frame obj)
