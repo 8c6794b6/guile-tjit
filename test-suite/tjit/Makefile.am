@@ -63,6 +63,7 @@ TESTS = \
 	t-flonum-02.scm \
 	t-flonum-03.scm \
 	t-flonum-04.scm \
+	t-flonum-05.scm \
 	t-free-ref-01.scm \
 	t-free-ref-02.scm \
 	t-free-ref-03.scm \

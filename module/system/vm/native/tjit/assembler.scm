@@ -658,12 +658,22 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((constant? a)
          (jit-movi-d f0 (constant a))
          (cond
+          ((gpr? b)    (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
           ((fpr? b)    (jump (op-rr f0 (fpr b)) (bailout)))
           ((memory? b) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
+          (else (err))))
+        ((gpr? a)
+         (gpr->fpr f0 (gpr a))
+         (cond
+          ((constant? b) (jump (op-ri f0 (constant b)) (bailout)))
+          ((gpr? b)      (jump (op-rr f0 (fpr->gpr f1 (gpr b))) (bailout)))
+          ((fpr? b)      (jump (op-rr f0 (fpr b)) (bailout)))
+          ((memory? b)   (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
           (else (err))))
         ((fpr? a)
          (cond
           ((constant? b) (jump (op-ri (fpr a) (constant b)) (bailout)))
+          ((gpr? b)      (jump (op-rr (fpr a) (gpr->fpr f1 (gpr b))) (bailout)))
           ((fpr? b)      (jump (op-rr (fpr a) (fpr b)) (bailout)))
           ((memory? b)   (jump (op-rr (fpr a) (memory-ref/f f1 b)) (bailout)))
           (else (err))))
@@ -671,6 +681,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (memory-ref/f f0 a)
          (cond
           ((constant? b) (jump (op-ri f0 (constant b)) (bailout)))
+          ((gpr? b)      (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
           ((fpr? b)      (jump (op-rr f0 (fpr b)) (bailout)))
           ((memory? b)   (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
           (else (err))))
