@@ -8,9 +8,79 @@ Please send Guile bug reports to bug-guile@gnu.org.
 
 Changes in 2.1.2 (changes since the 2.1.1 alpha release):
 
+* Notable changes
+
+** Unboxed arithmetic
+
+It used to be that Guile's numbers were always boxed with a tag
+indicating their type.  Small integers could sometimes represent their
+tag and value in one word; these are the fixnums.  Other kinds of
+numbers would be allocated on the heap.
+
+Guile can now unbox arithmetic on exact integers (values in the signed
+and unsigned 64-bit integer range) and inexact reals (floating-point
+numbers).  Access to bytevectors are always unboxed, and some arithmetic
+can be unboxed as well.  Unboxing eliminates run-time allocation for
+numbers and removes run-time polymorphic dispatch, providing a
+significant speedup.
+
+** Faster build times
+
+Building Guile from a tarball can now take advantage of a "prebuilt/"
+tree of prebuilt .go files.  These compiled files are created when a
+tarball is made, and are used to speed up the build for users of
+official releases.
+
+These pre-built binaries are not necessary, however: they are not stored
+in revision control and can always be re-created from the source, given
+that Guile can bootstrap itself from its minimal bootstrap C
+interpreter.  If you do not want to depend on these pre-built binaries,
+you can "make -C prebuilt clean" before building.
+
+If Guile doesn't pre-build binaries for your architecture and you would
+like support for your architecture, see prebuilt/Makefile.am for more
+information on how to add support.
+
+** Better backtraces
+
+Guile's backtraces do a better job at finding the function name, and
+they also do a better job printing function arguments whose values are
+unavailable.
+
+** Add "tree" display mode for statprof.
+
+See the newly updated "Statprof" section of the manual, for more.
+
+** Many small compiler and VM improvements
+
+The user-visible change is that Guile is faster, for many small reasons.
+See the commit log for detailed changes.
+
+Note that until the stable 2.2.0 release is made, we will not make any
+efforts towards binary compatibility among 2.1.x releases.  Compiled
+Scheme files from older pre-releases in the Guile 2.1.x series are not
+loadable by the Guile 2.1.2 pre-release.
+
+** Better handling of GUILE_LOAD_COMPILED_PATH
+
+It used to be that Guile would stop at the first .go file it found in
+the GUILE_LOAD_COMPILED_PATH.  If that file turned out to be out of
+date, then no .go file would be loaded.  Now Guile will continue to
+search the path for a file which is both present and up-to-date, with
+respect to the .scm file.
+
+** Fix build when threads are disabled
+** Fix cross-compilation of .go files
+
+* New deprecations
+
+** `with-statprof' macro deprecated
+
+Use the `statprof' procedure instead.
+
 * Incompatible changes
 
-** Remove frame-procedure
+** Remove `frame-procedure'
 
 Several optimizations in Guile make `frame-procedure' an interface that
 we can no longer support.  For background, `frame-procedure' used to
@@ -24,10 +94,27 @@ are all known) are optimized in such a way that slot 0 is not a
 procedure but some optimized representation of the procedure's free
 variables.  Instead, developers building debugging tools that would like
 access to `frame-procedure' are invited to look at the source for the
-`(system vm frame)' for alternate interfaces.
+`(system vm frame)' module for alternate interfaces, including the new
+`frame-procedure-name'.
+
+** Remove `,procedure' REPL command
+
+Not all procedures have values, so it doesn't make sense to expose this
+interface to the user.  Instead, the `,locals' REPL command will include
+the callee, if it is live.
+
+** Remove `frame-local-ref', `frame-local-set!', `frame-num-locals'
+
+These procedures reference values in a frame on the stack.  Since we now
+have unboxed values of different kinds, it is now necessary to specify
+the type when reference locals, and once this incompatible change needs
+to be made, we might as well make these interfaces private.  See
+"Frames' in the manual, for more information on the replacements for
+these low-level interfaces.
+
 
 
-Changes in 2.1.x (changes since the 2.0.x series):
+Previous changes in 2.1.x (changes since the 2.0.x series):
 
 * Notable changes
 
