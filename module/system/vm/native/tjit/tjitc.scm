@@ -88,7 +88,8 @@
                (traces (reverse! traces))
                (ol (make-outline (get-initial-types parent-snapshot)
                                  sp-offset fp-offset
-                                 (get-initial-write-indices parent-snapshot)))
+                                 (get-initial-write-indices parent-snapshot)
+                                 (get-initial-live-vars parent-snapshot)))
                (so-far-so-good? #t)
                (prev-op #f))
         (match traces
@@ -133,6 +134,10 @@
   (define (get-initial-write-indices snapshot)
     (if snapshot
         (map car (snapshot-locals snapshot))
+        '()))
+  (define (get-initial-live-vars snapshot)
+    (if snapshot
+        (snapshot-live-indices snapshot)
         '()))
   (define (merge-types dsts snapshot)
     (let ((sp (snapshot-sp-offset snapshot))

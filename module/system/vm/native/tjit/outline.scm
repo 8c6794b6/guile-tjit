@@ -48,6 +48,7 @@
             outline-write-indices set-outline-write-indices!
             outline-read-indices set-outline-read-indices!
             outline-write-buf set-outline-write-buf!
+            outline-live-indices set-outline-live-indices!
 
             pop-outline!
             push-outline!
@@ -65,7 +66,7 @@
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
                  sp-offset fp-offset ret-types write-indices read-indices
-                 write-buf)
+                 write-buf live-indices)
   outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -105,14 +106,17 @@
   (read-indices outline-read-indices set-outline-read-indices!)
 
   ;; Buffer to hold write indices.
-  (write-buf outline-write-buf set-outline-write-buf!))
+  (write-buf outline-write-buf set-outline-write-buf!)
 
-(define (make-outline types sp-offset fp-offset write-indices)
+  ;; Live indices, updated during IR compilation.
+  (live-indices outline-live-indices set-outline-live-indices!))
+
+(define (make-outline types sp-offset fp-offset write-indices live-indices)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset
-                 '() write-indices '() (list write-indices)))
+                 '() write-indices '() (list write-indices) live-indices))
 
 (define (arrange-outline outline)
   (let* ((sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
@@ -161,10 +165,14 @@
 (define (expand-outline outline offset nlocals)
   (let ((locals (outline-locals outline))
         (undefined (make-pointer #x904)))
-    (let lp ((n 0))
-      (when (< n nlocals)
-        (hashq-set! locals (+ offset n) undefined)
-        (lp (+ n 1))))))
+    (let lp ((n 0) (acc (outline-live-indices outline)))
+      (if (< n nlocals)
+          (begin
+            (hashq-set! locals (+ offset n) undefined)
+            (lp (+ n 1) (if (memq n acc)
+                            acc
+                            (cons n acc))))
+          (set-outline-live-indices! outline (sort acc <))))))
 
 (define (set-outline-previous-dl-and-ra! outline stack-size ra dl)
   (let ((locals (outline-locals outline)))

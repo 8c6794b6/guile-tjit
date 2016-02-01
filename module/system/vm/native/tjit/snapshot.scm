@@ -49,13 +49,12 @@
             snapshot-fp-offset
             snapshot-nlocals
             snapshot-locals
-            snapshot-variables
-            set-snapshot-variables!
-            set-snapshot-code!
+            snapshot-variables set-snapshot-variables!
+            snapshot-code set-snapshot-code!
             snapshot-ip
             snapshot-outline-types
             snapshot-read-indices
-            set-snapshot-read-indices!
+            snapshot-live-indices
 
             snapshot-link?
             snapshot-downrec?
@@ -71,7 +70,7 @@
 ;; Record type for snapshot.
 (define-record-type $snapshot
   (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
-                  outline-types read-indices)
+                  outline-types read-indices live-indices)
   snapshot?
 
   ;; ID number of this snapshot.
@@ -101,8 +100,11 @@
   ;; Types from outline.
   (outline-types snapshot-outline-types)
 
-  ;; Read indices
-  (read-indices snapshot-read-indices set-snapshot-read-indices!))
+  ;; Read indices.
+  (read-indices snapshot-read-indices)
+
+  ;; Live indices.
+  (live-indices snapshot-live-indices))
 
 
 ;;;
@@ -170,7 +172,8 @@
                  acc
                  (lp (- i 1) (cons (format #f "0x~x"
                                            (pointer-address (vector-ref locals i)))
-                                   acc))))))
+                                   acc)))))
+    (debug 1 ";;;      live-indices:~a~%" (outline-live-indices outline)))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
@@ -254,7 +257,8 @@
            (lambda (fp-offset nlocals acc)
              (%make-snapshot id sp-offset fp-offset nlocals
                              (reverse! acc) #f #f ip copied-types
-                             (outline-read-indices outline)))))))))
+                             (outline-read-indices outline)
+                             (outline-live-indices outline)))))))))
 
 
 ;;;

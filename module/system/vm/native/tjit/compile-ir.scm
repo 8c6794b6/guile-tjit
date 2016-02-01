@@ -259,6 +259,7 @@
                                        #f arg-indices outline initial-ip))
                  (_ (hashq-set! snapshots 0 snap0))
                  (vt (make-hash-table)))
+            (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
                                  ,(add-initial-loads `(loop ,@args) vt))))
@@ -276,6 +277,7 @@
          ((tj-loop? tj)
           (let ((args-from-vars (reverse! (map cdr vars)))
                 (snap0 (initial-snapshot!)))
+            (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ,args-from-parent
                                (let ((_ ,snap0))
                                  ,(add-initial-loads

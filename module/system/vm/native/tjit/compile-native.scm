@@ -45,6 +45,7 @@
   #:use-module (system vm native tjit compile-ir)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit gdb)
+  #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
@@ -209,17 +210,16 @@
     (op vp->sp vp->sp (imm (* (abs offset) %word-size)))
     (vm-sync-sp vp->sp)))
 
-(define (env->src-table env shift)
-  ;; XXX: Reconsider the type of values in `env' hash table and avoid using
-  ;; combination of `symbol->string' and `string->number'.
-  (hash-fold (lambda (k v acc)
-               (let ((k/str (symbol->string k)))
-                 (when (char=? #\v (string-ref k/str 0))
-                   (let ((n (string->number (substring k/str 1))))
-                     (hashq-set! acc (- n shift) v)))
-                 acc))
-             (make-hash-table)
-             env))
+(define (env->src-table env indices shift)
+  (debug 1 ";;; [env->src-table] indices=~s~%" indices)
+  (let ((ret (make-hash-table)))
+    (for-each (lambda (n)
+                (let ((var (make-var n)))
+                  (and=> (hashq-ref env var)
+                         (lambda (phy)
+                           (hashq-set! ret (- n shift) phy)))))
+              indices)
+    ret))
 
 (define (move-or-load-carefully dsts srcs types)
   "Move SRCS to DSTS or load with TYPES without overwriting.
@@ -659,7 +659,9 @@ are local index number."
        ;; root trace or not.
        (let* ((type-table (make-hash-table))
               (dst-table (make-hash-table))
-              (src-table (env->src-table env sp-offset)))
+              (live-indices
+               (or (and=> (tj-parent-snapshot tj) snapshot-live-indices) '()))
+              (src-table (env->src-table env live-indices sp-offset)))
          (let lp ((loop-locals loop-locals)
                   (dsts (fragment-loop-vars linked-fragment)))
            (match (list loop-locals dsts)

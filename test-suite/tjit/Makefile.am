@@ -94,6 +94,8 @@ TESTS = \
 	t-nest-20.scm \
 	t-nest-21.scm \
 	t-nest-22.scm \
+	t-nest-23.scm \
+	t-nest-23b.scm \
 	t-nest-24.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \

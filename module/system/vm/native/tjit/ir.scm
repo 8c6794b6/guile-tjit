@@ -197,6 +197,7 @@
                                   (tjitc-error 'receive "unknown type ~s ~s" i e)))))
                          (debug 1 "~a~%" (pretty-type r))
                          r)))
+            (acc (make-hash-table))
             (load-down-frame
              (lambda ()
                (let lp ((vars (reverse (ir-vars ir))))
@@ -212,7 +213,19 @@
                      (else
                       (lp vars))))
                    (()
-                    (thunk))))))
+                    (let* ((live-indices
+                            (sort (hash-fold (lambda (k v acc)
+                                               (if (memq k acc)
+                                                   acc
+                                                   (cons k acc)))
+                                             (outline-live-indices
+                                              (ir-outline ir))
+                                             acc)
+                                  <)))
+                      (debug 1 ";;; [gen-load-thunk] live-indices=~a~%"
+                             live-indices)
+                      (set-outline-live-indices! (ir-outline ir) live-indices)
+                      (thunk)))))))
             (load-up-frame
              (lambda ()
                ;; Ignoring `unspecified' values when loading from previous
@@ -238,7 +251,9 @@
                              (t (se-type i e)))
                         (if (eq? t &unspecified)
                             (lp vars)
-                            (with-frame-ref vars var t n lp))))
+                            (begin
+                              (hashq-set! acc n var)
+                              (with-frame-ref vars var t n lp)))))
                      (else
                       (debug 1 " skipping~%")
                       (lp vars))))
