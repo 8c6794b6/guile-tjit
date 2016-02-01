@@ -35,7 +35,7 @@
 ;;;
 ;;; This would run the thunk with statistical profiling, finally
 ;;; displaying a gprof flat-style table of statistics which could
-;;; something like this:
+;;; look something like this:
 ;;;
 ;;; @example
 ;;;   %   cumulative      self              self    total
@@ -74,14 +74,6 @@
 ;;; @item name
 ;;; The name of the procedure.
 ;;; @end table
-;;;
-;;; The profiler uses @code{eq?} and the procedure object itself to
-;;; identify the procedures, so it won't confuse different procedures with
-;;; the same name. They will show up as two different rows in the output.
-;;;
-;;; Right now the profiler is quite simplistic.  I cannot provide
-;;; call-graphs or other higher level information.  What you see in the
-;;; table is pretty much all there is. Patches are welcome :-)
 ;;;
 ;;; @section Implementation notes
 ;;;
@@ -374,14 +366,9 @@
 (define (count-call frame)
   (let ((state (existing-profiler-state)))
     (unless (inside-profiler? state)
-      (accumulate-time state (get-internal-run-time))
-
-      ;; We know local 0 is a SCM value: the c
       (let* ((key (frame-instruction-pointer-or-primitive-procedure-name frame))
              (handle (hashv-create-handle! (call-counts state) key 0)))
-        (set-cdr! handle (1+ (cdr handle))))
-
-      (set-last-start-time! state (get-internal-run-time)))))
+        (set-cdr! handle (1+ (cdr handle)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -490,6 +477,26 @@ always collects full stacks.)"
 (define (inc-call-data-self-sample-count! cd)
   (set-call-data-self-sample-count! cd (1+ (call-data-self-sample-count cd))))
 
+(define (skip-count-call buffer start len)
+  ;; If we are counting all procedure calls, count-call might be on the
+  ;; stack.  If it is, skip that part of the stack.
+  (match (program-address-range count-call)
+    ((lo . hi)
+     (let lp ((pos start))
+       (if (< pos len)
+           (let ((key (vector-ref buffer pos)))
+             (cond
+              ((not key)
+               ;; End of stack; count-call not on the stack.
+               start)
+              ((and (number? key) (<= lo key) (< key hi))
+               ;; Found count-call.
+               (1+ pos))
+              (else
+               ;; Otherwise keep going.
+               (lp (1+ pos)))))
+           start)))))
+
 (define (stack-samples->procedure-data state)
   (let ((table (make-hash-table))
         (addr-cache (make-hash-table))
@@ -536,19 +543,19 @@ always collects full stacks.)"
     (let visit-stacks ((pos 0))
       (cond
        ((< pos len)
-        ;; FIXME: if we are counting all procedure calls, and
-        ;; count-call is on the stack, we need to not count the part
-        ;; of the stack that is within count-call.
-        (inc-call-data-self-sample-count!
-         (callee->call-data (vector-ref buffer pos)))
-        (let visit-stack ((pos pos))
-          (cond
-           ((vector-ref buffer pos)
-            => (lambda (callee)
-                 (inc-call-data-cum-sample-count! (callee->call-data callee))
-                 (visit-stack (1+ pos))))
-           (else
-            (visit-stacks (1+ pos))))))
+        (let ((pos (if call-counts
+                       (skip-count-call buffer pos len)
+                       pos)))
+          (inc-call-data-self-sample-count!
+           (callee->call-data (vector-ref buffer pos)))
+          (let visit-stack ((pos pos))
+            (cond
+             ((vector-ref buffer pos)
+              => (lambda (callee)
+                   (inc-call-data-cum-sample-count! (callee->call-data callee))
+                   (visit-stack (1+ pos))))
+             (else
+              (visit-stacks (1+ pos)))))))
        (else table)))))
 
 (define (stack-samples->callee-lists state)
@@ -557,10 +564,10 @@ always collects full stacks.)"
     (let visit-stacks ((pos 0) (out '()))
       (cond
        ((< pos len)
-        ;; FIXME: if we are counting all procedure calls, and
-        ;; count-call is on the stack, we need to not count the part
-        ;; of the stack that is within count-call.
-        (let visit-stack ((pos pos) (stack '()))
+        (let visit-stack ((pos (if (call-counts state)
+                                   (skip-count-call buffer pos len)
+                                   pos))
+                          (stack '()))
           (cond
            ((vector-ref buffer pos)
             => (lambda (callee)
