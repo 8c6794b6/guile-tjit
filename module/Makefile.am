@@ -49,6 +49,21 @@ system/vm/native/jit-code-t.scm: system/vm/native/gen-code-t.scm
 
 system/vm/native/lightning.go: system/vm/native/jit-code-t.scm
 
+TJIT_IR_TARGETS = 				\
+	system/vm/native/tjit/ir-call.go 	\
+	system/vm/native/tjit/ir-specialized.go \
+	system/vm/native/tjit/ir-prologue.go	\
+	system/vm/native/tjit/ir-branch.go	\
+	system/vm/native/tjit/ir-lexical.go	\
+	system/vm/native/tjit/ir-immediate.go	\
+	system/vm/native/tjit/ir-mutable.go	\
+	system/vm/native/tjit/ir-pair.go	\
+	system/vm/native/tjit/ir-numeric.go	\
+	system/vm/native/tjit/ir-array.go	\
+	system/vm/native/tjit/ir-misc.go
+
+$(TJIT_IR_TARGETS): system/vm/native/tjit/ir.scm
+
 SOURCES =					\
   ice-9/and-let-star.scm			\
   ice-9/binary-ports.scm			\
