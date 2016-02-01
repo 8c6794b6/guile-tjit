@@ -86,13 +86,14 @@
   (if (and env snapshot)
       (let* ((parent-snapshot-vars
               (or (and=> snapshot snapshot-variables) '()))
-             (parent-read-indices
+             (parent-read-vars
               (map make-var (snapshot-read-indices snapshot))))
         (hash-fold (lambda (k v acc)
-                     (if (memq v parent-snapshot-vars)
+                     (if (and (memq v parent-snapshot-vars)
+                              (not (memq k acc)))
                          (cons k acc)
                          acc))
-                   parent-read-indices env))
+                   parent-read-vars env))
       '()))
 
 (define (compile-anf tj trace)
@@ -195,10 +196,9 @@
                 ;;
                 ((let ((parent-type (type-from-parent j))
                        (snapshot-type (type-from-snapshot j)))
-                   (debug 3 ";;;   n + initial-sp-offset: ~a~%" j)
-                   (debug 3 ";;;   var: ~a~%" var)
-                   (debug 3 ";;;   parent: ~a~%" (pretty-type parent-type))
-                   (debug 3 ";;;   snap: ~a~%" (pretty-type snapshot-type))
+                   (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
+                          n initial-sp-offset (pretty-type parent-type)
+                          (pretty-type snapshot-type))
                    (or (< j 0)
                        (not (<= 0 i (- (vector-length initial-locals) 1)))
                        (and (not (tj-loop? tj))

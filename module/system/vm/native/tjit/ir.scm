@@ -187,13 +187,16 @@
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
             (max-local-index (+ stack-size sp-offset))
             (se-type (lambda (i e)
-                       (cond
-                        ((eq? 'f64 e) &f64)
-                        ((eq? 'u64 e) &u64)
-                        ((eq? 's64 e) &s64)
-                        ((eq? 'scm e) (type-of (stack-element locals i e)))
-                        (else
-                         (tjitc-error 'receive "unknown type ~s ~s" i e)))))
+                       (debug 1 ";;; [gen-load-thunk] (se-type ~s ~s) => " i e)
+                       (let ((r (cond
+                                 ((eq? 'f64 e) &f64)
+                                 ((eq? 'u64 e) &u64)
+                                 ((eq? 's64 e) &s64)
+                                 ((eq? 'scm e) (type-of (stack-element locals i e)))
+                                 (else
+                                  (tjitc-error 'receive "unknown type ~s ~s" i e)))))
+                         (debug 1 "~a~%" (pretty-type r))
+                         r)))
             (load-down-frame
              (lambda ()
                (let lp ((vars (reverse (ir-vars ir))))
@@ -223,17 +226,21 @@
                (let lp ((vars (reverse (ir-vars ir))))
                  (match vars
                    (((n . var) . vars)
+                    (debug 1 ";;; [load-up-frame] n=~s " n)
                     (cond
                      ((skip-var? var)
+                      (debug 1 " skipping~%")
                       (lp vars))
-                     ((< min-local-index  n max-local-index)
+                     ((< min-local-index n max-local-index)
                       (let* ((i (- n sp-offset))
                              (e (outline-type-ref (ir-outline ir) n))
+                             (_ (debug 1 " loading, i=~s e=~s~%" i e))
                              (t (se-type i e)))
                         (if (eq? t &unspecified)
                             (lp vars)
                             (with-frame-ref vars var t n lp))))
                      (else
+                      (debug 1 " skipping~%")
                       (lp vars))))
                    (()
                     (load-down-frame)))))))

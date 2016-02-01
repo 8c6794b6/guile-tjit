@@ -35,6 +35,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit fragment)
+  #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
@@ -49,7 +50,8 @@
             dump-primops
             dump-ncode
             dump-tjit-stats
-            dump-fragment))
+            dump-fragment
+            dump-outline))
 
 ;;;
 ;;; Statistics
@@ -91,6 +93,12 @@ option was set to true."
           `(asm-time . ,asm-time)
           `(total-time . ,total-time))))
 
+;;;
+;;; Auxiliary
+;;;
+
+(define (car-< a b)
+  (< (car a) (car b)))
 
 ;;;
 ;;; Dump procedures
@@ -334,9 +342,7 @@ option was set to true."
               i id sp-offset fp-offset nlocals locals)
       (format #t " variables=~a code=~a ip=~a~%"
               variables (and (bytevector? code) (bytevector->pointer code)) ip)))
-   (sort (hash-fold acons '() (fragment-snapshots fragment))
-         (lambda (a b)
-           (< (car a) (car b)))))
+   (sort (hash-fold acons '() (fragment-snapshots fragment)) car-<))
   (let ((code (fragment-trampoline fragment)))
     (format #t "~19@a: ~a:~a~%" 'trampoline
             (and (bytevector? code) (bytevector->pointer code))
@@ -345,3 +351,9 @@ option was set to true."
   (format #t "~19@a: ~a~%" 'loop-locals (fragment-loop-locals fragment))
   (format #t "~19@a: ~a~%" 'loop-vars (fragment-loop-vars fragment))
   (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))
+
+(define (dump-outline outline)
+  (format #t ";;; outline:~%")
+  (format #t "~{;;;  ~s~%~}"
+          `((local-indices . ,(outline-local-indices outline))
+            (types . ,(sort (outline-types outline) car-<)))))

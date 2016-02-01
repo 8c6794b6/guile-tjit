@@ -155,7 +155,6 @@
                                          parent-exit-id)
                               #f))
          (entry-ip (car (last traces)))
-         (verbosity (lightning-verbosity))
          (dump-option (tjit-dump-option))
          (sline (addr->source-line entry-ip))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
@@ -198,7 +197,7 @@
                   initial-stack-item-types
                   (merge-types initial-stack-item-types parent-snapshot)))
              (linking-roots?
-              (let ((parent-id
+              (let ((origin-id
                      ;; XXX: Need to chase grand parent id, grand grand
                      ;; parent id, and so on until it reaches to root
                      ;; trace, OR save the origin trace id in fragment
@@ -210,8 +209,8 @@
                      (and linked-ip
                           (and=> (get-root-trace linked-ip)
                                  fragment-id))))
-                (and parent-id linked-id
-                     (not (eq? parent-id linked-id)))))
+                (and origin-id linked-id
+                     (not (eq? origin-id linked-id)))))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f
@@ -252,7 +251,9 @@
                (not (zero? (outline-sp-offset outline))))
           (failure "NYI looping root trace with SP shift"))
          (else
-          (debug 1 ";;; [tjitc] outline: ~s~%" outline)
+          (let ((verbosity (lightning-verbosity)))
+            (when (and (number? verbosity) (<= 1 verbosity))
+              (dump-outline outline)))
           (with-nyi-handler entry-ip
             (compile-traces traces outline))))))))
 
