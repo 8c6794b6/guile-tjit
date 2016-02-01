@@ -1,7 +1,7 @@
 ;;;; (statprof) -- a statistical profiler for Guile
 ;;;; -*-scheme-*-
 ;;;;
-;;;; 	Copyright (C) 2009, 2010, 2011, 2013-2015  Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011, 2013-2016  Free Software Foundation, Inc.
 ;;;;    Copyright (C) 2004, 2009 Andy Wingo <wingo at pobox dot com>
 ;;;;    Copyright (C) 2001 Rob Browning <rlb at defaultvalue dot org>
 ;;;; 
@@ -23,77 +23,8 @@
 
 ;;; Commentary:
 ;;;
-;;; @code{(statprof)} is a statistical profiler for Guile.
-;;;
-;;; A simple use of statprof would look like this:
-;;;
-;;; @example
-;;;   (statprof (lambda () (do-something))
-;;;             #:hz 100
-;;;             #:count-calls? #t)
-;;; @end example
-;;;
-;;; This would run the thunk with statistical profiling, finally
-;;; displaying a gprof flat-style table of statistics which could
-;;; look something like this:
-;;;
-;;; @example
-;;;   %   cumulative      self              self    total
-;;;  time    seconds   seconds    calls  ms/call  ms/call  name
-;;;  35.29      0.23      0.23     2002     0.11     0.11  -
-;;;  23.53      0.15      0.15     2001     0.08     0.08  positive?
-;;;  23.53      0.15      0.15     2000     0.08     0.08  +
-;;;  11.76      0.23      0.08     2000     0.04     0.11  do-nothing
-;;;   5.88      0.64      0.04     2001     0.02     0.32  loop
-;;;   0.00      0.15      0.00        1     0.00   150.59  do-something
-;;;  ...
-;;; @end example
-;;;
-;;; All of the numerical data with the exception of the calls column is
-;;; statistically approximate. In the following column descriptions, and
-;;; in all of statprof, "time" refers to execution time (both user and
-;;; system), not wall clock time.
-;;;
-;;; @table @asis
-;;; @item % time
-;;; The percent of the time spent inside the procedure itself
-;;; (not counting children).
-;;; @item cumulative seconds
-;;; The total number of seconds spent in the procedure, including
-;;; children.
-;;; @item self seconds
-;;; The total number of seconds spent in the procedure itself (not counting
-;;; children).
-;;; @item calls
-;;; The total number of times the procedure was called.
-;;; @item self ms/call
-;;; The average time taken by the procedure itself on each call, in ms.
-;;; @item total ms/call
-;;; The average time taken by each call to the procedure, including time
-;;; spent in child functions.
-;;; @item name
-;;; The name of the procedure.
-;;; @end table
-;;;
-;;; @section Implementation notes
-;;;
-;;; The profiler works by setting the unix profiling signal
-;;; @code{ITIMER_PROF} to go off after the interval you define in the call
-;;; to @code{statprof-reset}. When the signal fires, a sampling routine is
-;;; run which looks at the current procedure that's executing, and then
-;;; crawls up the stack, and for each procedure encountered, increments
-;;; that procedure's sample count. Note that if a procedure is encountered
-;;; multiple times on a given stack, it is only counted once. After the
-;;; sampling is complete, the profiler resets profiling timer to fire
-;;; again after the appropriate interval.
-;;;
-;;; Meanwhile, the profiler keeps track, via @code{get-internal-run-time},
-;;; how much CPU time (system and user -- which is also what
-;;; @code{ITIMER_PROF} tracks), has elapsed while code has been executing
-;;; within a statprof-start/stop block.
-;;;
-;;; The profiler also tries to avoid counting or timing its own code as
-;;; much as possible.
+;;; @code{(statprof)} is a statistical profiler for Guile.  See the
+;;; "Statprof" section in the manual, for more information.
 ;;;
 ;;; Code:
 
@@ -140,8 +71,6 @@
             statprof-fetch-call-tree
 
             statprof
-            with-statprof
-
             gcprof))
 
 
@@ -612,16 +541,28 @@ none is available."
 (define-record-type stats
   (make-stats proc-name proc-source
               %-time-in-proc cum-secs-in-proc self-secs-in-proc
-              calls self-secs-per-call cum-secs-per-call)
+              calls)
   stats?
   (proc-name statprof-stats-proc-name)
   (proc-source statprof-stats-proc-source)
   (%-time-in-proc statprof-stats-%-time-in-proc)
   (cum-secs-in-proc statprof-stats-cum-secs-in-proc)
   (self-secs-in-proc statprof-stats-self-secs-in-proc)
-  (calls statprof-stats-calls)
-  (self-secs-per-call statprof-stats-self-secs-per-call)
-  (cum-secs-per-call statprof-stats-cum-secs-per-call))
+  (calls statprof-stats-calls))
+
+(define (statprof-stats-self-secs-per-call stats)
+  (let ((calls (statprof-stats-calls stats)))
+    (and calls
+         (/ (statprof-stats-self-secs-in-proc stats)
+            calls))))
+
+(define (statprof-stats-cum-secs-per-call stats)
+  (let ((calls (statprof-stats-calls stats)))
+    (and calls
+         (/ (statprof-stats-cum-secs-in-proc stats)
+            ;; `calls' might be 0 if we entered statprof during the
+            ;; dynamic extent of the call.
+            (max calls 1)))))
 
 (define (statprof-call-data->stats call-data)
   "Returns an object of type @code{statprof-stats}."
@@ -645,16 +586,7 @@ none is available."
                 (* (/ self-samples all-samples) 100.0)
                 (* cum-samples secs-per-sample 1.0)
                 (* self-samples secs-per-sample 1.0)
-                num-calls
-                (and num-calls ;; maybe we only sampled in children
-                     (if (zero? self-samples) 0.0
-                         (/ (* self-samples secs-per-sample) 1.0 num-calls)))
-                (and num-calls ;; cum-samples must be positive
-                     (/ (* cum-samples secs-per-sample)
-                        1.0
-                        ;; num-calls might be 0 if we entered statprof during the
-                        ;; dynamic extent of the call
-                        (max num-calls 1))))))
+                num-calls)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -689,10 +621,8 @@ optional @var{port} argument is passed, uses the current output port."
                 (statprof-stats-self-secs-in-proc stats))
         (if (call-counts state)
             (if (statprof-stats-calls stats)
-                (format port " ~7d ~8,2f ~8,2f  "
-                        (statprof-stats-calls stats)
-                        (* 1000 (statprof-stats-self-secs-per-call stats))
-                        (* 1000 (statprof-stats-cum-secs-per-call stats)))
+                (format port " ~7d  "
+                        (statprof-stats-calls stats))
                 (format port "                            "))
             (display "  " port))
         (let ((source (statprof-stats-proc-source stats))
@@ -707,10 +637,10 @@ optional @var{port} argument is passed, uses the current output port."
     
       (if (call-counts state)
           (begin
-            (format  port "~5a ~10a   ~7a ~8a ~8a ~8a  ~8@a\n"
-                     "%  " "cumulative" "self" "" "self" "total" "")
-            (format  port "~5a  ~9a  ~8a ~8a ~8a ~8a  ~a\n"
-                     "time" "seconds" "seconds" "calls" "ms/call" "ms/call" "procedure"))
+            (format  port "~5a ~10a   ~7a  ~8a\n"
+                     "%  " "cumulative" "self" "")
+            (format  port "~5a  ~9a  ~8a  ~7a ~a\n"
+                     "time" "seconds" "seconds" "calls" "procedure"))
           (begin
             (format  port "~5a ~10a   ~7a  ~8a\n"
                      "%" "cumulative" "self" "")
@@ -963,8 +893,9 @@ operation is somewhat expensive."
           (statprof-stop state)
           (statprof-display port state #:style display-style))))))
 
-(define-macro (with-statprof . args)
-  "Profile the expressions in the body, and return the body's return values.
+(begin-deprecated
+ (define-macro (with-statprof . args)
+   "Profile the expressions in the body, and return the body's return values.
 
 Keyword arguments:
 
@@ -982,22 +913,24 @@ Whether to instrument each function call (expensive)
 
 default: @code{#f}
 @end table"
-  (define (kw-arg-ref kw args def)
-    (cond
-     ((null? args) (error "Invalid macro body"))
-     ((keyword? (car args))
-      (if (eq? (car args) kw)
-          (cadr args)
-          (kw-arg-ref kw (cddr args) def)))
-     ((eq? kw #f def) ;; asking for the body
-      args)
-     (else def))) ;; kw not found
-  `((@ (statprof) statprof)
-    (lambda () ,@(kw-arg-ref #f args #f))
-    #:loop ,(kw-arg-ref #:loop args 1)
-    #:hz ,(kw-arg-ref #:hz args 100)
-    #:count-calls? ,(kw-arg-ref #:count-calls? args #f)
-    #:full-stacks? ,(kw-arg-ref #:full-stacks? args #f)))
+   (define (kw-arg-ref kw args def)
+     (cond
+      ((null? args) (error "Invalid macro body"))
+      ((keyword? (car args))
+       (if (eq? (car args) kw)
+           (cadr args)
+           (kw-arg-ref kw (cddr args) def)))
+      ((eq? kw #f def) ;; asking for the body
+       args)
+      (else def))) ;; kw not found
+   (issue-deprecation-warning
+    "`with-statprof' is deprecated.  Use `statprof' instead.")
+   `((@ (statprof) statprof)
+     (lambda () ,@(kw-arg-ref #f args #f))
+     #:loop ,(kw-arg-ref #:loop args 1)
+     #:hz ,(kw-arg-ref #:hz args 100)
+     #:count-calls? ,(kw-arg-ref #:count-calls? args #f)))
+ (export with-statprof))
 
 (define* (gcprof thunk #:key (loop 1) full-stacks? (port (current-output-port)))
   "Do an allocation profile of the execution of @var{thunk}.

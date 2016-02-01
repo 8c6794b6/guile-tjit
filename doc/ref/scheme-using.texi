@@ -294,8 +294,12 @@ Disassemble a file.
 Time execution.
 @end deffn
 
-@deffn {REPL Command} profile exp
-Profile execution.
+@deffn {REPL Command} profile exp [#:hz hz=100] @
+  [#:count-calls? count-calls?=#f] [#:display-style display-style=list]
+Profile execution of an expression.  This command compiled @var{exp} and
+then runs it within the statprof profiler, passing all keyword options
+to the @code{statprof} procedure.  For more on statprof and on the the
+options available to this command, @xref{Statprof}.
 @end deffn
 
 @deffn {REPL Command} trace exp [#:width w] [#:max-indent i]
