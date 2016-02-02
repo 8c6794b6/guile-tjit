@@ -84,7 +84,8 @@
          (dst-ptr (make-pointer (+ ip (* 2 4))))
          (rra (cons (+ sp-offset fp) (make-return-address dst-ptr)))
          (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
-         (inlineable (< 0 (current-fp-offset))))
+         (inlineable (and (< 0 (current-fp-offset))
+                          (not (tj-linking-roots? (ir-tj ir))))))
     (push-outline! (ir-outline ir) rdl rra sp-offset locals)
     (if inlineable
         `(let ((_ (%scall ,proc)))

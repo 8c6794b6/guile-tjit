@@ -203,13 +203,17 @@
                   (merge-types initial-stack-item-types parent-snapshot)))
              (linking-roots?
               (let ((origin-id
-                     ;; XXX: Need to chase grand parent id, grand grand
-                     ;; parent id, and so on until it reaches to root
-                     ;; trace, OR save the origin trace id in fragment
-                     ;; record type.
-                     (and parent-fragment
-                          (zero? (fragment-parent-id parent-fragment))
-                          (fragment-id parent-fragment)))
+                     ;; Chasing parent id, grand parent id, grand grand parent
+                     ;; id, and so on until it reaches to root trace. This loop
+                     ;; could be avoided by saving the origin trace id in
+                     ;; fragment record type.
+                     (let lp ((fragment parent-fragment))
+                       (if (not fragment)
+                           #f
+                           (let ((parent-id (fragment-parent-id fragment)))
+                             (if (zero? parent-id)
+                                 (fragment-id fragment)
+                                 (lp (get-fragment parent-id)))))))
                     (linked-id
                      (and linked-ip
                           (and=> (get-root-trace linked-ip)

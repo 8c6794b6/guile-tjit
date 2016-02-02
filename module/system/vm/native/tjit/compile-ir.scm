@@ -154,6 +154,7 @@
       (debug 3 ";;;   locals0=~a~%"
              (sort (snapshot-locals (hashq-ref snapshots 0))
                    (lambda (a b) (< (car a) (car b)))))
+      (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
       (let* ((snapshot0 (hashq-ref snapshots 0))
              (snapshot0-locals (snapshot-locals snapshot0)))
         (define (type-from-snapshot n)
@@ -171,7 +172,6 @@
              (else (tjitc-error 'type-from-runtime "~s ~s" i type)))))
         (define (type-from-parent n)
           (assq-ref parent-snapshot-locals n))
-        (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
         (let lp ((vars (if parent-snapshot
                            (make-vars (outline-read-indices outline))
                            (reverse vars))))
