@@ -1,6 +1,6 @@
 ;;; Guile VM frame functions
 
-;;; Copyright (C) 2001, 2005, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2005, 2009-2016 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -385,7 +385,7 @@
     (define (find-slot i bindings)
       (match bindings
         (() #f)
-        (((and binding ($ <binding> idx name slot)) . bindings)
+        (((and binding ($ <binding> frame idx name slot)) . bindings)
          (if (< idx i)
              (find-slot i bindings)
              (and (= idx i) binding)))))
