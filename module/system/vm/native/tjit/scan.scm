@@ -227,7 +227,6 @@
                 (fp (- stack-size proc 1)))
            (let lp ((n nvalues))
              (when (< 0 n)
-               (set-scm! (- fp n))
                (set-read! (- fp n))
                (lp (- n 1))))
            (save-sp-offset!)
