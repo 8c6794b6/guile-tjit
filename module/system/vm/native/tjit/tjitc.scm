@@ -187,25 +187,14 @@
              (outline (scan-backward traces outline parent-snapshot
                                      initial-sp-offset
                                      initial-fp-offset))
-             (_ (when parent-snapshot
-                  (let lp ((dst (outline-local-indices outline))
-                           (src (map car (snapshot-locals parent-snapshot))))
-                    (if (null? src)
-                        (set-outline-local-indices! outline (sort dst >))
-                        (let* ((elem (car src))
-                               (dst (if (memq elem dst)
-                                        dst
-                                        (cons elem dst))))
-                          (lp dst (cdr src)))))))
              (initial-stack-item-types
               (if (or (not parent-fragment) loop?)
                   initial-stack-item-types
                   (merge-types initial-stack-item-types parent-snapshot)))
              (linking-roots?
               (let ((origin-id
-                     ;; Chasing parent id, grand parent id, grand grand parent
-                     ;; id, and so on until it reaches to root trace. This loop
-                     ;; could be avoided by saving the origin trace id in
+                     ;; Chasing parent id until it reaches to root trace. This
+                     ;; loop could be avoided by saving the origin trace id in
                      ;; fragment record type.
                      (let lp ((fragment parent-fragment))
                        (if (not fragment)
@@ -232,9 +221,8 @@
                         (compile-native tj ops snapshots sline)))
             (tjit-increment-id!)
             (when (tjit-dump-ncode? dump-option)
-              (dump-ncode trace-id entry-ip code size adjust
-                          loop-address snapshots trampoline
-                          (not parent-snapshot))))
+              (dump-ncode trace-id entry-ip code size adjust loop-address
+                          snapshots trampoline (not parent-snapshot))))
           (when (tjit-dump-time? dump-option)
             (let ((log (get-tjit-time-log trace-id))
                   (t (get-internal-run-time)))
