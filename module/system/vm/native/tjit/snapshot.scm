@@ -173,7 +173,8 @@
                  (lp (- i 1) (cons (format #f "0x~x"
                                            (pointer-address (vector-ref locals i)))
                                    acc)))))
-    (debug 1 ";;;      live-indices:~a~%" (outline-live-indices outline)))
+    (debug 1 ";;;      live-indices:~a~%" (outline-live-indices outline))
+    (debug 1 ";;;      types:~a~%" (sort (outline-types outline) car-<)))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)

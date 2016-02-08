@@ -96,6 +96,103 @@
                    parent-read-vars env))
       '()))
 
+(define* (add-initial-loads tj snapshots initial-locals initial-sp-offset
+                            parent-snapshot vars live-vars-in-parent
+                            exp-body #:optional (loaded-vars #f))
+  (let* ((snapshot0 (hashq-ref snapshots 0))
+         (snapshot0-locals (snapshot-locals snapshot0))
+         (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
+                                     '()))
+         (outline (tj-outline tj)))
+    (define (type-from-snapshot n)
+      (assq-ref snapshot0-locals n))
+    (define (type-from-runtime i)
+      (let* ((offset (if (tj-linking-roots? tj)
+                         (tj-last-sp-offset tj)
+                         initial-sp-offset))
+             (type (outline-type-ref outline (+ i offset))))
+        (cond
+         ((eq? type 'f64) &f64)
+         ((eq? type 'u64) &u64)
+         ((eq? type 's64) &s64)
+         ((eq? type 'scm) (type-of (stack-element initial-locals i type)))
+         (else (tjitc-error 'type-from-runtime "~s ~s" i type)))))
+    (define (type-from-parent n)
+      (assq-ref parent-snapshot-locals n))
+    (debug 3 ";;; add-initial-loads:~%")
+    (debug 3 ";;;   initial-locals=~a~%"
+           (let lp ((copy (vector-copy initial-locals))
+                    (i (- (vector-length initial-locals) 1)))
+             (if (< i 0)
+                 copy
+                 (let ((addr (pointer-address (vector-ref copy i))))
+                   (vector-set! copy i (format #f "#x~x" addr))
+                   (lp copy (- i 1))))))
+    (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
+    (debug 3 ";;;   initial-types=~a~%" (tj-initial-types tj))
+    (debug 3 ";;;   locals0=~a~%"
+           (sort (snapshot-locals snapshot0)
+                 (lambda (a b) (< (car a) (car b)))))
+    (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
+    (let lp ((vars (if parent-snapshot
+                       (make-vars (outline-read-indices outline))
+                       (reverse vars))))
+      (match vars
+        (((n . var) . vars)
+         (let ((j (+ n initial-sp-offset))
+               (i (- n (snapshot-sp-offset snapshot0))))
+           (cond
+            ;; When local was passed from parent and snapshot 0 contained
+            ;; the local with same type, no need to load from frame. If
+            ;; type does not match, the value passed from parent has
+            ;; different was untagged with different type, reload from
+            ;; frame.
+            ;;
+            ;; When locals index was found in parent snapshot locals and
+            ;; not from snapshot 0 of this trace, the local will be passed
+            ;; from parent fragment, ignoreing.
+            ;;
+            ;; If initial offset is positive and local index is negative,
+            ;; locals from lower frame won't be passed as
+            ;; argument. Loading later with '%fref' or '%fref/f'.
+            ;;
+            ((let ((parent-type (type-from-parent j))
+                   (snapshot-type (type-from-snapshot j)))
+               (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
+                      n initial-sp-offset (pretty-type parent-type)
+                      (pretty-type snapshot-type))
+               (or (< j 0)
+                   (not (<= 0 i (- (vector-length initial-locals) 1)))
+                   (and (not (tj-loop? tj))
+                        (or (and parent-type
+                                 snapshot-type
+                                 (eq? parent-type snapshot-type))
+                            (and (not snapshot-type)
+                                 parent-type)
+                            (or (dynamic-link? parent-type)
+                                (return-address? parent-type))
+                            (and (<= 0 initial-sp-offset)
+                                 (< n 0))
+                            (not (memq n (outline-read-indices outline)))
+                            (memq var live-vars-in-parent)))))
+             (lp vars))
+            (else
+             (let* ((type (or (assq-ref snapshot0-locals n)
+                              (type-from-runtime i)))
+                    (type (if (and parent-snapshot
+                                   (tj-loop? tj)
+                                   (let ((j (+ n initial-sp-offset)))
+                                     (eq? (type-from-parent j)
+                                          (type-from-snapshot j))))
+                              #f
+                              type)))
+               (debug 3 ";;;   type: ~a~%" (pretty-type type))
+               (when loaded-vars
+                 (hashq-set! loaded-vars n type))
+               (with-frame-ref vars var type n lp))))))
+        (()
+         exp-body)))))
+
 (define (compile-anf tj trace)
   (let* ((parent-snapshot (tj-parent-snapshot tj))
          (outline (tj-outline tj))
@@ -139,97 +236,6 @@
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
-    (define* (add-initial-loads exp-body #:optional (loaded-vars #f))
-      (debug 3 ";;; add-initial-loads:~%")
-      (debug 3 ";;;   initial-locals=~a~%"
-             (let lp ((copy (vector-copy initial-locals))
-                      (i (- (vector-length initial-locals) 1)))
-               (if (< i 0)
-                   copy
-                   (let ((addr (pointer-address (vector-ref copy i))))
-                     (vector-set! copy i (format #f "#x~x" addr))
-                     (lp copy (- i 1))))))
-      (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
-      (debug 3 ";;;   initial-types=~a~%" (tj-initial-types tj))
-      (debug 3 ";;;   locals0=~a~%"
-             (sort (snapshot-locals (hashq-ref snapshots 0))
-                   (lambda (a b) (< (car a) (car b)))))
-      (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
-      (let* ((snapshot0 (hashq-ref snapshots 0))
-             (snapshot0-locals (snapshot-locals snapshot0)))
-        (define (type-from-snapshot n)
-          (assq-ref snapshot0-locals n))
-        (define (type-from-runtime i)
-          (let* ((offset (if (tj-linking-roots? tj)
-                             (tj-last-sp-offset tj)
-                             initial-sp-offset))
-                 (type (outline-type-ref outline (+ i offset))))
-            (cond
-             ((eq? type 'f64) &f64)
-             ((eq? type 'u64) &u64)
-             ((eq? type 's64) &s64)
-             ((eq? type 'scm) (type-of (stack-element initial-locals i type)))
-             (else (tjitc-error 'type-from-runtime "~s ~s" i type)))))
-        (define (type-from-parent n)
-          (assq-ref parent-snapshot-locals n))
-        (let lp ((vars (if parent-snapshot
-                           (make-vars (outline-read-indices outline))
-                           (reverse vars))))
-          (match vars
-            (((n . var) . vars)
-             (let ((j (+ n initial-sp-offset))
-                   (i (- n (snapshot-sp-offset snapshot0))))
-               (cond
-                ;; When local was passed from parent and snapshot 0 contained
-                ;; the local with same type, no need to load from frame. If
-                ;; type does not match, the value passed from parent has
-                ;; different was untagged with different type, reload from
-                ;; frame.
-                ;;
-                ;; When locals index was found in parent snapshot locals and
-                ;; not from snapshot 0 of this trace, the local will be passed
-                ;; from parent fragment, ignoreing.
-                ;;
-                ;; If initial offset is positive and local index is negative,
-                ;; locals from lower frame won't be passed as
-                ;; argument. Loading later with '%fref' or '%fref/f'.
-                ;;
-                ((let ((parent-type (type-from-parent j))
-                       (snapshot-type (type-from-snapshot j)))
-                   (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
-                          n initial-sp-offset (pretty-type parent-type)
-                          (pretty-type snapshot-type))
-                   (or (< j 0)
-                       (not (<= 0 i (- (vector-length initial-locals) 1)))
-                       (and (not (tj-loop? tj))
-                            (or (and parent-type
-                                     snapshot-type
-                                     (eq? parent-type snapshot-type))
-                                (and (not snapshot-type)
-                                     parent-type)
-                                (or (dynamic-link? parent-type)
-                                    (return-address? parent-type))
-                                (and (<= 0 initial-sp-offset)
-                                     (< n 0))
-                                (not (memq n (outline-read-indices outline)))
-                                (memq var live-vars-in-parent)))))
-                 (lp vars))
-                (else
-                 (let* ((type (or (assq-ref snapshot0-locals n)
-                                  (type-from-runtime i)))
-                        (type (if (and parent-snapshot
-                                       (tj-loop? tj)
-                                       (let ((j (+ n initial-sp-offset)))
-                                         (eq? (type-from-parent j)
-                                              (type-from-snapshot j))))
-                                  #f
-                                  type)))
-                   (debug 3 ";;;   type: ~a~%" (pretty-type type))
-                   (when loaded-vars
-                     (hashq-set! loaded-vars n type))
-                   (with-frame-ref vars var type n lp))))))
-            (()
-             exp-body)))))
     (define (make-anf)
       (let ((emit
              (lambda ()
@@ -262,7 +268,10 @@
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
-                                 ,(add-initial-loads `(loop ,@args) vt))))
+                                 ,(add-initial-loads tj snapshots initial-locals
+                                                     initial-sp-offset
+                                                     #f vars '() `(loop ,@args)
+                                                     vt))))
                       (loop (lambda ,args
                               ,(let* ((locals (sort (hash-map->list cons vt)
                                                     (lambda (a b)
@@ -280,8 +289,12 @@
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ,args-from-parent
                                (let ((_ ,snap0))
-                                 ,(add-initial-loads
-                                   `(loop ,@args-from-vars)))))
+                                 ,(add-initial-loads tj snapshots initial-locals
+                                                     initial-sp-offset
+                                                     parent-snapshot
+                                                     vars live-vars-in-parent
+                                                     `(loop ,@args-from-vars)
+                                                     #f))))
                       (loop (lambda ,args-from-vars
                               ,(emit))))
                entry)))
@@ -289,7 +302,11 @@
           (let ((snap0 (initial-snapshot!)))
             `(letrec ((patch (lambda ,args-from-parent
                                (let ((_ ,snap0))
-                                 ,(add-initial-loads (emit))))))
+                                 ,(add-initial-loads tj snapshots initial-locals
+                                                     initial-sp-offset
+                                                     parent-snapshot
+                                                     vars live-vars-in-parent
+                                                     (emit) #f)))))
                patch))))))
 
     (values vars snapshots (make-anf))))

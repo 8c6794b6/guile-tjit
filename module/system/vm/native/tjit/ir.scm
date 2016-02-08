@@ -192,9 +192,11 @@
                                  ((eq? 'f64 e) &f64)
                                  ((eq? 'u64 e) &u64)
                                  ((eq? 's64 e) &s64)
-                                 ((eq? 'scm e) (type-of (stack-element locals i e)))
+                                 ((eq? 'scm e)
+                                  (type-of (stack-element locals i e)))
                                  (else
-                                  (tjitc-error 'receive "unknown type ~s ~s" i e)))))
+                                  (tjitc-error 'receive "unknown type ~s ~s"
+                                               i e)))))
                          (debug 1 "~a~%" (pretty-type r))
                          r)))
             (acc (make-hash-table))
