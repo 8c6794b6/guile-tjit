@@ -597,9 +597,14 @@ are local index number."
           (when (not (zero? sp-offset))
             (shift-sp sp-offset))
 
-          ;; Shift FP for inlined procedure.
-          (when (< fp-offset 0)
-            (shift-fp fp-offset))
+          ;; Shift FP, adjust with SP and nlocals unless moved to up-frame
+          ;; explicitly with primitive operations which update `vp->fp'.
+          (when (<= fp-offset 0)
+            (let ((vp r0)
+                  (vp->fp r1))
+              (jit-addi vp->fp %sp (imm (* nlocals %word-size)))
+              (load-vp vp)
+              (store-vp->fp vp vp->fp)))
 
           ;; Sync next IP with vp->ip for VM.
           (jit-movi r0 (imm ip))

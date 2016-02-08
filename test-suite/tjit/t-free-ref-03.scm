@@ -9,8 +9,10 @@
 
 (define (loop n)
   (let lp ((n n) (c (gen 0 0 0)) (acc 0))
-    (if (< 0 n)
-        (lp (- n 1) c (+ acc (c n)))
-        acc)))
+    (cond
+     ((< n 0) acc)
+     ((< n 200) (lp (- n 1) c (+ acc (c 0))))
+     ((< n 400) (lp (- n 1) c (+ acc (c 1))))
+     (else (lp (- n 1) c (+ acc (c 2)))))))
 
-(loop #e1e3)
+(loop 1000)
