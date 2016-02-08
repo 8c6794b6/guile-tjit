@@ -239,7 +239,7 @@
                (let lp ((vars (reverse (ir-vars ir))))
                  (match vars
                    (((n . var) . vars)
-                    (debug 1 ";;; [load-up-frame] n=~s " n)
+                    (debug 1 ";;; [load-up-frame] n=~s" n)
                     (cond
                      ((skip-var? var)
                       (debug 1 " skipping~%")
