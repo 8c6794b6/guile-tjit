@@ -161,20 +161,20 @@
         (type-of (stack-element locals (- i sp-offset) type)))
        (else
         (tjitc-error 'make-snapshot "unknown local ~s ~s" type i)))))
-  (let ((car-< (lambda (a b) (< (car a) (car b)))))
-    (debug 1 ";;; [ms] id:~s sp:~s fp:~s nlocals:~s~%"
-           id sp-offset fp-offset nlocals)
-    (debug 1 ";;;      write-indices:~s~%" write-indices)
-    (debug 1 ";;;      read-indices: ~s~%" (outline-read-indices outline))
-    (debug 1 ";;;      locals:~a~%"
-           (let lp ((i (- (vector-length locals) 1)) (acc '()))
-             (if (< i 0)
-                 acc
-                 (lp (- i 1) (cons (format #f "0x~x"
-                                           (pointer-address (vector-ref locals i)))
-                                   acc)))))
-    (debug 1 ";;;      live-indices:~a~%" (outline-live-indices outline))
-    (debug 1 ";;;      types:~a~%" (sort (outline-types outline) car-<)))
+  ;; (let ((car-< (lambda (a b) (< (car a) (car b)))))
+  ;;   (debug 1 ";;; [ms] id:~s sp:~s fp:~s nlocals:~s~%"
+  ;;          id sp-offset fp-offset nlocals)
+  ;;   (debug 1 ";;;      write-indices:~s~%" write-indices)
+  ;;   (debug 1 ";;;      read-indices: ~s~%" (outline-read-indices outline))
+  ;;   (debug 1 ";;;      locals:~a~%"
+  ;;          (let lp ((i (- (vector-length locals) 1)) (acc '()))
+  ;;            (if (< i 0)
+  ;;                acc
+  ;;                (lp (- i 1) (cons (format #f "0x~x"
+  ;;                                          (pointer-address (vector-ref locals i)))
+  ;;                                  acc)))))
+  ;;   (debug 1 ";;;      live-indices:~a~%" (outline-live-indices outline))
+  ;;   (debug 1 ";;;      types:~a~%" (sort (outline-types outline) car-<)))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
@@ -229,7 +229,7 @@
                 (cond
                  ((outline-local-ref outline i)
                   => (lambda (e)
-                       (debug 1 ";;; [ms] outline-local-ref ~s => ~s~%" i e)
+                       ;; (debug 1 ";;; [ms] outline-local-ref ~s => ~s~%" i e)
                        (cond
                         ((or (dynamic-link? e) (return-address? e))
                          (add-local e))

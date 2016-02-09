@@ -390,7 +390,7 @@
       (scan-locals (ir-outline ir) op #f dl locals #t #f)
       (cond
        ((hashq-ref *ir-procedures* (car op))
-        => (lambda (proc)
+        => (lambda (found)
              (let ((next
                     (lambda ()
                       (let* ((old-index (ir-bytecode-index ir))
@@ -419,7 +419,17 @@
                         (when (< (ir-max-sp-offset ir) max-offset)
                           (set-ir-max-sp-offset! ir max-offset)))
                       (convert ir rest))))
-               (apply proc ir next ip ra dl locals (cdr op)))))
+               (cond
+                ((procedure? found)
+                 (apply found ir next ip ra dl locals (cdr op)))
+                ((list? found)
+                 (let lp ((procs found))
+                   (match procs
+                     (((test . work) . procs)
+                      (if (apply test (ir-outline ir) op (list locals))
+                          (apply work ir next ip ra dl locals (cdr op))
+                          (lp procs)))
+                     (_ (nyi "~a" (car op))))))))))
        (else
         (nyi "~a" (car op)))))
     (define (convert ir trace)

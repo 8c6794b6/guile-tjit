@@ -46,6 +46,7 @@
 
             &undefined
             &port
+            &scm
 
             fixnum?
             flonum?
@@ -58,6 +59,7 @@
             type-of
             pretty-type
             *unbound*
+            flag->type
 
             %tc2-int
             %tc3-imm24
@@ -175,6 +177,8 @@
 
 (define &port %tc7-port)
 
+(define &scm (@@ (language cps types) &all-types))
+
 
 ;;;
 ;;; Type checker based on runtime values
@@ -250,6 +254,7 @@
   "Show string representation of TYPE."
   (cond
    ;; From (@ language cps types)
+   ((eq? type &scm) "scm")
    ((eq? type &exact-integer) (blue "snum"))
    ((eq? type &flonum) (magenta "fnum"))
    ((eq? type &char) (blue "char"))
@@ -272,9 +277,9 @@
    ((eq? type &bitvector) (yellow "bitv"))
    ((eq? type &array) (yellow "arry"))
    ((eq? type &hash-table) (yellow "htbl"))
-   ((eq? type &f64) (magenta "f64"))
-   ((eq? type &u64) (blue "u64"))
-   ((eq? type &s64) (blue "s64"))
+   ((eq? type &f64) "f64")
+   ((eq? type &u64) "u64")
+   ((eq? type &s64) "s64")
    ;; Not from (@ language cps types)
    ((eq? type &undefined) (green "udef"))
    ((eq? type &port) (yellow "port"))
@@ -286,3 +291,12 @@
            (hex-ip (number->string addr 16)))
       (string-append "ra:" (cyan hex-ip))))
    (else type)))
+
+(define (flag->type flag)
+  (cond
+   ((eq? flag 'scm) &scm)
+   ((eq? flag 'fixnum) &exact-integer)
+   ((eq? flag 'flonum) &flonum)
+   ((eq? flag 'pair) &pair)
+   (else
+    (tjitc-error 'flag->type "~s" flag))))

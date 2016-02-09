@@ -354,6 +354,16 @@ option was set to true."
 
 (define (dump-outline outline)
   (format #t ";;; outline:~%")
-  (format #t "~{;;;  ~s~%~}"
+  (format #t "~{;;;  ~a~%~}"
           `((local-indices . ,(outline-local-indices outline))
-            (types . ,(sort (outline-types outline) car-<)))))
+            (types . ,(sort (outline-types outline) car-<))
+            (expecting . ,(sort (map (match-lambda
+                                      ((k . t)
+                                       `(,k . ,(pretty-type t))))
+                                    (outline-expecting-types outline))
+                                car-<))
+            (derived . ,(sort (map (match-lambda
+                                      ((k . t)
+                                       `(,k . ,(pretty-type t))))
+                                    (outline-derived-types outline))
+                               car-<)))))

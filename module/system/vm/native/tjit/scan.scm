@@ -286,11 +286,29 @@
     (_
      (cond
       ((hashq-ref *scan-procedures* (car op))
-       => (lambda (proc)
-            (apply proc ol initialized? (cdr op))
-            (save-sp-offset!)
-            (save-fp-offset!)
-            (save-write-buf!)
-            (ret)))
+       => (lambda (found)
+            (cond
+             ((procedure? found)
+              (apply found ol initialized? (cdr op))
+              (save-sp-offset!)
+              (save-fp-offset!)
+              (save-write-buf!)
+              (ret))
+             ((list? found)
+              (let lp ((procs found))
+                (match procs
+                  (((test . work) . procs)
+                   (debug 1 ";;; [scan-locals] op=~s~%" op)
+                   (if (apply test ol op (list locals))
+                       (begin
+                         (apply work ol initialized? (cdr op))
+                         (save-sp-offset!)
+                         (save-fp-offset!)
+                         (save-write-buf!)
+                         (ret))
+                       (lp procs)))
+                  (_ (nyi)))))
+             (else
+              (nyi)))))
       (else
        (nyi))))))

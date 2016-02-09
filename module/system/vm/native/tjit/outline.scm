@@ -49,13 +49,17 @@
             outline-read-indices set-outline-read-indices!
             outline-write-buf set-outline-write-buf!
             outline-live-indices set-outline-live-indices!
+            outline-derived-types set-outline-derived-types!
+            outline-expecting-types set-outline-expecting-types!
 
             pop-outline!
             push-outline!
             arrange-outline
             expand-outline
             set-outline-previous-dl-and-ra!
-            merge-outline-types!))
+            merge-outline-types!
+            set-derived-type!
+            set-expecting-type!))
 
 
 ;; Data type to contain outline of recorded traces.
@@ -66,7 +70,7 @@
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
                  sp-offset fp-offset ret-types write-indices read-indices
-                 write-buf live-indices)
+                 write-buf live-indices derived-types expecting-types)
   outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -109,14 +113,21 @@
   (write-buf outline-write-buf set-outline-write-buf!)
 
   ;; Live indices, updated during IR compilation.
-  (live-indices outline-live-indices set-outline-live-indices!))
+  (live-indices outline-live-indices set-outline-live-indices!)
+
+  ;; Expecting types.
+  (expecting-types outline-expecting-types set-outline-expecting-types!)
+
+  ;; Derived types.
+  (derived-types outline-derived-types set-outline-derived-types!))
 
 (define (make-outline types sp-offset fp-offset write-indices live-indices)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset
-                 '() write-indices '() (list write-indices) live-indices))
+                 '() write-indices '() (list write-indices) live-indices
+                 '() '()))
 
 (define (arrange-outline outline)
   (let* ((sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
@@ -197,3 +208,14 @@
          (lp locals types)))
       (_
        (set-outline-types! outline types)))))
+
+(define (set-expecting-type! outline n t)
+  (let ((expecting (outline-expecting-types outline))
+        (derived (outline-derived-types outline)))
+    (when (and (not (assq-ref expecting n))
+               (not (assq-ref derived n)))
+      (set-outline-expecting-types! outline (assq-set! expecting n t)))))
+
+(define (set-derived-type! outline n t)
+  (let ((derived (outline-derived-types outline)))
+    (set-outline-derived-types! outline (assq-set! derived n t))))
