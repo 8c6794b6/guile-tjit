@@ -358,12 +358,12 @@ option was set to true."
           `((local-indices . ,(outline-local-indices outline))
             (types . ,(sort (outline-types outline) car-<))
             (expecting . ,(sort (map (match-lambda
-                                      ((k . t)
-                                       `(,k . ,(pretty-type t))))
-                                    (outline-expecting-types outline))
+                                       ((k . t)
+                                        `(,k . ,(pretty-type t))))
+                                     (outline-expecting-types outline))
                                 car-<))
-            (derived . ,(sort (map (match-lambda
+            (inferred . ,(sort (map (match-lambda
                                       ((k . t)
                                        `(,k . ,(pretty-type t))))
-                                    (outline-derived-types outline))
+                                    (outline-inferred-types outline))
                                car-<)))))

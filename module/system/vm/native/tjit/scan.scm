@@ -104,7 +104,12 @@
       ((_ i ...)
        (set-type! (i 'scm) ...))))
   (define-syntax-rule (ret)
-    (values #t (car op)))
+    (begin
+      (unless initialized?
+        (debug 1 "~a"
+               (and ((@ (system vm native tjit dump) dump-outline) ol)
+                    "")))
+      (values #t (car op))))
   (define-syntax-rule (nyi)
     (begin
       (debug 1 "NYI: ~a~%" (car op))
@@ -155,6 +160,8 @@
       (save-write-buf!)
       (ret)))
 
+  (unless initialized?
+    (debug 1 ";;; [scan-locals] op=~s~%" op))
   ;; Look for the type of returned value from C function.
   (unless initialized?
     (let* ((ret-types (outline-ret-types ol))
@@ -270,7 +277,24 @@
     (('mov dst src)
      (unless initialized?
        (set-read! src)
-       (set-write! dst))
+       (set-write! dst)
+
+       ;; Resolving expcting and inferred type for dst and src. There are no SCM
+       ;; type clue here, use existing data stored in outline. If src could not
+       ;; resolved, a tagged `copy' type with local index are stored, to be
+       ;; resolved later .
+       (let* ((sp-offset (outline-sp-offset ol))
+              (dst+sp (+ dst sp-offset))
+              (src+sp (+ src sp-offset))
+              (inferred (outline-inferred-types ol))
+              (expecting (outline-expecting-types ol)))
+         (cond
+          ((or (assq-ref inferred src+sp)
+               (assq-ref expecting src+sp))
+           => (lambda (ty)
+                (set-inferred-type! ol dst+sp ty)))
+          (else
+           (set-expecting-type! ol src+sp `(copy . ,dst+sp))))))
      (let ((sp-offset (outline-sp-offset ol)))
        (if backward?
            (and=> (outline-type-ref ol (+ dst sp-offset))
@@ -298,7 +322,6 @@
               (let lp ((procs found))
                 (match procs
                   (((test . work) . procs)
-                   (debug 1 ";;; [scan-locals] op=~s~%" op)
                    (if (apply test ol op (list locals))
                        (begin
                          (apply work ol initialized? (cdr op))

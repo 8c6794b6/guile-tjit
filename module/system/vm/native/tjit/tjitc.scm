@@ -50,6 +50,7 @@
   #:use-module (system vm native tjit scan)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
+  #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export (tjitc init-vm-tjit)
   #:re-export (tjit-stats))
@@ -79,17 +80,20 @@
                   (else ""))))
       (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
               trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
-  (define (traced-ops bytecode traces sp-offset fp-offset parent-snapshot)
+  (define (traced-ops bytecode traces parent-snapshot)
     (define disassemble-one
       (@@ (system vm disassembler) disassemble-one))
+    (define (make-initial-outline)
+      (match parent-snapshot
+        (($ $snapshot id sp fp nlocals locals vars code ip types reads lives)
+         (make-outline (copy-tree types) sp fp (map car locals) lives locals))
+        (_
+         (make-outline '() 0 0 '() '() '()))))
     (define (go)
       (let lp ((acc '())
                (offset 0)
                (traces (reverse! traces))
-               (ol (make-outline (get-initial-types parent-snapshot)
-                                 sp-offset fp-offset
-                                 (get-initial-write-indices parent-snapshot)
-                                 (get-initial-live-vars parent-snapshot)))
+               (ol (make-initial-outline))
                (so-far-so-good? #t)
                (prev-op #f))
         (match traces
@@ -127,18 +131,6 @@
            (set-outline-sp-offset! ol sp)
            (set-outline-fp-offset! ol fp)
            ol)))))
-  (define (get-initial-types snapshot)
-    (if snapshot
-        (copy-tree (snapshot-outline-types snapshot))
-        '()))
-  (define (get-initial-write-indices snapshot)
-    (if snapshot
-        (map car (snapshot-locals snapshot))
-        '()))
-  (define (get-initial-live-vars snapshot)
-    (if snapshot
-        (snapshot-live-indices snapshot)
-        '()))
   (define (merge-types dsts snapshot)
     (let ((sp (snapshot-sp-offset snapshot))
           (nlocals (snapshot-nlocals snapshot)))
@@ -230,8 +222,7 @@
 
     (with-tjitc-error-handler entry-ip
       (let-values (((traces outline implemented?)
-                    (traced-ops bytecode traces initial-sp-offset
-                                initial-fp-offset parent-snapshot)))
+                    (traced-ops bytecode traces parent-snapshot)))
         (dump tjit-dump-jitc? implemented? (show-sline sline parent-fragment))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond
@@ -250,7 +241,18 @@
          (else
           (let ((verbosity (lightning-verbosity)))
             (when (and (number? verbosity) (<= 1 verbosity))
-              (dump-outline outline)))
+              (dump-outline outline)
+              (match parent-snapshot
+                (($ $snapshot id sp fp nlocals locals vars code ip
+                    outline-types reads lives)
+                 (format #t ";;; parent-snapshot:~%")
+                 (format #t ";;;   locals: ~a~%"
+                         (map (match-lambda
+                                ((k . t) (cons k (pretty-type t))))
+                              locals))
+                 (format #t ";;;   read-indices: ~a~%" reads)
+                 (format #t ";;;   live-indices: ~a~%" lives))
+                (_ (values)))))
           (with-nyi-handler entry-ip
             (compile-traces traces outline))))))))
 

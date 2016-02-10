@@ -33,47 +33,23 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-;; (define-syntax define-binary-arith-scm-scm
-;;   (syntax-rules ()
-;;     ((_ name op-fx1 op-fx2 op-fl)
-;;      (define-ir (name (scm! dst) (scm a) (scm b))
-;;        (let ((a/l (local-ref a))
-;;              (b/l (local-ref b))
-;;              (dst/v (var-ref dst))
-;;              (a/v (var-ref a))
-;;              (b/v (var-ref b)))
-;;          (cond
-;;           ((and (fixnum? a/l) (fixnum? b/l))
-;;            `(let ((,dst/v (op-fx1 ,a/v ,b/v)))
-;;               (let ((,dst/v (op-fx2 ,dst/v 2)))
-;;                 ,(next))))
-;;           ((and (fixnum? a/l) (flonum? b/l))
-;;            (let ((r0 (make-tmpvar 0))
-;;                  (f0 (make-tmpvar/f 0)))
-;;              `(let ((,r0 (%rsh ,a/v 2)))
-;;                 (let ((,f0 (%i2d ,r0)))
-;;                   (let ((,dst/v (op-fl ,f0 ,b/v)))
-;;                     ,(next))))))
-;;           ((and (flonum? a/l) (flonum? b/l))
-;;            `(let ((,dst/v (op-fl ,a/v ,b/v)))
-;;               ,(next)))
-;;           (else
-;;            (nyi "~s: ~a ~a ~a" 'name (local-ref dst) a/l b/l))))))))
 
+;; Definition order matters, define general types first, then follows
+;; more specific types.
 (define-syntax define-binary-arith-scm-scm
   (syntax-rules ()
     ((_ name op-fx1 op-fx2 op-fl)
      (begin
        (define-ir (name (scm! dst) (scm a) (scm b))
          (nyi "~s: ~a ~a ~a" 'name (local-ref dst) a b))
-       (define-ir (name (scm! dst) (fixnum a) (fixnum b))
+       (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
          (let ((dst/v (var-ref dst))
                (a/v (var-ref a))
                (b/v (var-ref b)))
            `(let ((,dst/v (op-fx1 ,a/v ,b/v)))
               (let ((,dst/v (op-fx2 ,dst/v 2)))
                 ,(next)))))
-       (define-ir (name (scm! dst) (fixnum a) (flonum b))
+       (define-ir (name (flonum! dst) (fixnum a) (flonum b))
          (let ((dst/v (var-ref dst))
                (a/v (var-ref a))
                (b/v (var-ref b))
@@ -83,24 +59,19 @@
               (let ((,f2 (%i2d ,r2)))
                 (let ((,dst/v (op-fl ,f2 ,b/v)))
                   ,(next))))))
-       (define-ir (name (scm! dst) (flonum a) (flonum b))
+       (define-ir (name (flonum! dst) (flonum a) (flonum b))
          (let ((dst/v (var-ref dst))
                (a/v (var-ref a))
                (b/v (var-ref b)))
            `(let ((,dst/v (op-fl ,a/v ,b/v)))
               ,(next))))))))
 
-;; Definition order matters, define general types first, then follows
-;; more specific types.
 (define-syntax define-binary-arith-scm-imm
   (syntax-rules ()
     ((_ name op-fx)
      (begin
        (define-ir (name (scm! dst) (scm src) (const imm))
          (nyi "~s: ~a ~a" 'name (local-ref src) imm))
-       (define-ir (name (scm! dst) (fixnum src) (const imm))
-         `(let ((,(var-ref dst) (op-fx ,(var-ref src) ,(* imm 4))))
-            ,(next)))
        (define-ir (name (fixnum! dst) (fixnum src) (const imm))
          `(let ((,(var-ref dst) (op-fx ,(var-ref src) ,(* imm 4))))
             ,(next)))))))
@@ -111,69 +82,67 @@
 (define-binary-arith-scm-imm sub/immediate %sub)
 
 (define-ir (mul (scm! dst) (scm a) (scm b))
-  (let ((a/l (local-ref a))
-        (b/l (local-ref b))
-        (dst/v (var-ref dst))
-        (a/v (var-ref a))
-        (b/v (var-ref b)))
-    (cond
-     ((and (flonum? a/l) (flonum? b/l))
-      `(let ((,dst/v (%fmul ,a/v ,b/v)))
-         ,(next)))
-     ((and (flonum? a/l) (fixnum? b/l))
-      (let* ((r2 (make-tmpvar 2))
-             (f2 (make-tmpvar/f 2))
-             (emit-next (lambda ()
-                          `(let ((,r2 (%rsh ,b/v 2)))
-                             (let ((,f2 (%i2d ,r2)))
-                               (let ((,dst/v (%fmul ,a/v ,f2)))
-                                 ,(next)))))))
-        (with-unboxing &exact-integer b/v emit-next)))
-     (else
-      (nyi "mul: ~a ~a ~a" (local-ref dst) a/l b/l)))))
+  (nyi "mul: ~a ~a ~a" dst a b))
+
+(define-ir (mul (flonum! dst) (flonum a) (fixnum b))
+  (let* ((dst/v (var-ref dst))
+         (a/v (var-ref a))
+         (b/v (var-ref b))
+         (r2 (make-tmpvar 2))
+         (f2 (make-tmpvar/f 2))
+         (emit-next (lambda ()
+                      `(let ((,r2 (%rsh ,b/v 2)))
+                         (let ((,f2 (%i2d ,r2)))
+                           (let ((,dst/v (%fmul ,a/v ,f2)))
+                             ,(next)))))))
+    (with-unboxing &exact-integer b/v emit-next)))
+
+(define-ir (mul (flonum! dst) (flonum a) (flonum b))
+  `(let ((,(var-ref dst) (%fmul ,(var-ref a) ,(var-ref b))))
+     ,(next)))
 
 (define-ir (div (scm! dst) (scm a) (scm b))
-  (let ((a/l (local-ref a))
-        (b/l (local-ref b))
-        (dst/v (var-ref dst))
-        (a/v (var-ref a))
-        (b/v (var-ref b)))
-    (cond
-     ((and (flonum? a/l) (flonum? b/l))
-      `(let ((,dst/v (%fdiv ,a/v ,b/v)))
-         ,(next)))
-     ((and (fixnum? a/l) (flonum? b/l))
-      (let* ((r2 (make-tmpvar 2))
-             (f2 (make-tmpvar/f 2))
-             (emit-next (lambda ()
-                          `(let ((,r2 (%rsh ,a/v 2)))
-                             (let ((,f2 (%i2d ,r2)))
-                               (let ((,dst/v (%fdiv ,f2 ,b/v)))
-                                 ,(next)))))))
-        (with-unboxing &exact-integer a/v emit-next)))
-     (else
-      (nyi "div: ~a ~a ~a" (local-ref dst) a/l b/l)))))
+  (nyi "div: ~s ~s ~s~%" dst a b))
+
+(define-ir (div (flonum! dst) (fixnum a) (flonum b))
+  (let* ((dst/v (var-ref dst))
+         (a/v (var-ref a))
+         (b/v (var-ref b))
+         (r2 (make-tmpvar 2))
+         (f2 (make-tmpvar/f 2))
+         (emit-next (lambda ()
+                      `(let ((,r2 (%rsh ,a/v 2)))
+                         (let ((,f2 (%i2d ,r2)))
+                           (let ((,dst/v (%fdiv ,f2 ,b/v)))
+                             ,(next)))))))
+    (with-unboxing &exact-integer a/v emit-next)))
+
+(define-ir (div (flonum! dst) (flonum a) (flonum b))
+  `(let ((,(var-ref dst) (%fdiv ,(var-ref a) ,(var-ref b))))
+     ,(next)))
+
+(define-syntax define-binary-arith-fx-fx
+  (syntax-rules ()
+    ((_ name op)
+     (begin
+       (define-ir (name (scm! dst) (scm a) (scm b))
+         (nyi "~s: ~a ~a ~a" 'name dst a b))
+       (define-ir (name (scm! dst) (fixnum a) (fixnum b))
+         (let ((dst/v (var-ref dst))
+               (a/v (var-ref a))
+               (b/v (var-ref b))
+               (r2 (make-tmpvar 2)))
+           `(let ((,r2 (%rsh ,a/v 2)))
+              (let ((,dst/v (%rsh ,b/v 2)))
+                (let ((,dst/v (op ,r2 ,dst/v)))
+                  (let ((,dst/v (%lsh ,dst/v 2)))
+                    (let ((,dst/v (%add ,dst/v 2)))
+                      ,(next))))))))))))
+
+(define-binary-arith-fx-fx mod %mod)
 
 ;; XXX: quo
 ;; XXX: rem
-
-(define-ir (mod (scm! dst) (scm a) (scm b))
-  (let ((a/l (local-ref a))
-        (b/l (local-ref b))
-        (dst/v (var-ref dst))
-        (a/v (var-ref a))
-        (b/v (var-ref b)))
-    (cond
-     ((and (fixnum? a/l) (fixnum? b/l))
-      (let ((r2 (make-tmpvar 2)))
-        `(let ((,r2 (%rsh ,a/v 2)))
-           (let ((,dst/v (%rsh ,b/v 2)))
-             (let ((,dst/v (%mod ,r2 ,dst/v)))
-               (let ((,dst/v (%lsh ,dst/v 2)))
-                 (let ((,dst/v (%add ,dst/v 2)))
-                   ,(next))))))))
-     (else
-      (nyi "mod: ~a ~a ~a" (local-ref dst) a/l b/l)))))
 
 ;; XXX: ash
 ;; XXX: logand
@@ -182,14 +151,14 @@
 ;; XXX: make-vector
 ;; XXX: make-vector/immediate
 
-(define-ir (vector-length (u64! dst) (scm src))
+(define-ir (vector-length (u64! dst) (vector src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
     `(let ((,dst/v (%cref ,src/v 0)))
        (let ((,dst/v (%rsh ,dst/v 8)))
          ,(next)))))
 
-(define-ir (vector-ref (scm! dst) (scm src) (u64 idx))
+(define-ir (vector-ref (scm! dst) (vector src) (u64 idx))
   (let ((dst/v (var-ref dst))
         (dst/l (let ((src/l (local-ref src))
                      (idx/l (local-ref idx)))
@@ -207,7 +176,7 @@
               `(let ((,dst/v ,r2))
                  ,(next))))))))
 
-(define-ir (vector-ref/immediate (scm! dst) (scm src) (const idx))
+(define-ir (vector-ref/immediate (scm! dst) (vector src) (const idx))
   (let ((dst/v (var-ref dst))
         (dst/l (let ((src/l (local-ref src)))
                  (if (vector? src/l)
@@ -221,7 +190,7 @@
             `(let ((,dst/v ,r2))
                ,(next)))))))
 
-(define-ir (vector-set! (scm dst) (u64 idx) (scm src))
+(define-ir (vector-set! (vector dst) (u64 idx) (scm src))
   (let ((dst/v (var-ref dst))
         (idx/v (var-ref idx))
         (src/v (var-ref src))
@@ -234,7 +203,7 @@
            (let ((_ (%cset ,dst/v ,r1 ,boxed)))
              ,(next)))))))
 
-(define-ir (vector-set!/immediate (scm dst) (const idx) (scm src))
+(define-ir (vector-set!/immediate (vector dst) (const idx) (scm src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/l (local-ref src))

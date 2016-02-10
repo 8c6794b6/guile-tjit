@@ -49,7 +49,7 @@
             outline-read-indices set-outline-read-indices!
             outline-write-buf set-outline-write-buf!
             outline-live-indices set-outline-live-indices!
-            outline-derived-types set-outline-derived-types!
+            outline-inferred-types set-outline-inferred-types!
             outline-expecting-types set-outline-expecting-types!
 
             pop-outline!
@@ -58,7 +58,7 @@
             expand-outline
             set-outline-previous-dl-and-ra!
             merge-outline-types!
-            set-derived-type!
+            set-inferred-type!
             set-expecting-type!))
 
 
@@ -70,7 +70,7 @@
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
                  sp-offset fp-offset ret-types write-indices read-indices
-                 write-buf live-indices derived-types expecting-types)
+                 write-buf live-indices expecting-types inferred-types)
   outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -118,16 +118,16 @@
   ;; Expecting types.
   (expecting-types outline-expecting-types set-outline-expecting-types!)
 
-  ;; Derived types.
-  (derived-types outline-derived-types set-outline-derived-types!))
+  ;; Inferred types.
+  (inferred-types outline-inferred-types set-outline-inferred-types!))
 
-(define (make-outline types sp-offset fp-offset write-indices live-indices)
+(define (make-outline types sp-offset fp-offset write-indices live-indices
+                      expecting-types)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline '() '() (make-hash-table) '() '() '() types
-                 sp-offset fp-offset
-                 '() write-indices '() (list write-indices) live-indices
-                 '() '()))
+                 sp-offset fp-offset '() write-indices '()
+                 (list write-indices) live-indices expecting-types '()))
 
 (define (arrange-outline outline)
   (let* ((sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
@@ -211,11 +211,11 @@
 
 (define (set-expecting-type! outline n t)
   (let ((expecting (outline-expecting-types outline))
-        (derived (outline-derived-types outline)))
+        (inferred (outline-inferred-types outline)))
     (when (and (not (assq-ref expecting n))
-               (not (assq-ref derived n)))
+               (not (assq-ref inferred n)))
       (set-outline-expecting-types! outline (assq-set! expecting n t)))))
 
-(define (set-derived-type! outline n t)
-  (let ((derived (outline-derived-types outline)))
-    (set-outline-derived-types! outline (assq-set! derived n t))))
+(define (set-inferred-type! outline n t)
+  (let ((inferred (outline-inferred-types outline)))
+    (set-outline-inferred-types! outline (assq-set! inferred n t))))
