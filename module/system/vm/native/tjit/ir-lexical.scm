@@ -67,7 +67,7 @@
 ;; XXX: Add test for nested boxes.
 ;; XXX: Add test for box contents not being other type than scm (no u64, no f64).
 
-(define-ir (box-ref (scm! dst) (scm src))
+(define-ir (box-ref (scm! dst) (box src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/l (and (< src (vector-length locals))
@@ -83,7 +83,7 @@
             `(let ((,dst/v ,r2))
                ,(next)))))))
 
-(define-ir (box-set! (scm dst) (scm src))
+(define-ir (box-set! (box dst) (scm src))
   (let* ((vdst (var-ref dst))
          (vsrc (var-ref src))
          (rdst (and (< dst (vector-length locals))

@@ -127,7 +127,7 @@
      (begin
        (define-ir (name (scm! dst) (scm a) (scm b))
          (nyi "~s: ~a ~a ~a" 'name dst a b))
-       (define-ir (name (scm! dst) (fixnum a) (fixnum b))
+       (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
          (let ((dst/v (var-ref dst))
                (a/v (var-ref a))
                (b/v (var-ref b))

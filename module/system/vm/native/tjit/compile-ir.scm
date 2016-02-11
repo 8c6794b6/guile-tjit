@@ -178,18 +178,22 @@
              (lp vars))
             (else
              (let* ((type (or (assq-ref snapshot0-locals n)
-                              (type-from-runtime i)))
-                    (type (if (and parent-snapshot
-                                   (tj-loop? tj)
-                                   (let ((j (+ n initial-sp-offset)))
-                                     (eq? (type-from-parent j)
-                                          (type-from-snapshot j))))
-                              #f
-                              type)))
+                              (type-from-runtime i))))
                (debug 3 ";;;   type: ~a~%" (pretty-type type))
                (when loaded-vars
                  (hashq-set! loaded-vars n type))
-               (with-frame-ref vars var type n lp))))))
+               (with-frame-ref vars var type n lp)
+               ;; (if loaded-vars
+               ;;     (let ((guard (assq-ref (outline-expected-types outline) n)))
+               ;;       (if (and (not (eq? type &flonum))
+               ;;                (not (eq? type &f64))
+               ;;                (not (eq? type &u64))
+               ;;                (or (not guard)
+               ;;                    (eq? guard 'scm)))
+               ;;           (with-frame-ref vars var #f n lp)
+               ;;           (with-frame-ref vars var type n lp)))
+               ;;     (with-frame-ref vars var type n lp))
+               )))))
         (()
          exp-body)))))
 
@@ -387,7 +391,7 @@
                                       (ir-min-sp-offset ir))))
              _)))))
     (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-outline ir) op #f dl locals #t #f)
+      (scan-locals (ir-outline ir) op #f dl locals #t #f #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (found)
@@ -426,7 +430,7 @@
                  (let lp ((procs found))
                    (match procs
                      (((test . work) . procs)
-                      (if (apply test (ir-outline ir) op (list locals))
+                      (if (apply test (list (ir-outline ir) op locals))
                           (apply work ir next ip ra dl locals (cdr op))
                           (lp procs)))
                      (_ (nyi "~a" (car op))))))))))

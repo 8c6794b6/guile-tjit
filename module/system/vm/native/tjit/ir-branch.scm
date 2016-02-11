@@ -102,24 +102,24 @@
 (define-syntax define-br-binary-scm-scm
   (syntax-rules ()
     ((_  name op-scm op-fx-t op-fx-f op-fl-t op-fl-f)
-     (define-ir (name (scm a) (scm b) (const invert?) (const offset))
-       (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-         (cond
-          ((and (fixnum? ra) (fixnum? rb))
+     (begin
+       ;; XXX: Delegate bignum, complex, rational to C function.
+       (define-ir (name (scm a) (scm b) (const invert?) (const offset))
+         (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
+       (define-ir (name (fixnum a) (fixnum b) (const invert?) (const offset))
+         (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
            `(let ((_ ,(take-snapshot! ip dest)))
               (let ((_ ,(if (op-scm ra rb)
                             `(op-fx-t ,va ,vb)
                             `(op-fx-f ,va ,vb))))
-                ,(next))))
-          ((and (flonum? ra) (flonum? rb))
+                ,(next)))))
+       (define-ir (name (flonum a) (flonum b) (const invert?) (const offset))
+         (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
            `(let ((_ ,(take-snapshot! ip dest)))
               (let ((_ ,(if (op-scm ra rb)
                             `(op-fl-t ,va ,vb)
                             `(op-fl-f ,va ,vb))))
-                ,(next))))
-          ;; XXX: Delegate bignum, complex ... etc to C function
-          (else
-           (nyi "~s: ~a ~a~%" 'name ra rb))))))))
+                ,(next)))))))))
 
 (define-br-binary-scm-scm br-if-= = %eq %ne %feq %fne)
 (define-br-binary-scm-scm br-if-< < %lt %ge %flt %fge)
@@ -143,15 +143,18 @@
 (define-syntax define-br-binary-u64-scm
   (syntax-rules ()
     ((_ name op-scm op-fx-t op-fx-f)
-     (define-ir (name (u64 a) (scm b) (const invert?) (const offset))
-       (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-         (let ((r2 (make-tmpvar 2)))
-           `(let ((_ ,(take-snapshot! ip dest)))
-              (let ((,r2 (%rsh ,vb 2)))
-                (let ((_ ,(if (op-scm ra rb)
-                              `(op-fx-t ,va ,r2)
-                              `(op-fx-f ,va ,r2))))
-                  ,(next))))))))))
+     (begin
+       (define-ir (name (u64 a) (scm b) (const invert?) (const offset))
+         (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
+       (define-ir (name (u64 a) (fixnum b) (const invert?) (const offset))
+         (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
+           (let ((r2 (make-tmpvar 2)))
+             `(let ((_ ,(take-snapshot! ip dest)))
+                (let ((,r2 (%rsh ,vb 2)))
+                  (let ((_ ,(if (op-scm ra rb)
+                                `(op-fx-t ,va ,r2)
+                                `(op-fx-f ,va ,r2))))
+                    ,(next)))))))))))
 
 (define-br-binary-u64-scm br-if-u64-=-scm = %eq %ne)
 (define-br-binary-u64-scm br-if-u64-<-scm < %lt %ge)

@@ -30,6 +30,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
+  #:use-module (system vm native debug)
   #:use-module (system vm native tjit types)
   #:export ($outline
             make-outline
@@ -50,7 +51,7 @@
             outline-write-buf set-outline-write-buf!
             outline-live-indices set-outline-live-indices!
             outline-inferred-types set-outline-inferred-types!
-            outline-expecting-types set-outline-expecting-types!
+            outline-expected-types set-outline-expected-types!
 
             pop-outline!
             push-outline!
@@ -59,7 +60,7 @@
             set-outline-previous-dl-and-ra!
             merge-outline-types!
             set-inferred-type!
-            set-expecting-type!))
+            set-expected-type!))
 
 
 ;; Data type to contain outline of recorded traces.
@@ -70,7 +71,7 @@
 (define-record-type $outline
   (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
                  sp-offset fp-offset ret-types write-indices read-indices
-                 write-buf live-indices expecting-types inferred-types)
+                 write-buf live-indices expected-types inferred-types)
   outline?
 
   ;; Association list for dynamic link: (local . pointer to fp).
@@ -115,19 +116,19 @@
   ;; Live indices, updated during IR compilation.
   (live-indices outline-live-indices set-outline-live-indices!)
 
-  ;; Expecting types.
-  (expecting-types outline-expecting-types set-outline-expecting-types!)
+  ;; Expected types.
+  (expected-types outline-expected-types set-outline-expected-types!)
 
   ;; Inferred types.
   (inferred-types outline-inferred-types set-outline-inferred-types!))
 
 (define (make-outline types sp-offset fp-offset write-indices live-indices
-                      expecting-types)
+                      expected-types)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset '() write-indices '()
-                 (list write-indices) live-indices expecting-types '()))
+                 (list write-indices) live-indices expected-types '()))
 
 (define (arrange-outline outline)
   (let* ((sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
@@ -209,13 +210,25 @@
       (_
        (set-outline-types! outline types)))))
 
-(define (set-expecting-type! outline n t)
-  (let ((expecting (outline-expecting-types outline))
-        (inferred (outline-inferred-types outline)))
-    (when (and (not (assq-ref expecting n))
-               (not (assq-ref inferred n)))
-      (set-outline-expecting-types! outline (assq-set! expecting n t)))))
+(define (set-expected-type! outline n t)
+  (let* ((inferred (outline-inferred-types outline))
+         (expected (outline-expected-types outline))
+         (expected (if (and (not (assq-ref expected n))
+                            (not (assq-ref inferred n)))
+                       (assq-set! expected n t)
+                       expected))
+         (expected (let lp ((current expected) (acc expected))
+                     (match current
+                       (((i 'copy . (? (lambda (x) (= x n)))) . current)
+                        (lp current (assq-set! acc i t)))
+                       ((_ . current)
+                        (lp current acc))
+                       (() acc)))))
+    (debug 1 ";;; [set-expected-type!] ~s => ~a~%" n (pretty-type t))
+    (set-outline-expected-types! outline expected)))
 
 (define (set-inferred-type! outline n t)
-  (let ((inferred (outline-inferred-types outline)))
-    (set-outline-inferred-types! outline (assq-set! inferred n t))))
+  (let* ((inferred (outline-inferred-types outline))
+         (inferred (assq-set! inferred n t)))
+    (debug 1 ";;; [set-inferred-type!] ~s => ~a~%" n (pretty-type t))
+    (set-outline-inferred-types! outline inferred)))

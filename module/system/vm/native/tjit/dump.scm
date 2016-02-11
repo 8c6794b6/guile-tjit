@@ -357,11 +357,14 @@ option was set to true."
   (format #t "~{;;;  ~a~%~}"
           `((local-indices . ,(outline-local-indices outline))
             (types . ,(sort (outline-types outline) car-<))
-            (expecting . ,(sort (map (match-lambda
-                                       ((k . t)
-                                        `(,k . ,(pretty-type t))))
-                                     (outline-expecting-types outline))
-                                car-<))
+            (read-indices . ,(outline-read-indices outline))
+            (live-indices . ,(outline-live-indices outline))
+            (write-indices . ,(outline-write-indices outline))
+            (expected . ,(sort (map (match-lambda
+                                      ((k . t)
+                                       `(,k . ,(pretty-type t))))
+                                    (outline-expected-types outline))
+                               car-<))
             (inferred . ,(sort (map (match-lambda
                                       ((k . t)
                                        `(,k . ,(pretty-type t))))

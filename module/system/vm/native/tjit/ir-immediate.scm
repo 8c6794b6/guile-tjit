@@ -34,6 +34,7 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
+;; XXX: Could infer type from value of `low-bits'.
 (define-ir (make-short-immediate (scm! dst) (const low-bits))
   `(let ((,(var-ref dst) ,low-bits))
      ,(next)))

@@ -27,6 +27,7 @@
 
 (define-module (system vm native tjit scan)
   #:use-module (ice-9 match)
+  #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
@@ -35,7 +36,8 @@
   #:export (scan-locals))
 
 
-(define (scan-locals ol op prev-op dl locals initialized? backward?)
+(define (scan-locals ol op prev-op dl locals initialized? backward?
+                     infer-type?)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; Lower frame data is saved at the time of accumulation.  If one of
@@ -123,9 +125,17 @@
           (set-read! sp-proc))
         (set-read! (+ sp-proc 1) (+ sp-proc 2))
         (set-write! (+ sp-proc 1) (+ sp-proc 2)))
+      (when infer-type?
+        (unless label?
+          (set-expected-type! ol sp-proc &procedure))
+        (let ((ra-ty (make-return-address (make-pointer 0)))
+              (dl-ty (make-dynamic-link proc)))
+          (set-inferred-type! ol (+ sp-proc 1) ra-ty)
+          (set-inferred-type! ol (+ sp-proc 2) dl-ty)))
       (let lp ((n 0))
         (when (< n nlocals)
           (set-type! ((- sp-proc n) 'scm))
+          (set-expected-type! ol (- sp-proc n) &scm)
           (lp (+ n 1))))
       (save-sp-offset!)
       (save-fp-offset!)
@@ -204,10 +214,15 @@
      (scan-tail-call nlocals))
     (('subr-call)
      ;; XXX: Multiple value return not supported.
-     (let ((stack-size (vector-length locals)))
+     (let* ((stack-size (vector-length locals))
+            (ra-offset stack-size)
+            (dl-offset (+ ra-offset 1)))
        (set-scm! stack-size (+ stack-size 1))
        (unless initialized?
          (set-write! stack-size (+ stack-size 1)))
+       (when infer-type?
+         (set-inferred-type! ol ra-offset &false)
+         (set-inferred-type! ol dl-offset &false))
        (save-sp-offset!)
        (pop-sp-offset! (- stack-size 2))
        (save-fp-offset!)
@@ -216,6 +231,7 @@
        (ret)))
     (('receive dst proc nlocals)
      (let* ((stack-size (vector-length locals))
+            (sp-offset (outline-sp-offset ol))
             (fp (- stack-size proc)))
        (set-scm! (- stack-size dst 1) (- stack-size proc 2))
        (set-write! (- stack-size dst 1))
@@ -224,6 +240,19 @@
        (pop-sp-offset! (- stack-size nlocals))
        (unless initialized?
          (set-write! (- nlocals dst 1)))
+       (when infer-type?
+         (let ((inferred (outline-inferred-types ol))
+               (expected (outline-expected-types ol))
+               (proc/i (+ (- stack-size proc 2) sp-offset))
+               (dst/i (+ (- stack-size dst 1) sp-offset)))
+           (cond
+            ((or (assq-ref inferred proc/i)
+                 (assq-ref expected proc/i))
+             => (lambda (ty)
+                  (set-inferred-type! ol dst/i ty)))
+            (else
+             (let ((ty `(copy . ,proc/i)))
+               (set-inferred-type! ol dst/i ty))))))
        (save-fp-offset!)
        (save-write-buf!)
        (ret)))
@@ -242,11 +271,17 @@
            (ret))
          (nyi)))
     (('return-values nlocals)
-     (let ((stack-size (vector-length locals)))
-       (set-scm! stack-size (+ stack-size 1))
-       (set-read! stack-size (+ stack-size 1))
+     (let* ((sp-offset (outline-sp-offset ol))
+            (stack-size (vector-length locals))
+            (ra-offset stack-size)
+            (dl-offset (+ ra-offset 1)))
+       (set-scm! ra-offset dl-offset)
+       (set-read! ra-offset dl-offset)
        (unless initialized?
-         (set-write! stack-size (+ stack-size 1)))
+         (set-write! ra-offset dl-offset))
+       (when infer-type?
+         (set-inferred-type! ol (+ sp-offset ra-offset) &false)
+         (set-inferred-type! ol (+ sp-offset dl-offset) &false))
        (let lp ((n nlocals))
          (when (<= 2 n)
            (set-scm! (- stack-size n))
@@ -260,12 +295,14 @@
        (ret)))
     (('assert-nargs-ee/locals expected nlocals)
      (push-sp-offset! nlocals)
-     (let lp ((n nlocals))
+     (let lp ((n nlocals) (sp-offset (outline-sp-offset ol)))
        (when (< 0 n)
          (set-scm! (- n 1))
          (unless initialized?
            (set-write! (- n 1)))
-         (lp (- n 1))))
+         (when infer-type?
+           (set-inferred-type! ol (+ sp-offset (- n 1)) &undefined))
+         (lp (- n 1) sp-offset)))
      (save-sp-offset!)
      (save-fp-offset!)
      (save-write-buf!)
@@ -277,24 +314,25 @@
     (('mov dst src)
      (unless initialized?
        (set-read! src)
-       (set-write! dst)
-
-       ;; Resolving expcting and inferred type for dst and src. There are no SCM
-       ;; type clue here, use existing data stored in outline. If src could not
-       ;; resolved, a tagged `copy' type with local index are stored, to be
-       ;; resolved later .
+       (set-write! dst))
+     ;; Resolving expcting and inferred type for dst and src. There are no SCM
+     ;; type clue here, use existing data stored in outline. If src could not
+     ;; resolved, a tagged `copy' type with local index are stored, to be
+     ;; resolved later .
+     (when infer-type?
        (let* ((sp-offset (outline-sp-offset ol))
               (dst+sp (+ dst sp-offset))
               (src+sp (+ src sp-offset))
               (inferred (outline-inferred-types ol))
-              (expecting (outline-expecting-types ol)))
+              (expected (outline-expected-types ol)))
          (cond
           ((or (assq-ref inferred src+sp)
-               (assq-ref expecting src+sp))
+               (assq-ref expected src+sp))
            => (lambda (ty)
                 (set-inferred-type! ol dst+sp ty)))
           (else
-           (set-expecting-type! ol src+sp `(copy . ,dst+sp))))))
+           (set-expected-type! ol src+sp `(copy . ,dst+sp))
+           (set-inferred-type! ol dst+sp `(copy . ,src+sp))))))
      (let ((sp-offset (outline-sp-offset ol)))
        (if backward?
            (and=> (outline-type-ref ol (+ dst sp-offset))
@@ -322,7 +360,7 @@
               (let lp ((procs found))
                 (match procs
                   (((test . work) . procs)
-                   (if (apply test ol op (list locals))
+                   (if (apply test (list ol op locals))
                        (begin
                          (apply work ol initialized? (cdr op))
                          (save-sp-offset!)

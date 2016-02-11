@@ -306,43 +306,34 @@
 
 (define-ir-syntax-parameters ir ip ra dl locals next)
 
-(define-syntax-rule (gen-write-index ol ty arg rest)
+(define-syntax-rule (gen-write-index ol arg rest)
   (let* ((i (+ arg (outline-sp-offset ol)))
          (writes (outline-write-indices ol)))
     (unless (memq i writes)
       (set-outline-write-indices! ol (cons i writes)))
-    (gen-put-index ol . rest)
-    (set-inferred-type! ol i ty)))
+    (gen-put-index ol . rest)))
 
-(define-syntax-rule (gen-read-index ol ty arg rest)
+(define-syntax-rule (gen-read-index ol arg rest)
   (let* ((i (+ arg (outline-sp-offset ol)))
          (reads (outline-read-indices ol)))
     (unless (memq i reads)
       (set-outline-read-indices! ol (cons i reads)))
-    (gen-put-index ol . rest)
-    (set-expecting-type! ol i ty)))
+    (gen-put-index ol . rest)))
 
 (define-syntax gen-put-index
   (syntax-rules (const
-                 scm scm! fixnum fixnum! flonum flonum!
-                 pair pair! vector vector!
-                 u64 u64! f64 f64!)
+                 scm! fixnum! flonum! pair! vector! box!
+                 u64! f64!)
     ((_ ol) ol)
     ((_ ol (const arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (scm arg) . rest) (gen-read-index ol &scm arg rest))
-    ((_ ol (scm! arg) . rest) (gen-write-index ol &scm arg rest))
-    ((_ ol (fixnum arg) . rest) (gen-read-index ol &exact-integer arg rest))
-    ((_ ol (fixnum! arg) . rest) (gen-write-index ol &exact-integer arg rest))
-    ((_ ol (flonum arg) . rest) (gen-read-index ol &flonum arg rest))
-    ((_ ol (flonum! arg) . rest) (gen-write-index ol &flonum arg rest))
-    ((_ ol (pair arg) . rest) (gen-read-index ol &pair arg rest))
-    ((_ ol (pair! arg) . rest) (gen-write-index ol &pair arg rest))
-    ((_ ol (vector arg) . rest) (gen-read-index ol &vector arg rest))
-    ((_ ol (vector! arg) . rest) (gen-write-index ol &vector arg rest))
-    ((_ ol (u64 arg) . rest) (gen-read-index ol &u64 arg rest))
-    ((_ ol (u64! arg) . rest) (gen-write-index ol &u64 arg rest))
-    ((_ ol (f64 arg) . rest) (gen-read-index ol &f64 arg rest))
-    ((_ ol (f64! arg) . rest) (gen-write-index ol &f64 arg rest))
+    ((_ ol (scm! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (fixnum! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (flonum! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (pair! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (vector! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (box! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (u64! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (f64! arg) . rest) (gen-write-index ol arg rest))
     ((_ ol (other arg) . rest)
      (let* ((i (+ arg (outline-sp-offset ol)))
             (reads (outline-read-indices ol)))
@@ -350,23 +341,54 @@
          (set-outline-read-indices! ol (cons i reads)))
        (gen-put-index ol . rest)))))
 
-(define-syntax-rule (gen-put-and ol sty arg rest)
-  (let ((types (assq-set! (outline-types ol)
-                          (+ arg (outline-sp-offset ol)) sty)))
+;; Reorder expressions to resolve the types of IR arguments before updating the
+;; types with `dst'.
+;;
+;; `gen-inferred' and `gen-expected' will reorder the evaluation. Will evaluate
+;; expressions resulting from `rest' parameter, then evaluate the expression
+;; constructed from other argument. This reordering is done because in IR
+;; containing `dst' variable will write the contents of current VM stack, and
+;; the `dst' argument, if exist, is always the first argument of IR.
+
+(define-syntax-rule (gen-inferred ol sty ty arg rest)
+  (let* ((i (+ arg (outline-sp-offset ol)))
+         (types (assq-set! (outline-types ol) i sty)))
     (set-outline-types! ol types)
-    (gen-put-element-type ol . rest)))
+    (gen-put-element-type ol . rest)
+    (set-inferred-type! ol i ty)))
+
+(define-syntax-rule (gen-expected ol sty ty arg rest)
+  (let* ((i (+ arg (outline-sp-offset ol)))
+         (types (assq-set! (outline-types ol) i sty)))
+    (set-outline-types! ol types)
+    (gen-put-element-type ol . rest)
+    (set-expected-type! ol i ty)))
 
 (define-syntax gen-put-element-type
-  (syntax-rules (const u64 u64! f64 f64!)
-    ((_ ol) (let ((writes (outline-write-indices ol)))
-              (set-outline-write-indices! ol (sort writes <))
-              ol))
+  (syntax-rules (const
+                 scm scm! fixnum fixnum! flonum flonum!
+                 pair pair! vector vector! box box!
+                 bytevector
+                 u64 u64! f64 f64!)
+    ((_ ol) (set-outline-write-indices! ol (sort (outline-write-indices ol) <)))
     ((_ ol (const arg) . rest) (gen-put-element-type ol . rest))
-    ((_ ol (u64 arg) . rest) (gen-put-and ol 'u64 arg rest))
-    ((_ ol (u64! arg) . rest) (gen-put-and ol 'u64 arg rest))
-    ((_ ol (f64 arg) . rest) (gen-put-and ol 'f64 arg rest))
-    ((_ ol (f64! arg) . rest) (gen-put-and ol 'f64 arg rest))
-    ((_ ol (other arg) . rest) (gen-put-and ol 'scm arg rest))))
+    ((_ ol (scm arg) . rest) (gen-expected ol 'scm &scm arg rest))
+    ((_ ol (scm! arg) . rest) (gen-inferred ol 'scm &scm arg rest))
+    ((_ ol (fixnum arg) . rest) (gen-expected ol 'scm &exact-integer arg rest))
+    ((_ ol (fixnum! arg) . rest) (gen-inferred ol 'scm &exact-integer arg rest))
+    ((_ ol (flonum arg) . rest) (gen-expected ol 'scm &flonum arg rest))
+    ((_ ol (flonum! arg) . rest) (gen-inferred ol 'scm &flonum arg rest))
+    ((_ ol (pair arg) . rest) (gen-expected ol 'scm &pair arg rest))
+    ((_ ol (pair! arg) . rest) (gen-inferred ol 'scm &pair arg rest))
+    ((_ ol (vector arg) . rest) (gen-expected ol 'scm &vector arg rest))
+    ((_ ol (vector! arg) . rest) (gen-inferred ol 'scm &vector arg rest))
+    ((_ ol (box arg) . rest) (gen-expected ol 'scm &box arg rest))
+    ((_ ol (box! arg) . rest) (gen-inferred ol 'scm &box arg rest))
+    ((_ ol (bytevector arg) . rest) (gen-expected ol 'scm &bytevector arg rest))
+    ((_ ol (u64 arg) . rest) (gen-expected ol 'u64 &u64 arg rest))
+    ((_ ol (u64! arg) . rest) (gen-inferred ol 'u64 &u64 arg rest))
+    ((_ ol (f64 arg) . rest) (gen-expected ol 'f64 &f64 arg rest))
+    ((_ ol (f64! arg) . rest) (gen-inferred ol 'f64 &f64 arg rest))))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -453,9 +475,6 @@ saves index referenced by dst and src values at runtime."
        (begin
          (set-tj-handle-interrupts! (ir-tj ir) #t)
          . body)))))
-
-(define-syntax-rule (to-double scm)
-  `(%cref/f ,scm 2))
 
 (define-syntax-rule (dereference-scm addr)
   (pointer->scm (dereference-pointer (make-pointer addr))))
@@ -581,8 +600,8 @@ saves index referenced by dst and src values at runtime."
          (guard-tc16/f
           (syntax-rules ()
             ((_ tag) (gen-guard-cell #xffff tag
-                                      (let ((,var (%cref/f ,var 2)))
-                                        ,(thunk)))))))
+                                     (let ((,var (%cref/f ,var 2)))
+                                       ,(thunk)))))))
       (cond
        ((eq? type &exact-integer) (guard-tc2 %tc2-int))
        ((eq? type &flonum) (guard-tc16/f %tc16-real))
