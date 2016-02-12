@@ -117,6 +117,7 @@
       (values #f (car op))))
   (define-syntax-rule (scan-call proc nlocals label?)
     (let* ((stack-size (vector-length locals))
+           (sp-offset (outline-sp-offset ol))
            (sp-proc (- stack-size proc 1)))
       (unless initialized?
         (set-scm! sp-proc (+ sp-proc 1) (+ sp-proc 2))
@@ -127,20 +128,32 @@
         (set-write! (+ sp-proc 1) (+ sp-proc 2))
         (let lp ((n 1))
           (when (< n nlocals)
-            (set-entry-type! ol (- sp-proc n) &scm)
+            (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm)
             (lp (+ n 1)))))
       (when infer-type?
         (unless label?
-          (set-expected-type! ol sp-proc &procedure))
+          (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
         (let ((ra-ty (make-return-address
                       (make-pointer (+ ip (* 4 (if label? 3 2))))))
               (dl-ty (make-dynamic-link proc)))
-          (set-inferred-type! ol (+ sp-proc 1) ra-ty)
-          (set-inferred-type! ol (+ sp-proc 2) dl-ty)))
+          (set-inferred-type! ol (+ sp-proc sp-offset 1) ra-ty)
+          (set-inferred-type! ol (+ sp-proc sp-offset 2) dl-ty))
+        (debug 1 ";;; [scan-locals] scan-call: ~s ~s ~s~%" proc nlocals label?)
+        (do ((n 0 (+ n 1))) ((= n nlocals))
+          (let ((ity (assq-ref (outline-inferred-types ol) n)))
+            (match ity
+              (('copy . dst)
+               (debug 1 ";;; [scan-locals] call arg:~s is copy~%" n)
+               (set-inferred-type! ol n &scm)
+               (set-entry-type! ol dst &scm)
+               (set-expected-type! ol dst &scm))
+              (x
+               (debug 1 ";;; [scan-locals] call arg:~s is ~s~%" n x)
+               (values))))
+          (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm)))
       (let lp ((n 0))
         (when (< n nlocals)
           (set-type! ((- sp-proc n) 'scm))
-          (set-expected-type! ol (- sp-proc n) &scm)
           (lp (+ n 1))))
       (save-sp-offset!)
       (save-fp-offset!)
@@ -221,12 +234,15 @@
     (('subr-call)
      ;; XXX: Multiple value return not supported.
      (let* ((stack-size (vector-length locals))
+            (proc-offset (- stack-size 1))
             (ra-offset stack-size)
             (dl-offset (+ ra-offset 1)))
        (set-scm! stack-size (+ stack-size 1))
        (unless initialized?
-         (set-write! stack-size (+ stack-size 1)))
+         (set-write! stack-size (+ stack-size 1))
+         (set-entry-type! ol proc-offset &procedure))
        (when infer-type?
+         (set-expected-type! ol proc-offset &procedure)
          (set-inferred-type! ol ra-offset &false)
          (set-inferred-type! ol dl-offset &false))
        (save-sp-offset!)
@@ -285,9 +301,6 @@
        (set-read! ra-offset dl-offset)
        (unless initialized?
          (set-write! ra-offset dl-offset))
-       (when infer-type?
-         (set-inferred-type! ol (+ sp-offset ra-offset) &false)
-         (set-inferred-type! ol (+ sp-offset dl-offset) &false))
        (let lp ((n nlocals))
          (when (<= 2 n)
            (set-scm! (- stack-size n))
@@ -321,13 +334,12 @@
      (let* ((sp-offset (outline-sp-offset ol))
             (dst+sp (+ dst sp-offset))
             (src+sp (+ src sp-offset))
-            (entry (outline-entry-types ol))
-            (inferred (outline-inferred-types ol))
-            (expected (outline-expected-types ol)))
+            (entry (outline-entry-types ol)))
        (unless initialized?
          (set-read! src)
          (set-write! dst)
-         (unless (or (assq-ref inferred src+sp) (assq-ref entry src+sp))
+         (unless (or (assq-ref (outline-inferred-types ol) src+sp)
+                     (assq-ref (outline-entry-types ol) src+sp))
            (set-entry-type! ol src+sp `(copy . ,dst+sp))))
        ;; Resolving expcting and inferred type for dst and src. There are no SCM
        ;; type clue here, use existing data stored in outline. If src could not
@@ -335,7 +347,8 @@
        ;; resolved later .
        (when infer-type?
          (cond
-          ((or (assq-ref inferred src+sp) (assq-ref expected src+sp))
+          ((or (assq-ref (outline-inferred-types ol) src+sp)
+               (assq-ref (outline-expected-types ol) src+sp))
            => (lambda (ty)
                 (set-inferred-type! ol dst+sp ty)))
           (else

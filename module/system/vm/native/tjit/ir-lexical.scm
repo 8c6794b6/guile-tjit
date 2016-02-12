@@ -35,10 +35,6 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-;; XXX: Assuming both `dst' and `src' have `scm' stack element type. If not,
-;; stack element type resolution may return incorrect result. To properly
-;; resolve stack element types, may need to traverse bytecode operations
-;; backward.
 (define-ir (mov dst src)
   `(let ((,(var-ref dst) ,(var-ref src)))
      ,(next)))
@@ -71,17 +67,21 @@
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/l (and (< src (vector-length locals))
-                   (let ((var (local-ref src)))
-                     (if (variable? var)
-                         (variable-ref var)
-                         (tjitc-error 'box-ref "got ~s" var)))))
+                    (let ((var (local-ref src)))
+                      (if (variable? var)
+                          (variable-ref var)
+                          (tjitc-error 'box-ref "got ~s" var)))))
         (r2 (make-tmpvar 2)))
     (vector-set! locals dst (scm->pointer src/l))
     `(let ((,r2 (%cref ,src/v 1)))
-       ,(with-unboxing (type-of src/l) r2
+       ,(with-unboxing (type-of src/l) r2 r2
           (lambda ()
             `(let ((,dst/v ,r2))
-               ,(next)))))))
+               ,(next)))))
+
+    ;; `(let ((,dst/v (%cref ,src/v 1)))
+    ;;    ,(next))
+    ))
 
 (define-ir (box-set! (box dst) (scm src))
   (let* ((vdst (var-ref dst))
@@ -109,7 +109,7 @@
          (r2 (make-tmpvar 2)))
     `(let ((,r2 (%add ,src/v ,(* 2 %word-size))))
        (let ((,r2 (%cref ,r2 ,idx)))
-         ,(with-unboxing (type-of ref/l) r2
+         ,(with-unboxing (type-of ref/l) r2 r2
             (lambda ()
               `(let ((,dst/v ,r2))
                  ,(next))))))))

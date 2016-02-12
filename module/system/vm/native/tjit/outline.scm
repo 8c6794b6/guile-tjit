@@ -139,9 +139,24 @@
   (%make-outline #f '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset '() write-indices '()
                  (list write-indices) live-indices
-                 (copy-tree expected-types) (copy-tree expected-types) '()))
+                 '() (copy-tree expected-types) '()))
 
 (define (arrange-outline outline)
+  (define (resolve-copies dsts srcs)
+    (let ((copies (let lp ((dsts dsts) (acc '()))
+                    (match dsts
+                      (((dst 'copy . src) . dsts)
+                       (lp dsts (cons (cons dst src) acc)))
+                      ((_ . dsts)
+                       (lp dsts acc))
+                      (()
+                       acc)))))
+      (let lp ((copies copies) (dsts dsts))
+        (match copies
+          (((dst . src) . copies)
+           (lp copies (assq-set! dsts dst (assq-ref srcs src))))
+          (_
+           dsts)))))
   (let* ((sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
          (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline))))
          (ret-types/vec (list->vector (reverse! (outline-ret-types outline))))
@@ -157,6 +172,12 @@
     (set-outline-read-indices! outline reads/list)
     (set-outline-write-indices! outline writes/list)
     (set-outline-write-buf! outline write-buf/vec)
+    (let ((entry (outline-entry-types outline))
+          (expected (outline-expected-types outline))
+          (inferred (outline-inferred-types outline)))
+      (set-outline-entry-types! outline (resolve-copies entry entry))
+      (set-outline-expected-types! outline (resolve-copies expected entry))
+      (set-outline-inferred-types! outline (resolve-copies inferred entry)))
     (set-outline-initialized! outline #t)
     outline))
 

@@ -75,7 +75,7 @@
           (lambda ()
             `(let ((,r2 (%ccall ,proc-addr)))
                ,(if ret-type
-                    (with-unboxing ret-type r2
+                    (with-unboxing ret-type r2 r2
                       (lambda ()
                         `(let ((,dst/v ,r2))
                            ,(emit-pop))))

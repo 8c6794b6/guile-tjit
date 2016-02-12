@@ -552,8 +552,8 @@ saves index referenced by dst and src values at runtime."
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
 
-(define-syntax-rule (with-unboxing type var thunk)
-  (let ((tmp (if (equal? var (make-tmpvar 2))
+(define-syntax-rule (with-unboxing type dst src thunk)
+  (let ((tmp (if (equal? dst (make-tmpvar 2))
                  (make-tmpvar 1)
                  (make-tmpvar 2))))
     (letrec-syntax
@@ -561,22 +561,22 @@ saves index referenced by dst and src values at runtime."
           (syntax-rules ()
             ((_ val)
              `(let ((_ ,(take-snapshot! ip 0)))
-                (let ((_ (%eq ,var val)))
+                (let ((_ (%eq ,src val)))
                   ,(thunk))))))
          (gen-guard-imm
           (syntax-rules ()
             ((_ mask tcx)
              `(let ((_ ,(take-snapshot! ip 0)))
-                (let ((,tmp (%band ,var ,mask)))
+                (let ((,tmp (%band ,src ,mask)))
                   (let ((_ (%eq ,tmp ,tcx)))
                     ,(thunk)))))))
          (gen-guard-cell
           (syntax-rules ()
             ((_ mask tcx expr)
              `(let ((_ ,(take-snapshot! ip 0)))
-                (let ((,tmp (%band ,var 6)))
+                (let ((,tmp (%band ,src 6)))
                   (let ((_ (%eq ,tmp 0)))
-                    (let ((,tmp (%cref ,var 0)))
+                    (let ((,tmp (%cref ,src 0)))
                       (let ((,tmp (%band ,tmp mask)))
                         (let ((_ (%eq ,tmp ,tcx)))
                           expr)))))))
@@ -600,7 +600,7 @@ saves index referenced by dst and src values at runtime."
          (guard-tc16/f
           (syntax-rules ()
             ((_ tag) (gen-guard-cell #xffff tag
-                                     (let ((,var (%cref/f ,var 2)))
+                                     (let ((,dst (%cref/f ,src 2)))
                                        ,(thunk)))))))
       (cond
        ((eq? type &exact-integer) (guard-tc2 %tc2-int))
@@ -636,7 +636,7 @@ saves index referenced by dst and src values at runtime."
        ((eq? type &port) (guard-tc7 %tc7-port))
        ;; XXX: Add more numbers: bignum, complex, rational.
        (else
-        (nyi "with-unboxing: ~a ~a" (pretty-type type) var))))))
+        (nyi "with-unboxing: ~a ~a" (pretty-type type) src))))))
 
 
 ;;; *** The dynamic environment

@@ -192,6 +192,12 @@
        (define (add-local type)
          (lp is (cons `(,i . ,type) acc)))
        (cond
+        ;; ;; Root trace.
+        ;; ((not parent-snapshot)
+        ;;  (add-local (assq-ref (outline-inferred-types outline) i)))
+
+        ;; Side trace.
+        ;;
         ;; Inlined local in initial frame in root trace. The frame contents
         ;; should be a scheme stack element, not a dynamic link or a return
         ;; address. Only excpetion is return address and dynamic link for last

@@ -25,6 +25,7 @@
 ;;; Code:
 
 (define-module (system vm native tjit ir-branch)
+  #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
@@ -115,11 +116,31 @@
                 ,(next)))))
        (define-ir (name (flonum a) (flonum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-           `(let ((_ ,(take-snapshot! ip dest)))
-              (let ((_ ,(if (op-scm ra rb)
-                            `(op-fl-t ,va ,vb)
-                            `(op-fl-f ,va ,vb))))
-                ,(next)))))))))
+           (let* ((outline (ir-outline ir))
+                  (inferred (outline-inferred-types outline))
+                  (op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
+                  (a/it (assq-ref inferred a))
+                  (b/it (assq-ref inferred b)))
+             (debug 1 ";;; IR [~s]: x=(fnum fnum) i=(~a ~a)~%"
+                    'name (pretty-type a/it) (pretty-type b/it))
+             `(let ((_ ,(take-snapshot! ip dest)))
+                (let ((_ (,op ,va ,vb)))
+                  ,(next)))
+             ;; (cond
+             ;;  ((and (eq? &flonum a/it) (eq? &flonum b/it))
+             ;;   `(let ((_ ,(take-snapshot! ip dest)))
+             ;;      (let ((_ (,op ,va ,vb)))
+             ;;        ,(next))))
+             ;;  ((and (eq? &scm a/it) (eq? &flonum b/it))
+             ;;   (let ((f2 (make-tmpvar/f 2)))
+             ;;     (with-unboxing &flonum f2 va
+             ;;       (lambda ()
+             ;;         `(let ((_ (,op ,f2 ,vb)))
+             ;;            ,(next))))))
+             ;;  (else
+             ;;   (nyi "~s: inferred type mismatch i=(~s ~s)"
+             ;;        'name a/it b/it)))
+             )))))))
 
 (define-br-binary-scm-scm br-if-= = %eq %ne %feq %fne)
 (define-br-binary-scm-scm br-if-< < %lt %ge %flt %fge)

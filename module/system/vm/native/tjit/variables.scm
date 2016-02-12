@@ -128,13 +128,16 @@
                      (* n %word-size)))))
 
 (define (physical-name x)
-  (if (register? x)
-      (register-name x)
-      (format #f "[@ 0x~x]"
-              (+ (- (case %word-size
-                      ((4) #xffffffff)
-                      ((8) #xffffffffffffffff)
-                      (else tjitc-error 'physical-name "unknown word-size ~s"
-                            %word-size))
-                    (pointer-address (moffs x)))
-                 1))))
+  (cond
+   ((register? x)
+    (register-name x))
+   ((memory? x)
+    (format #f "[@ 0x~x]"
+            (+ (- (case %word-size
+                    ((4) #xffffffff)
+                    ((8) #xffffffffffffffff)
+                    (else tjitc-error 'physical-name "unknown word-size ~s"
+                          %word-size))
+                  (pointer-address (moffs x)))
+               1)))
+   (else x)))

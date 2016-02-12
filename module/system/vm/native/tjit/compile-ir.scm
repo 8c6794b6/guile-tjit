@@ -179,12 +179,12 @@
             (loaded-vars
              (let ((guard (assq-ref (outline-entry-types outline) n))
                    (type (assq-ref (outline-expected-types outline) n)))
-               (hashq-set! loaded-vars n type)
-               (if (and (not (eq? type &flonum))
-                        (not (eq? type &f64))
-                        (not guard))
-                   (with-frame-ref vars var #f n lp)
-                   (with-frame-ref vars var type n lp))))
+               (when loaded-vars
+                 (hashq-set! loaded-vars n guard))
+               (if (or (eq? type &flonum)
+                       (eq? type &f64))
+                   (with-frame-ref vars var type n lp)
+                   (with-frame-ref vars var guard n lp))))
             (else
              (let* ((type (or (assq-ref snapshot0-locals n)
                               (type-from-runtime i))))
@@ -255,6 +255,17 @@
                                    0 #f tj)))
                  (trace->anf tj ir trace)))))
         (merge-outline-types! outline (tj-initial-types tj))
+
+        ;; Update inferred type with entry types. At this point, all of the
+        ;; guards for entry types have passed.
+        (let lp ((srcs (outline-entry-types outline))
+                 (dsts (outline-inferred-types outline)))
+          (match srcs
+            (((n . ty) . srcs)
+             (lp srcs (assq-set! dsts n ty)))
+            (()
+             (set-outline-inferred-types! outline dsts))))
+
         (cond
          (root-trace?
           (let* ((arg-indices (filter (lambda (n)

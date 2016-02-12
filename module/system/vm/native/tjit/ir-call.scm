@@ -139,6 +139,11 @@
                                              ra/val dl/val))
          (snapshot (take-snapshot! ip 0)))
     (pop-outline! (ir-outline ir) (current-sp-offset) locals)
+    (let* ((sp-offset (current-sp-offset))
+           (ra-offset (+ sp-offset stack-size))
+           (dl-offset (+ ra-offset 1)))
+      (set-inferred-type! (ir-outline ir) ra-offset &false)
+      (set-inferred-type! (ir-outline ir) dl-offset &false))
     (set-ir-return-subr! ir #f)
     `(let ((_ ,snapshot))
        ,(if inlineable

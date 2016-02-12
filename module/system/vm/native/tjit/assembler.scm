@@ -150,16 +150,18 @@
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
          (syntax-parameterize
              ((asm (identifier-syntax asm-in-arg))
-              (err (syntax-rules ()
-                     ((_)
-                      (tjitc-error 'name
-                                   ((lambda args
-                                      (let lp ((args args) (acc '()))
-                                        (if (null? args)
-                                            (string-join acc " ")
-                                            (lp (cdr args) (cons "~s" acc)))))
-                                    'arg ...)
-                                   arg ...)))))
+              (err
+               (syntax-rules ()
+                 ((_)
+                  (tjitc-error 'name
+                               ((lambda args
+                                  (let lp ((args args) (acc '()))
+                                    (if (null? args)
+                                        (string-join acc " ")
+                                        (lp (cdr args)
+                                            (cons "~a" (physical-name acc))))))
+                                'arg ...)
+                               arg ...)))))
            <body>))
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
@@ -1029,7 +1031,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;; Cell object reference.
 (define-native (%cref (int dst) (int src) (int n))
   (let-syntax
-      ((op3a
+      ((op3const
         (syntax-rules ()
           ((_ dst)
            (let ((nw (* (ref-value n) %word-size)))
@@ -1040,7 +1042,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
               ((memory? src)   (jit-ldxi dst (memory-ref r0 src) (imm nw)))
               (else (err)))
              dst))))
-       (op3b
+       (op3reg
         (syntax-rules ()
           ((_ dst)
            (begin
@@ -1054,20 +1056,23 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (cond
      ((constant? n)
       (cond
-       ((gpr? dst)    (op3a (gpr dst)))
-       ((memory? dst) (memory-set! dst (op3a r0)))
+       ((gpr? dst)    (op3const (gpr dst)))
+       ((fpr? dst)    (gpr->fpr (fpr dst) (op3const r0)))
+       ((memory? dst) (memory-set! dst (op3const r0)))
        (else (err))))
      ((gpr? n)
       (jit-lshi r0 (gpr n) (imm %word-size-in-bits))
       (cond
-       ((gpr? dst)    (op3b (gpr dst)))
-       ((memory? dst) (memory-set! dst (op3b r1)))
+       ((gpr? dst)    (op3reg (gpr dst)))
+       ((fpr? dst)    (gpr->fpr (fpr dst) (op3reg r1)))
+       ((memory? dst) (memory-set! dst (op3reg r1)))
        (else (err))))
      ((memory? n)
       (jit-lshi r0 (memory-ref r0 n) (imm %word-size-in-bits))
       (cond
-       ((gpr? dst)    (op3b (gpr dst)))
-       ((memory? dst) (memory-set! dst (op3b r1)))
+       ((gpr? dst)    (op3reg (gpr dst)))
+       ((fpr? dst)    (gpr->fpr (fpr dst) (op3reg r1)))
+       ((memory? dst) (memory-set! dst (op3reg r1)))
        (else (err))))
      (else
       (err)))))

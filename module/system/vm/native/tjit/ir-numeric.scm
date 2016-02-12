@@ -26,6 +26,7 @@
 
 (define-module (system vm native tjit ir-numeric)
   #:use-module (system foreign)
+  #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
@@ -60,11 +61,29 @@
                 (let ((,dst/v (op-fl ,f2 ,b/v)))
                   ,(next))))))
        (define-ir (name (flonum! dst) (flonum a) (flonum b))
-         (let ((dst/v (var-ref dst))
-               (a/v (var-ref a))
-               (b/v (var-ref b)))
+         (let* ((dst/v (var-ref dst))
+                (a/v (var-ref a))
+                (b/v (var-ref b))
+                (inferred (outline-inferred-types (ir-outline ir)))
+                (a/it (assq-ref inferred a))
+                (b/it (assq-ref inferred b)))
+           (debug 1 ";;; [IR] ~s: i=(~s ~s)~%" 'name
+                  (pretty-type a/it) (pretty-type b/it))
            `(let ((,dst/v (op-fl ,a/v ,b/v)))
-              ,(next))))))))
+              ,(next))
+           ;; (cond
+           ;;  ((and (eq? &flonum a/it) (eq? &flonum b/it))
+           ;;   `(let ((,dst/v (op-fl ,a/v ,b/v)))
+           ;;      ,(next)))
+           ;;  ((and (eq? &scm a/it) (eq? &flonum b/it))
+           ;;   (let ((f2 (make-tmpvar/f 2)))
+           ;;     (with-unboxing &flonum f2 a/v
+           ;;       (lambda ()
+           ;;         `(let ((,dst/v (op-fl ,f2 ,b/v)))
+           ;;            ,(next))))))
+           ;;  (else
+           ;;   (nyi "~s: type mismatch i=(~s ~s)" 'name a/it b/it)))
+           ))))))
 
 (define-syntax define-binary-arith-scm-imm
   (syntax-rules ()
@@ -95,7 +114,7 @@
                          (let ((,f2 (%i2d ,r2)))
                            (let ((,dst/v (%fmul ,a/v ,f2)))
                              ,(next)))))))
-    (with-unboxing &exact-integer b/v emit-next)))
+    (with-unboxing &exact-integer b/v b/v emit-next)))
 
 (define-ir (mul (flonum! dst) (flonum a) (flonum b))
   `(let ((,(var-ref dst) (%fmul ,(var-ref a) ,(var-ref b))))
@@ -115,7 +134,7 @@
                          (let ((,f2 (%i2d ,r2)))
                            (let ((,dst/v (%fdiv ,f2 ,b/v)))
                              ,(next)))))))
-    (with-unboxing &exact-integer a/v emit-next)))
+    (with-unboxing &exact-integer a/v a/v emit-next)))
 
 (define-ir (div (flonum! dst) (flonum a) (flonum b))
   `(let ((,(var-ref dst) (%fdiv ,(var-ref a) ,(var-ref b))))
@@ -171,7 +190,7 @@
     (vector-set! locals dst (scm->pointer dst/l))
     `(let ((,r2 (%add ,idx/v 1)))
        (let ((,r2 (%cref ,src/v ,r2)))
-         ,(with-unboxing (type-of dst/l) r2
+         ,(with-unboxing (type-of dst/l) r2 r2
             (lambda ()
               `(let ((,dst/v ,r2))
                  ,(next))))))))
@@ -185,7 +204,7 @@
         (src/v (var-ref src))
         (r2 (make-tmpvar 2)))
     `(let ((,r2 (%cref ,src/v ,(+ idx 1))))
-       ,(with-unboxing (type-of dst/l) r2
+       ,(with-unboxing (type-of dst/l) r2 r2
           (lambda ()
             `(let ((,dst/v ,r2))
                ,(next)))))))

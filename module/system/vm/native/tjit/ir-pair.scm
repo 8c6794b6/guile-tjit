@@ -66,7 +66,7 @@
           (r2 (make-tmpvar 2)))
       `(let ((_ ,(take-snapshot! ip 0)))
          (let ((,r2 (%cref ,src/v 0)))
-           ,(with-unboxing (type-of car/l) r2
+           ,(with-unboxing (type-of car/l) r2 r2
               (lambda ()
                 `(let ((,dst/v ,r2))
                    ,(next)))))))))
@@ -82,7 +82,7 @@
           (r2 (make-tmpvar 2)))
       `(let ((_ ,(take-snapshot! ip 0)))
          (let ((,r2 (%cref ,src/v 1)))
-           ,(with-unboxing (type-of cdr/l) r2
+           ,(with-unboxing (type-of cdr/l) r2 r2
               (lambda ()
                 `(let ((,dst/v ,r2))
                    ,(next)))))))))
