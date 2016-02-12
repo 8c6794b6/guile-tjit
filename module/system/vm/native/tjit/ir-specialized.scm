@@ -103,6 +103,33 @@
               (emit-ccall)))
         (tjitc-error 'subr-call "not a primitive ~s" subr/l))))
 
+(define-scan (subr-call ol)
+  (let* ((stack-size (vector-length locals))
+         (proc-offset (- stack-size 1))
+         (ra-offset stack-size)
+         (dl-offset (+ ra-offset 1))
+         (initialized (outline-initialized? ol)))
+    (set-scan-scm! ol stack-size (+ stack-size 1))
+    (when (outline-infer-type? ol)
+      (set-expected-type! ol proc-offset &procedure)
+      (set-inferred-type! ol ra-offset &false)
+      (set-inferred-type! ol dl-offset &false))
+    (unless initialized
+      (set-scan-write! ol stack-size (+ stack-size 1))
+      (set-entry-type! ol proc-offset &procedure)
+      (let ((new-offsets (cons (outline-sp-offset ol)
+                               (outline-sp-offsets ol))))
+        (set-outline-sp-offsets! ol new-offsets)))
+    (pop-scan-sp-offset! ol (- stack-size 2))
+    (unless initialized
+      (let ((new-offsets (cons (outline-fp-offset ol)
+                               (outline-fp-offsets ol)))
+            (writes (outline-write-indices ol))
+            (buf (outline-write-buf ol)))
+        (set-outline-fp-offsets! ol new-offsets)
+        (set-outline-write-buf! ol (cons writes buf))))
+    (pop-scan-fp-offset! ol dl)))
+
 ;; XXX: foreign-call
 ;; XXX: continuation-call
 ;; XXX: compose-continuation

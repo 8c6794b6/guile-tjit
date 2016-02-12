@@ -28,6 +28,7 @@
   #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm program)
+  #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
@@ -38,6 +39,44 @@
 (define-ir (mov dst src)
   `(let ((,(var-ref dst) ,(var-ref src)))
      ,(next)))
+
+(define-scan (mov ol dst src)
+  (let* ((sp-offset (outline-sp-offset ol))
+         (dst+sp (+ dst sp-offset))
+         (src+sp (+ src sp-offset))
+         (entry (outline-entry-types ol))
+         (initialized? (outline-initialized? ol))
+         (infer-type? (outline-infer-type? ol))
+         (backward? (outline-backward? ol)))
+    (unless initialized?
+      (set-scan-read! ol src)
+      (set-scan-write! ol dst)
+      (unless (or (assq-ref (outline-inferred-types ol) src+sp)
+                  (assq-ref (outline-entry-types ol) src+sp))
+        (set-entry-type! ol src+sp `(copy . ,dst+sp))))
+
+    ;; Resolving expcting and inferred type for dst and src. There are no SCM
+    ;; type clue here, use existing data stored in outline. If src could not
+    ;; resolved, a tagged `copy' type with local index are stored, to be
+    ;; resolved later .
+    (when infer-type?
+      (cond
+       ((or (assq-ref (outline-inferred-types ol) src+sp)
+            (assq-ref (outline-expected-types ol) src+sp))
+        => (lambda (ty)
+             (set-inferred-type! ol dst+sp ty)))
+       (else
+        (set-expected-type! ol src+sp `(copy . ,dst+sp))
+        (set-inferred-type! ol dst+sp `(copy . ,src+sp)))))
+
+    (if backward?
+        (and=> (outline-type-ref ol dst+sp)
+               (lambda (type)
+                 (set-scan-type! ol (src type))))
+        (and=> (outline-type-ref ol src+sp)
+               (lambda (type)
+                 (set-scan-type! ol (dst type)))))
+    (set-scan-initial-fields! ol)))
 
 ;; XXX: long-mov
 ;; XXX: long-fmov

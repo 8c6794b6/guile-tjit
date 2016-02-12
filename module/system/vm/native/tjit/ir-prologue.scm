@@ -36,6 +36,20 @@
 (define-syntax-rule (expand-stack nlocals)
   (expand-outline (ir-outline ir) (current-sp-offset) nlocals))
 
+(define-syntax-rule (scan-frame ol op nlocals)
+  (let* ((stack-size (vector-length locals))
+         (diff (- nlocals stack-size)))
+    (if (< stack-size nlocals)
+        (begin
+          (push-scan-sp-offset! ol diff)
+          (let lp ((n 0))
+            (when (< n diff)
+              (set-scan-scm! ol n)
+              (set-scan-read! ol n)
+              (lp (+ n 1)))))
+        (pop-scan-sp-offset! ol (- diff)))
+    (set-scan-initial-fields! ol)))
+
 ;; XXX: br-if-nargs-ne
 ;; XXX: br-if-nargs-lt
 ;; XXX; br-if-nargs-gt
@@ -66,6 +80,9 @@
                 (next))))
         (next))))
 
+(define-scan (alloc-frame ol nlocals)
+  (scan-frame ol 'alloc-frame nlocals))
+
 (define-ir (reset-frame nlocals)
   (let ((stack-size (vector-length locals)))
     (if (and (ir-return-subr? ir)
@@ -75,6 +92,9 @@
           (let ((thunk (gen-load-thunk (- stack-size 2) nlocals (const #f))))
             (thunk)))
         (next))))
+
+(define-scan (reset-frame ol nlocals)
+  (scan-frame ol 'reset-frame nlocals))
 
 ;; XXX: push
 ;; XXX: pop
@@ -89,6 +109,19 @@
           `(let ((,(var-ref (- n 1)) ,undefined))
              ,(lp (- n 1)))
           (next)))))
+
+(define-scan (assert-nargs-ee/locals ol expected nlocals)
+  (begin
+    (push-scan-sp-offset! ol nlocals)
+    (let lp ((n nlocals) (sp-offset (outline-sp-offset ol)))
+      (when (< 0 n)
+        (set-scan-scm! ol (- n 1))
+        (unless (outline-initialized? ol)
+          (set-scan-write! ol (- n 1)))
+        (when (outline-infer-type? ol)
+          (set-inferred-type! ol (+ sp-offset (- n 1)) &undefined))
+        (lp (- n 1) sp-offset)))
+    (set-scan-initial-fields! ol)))
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args

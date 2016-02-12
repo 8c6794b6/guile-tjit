@@ -39,6 +39,8 @@
             outline-local-ref
             outline-type-ref
             outline-initialized?
+            outline-infer-type? set-outline-infer-type!
+            outline-backward? set-outline-backward!
             outline-sp-offsets set-outline-sp-offsets!
             outline-fp-offsets set-outline-fp-offsets!
             outline-types set-outline-types!
@@ -72,7 +74,8 @@
 ;; return addresses, past frame locals, locals of caller procedure in inlined
 ;; procedure ... etc.
 (define-record-type $outline
-  (%make-outline initialized? dls ras locals local-indices
+  (%make-outline initialized? infer-type? backward?
+                 dls ras locals local-indices
                  sp-offsets fp-offsets types sp-offset fp-offset ret-types
                  write-indices read-indices write-buf live-indices
                  entry-types expected-types inferred-types)
@@ -80,6 +83,12 @@
 
   ;; Flag to hold whether initialized.
   (initialized? outline-initialized? set-outline-initialized!)
+
+  ;; Flag to hold whether infer type.
+  (infer-type? outline-infer-type? set-outline-infer-type!)
+
+  ;; Flag to hold whether the operation goes backward.
+  (backward? outline-backward? set-outline-backward!)
 
   ;; Association list for dynamic link: (local . pointer to fp).
   (dls outline-dls set-outline-dls!)
@@ -136,7 +145,7 @@
                       expected-types)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (%make-outline #f '() '() (make-hash-table) '() '() '() types
+  (%make-outline #f #t #f '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset '() write-indices '()
                  (list write-indices) live-indices
                  '() (copy-tree expected-types) '()))

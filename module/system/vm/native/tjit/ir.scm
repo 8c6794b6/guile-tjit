@@ -74,6 +74,18 @@
             take-snapshot
             gen-load-thunk
             with-frame-ref
+
+            define-scan
+            push-scan-sp-offset!
+            pop-scan-sp-offset!
+            push-scan-fp-offset!
+            pop-scan-fp-offset!
+            set-scan-type!
+            set-scan-scm!
+            set-scan-write!
+            set-scan-read!
+            set-scan-initial-fields!
+
             *ir-procedures*
             *scan-procedures*)
   #:replace (local-ref))
@@ -414,10 +426,23 @@ saves index referenced by dst and src values at runtime."
                 . body))))
        (hashq-set! *ir-procedures* 'name proc)))
     ((_ (name (flag arg) ...) . body)
-     (let ((scan-proc (lambda (ol arg ...)
-                        (unless (outline-initialized? ol)
-                          (gen-put-index ol (flag arg) ...))
-                        (gen-put-element-type ol (flag arg) ...)))
+     (let ((scan-proc
+            (lambda (%ip %dl %locals ol arg ...)
+              (let ((initialized? (outline-initialized? ol)))
+                (unless initialized?
+                  (gen-put-index ol (flag arg) ...))
+                (gen-put-element-type ol (flag arg) ...)
+                (unless initialized?
+                  (let ((new-sp-offsets (cons (outline-sp-offset ol)
+                                              (outline-sp-offsets ol)))
+                        (new-fp-offsets (cons (outline-fp-offset ol)
+                                              (outline-fp-offsets ol)))
+                        (writes (outline-write-indices ol))
+                        (buf (outline-write-buf ol)))
+                    (set-outline-sp-offsets! ol new-sp-offsets)
+                    (set-outline-fp-offsets! ol new-fp-offsets)
+                    (set-outline-write-buf! ol (cons writes buf))))
+                (values #t 'name))))
            (test-proc
             (lambda (ol op locals)
               (let lp ((flags '(flag ...)) (ns (cdr op)))
@@ -638,6 +663,86 @@ saves index referenced by dst and src values at runtime."
        (else
         (nyi "with-unboxing: ~a ~a" (pretty-type type) src))))))
 
+
+;;;
+;;; Macros for scan
+;;;
+
+(define-syntax define-scan
+  (syntax-rules ()
+    ((_ (name args ...) . body)
+     (let ((scan-proc
+            (lambda (%ip %dl %locals args ...)
+              (syntax-parameterize
+                  ((ip (identifier-syntax %ip))
+                   (dl (identifier-syntax %dl))
+                   (locals (identifier-syntax %locals)))
+                . body)
+              (values #t 'name))))
+       (hashq-set! *scan-procedures* 'name scan-proc)))))
+
+(define-syntax-rule (push-scan-sp-offset! ol n)
+  (unless (outline-initialized? ol)
+    (set-outline-sp-offset! ol (- (outline-sp-offset ol) n))))
+
+(define-syntax-rule (pop-scan-sp-offset! ol n)
+    (unless (outline-initialized? ol)
+      (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n))))
+
+(define-syntax-rule (push-scan-fp-offset! ol n)
+  (unless (outline-initialized? ol)
+    (set-outline-fp-offset! ol (- (outline-fp-offset ol) n))))
+
+(define-syntax-rule (pop-scan-fp-offset! ol n)
+    (unless (outline-initialized? ol)
+      (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n))))
+
+(define-syntax set-scan-type!
+  (syntax-rules ()
+    ((_ ol (i t) ...)
+     (let* ((types (outline-types ol))
+            (types (assq-set! types (+ i (outline-sp-offset ol)) t))
+            ...)
+       (set-outline-types! ol types)))))
+
+(define-syntax set-scan-scm!
+    (syntax-rules ()
+      ((_ ol i ...)
+       (set-scan-type! ol (i 'scm) ...))))
+
+(define-syntax set-scan-write!
+  (syntax-rules ()
+    ((_ ol i ...)
+     (let* ((sp-offset (outline-sp-offset ol))
+            (writes (outline-write-indices ol))
+            (writes (if (memq (+ i sp-offset) writes)
+                        writes
+                        (cons (+ i sp-offset) writes)))
+            ...)
+       (set-outline-write-indices! ol (sort writes <))))))
+
+(define-syntax set-scan-read!
+  (syntax-rules ()
+    ((_ ol i ...)
+     (let* ((sp-offset (outline-sp-offset ol))
+            (reads (outline-read-indices ol))
+            (reads (if (memq (+ i sp-offset) reads)
+                       reads
+                       (cons (+ i sp-offset) reads)))
+            ...)
+       (set-outline-read-indices! ol reads)))))
+
+(define-syntax-rule (set-scan-initial-fields! ol)
+  (unless (outline-initialized? ol)
+    (let ((new-sp-offsets (cons (outline-sp-offset ol)
+                                (outline-sp-offsets ol)))
+          (new-fp-offsets (cons (outline-fp-offset ol)
+                                (outline-fp-offsets ol)))
+          (writes (outline-write-indices ol))
+          (buf (outline-write-buf ol)))
+      (set-outline-sp-offsets! ol new-sp-offsets)
+      (set-outline-fp-offsets! ol new-fp-offsets)
+      (set-outline-write-buf! ol (cons writes buf)))))
 
 ;;; *** The dynamic environment
 

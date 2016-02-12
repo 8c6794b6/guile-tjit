@@ -35,8 +35,7 @@
   #:use-module (system vm native tjit snapshot)
   #:export (scan-locals))
 
-
-(define (scan-locals ol op prev-op ip dl locals backward? infer-type?)
+(define (scan-locals ol op prev-op ip dl locals)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; Lower frame data is saved at the time of accumulation.  If one of
@@ -171,26 +170,13 @@
       (save-write-buf!)
       (push-sp-offset! (- nlocals stack-size))
       (ret)))
-  (define-syntax-rule (scan-frame nlocals)
-    (let* ((stack-size (vector-length locals))
-           (diff (- nlocals stack-size)))
-      (if (< stack-size nlocals)
-          (begin
-            (push-sp-offset! diff)
-            (let lp ((n 0))
-              (when (< n diff)
-                (set-scm! n)
-                (set-read! n)
-                (lp (+ n 1)))))
-          (pop-sp-offset! (- diff)))
-      (save-sp-offset!)
-      (save-fp-offset!)
-      (save-write-buf!)
-      (ret)))
   (define initialized? (outline-initialized? ol))
+  (define backward? (outline-backward? ol))
+  (define infer-type? (outline-infer-type? ol))
 
   (unless initialized?
     (debug 1 ";;; [scan-locals] op=~s~%" op))
+
   ;; Look for the type of returned value from C function.
   (unless initialized?
     (let* ((ret-types (outline-ret-types ol))
@@ -231,26 +217,6 @@
      (scan-tail-call nlocals))
     (('tail-call-label nlocals _)
      (scan-tail-call nlocals))
-    (('subr-call)
-     ;; XXX: Multiple value return not supported.
-     (let* ((stack-size (vector-length locals))
-            (proc-offset (- stack-size 1))
-            (ra-offset stack-size)
-            (dl-offset (+ ra-offset 1)))
-       (set-scm! stack-size (+ stack-size 1))
-       (unless initialized?
-         (set-write! stack-size (+ stack-size 1))
-         (set-entry-type! ol proc-offset &procedure))
-       (when infer-type?
-         (set-expected-type! ol proc-offset &procedure)
-         (set-inferred-type! ol ra-offset &false)
-         (set-inferred-type! ol dl-offset &false))
-       (save-sp-offset!)
-       (pop-sp-offset! (- stack-size 2))
-       (save-fp-offset!)
-       (save-write-buf!)
-       (pop-fp-offset! dl)
-       (ret)))
     (('receive dst proc nlocals)
      (let* ((stack-size (vector-length locals))
             (sp-offset (outline-sp-offset ol))
@@ -312,81 +278,19 @@
        (pop-fp-offset! dl)
        (save-write-buf!)
        (ret)))
-    (('assert-nargs-ee/locals expected nlocals)
-     (push-sp-offset! nlocals)
-     (let lp ((n nlocals) (sp-offset (outline-sp-offset ol)))
-       (when (< 0 n)
-         (set-scm! (- n 1))
-         (unless initialized?
-           (set-write! (- n 1)))
-         (when infer-type?
-           (set-inferred-type! ol (+ sp-offset (- n 1)) &undefined))
-         (lp (- n 1) sp-offset)))
-     (save-sp-offset!)
-     (save-fp-offset!)
-     (save-write-buf!)
-     (ret))
-    (('alloc-frame nlocals)
-     (scan-frame nlocals))
-    (('reset-frame nlocals)
-     (scan-frame nlocals))
-    (('mov dst src)
-     (let* ((sp-offset (outline-sp-offset ol))
-            (dst+sp (+ dst sp-offset))
-            (src+sp (+ src sp-offset))
-            (entry (outline-entry-types ol)))
-       (unless initialized?
-         (set-read! src)
-         (set-write! dst)
-         (unless (or (assq-ref (outline-inferred-types ol) src+sp)
-                     (assq-ref (outline-entry-types ol) src+sp))
-           (set-entry-type! ol src+sp `(copy . ,dst+sp))))
-       ;; Resolving expcting and inferred type for dst and src. There are no SCM
-       ;; type clue here, use existing data stored in outline. If src could not
-       ;; resolved, a tagged `copy' type with local index are stored, to be
-       ;; resolved later .
-       (when infer-type?
-         (cond
-          ((or (assq-ref (outline-inferred-types ol) src+sp)
-               (assq-ref (outline-expected-types ol) src+sp))
-           => (lambda (ty)
-                (set-inferred-type! ol dst+sp ty)))
-          (else
-           (set-expected-type! ol src+sp `(copy . ,dst+sp))
-           (set-inferred-type! ol dst+sp `(copy . ,src+sp)))))
-       (if backward?
-           (and=> (outline-type-ref ol dst+sp)
-                  (lambda (type)
-                    (set-type! (src type))))
-           (and=> (outline-type-ref ol src+sp)
-                  (lambda (type)
-                    (set-type! (dst type)))))
-       (save-sp-offset!)
-       (save-fp-offset!)
-       (save-write-buf!)
-       (ret)))
     (_
      (cond
       ((hashq-ref *scan-procedures* (car op))
        => (lambda (found)
             (cond
              ((procedure? found)
-              (apply found ol initialized? (cdr op))
-              (save-sp-offset!)
-              (save-fp-offset!)
-              (save-write-buf!)
-              (ret))
+              (apply found ip dl locals ol (cdr op)))
              ((list? found)
               (let lp ((procs found))
                 (match procs
                   (((test . work) . procs)
                    (if (apply test (list ol op locals))
-                       (begin
-                         (apply work ol (cdr op))
-                         (save-sp-offset!)
-                         (save-fp-offset!)
-                         (save-write-buf!)
-                         (ret))
+                       (apply work ip dl locals ol (cdr op))
                        (lp procs)))
                   (_ (nyi)))))
              (else

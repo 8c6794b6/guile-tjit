@@ -178,7 +178,7 @@
              (lp vars))
             (loaded-vars
              (let ((guard (assq-ref (outline-entry-types outline) n))
-                   (type (assq-ref (outline-expected-types outline) n)))
+                   (type (assq-ref (outline-inferred-types outline) n)))
                (when loaded-vars
                  (hashq-set! loaded-vars n guard))
                (if (or (eq? type &flonum)
@@ -398,7 +398,7 @@
                                       (ir-min-sp-offset ir))))
              _)))))
     (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-outline ir) op #f ip dl locals #f #t)
+      (scan-locals (ir-outline ir) op #f ip dl locals)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (found)
