@@ -36,7 +36,7 @@
   #:export (scan-locals))
 
 
-(define (scan-locals ol op prev-op dl locals backward? infer-type?)
+(define (scan-locals ol op prev-op ip dl locals backward? infer-type?)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; Lower frame data is saved at the time of accumulation.  If one of
@@ -125,14 +125,15 @@
           (set-entry-type! ol sp-proc &procedure))
         (set-read! (+ sp-proc 1) (+ sp-proc 2))
         (set-write! (+ sp-proc 1) (+ sp-proc 2))
-        (let lp ((n 0))
+        (let lp ((n 1))
           (when (< n nlocals)
             (set-entry-type! ol (- sp-proc n) &scm)
             (lp (+ n 1)))))
       (when infer-type?
         (unless label?
           (set-expected-type! ol sp-proc &procedure))
-        (let ((ra-ty (make-return-address (make-pointer 0)))
+        (let ((ra-ty (make-return-address
+                      (make-pointer (+ ip (* 4 (if label? 3 2))))))
               (dl-ty (make-dynamic-link proc)))
           (set-inferred-type! ol (+ sp-proc 1) ra-ty)
           (set-inferred-type! ol (+ sp-proc 2) dl-ty)))

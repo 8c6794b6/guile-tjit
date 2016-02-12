@@ -176,6 +176,7 @@
                                    acc)))))
     (debug 1 ";;; live-indices:~a~%" (outline-live-indices outline))
     (debug 1 ";;; types:~a~%" (sort (outline-types outline) car-<))
+    (debug 1 ";;; refill-ra-and-dl?:~a~%" refill-ra-and-dl?)
     (debug 1 "~a"
            (and ((@ (system vm native tjit dump) dump-outline) outline) "")))
   (let lp ((is write-indices) (acc '()))

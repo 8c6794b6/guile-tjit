@@ -387,7 +387,7 @@
                                       (ir-min-sp-offset ir))))
              _)))))
     (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-outline ir) op #f dl locals #f #t)
+      (scan-locals (ir-outline ir) op #f ip dl locals #f #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (found)

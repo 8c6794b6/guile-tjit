@@ -143,8 +143,7 @@ option was set to true."
               (lp (+ i 1) v))
             v))))
   (let ((lowest (lowest-level ip-x-ops)))
-    (format #t ";;; trace ~a: bytecode ~a:~a~%"
-            trace-id (length ip-x-ops) lowest)
+    (format #t ";;; trace ~a: bytecode ~a~%" trace-id (length ip-x-ops))
     (let lp ((traces ip-x-ops) (level (- lowest)))
       (match traces
         (((op ip ra dl locals) . traces)

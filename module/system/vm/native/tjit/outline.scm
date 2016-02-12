@@ -236,7 +236,7 @@
                     ((_ . current)
                      (lp current acc))
                     (() acc)))))
-    (debug 1 ";;; [set-entry-type!] ~s => ~a" n (pretty-type t))
+    (debug 1 ";;; [set-entry-type!] ~s => ~a~%" n (pretty-type t))
     (set-outline-entry-types! outline entry)))
 
 (define (set-expected-type! outline n t)
