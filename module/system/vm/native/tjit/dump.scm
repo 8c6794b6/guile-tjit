@@ -353,6 +353,11 @@ option was set to true."
   (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))
 
 (define (dump-outline outline)
+  (define (sort-types field)
+    (sort (map (match-lambda
+                 ((k . t) `(,k . ,(pretty-type t))))
+               (field outline))
+          car-<))
   (format #t ";;; outline:~%")
   (format #t "~{;;;  ~a~%~}"
           `((local-indices . ,(outline-local-indices outline))
@@ -360,13 +365,6 @@ option was set to true."
             (read-indices . ,(outline-read-indices outline))
             (live-indices . ,(outline-live-indices outline))
             (write-indices . ,(outline-write-indices outline))
-            (expected . ,(sort (map (match-lambda
-                                      ((k . t)
-                                       `(,k . ,(pretty-type t))))
-                                    (outline-expected-types outline))
-                               car-<))
-            (inferred . ,(sort (map (match-lambda
-                                      ((k . t)
-                                       `(,k . ,(pretty-type t))))
-                                    (outline-inferred-types outline))
-                               car-<)))))
+            ("entry   "  . ,(sort-types outline-entry-types))
+            (expected . ,(sort-types outline-expected-types))
+            (inferred . ,(sort-types outline-inferred-types)))))

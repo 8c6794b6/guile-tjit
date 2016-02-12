@@ -152,7 +152,7 @@
       (sp-set! local r0))
 
      ;; Cell values and small integers
-     ((memq type (list &exact-integer &char &null &nil
+     ((memq type (list &scm &exact-integer &char &null &nil
                        &symbol &keyword &procedure &pointer
                        &pair &fluid &vector &box &struct &string &bytevector
                        &bitvector &array &hash-table &port &u64 &s64))

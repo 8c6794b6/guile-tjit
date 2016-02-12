@@ -351,17 +351,17 @@
 ;; the `dst' argument, if exist, is always the first argument of IR.
 
 (define-syntax-rule (gen-inferred ol sty ty arg rest)
-  (let* ((i (+ arg (outline-sp-offset ol)))
-         (types (assq-set! (outline-types ol) i sty)))
-    (set-outline-types! ol types)
+  (let* ((i (+ arg (outline-sp-offset ol))))
+    (set-outline-types! ol (assq-set! (outline-types ol) i sty))
     (gen-put-element-type ol . rest)
     (set-inferred-type! ol i ty)))
 
 (define-syntax-rule (gen-expected ol sty ty arg rest)
-  (let* ((i (+ arg (outline-sp-offset ol)))
-         (types (assq-set! (outline-types ol) i sty)))
-    (set-outline-types! ol types)
+  (let* ((i (+ arg (outline-sp-offset ol))))
+    (set-outline-types! ol (assq-set! (outline-types ol) i sty))
     (gen-put-element-type ol . rest)
+    (unless (outline-initialized? ol)
+      (set-entry-type! ol i ty))
     (set-expected-type! ol i ty)))
 
 (define-syntax gen-put-element-type
@@ -414,8 +414,8 @@ saves index referenced by dst and src values at runtime."
                 . body))))
        (hashq-set! *ir-procedures* 'name proc)))
     ((_ (name (flag arg) ...) . body)
-     (let ((scan-proc (lambda (ol initialized? arg ...)
-                        (unless initialized?
+     (let ((scan-proc (lambda (ol arg ...)
+                        (unless (outline-initialized? ol)
                           (gen-put-index ol (flag arg) ...))
                         (gen-put-element-type ol (flag arg) ...)))
            (test-proc
@@ -608,8 +608,15 @@ saves index referenced by dst and src values at runtime."
        ((eq? type &char) (guard-tc8 %tc8-char))
        ((eq? type &unspecified) (guard-const *unspecified*))
        ((eq? type &unbound) (guard-const *unbound*))
-       ((eq? type &false) (guard-const #f))
-       ((eq? type &true) (guard-const #t))
+
+       ;; Guard for true and false disabled for now. Perhaps more proper way is
+       ;; to call `with-unboxing' only when necessary, e.g.: detect unmatch
+       ;; between inferred type and expected type and skip `with-unboxing' if
+       ;; matched.
+       ;;
+       ((eq? type &false) (thunk))
+       ((eq? type &true) (thunk))
+
        ((eq? type &nil) (guard-const #nil))
        ((eq? type &null) (thunk))
        ((eq? type &symbol) (guard-tc7 %tc7-symbol))

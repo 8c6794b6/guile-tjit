@@ -969,7 +969,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((eq? type &array) (load-tc7 %tc7-array))
         ((eq? type &hash-table) (load-tc7 %tc7-hashtable))
         ((eq? type &port) (load-tc7 %tc7-port))
-        ((memq type (list #f &s64 &u64)) (move-stack-element))
+        ((memq type (list #f &scm &s64 &u64)) (move-stack-element))
         (else (err)))))))
 
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'

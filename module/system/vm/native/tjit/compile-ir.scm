@@ -133,7 +133,7 @@
     (debug 3 ";;;   locals0=~a~%"
            (sort (snapshot-locals snapshot0)
                  (lambda (a b) (< (car a) (car b)))))
-    (debug 3 ";;;    live-vars-in-parent=~s~%" live-vars-in-parent)
+    (debug 3 ";;;   live-vars-in-parent=~s~%" live-vars-in-parent)
     (let lp ((vars (if parent-snapshot
                        (make-vars (outline-read-indices outline))
                        (reverse vars))))
@@ -176,24 +176,20 @@
                             (not (memq n (outline-read-indices outline)))
                             (memq var live-vars-in-parent)))))
              (lp vars))
+            (loaded-vars
+             (let ((guard (assq-ref (outline-entry-types outline) n))
+                   (type (assq-ref (outline-expected-types outline) n)))
+               (hashq-set! loaded-vars n type)
+               (if (and (not (eq? type &flonum))
+                        (not (eq? type &f64))
+                        (not guard))
+                   (with-frame-ref vars var #f n lp)
+                   (with-frame-ref vars var type n lp))))
             (else
              (let* ((type (or (assq-ref snapshot0-locals n)
                               (type-from-runtime i))))
                (debug 3 ";;;   type: ~a~%" (pretty-type type))
-               (when loaded-vars
-                 (hashq-set! loaded-vars n type))
-               (with-frame-ref vars var type n lp)
-               ;; (if loaded-vars
-               ;;     (let ((guard (assq-ref (outline-expected-types outline) n)))
-               ;;       (if (and (not (eq? type &flonum))
-               ;;                (not (eq? type &f64))
-               ;;                (not (eq? type &u64))
-               ;;                (or (not guard)
-               ;;                    (eq? guard 'scm)))
-               ;;           (with-frame-ref vars var #f n lp)
-               ;;           (with-frame-ref vars var type n lp)))
-               ;;     (with-frame-ref vars var type n lp))
-               )))))
+               (with-frame-ref vars var type n lp))))))
         (()
          exp-body)))))
 
@@ -391,7 +387,7 @@
                                       (ir-min-sp-offset ir))))
              _)))))
     (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-outline ir) op #f dl locals #t #f #t)
+      (scan-locals (ir-outline ir) op #f dl locals #f #t)
       (cond
        ((hashq-ref *ir-procedures* (car op))
         => (lambda (found)

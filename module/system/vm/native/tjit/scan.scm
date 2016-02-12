@@ -36,8 +36,7 @@
   #:export (scan-locals))
 
 
-(define (scan-locals ol op prev-op dl locals initialized? backward?
-                     infer-type?)
+(define (scan-locals ol op prev-op dl locals backward? infer-type?)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; Lower frame data is saved at the time of accumulation.  If one of
@@ -122,9 +121,14 @@
       (unless initialized?
         (set-scm! sp-proc (+ sp-proc 1) (+ sp-proc 2))
         (unless label?
-          (set-read! sp-proc))
+          (set-read! sp-proc)
+          (set-entry-type! ol sp-proc &procedure))
         (set-read! (+ sp-proc 1) (+ sp-proc 2))
-        (set-write! (+ sp-proc 1) (+ sp-proc 2)))
+        (set-write! (+ sp-proc 1) (+ sp-proc 2))
+        (let lp ((n 0))
+          (when (< n nlocals)
+            (set-entry-type! ol (- sp-proc n) &scm)
+            (lp (+ n 1)))))
       (when infer-type?
         (unless label?
           (set-expected-type! ol sp-proc &procedure))
@@ -169,6 +173,7 @@
       (save-fp-offset!)
       (save-write-buf!)
       (ret)))
+  (define initialized? (outline-initialized? ol))
 
   (unless initialized?
     (debug 1 ";;; [scan-locals] op=~s~%" op))
@@ -312,39 +317,40 @@
     (('reset-frame nlocals)
      (scan-frame nlocals))
     (('mov dst src)
-     (unless initialized?
-       (set-read! src)
-       (set-write! dst))
-     ;; Resolving expcting and inferred type for dst and src. There are no SCM
-     ;; type clue here, use existing data stored in outline. If src could not
-     ;; resolved, a tagged `copy' type with local index are stored, to be
-     ;; resolved later .
-     (when infer-type?
-       (let* ((sp-offset (outline-sp-offset ol))
-              (dst+sp (+ dst sp-offset))
-              (src+sp (+ src sp-offset))
-              (inferred (outline-inferred-types ol))
-              (expected (outline-expected-types ol)))
+     (let* ((sp-offset (outline-sp-offset ol))
+            (dst+sp (+ dst sp-offset))
+            (src+sp (+ src sp-offset))
+            (entry (outline-entry-types ol))
+            (inferred (outline-inferred-types ol))
+            (expected (outline-expected-types ol)))
+       (unless initialized?
+         (set-read! src)
+         (set-write! dst)
+         (unless (or (assq-ref inferred src+sp) (assq-ref entry src+sp))
+           (set-entry-type! ol src+sp `(copy . ,dst+sp))))
+       ;; Resolving expcting and inferred type for dst and src. There are no SCM
+       ;; type clue here, use existing data stored in outline. If src could not
+       ;; resolved, a tagged `copy' type with local index are stored, to be
+       ;; resolved later .
+       (when infer-type?
          (cond
-          ((or (assq-ref inferred src+sp)
-               (assq-ref expected src+sp))
+          ((or (assq-ref inferred src+sp) (assq-ref expected src+sp))
            => (lambda (ty)
                 (set-inferred-type! ol dst+sp ty)))
           (else
            (set-expected-type! ol src+sp `(copy . ,dst+sp))
-           (set-inferred-type! ol dst+sp `(copy . ,src+sp))))))
-     (let ((sp-offset (outline-sp-offset ol)))
+           (set-inferred-type! ol dst+sp `(copy . ,src+sp)))))
        (if backward?
-           (and=> (outline-type-ref ol (+ dst sp-offset))
+           (and=> (outline-type-ref ol dst+sp)
                   (lambda (type)
                     (set-type! (src type))))
-           (and=> (outline-type-ref ol (+ src sp-offset))
+           (and=> (outline-type-ref ol src+sp)
                   (lambda (type)
-                    (set-type! (dst type))))))
-     (save-sp-offset!)
-     (save-fp-offset!)
-     (save-write-buf!)
-     (ret))
+                    (set-type! (dst type)))))
+       (save-sp-offset!)
+       (save-fp-offset!)
+       (save-write-buf!)
+       (ret)))
     (_
      (cond
       ((hashq-ref *scan-procedures* (car op))
@@ -362,7 +368,7 @@
                   (((test . work) . procs)
                    (if (apply test (list ol op locals))
                        (begin
-                         (apply work ol initialized? (cdr op))
+                         (apply work ol (cdr op))
                          (save-sp-offset!)
                          (save-fp-offset!)
                          (save-write-buf!)

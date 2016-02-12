@@ -103,7 +103,7 @@
                           (if so-far-so-good?
                               (let ((locals (cadddr trace))
                                     (dl (caddr trace)))
-                                (scan-locals ol op prev-op dl locals #f #f #t))
+                                (scan-locals ol op prev-op dl locals #f #t))
                               (values #f (car op)))))
              (lp (cons (cons op trace) acc) (+ offset len) traces ol
                  (and so-far-so-good? implemented?) prev-op)))
@@ -125,7 +125,7 @@
           (((op _ _ dl locals) . traces)
            (set-outline-sp-offset! ol (vector-ref sp-offsets index))
            (set-outline-fp-offset! ol (vector-ref fp-offsets index))
-           (scan-locals ol op #f dl locals #t #t #f)
+           (scan-locals ol op #f dl locals #t #f)
            (lp traces (- index 1)))
           (()
            (set-outline-sp-offset! ol sp)

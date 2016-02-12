@@ -38,6 +38,7 @@
             outline-local-indices set-outline-local-indices!
             outline-local-ref
             outline-type-ref
+            outline-initialized?
             outline-sp-offsets set-outline-sp-offsets!
             outline-fp-offsets set-outline-fp-offsets!
             outline-types set-outline-types!
@@ -50,6 +51,7 @@
             outline-read-indices set-outline-read-indices!
             outline-write-buf set-outline-write-buf!
             outline-live-indices set-outline-live-indices!
+            outline-entry-types set-outline-entry-types!
             outline-inferred-types set-outline-inferred-types!
             outline-expected-types set-outline-expected-types!
 
@@ -59,8 +61,9 @@
             expand-outline
             set-outline-previous-dl-and-ra!
             merge-outline-types!
-            set-inferred-type!
-            set-expected-type!))
+            set-entry-type!
+            set-expected-type!
+            set-inferred-type!))
 
 
 ;; Data type to contain outline of recorded traces.
@@ -69,10 +72,14 @@
 ;; return addresses, past frame locals, locals of caller procedure in inlined
 ;; procedure ... etc.
 (define-record-type $outline
-  (%make-outline dls ras locals local-indices sp-offsets fp-offsets types
-                 sp-offset fp-offset ret-types write-indices read-indices
-                 write-buf live-indices expected-types inferred-types)
+  (%make-outline initialized? dls ras locals local-indices
+                 sp-offsets fp-offsets types sp-offset fp-offset ret-types
+                 write-indices read-indices write-buf live-indices
+                 entry-types expected-types inferred-types)
   outline?
+
+  ;; Flag to hold whether initialized.
+  (initialized? outline-initialized? set-outline-initialized!)
 
   ;; Association list for dynamic link: (local . pointer to fp).
   (dls outline-dls set-outline-dls!)
@@ -116,6 +123,9 @@
   ;; Live indices, updated during IR compilation.
   (live-indices outline-live-indices set-outline-live-indices!)
 
+  ;; Entry types.
+  (entry-types outline-entry-types set-outline-entry-types!)
+
   ;; Expected types.
   (expected-types outline-expected-types set-outline-expected-types!)
 
@@ -126,9 +136,10 @@
                       expected-types)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (%make-outline '() '() (make-hash-table) '() '() '() types
+  (%make-outline #f '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset '() write-indices '()
-                 (list write-indices) live-indices expected-types '()))
+                 (list write-indices) live-indices
+                 (copy-tree expected-types) (copy-tree expected-types) '()))
 
 (define (arrange-outline outline)
   (let* ((sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
@@ -146,6 +157,7 @@
     (set-outline-read-indices! outline reads/list)
     (set-outline-write-indices! outline writes/list)
     (set-outline-write-buf! outline write-buf/vec)
+    (set-outline-initialized! outline #t)
     outline))
 
 (define (push-outline! outline dl ra sp-offset locals)
@@ -210,13 +222,26 @@
       (_
        (set-outline-types! outline types)))))
 
-(define (set-expected-type! outline n t)
+(define (set-entry-type! outline n t)
   (let* ((inferred (outline-inferred-types outline))
-         (expected (outline-expected-types outline))
-         (expected (if (and (not (assq-ref expected n))
-                            (not (assq-ref inferred n)))
-                       (assq-set! expected n t)
-                       expected))
+         (entry (outline-entry-types outline))
+         (entry (if (and (not (assq-ref entry n))
+                         (not (assq-ref inferred n)))
+                    (assq-set! entry n t)
+                    entry))
+         (entry (let lp ((current entry) (acc entry))
+                  (match current
+                    (((i 'copy . (? (lambda (x) (= x n)))) . current)
+                     (lp current (assq-set! acc i t)))
+                    ((_ . current)
+                     (lp current acc))
+                    (() acc)))))
+    (debug 1 ";;; [set-entry-type!] ~s => ~a" n (pretty-type t))
+    (set-outline-entry-types! outline entry)))
+
+(define (set-expected-type! outline n t)
+  (let* ((expected (outline-expected-types outline))
+         (expected (assq-set! expected n t))
          (expected (let lp ((current expected) (acc expected))
                      (match current
                        (((i 'copy . (? (lambda (x) (= x n)))) . current)
