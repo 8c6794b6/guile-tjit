@@ -178,7 +178,7 @@
              (lp vars))
             (loaded-vars
              (let ((guard (assq-ref (outline-entry-types outline) n))
-                   (type (assq-ref (outline-inferred-types outline) n)))
+                   (type (assq-ref (outline-expected-types outline) n)))
                (when loaded-vars
                  (hashq-set! loaded-vars n guard))
                (if (or (eq? type &flonum)
