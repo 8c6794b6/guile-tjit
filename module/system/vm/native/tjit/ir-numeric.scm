@@ -67,7 +67,7 @@
                 (inferred (outline-inferred-types (ir-outline ir)))
                 (a/it (assq-ref inferred a))
                 (b/it (assq-ref inferred b)))
-           (debug 1 ";;; [IR] ~s: i=(~s ~s)~%" 'name
+           (debug 1 ";;; [IR] ~s: i=(~a ~a)~%" 'name
                   (pretty-type a/it) (pretty-type b/it))
            `(let ((,dst/v (op-fl ,a/v ,b/v)))
               ,(next))

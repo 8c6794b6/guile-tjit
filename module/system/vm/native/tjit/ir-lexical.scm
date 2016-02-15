@@ -64,10 +64,13 @@
        ((or (assq-ref (outline-inferred-types ol) src+sp)
             (assq-ref (outline-expected-types ol) src+sp))
         => (lambda (ty)
-             (set-inferred-type! ol dst+sp ty)))
+             (values)
+             ;;(set-inferred-type! ol dst+sp ty)
+             ))
        (else
         (set-expected-type! ol src+sp `(copy . ,dst+sp))
-        (set-inferred-type! ol dst+sp `(copy . ,src+sp)))))
+        ;; (set-inferred-type! ol dst+sp `(copy . ,src+sp))
+        )))
 
     (if backward?
         (and=> (outline-type-ref ol dst+sp)
@@ -77,6 +80,19 @@
                (lambda (type)
                  (set-scan-type! ol (dst type)))))
     (set-scan-initial-fields! ol)))
+
+(define-ti (mov ol dst src)
+  (let* ((sp-offset (outline-sp-offset ol))
+         (dst+sp (+ dst sp-offset))
+         (src+sp (+ src sp-offset)))
+    (cond
+     ((or (assq-ref (outline-inferred-types ol) src+sp)
+          (assq-ref (outline-expected-types ol) src+sp))
+      => (lambda (ty)
+           (set-inferred-type! ol dst+sp ty)))
+     (else
+      (set-inferred-type! ol dst+sp `(copy . ,src+sp))))))
+
 
 ;; XXX: long-mov
 ;; XXX: long-fmov

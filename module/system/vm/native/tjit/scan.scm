@@ -54,11 +54,9 @@
     (begin
       (debug 1 "NYI: ~a~%" (car op))
       (values #f (car op))))
-  (define initialized?
-    (outline-initialized? ol))
 
   ;; Look for the type of returned value from C function.
-  (unless initialized?
+  (unless (outline-initialized? ol)
     (debug 1 ";;; [scan-locals] op=~s~%" op)
     (let* ((ret-types (outline-ret-types ol))
            (fill-false
@@ -84,13 +82,19 @@
              (fill-false)))
           (fill-false))))
 
-  (match (hashq-ref *scan-procedures* (car op))
-    ((? list? procs)
-     (let lp ((procs procs))
-       (match procs
-         (((test . work) . procs)
-          (if (apply test (list ol op locals))
-              (apply work ip dl locals ol (cdr op))
-              (lp procs)))
-         (_ (nyi)))))
-    (_ (nyi))))
+  (call-with-values
+      (lambda ()
+        (match (hashq-ref *scan-procedures* (car op))
+          ((? list? procs)
+           (let lp ((procs procs))
+             (match procs
+               (((test . work) . procs)
+                (if (apply test (list op locals))
+                    (apply work ip dl locals ol (cdr op))
+                    (lp procs)))
+               (_ (nyi)))))
+          (_ (nyi))))
+    (lambda (success op-name)
+      (when success
+        (infer-type ip dl locals ol op))
+      (values success op-name))))

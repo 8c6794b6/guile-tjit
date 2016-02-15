@@ -88,8 +88,12 @@
             set-scan-read!
             set-scan-initial-fields!
 
+            define-ti
+            infer-type
+
+            *scan-procedures*
             *ir-procedures*
-            *scan-procedures*)
+            *ti-procedures*)
   #:replace (local-ref))
 
 ;;;
@@ -136,11 +140,25 @@
 
 
 ;;;
+;;; Exported hash tablels
+;;;
+
+(define *scan-procedures*
+  (make-hash-table 255))
+
+(define *ti-procedures*
+  (make-hash-table 255))
+
+(define *ir-procedures*
+  (make-hash-table 255))
+
+
+;;;
 ;;; Macros for scan
 ;;;
 
 (define-syntax-rule (define-scan (name args ...) . body)
-  (let ((test-proc (lambda (ol op locals)
+  (let ((test-proc (lambda (op locals)
                      #t))
         (scan-proc (lambda (%ip %dl %locals args ...)
                      (syntax-parameterize
@@ -212,7 +230,7 @@
 ;;;
 
 (define-syntax-rule (define-anf (name arg ...) . body)
-  (let ((test-proc (lambda (ol op locals)
+  (let ((test-proc (lambda (op locals)
                      #t))
         (anf-proc (lambda (%ir %next %ip %ra %dl %locals arg ...)
                     (syntax-parameterize
@@ -224,6 +242,34 @@
                          (locals (identifier-syntax %locals)))
                       . body))))
     (hashq-set! *ir-procedures* 'name (list (cons test-proc anf-proc)))))
+
+
+;;;
+;;; Macros for type inference
+;;;
+
+(define-syntax-rule (define-ti (name ol args ...) . body)
+  (let ((test-proc (lambda (op locals)
+                     #t))
+        (ti-proc (lambda (%ip %dl %locals ol args ...)
+                   (syntax-parameterize
+                       ((ip (identifier-syntax %ip))
+                        (dl (identifier-syntax %dl))
+                        (locals (identifier-syntax %locals)))
+                     . body))))
+    (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
+
+(define (infer-type ip dl locals ol op)
+  (match (hashq-ref *ti-procedures* (car op))
+    ((? list? procs)
+     (let lp ((procs procs))
+       (match procs
+         (((test . work) . procs)
+          (if (apply test (list op locals))
+              (apply work ip dl locals ol (cdr op))
+              (lp procs)))
+         (() (values)))))
+    (_ (values))))
 
 
 ;;;
@@ -394,12 +440,6 @@
     `(let ((,var (%fref ,idx ,type)))
        ,(next args)))))
 
-(define *ir-procedures*
-  (make-hash-table 255))
-
-(define *scan-procedures*
-  (make-hash-table 255))
-
 (define-syntax define-ir-syntax-parameters
   (syntax-rules ()
     ((_ name ...)
@@ -460,7 +500,8 @@
   (let* ((i (+ arg (outline-sp-offset ol))))
     (set-outline-types! ol (assq-set! (outline-types ol) i sty))
     (gen-put-element-type ol . rest)
-    (set-inferred-type! ol i ty)))
+    ;; (set-inferred-type! ol i ty)
+    ))
 
 (define-syntax-rule (gen-expected ol sty ty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
@@ -496,6 +537,18 @@
     ((_ ol (f64 arg) . rest) (gen-expected ol 'f64 &f64 arg rest))
     ((_ ol (f64! arg) . rest) (gen-inferred ol 'f64 &f64 arg rest))))
 
+(define-syntax gen-infer-type
+  (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
+    ((_ ol (scm! arg) . rest) (set-inferred-type! ol arg &scm))
+    ((_ ol (fixnum! arg) . rest) (set-inferred-type! ol arg &exact-integer))
+    ((_ ol (flonum! arg) . rest) (set-inferred-type! ol arg &flonum))
+    ((_ ol (pair! arg) . rest) (set-inferred-type! ol arg &pair))
+    ((_ ol (vector! arg) . rest) (set-inferred-type! ol arg &vector))
+    ((_ ol (box! arg) . rest) (set-inferred-type! ol arg &box))
+    ((_ ol (u64! arg) . rest) (set-inferred-type! ol arg &u64))
+    ((_ ol (f64! arg) . rest) (set-inferred-type! ol arg &f64))
+    ((_ ol . other) (values))))
+
 (define-syntax define-ir
   (syntax-rules ()
     "Defines procedure to compile bytecode operation to IR, and optionally
@@ -509,7 +562,7 @@ another procedure for scanning locals and types. The procedure for scanner takes
 three arguments and saves index referenced by dst, a, and b values at runtime."
     ((_ (name (flag arg) ...) . body)
      (let ((test-proc
-            (lambda (ol op locals)
+            (lambda (op locals)
               (let lp ((flags '(flag ...)) (ns (cdr op)))
                 (match (cons flags ns)
                   (((f . flags) . (n . ns))
@@ -530,7 +583,11 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
                 (gen-put-index ol (flag arg) ...))
               (set-scan-initial-fields! ol)
               (values #t 'name)))
-           (ir-proc
+           (ti-proc
+            (lambda (%ip %dl %locals ol arg ...)
+              (debug 1 ";;; [ti-proc] ~s~%" '(name flag ...))
+              (gen-infer-type ol (flag arg) ...)))
+           (anf-proc
             (lambda (%ir %next %ip %ra %dl %locals arg ...)
               (syntax-parameterize
                   ((ir (identifier-syntax %ir))
@@ -548,7 +605,8 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
                                             (else (list elem)))))
                             (hashq-set! tbl 'name val)))))
          (add-proc! *scan-procedures* scan-proc)
-         (add-proc! *ir-procedures* ir-proc))))))
+         (add-proc! *ti-procedures* ti-proc)
+         (add-proc! *ir-procedures* anf-proc))))))
 
 (define-syntax define-interrupt-ir
   (syntax-rules ()

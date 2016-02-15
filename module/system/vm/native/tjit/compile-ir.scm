@@ -397,7 +397,7 @@
           `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
                                       (ir-min-sp-offset ir))))
              _)))))
-    (define (gen-next ir locals rest)
+    (define (gen-next ir ip dl locals op rest)
       (lambda ()
         (let* ((old-index (ir-bytecode-index ir))
                (outline (ir-outline ir))
@@ -415,6 +415,7 @@
                (new-fp-offset (if (< 0 new-index (vector-length fp-offsets))
                                   (vector-ref fp-offsets new-index)
                                   0)))
+          (infer-type ip dl locals outline op)
           (set-ir-bytecode-index! ir new-index)
           (set-outline-sp-offset! outline new-sp-offset)
           (set-outline-fp-offset! outline new-fp-offset)
@@ -430,8 +431,8 @@
          (let lp ((procs procs))
            (match procs
              (((test . work) . procs)
-              (if (apply test (list (ir-outline ir) op locals))
-                  (let ((next (gen-next ir locals rest)))
+              (if (apply test (list op locals))
+                  (let ((next (gen-next ir ip dl locals op rest)))
                     (apply work ir next ip ra dl locals (cdr op)))
                   (lp procs)))
              (_ (nyi "~a" (car op))))))
