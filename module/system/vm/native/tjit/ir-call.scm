@@ -54,15 +54,9 @@
     (when (outline-infer-type? ol)
       (unless label?
         (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
-      (let ((ra-ty (make-return-address
-                    (make-pointer (+ ip (* 4 (if label? 3 2))))))
-            (dl-ty (make-dynamic-link proc)))
-        (set-inferred-type! ol (+ sp-proc sp-offset 1) ra-ty)
-        (set-inferred-type! ol (+ sp-proc sp-offset 2) dl-ty))
       (do ((n 0 (+ n 1))) ((<= nlocals n))
         (match (assq-ref (outline-inferred-types ol) n)
           (('copy . dst)
-           (set-inferred-type! ol n &scm)
            (set-entry-type! ol dst &scm)
            (set-expected-type! ol dst &scm))
           (_
@@ -116,8 +110,28 @@
               `(let ((_ (%scall ,proc)))
                  ,(next)))))))
 
+(define-syntax-rule (ti-call ol proc nlocals label?)
+  (let* ((stack-size (vector-length locals))
+         (sp-offset (outline-sp-offset ol))
+         (sp-proc (- stack-size proc 1))
+         (ra-ty (make-return-address
+                 (make-pointer (+ ip (* 4 (if label? 3 2))))))
+         (dl-ty (make-dynamic-link proc)))
+    (set-inferred-type! ol (+ sp-proc sp-offset 1) ra-ty)
+    (set-inferred-type! ol (+ sp-proc sp-offset 2) dl-ty)
+    (do ((n 0 (+ n 1))) ((<= nlocals n))
+      (match (assq-ref (outline-inferred-types ol) n)
+        (('copy . dst)
+         (set-inferred-type! ol n &scm))
+        (_
+         (values)))
+      (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm))))
+
 (define-scan (call ol proc nlocals)
   (scan-call ol proc nlocals #f))
+
+(define-ti (call ol proc nlocals)
+  (ti-call ol proc nlocals #f))
 
 (define-anf (call-label proc nlocals label)
   (let* ((sp-offset (current-sp-offset))
@@ -136,6 +150,9 @@
 
 (define-scan (call-label ol proc nlocals label)
   (scan-call ol proc nlocals #t))
+
+(define-ti (call-label ol proc nlocals label)
+  (ti-call ol proc nlocals #t))
 
 (define-syntax-rule (scan-tail-call ol nlocals label?)
   (let* ((stack-size (vector-length locals))
@@ -195,26 +212,9 @@
       (let ((new-offsets (cons (outline-sp-offset ol)
                                (outline-sp-offsets ol))))
         (set-outline-sp-offsets! ol new-offsets)))
-
     (pop-scan-sp-offset! ol (- stack-size nlocals))
-
     (unless initialized
       (set-scan-write! ol (- nlocals dst 1)))
-
-    (when (outline-infer-type? ol)
-      (let ((inferred (outline-inferred-types ol))
-            (expected (outline-expected-types ol))
-            (proc/i (+ (- stack-size proc 2) sp-offset))
-            (dst/i (+ (- stack-size dst 1) sp-offset)))
-        (cond
-         ((or (assq-ref inferred proc/i)
-              (assq-ref expected proc/i))
-          => (lambda (ty)
-               (set-inferred-type! ol dst/i ty)))
-         (else
-          (let ((ty `(copy . ,proc/i)))
-            (set-inferred-type! ol dst/i ty))))))
-
     (unless initialized
       (let ((new-fp-offsets (cons (outline-fp-offset ol)
                                   (outline-fp-offsets ol)))
@@ -222,6 +222,16 @@
             (buf (outline-write-buf ol)))
         (set-outline-fp-offsets! ol new-fp-offsets)
         (set-outline-write-buf! ol (cons writes buf))))))
+
+(define-ti (receive ol dst proc nlocals)
+  (let* ((stack-size (vector-length locals))
+         (sp-offset (outline-sp-offset ol))
+         (proc/i (+ (- stack-size proc 2) sp-offset))
+         (dst/i (+ (- stack-size dst 1) sp-offset))
+         (ty (or (assq-ref (outline-inferred-types ol) proc/i)
+                 (assq-ref (outline-expected-types ol) proc/i)
+                 `(copy . ,proc/i))))
+    (set-inferred-type! ol dst/i ty)))
 
 (define-anf (receive-values proc allow-extra? nvalues)
   (let ((thunk (gen-load-thunk proc nvalues (const #f))))
@@ -237,6 +247,10 @@
       (begin
         (debug 1 "NYI: receive-values ~a ~a ~a~%" proc allow-extra? nvalues)
         (values #f 'receive-values))))
+
+(define-ti (receive-values ol proc allow-extra? nvalues)
+  ;; XXX: Should infer multiple values.
+  (values))
 
 ;; XXX: tail-call/shuffle
 

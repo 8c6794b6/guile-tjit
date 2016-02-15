@@ -117,10 +117,13 @@
         (set-scan-scm! ol (- n 1))
         (unless (outline-initialized? ol)
           (set-scan-write! ol (- n 1)))
-        (when (outline-infer-type? ol)
-          (set-inferred-type! ol (+ sp-offset (- n 1)) &undefined))
         (lp (- n 1) sp-offset)))
     (set-scan-initial-fields! ol)))
+
+(define-ti (assert-nargs-ee/locals ol expected nlocals)
+  (let ((sp-offset (outline-sp-offset ol)))
+    (do ((n nlocals (- n 1))) ((<= n 0))
+      (set-inferred-type! ol (+ (- n 1) sp-offset) &undefined))))
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args

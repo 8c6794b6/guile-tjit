@@ -496,12 +496,10 @@
 ;; containing `dst' variable will write the contents of current VM stack, and
 ;; the `dst' argument, if exist, is always the first argument of IR.
 
-(define-syntax-rule (gen-inferred ol sty ty arg rest)
+(define-syntax-rule (gen-inferred ol sty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
     (set-outline-types! ol (assq-set! (outline-types ol) i sty))
-    (gen-put-element-type ol . rest)
-    ;; (set-inferred-type! ol i ty)
-    ))
+    (gen-put-element-type ol . rest)))
 
 (define-syntax-rule (gen-expected ol sty ty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
@@ -520,22 +518,22 @@
     ((_ ol) (values))
     ((_ ol (const arg) . rest) (gen-put-element-type ol . rest))
     ((_ ol (scm arg) . rest) (gen-expected ol 'scm &scm arg rest))
-    ((_ ol (scm! arg) . rest) (gen-inferred ol 'scm &scm arg rest))
+    ((_ ol (scm! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (fixnum arg) . rest) (gen-expected ol 'scm &exact-integer arg rest))
-    ((_ ol (fixnum! arg) . rest) (gen-inferred ol 'scm &exact-integer arg rest))
+    ((_ ol (fixnum! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (flonum arg) . rest) (gen-expected ol 'scm &flonum arg rest))
-    ((_ ol (flonum! arg) . rest) (gen-inferred ol 'scm &flonum arg rest))
+    ((_ ol (flonum! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (pair arg) . rest) (gen-expected ol 'scm &pair arg rest))
-    ((_ ol (pair! arg) . rest) (gen-inferred ol 'scm &pair arg rest))
+    ((_ ol (pair! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (vector arg) . rest) (gen-expected ol 'scm &vector arg rest))
-    ((_ ol (vector! arg) . rest) (gen-inferred ol 'scm &vector arg rest))
+    ((_ ol (vector! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (box arg) . rest) (gen-expected ol 'scm &box arg rest))
-    ((_ ol (box! arg) . rest) (gen-inferred ol 'scm &box arg rest))
+    ((_ ol (box! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (bytevector arg) . rest) (gen-expected ol 'scm &bytevector arg rest))
     ((_ ol (u64 arg) . rest) (gen-expected ol 'u64 &u64 arg rest))
-    ((_ ol (u64! arg) . rest) (gen-inferred ol 'u64 &u64 arg rest))
+    ((_ ol (u64! arg) . rest) (gen-inferred ol 'u64 arg rest))
     ((_ ol (f64 arg) . rest) (gen-expected ol 'f64 &f64 arg rest))
-    ((_ ol (f64! arg) . rest) (gen-inferred ol 'f64 &f64 arg rest))))
+    ((_ ol (f64! arg) . rest) (gen-inferred ol 'f64 arg rest))))
 
 (define-syntax gen-infer-type
   (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
@@ -585,7 +583,6 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
               (values #t 'name)))
            (ti-proc
             (lambda (%ip %dl %locals ol arg ...)
-              (debug 1 ";;; [ti-proc] ~s~%" '(name flag ...))
               (gen-infer-type ol (flag arg) ...)))
            (anf-proc
             (lambda (%ir %next %ip %ra %dl %locals arg ...)

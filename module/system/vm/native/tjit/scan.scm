@@ -95,6 +95,6 @@
                (_ (nyi)))))
           (_ (nyi))))
     (lambda (success op-name)
-      (when success
+      (when (and (not (outline-initialized? ol)) success)
         (infer-type ip dl locals ol op))
       (values success op-name))))

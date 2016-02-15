@@ -59,18 +59,10 @@
     ;; type clue here, use existing data stored in outline. If src could not
     ;; resolved, a tagged `copy' type with local index are stored, to be
     ;; resolved later .
-    (when infer-type?
-      (cond
-       ((or (assq-ref (outline-inferred-types ol) src+sp)
-            (assq-ref (outline-expected-types ol) src+sp))
-        => (lambda (ty)
-             (values)
-             ;;(set-inferred-type! ol dst+sp ty)
-             ))
-       (else
-        (set-expected-type! ol src+sp `(copy . ,dst+sp))
-        ;; (set-inferred-type! ol dst+sp `(copy . ,src+sp))
-        )))
+    (when (and infer-type?
+               (not (or (assq-ref (outline-inferred-types ol) src+sp)
+                        (assq-ref (outline-expected-types ol) src+sp))))
+      (set-expected-type! ol src+sp `(copy . ,dst+sp)))
 
     (if backward?
         (and=> (outline-type-ref ol dst+sp)
