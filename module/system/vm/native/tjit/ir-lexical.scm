@@ -36,7 +36,7 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-(define-ir (mov dst src)
+(define-anf (mov dst src)
   `(let ((,(var-ref dst) ,(var-ref src)))
      ,(next)))
 

@@ -75,6 +75,8 @@
             gen-load-thunk
             with-frame-ref
 
+            define-anf
+
             define-scan
             push-scan-sp-offset!
             pop-scan-sp-offset!
@@ -91,7 +93,7 @@
   #:replace (local-ref))
 
 ;;;
-;;; Auxiliary, exported
+;;; IR record type
 ;;;
 
 (define-record-type <ir>
@@ -131,6 +133,102 @@
 
 (define (ir-loop? ir)
   (tj-loop? (ir-tj ir)))
+
+
+;;;
+;;; Macros for scan
+;;;
+
+(define-syntax-rule (define-scan (name args ...) . body)
+  (let ((test-proc (lambda (ol op locals)
+                     #t))
+        (scan-proc (lambda (%ip %dl %locals args ...)
+                     (syntax-parameterize
+                         ((ip (identifier-syntax %ip))
+                          (dl (identifier-syntax %dl))
+                          (locals (identifier-syntax %locals)))
+                       . body)
+                     (values #t 'name))))
+    (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
+
+(define-syntax-rule (push-scan-sp-offset! ol n)
+  (unless (outline-initialized? ol)
+    (set-outline-sp-offset! ol (- (outline-sp-offset ol) n))))
+
+(define-syntax-rule (pop-scan-sp-offset! ol n)
+  (unless (outline-initialized? ol)
+    (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n))))
+
+(define-syntax-rule (push-scan-fp-offset! ol n)
+  (unless (outline-initialized? ol)
+    (set-outline-fp-offset! ol (- (outline-fp-offset ol) n))))
+
+(define-syntax-rule (pop-scan-fp-offset! ol n)
+  (unless (outline-initialized? ol)
+    (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n))))
+
+(define-syntax-rule (set-scan-type! ol (i t) ...)
+  (let* ((types (outline-types ol))
+         (types (assq-set! types (+ i (outline-sp-offset ol)) t))
+         ...)
+    (set-outline-types! ol types)))
+
+(define-syntax-rule (set-scan-scm! ol i ...)
+  (set-scan-type! ol (i 'scm) ...))
+
+(define-syntax-rule (set-scan-write! ol i ...)
+  (let* ((sp-offset (outline-sp-offset ol))
+         (writes (outline-write-indices ol))
+         (writes (if (memq (+ i sp-offset) writes)
+                     writes
+                     (cons (+ i sp-offset) writes)))
+         ...)
+    (set-outline-write-indices! ol (sort writes <))))
+
+(define-syntax-rule (set-scan-read! ol i ...)
+  (let* ((sp-offset (outline-sp-offset ol))
+         (reads (outline-read-indices ol))
+         (reads (if (memq (+ i sp-offset) reads)
+                    reads
+                    (cons (+ i sp-offset) reads)))
+         ...)
+    (set-outline-read-indices! ol reads)))
+
+(define-syntax-rule (set-scan-initial-fields! ol)
+  (unless (outline-initialized? ol)
+    (let ((new-sp-offsets (cons (outline-sp-offset ol)
+                                (outline-sp-offsets ol)))
+          (new-fp-offsets (cons (outline-fp-offset ol)
+                                (outline-fp-offsets ol)))
+          (writes (outline-write-indices ol))
+          (buf (outline-write-buf ol)))
+      (set-outline-sp-offsets! ol new-sp-offsets)
+      (set-outline-fp-offsets! ol new-fp-offsets)
+      (set-outline-write-buf! ol (cons writes buf)))))
+
+
+;;;
+;;; Macro for ANF
+;;;
+
+(define-syntax-rule (define-anf (name arg ...) . body)
+  (let ((test-proc (lambda (ol op locals)
+                     #t))
+        (anf-proc (lambda (%ir %next %ip %ra %dl %locals arg ...)
+                    (syntax-parameterize
+                        ((ir (identifier-syntax %ir))
+                         (next (identifier-syntax %next))
+                         (ip (identifier-syntax %ip))
+                         (ra (identifier-syntax %ra))
+                         (dl (identifier-syntax %dl))
+                         (locals (identifier-syntax %locals)))
+                      . body))))
+    (hashq-set! *ir-procedures* 'name (list (cons test-proc anf-proc)))))
+
+
+;;;
+;;; Macros for IR
+;;;
 
 (define (make-var index)
   (string->symbol (string-append "v" (number->string index))))
@@ -299,11 +397,6 @@
 (define *ir-procedures*
   (make-hash-table 255))
 
-
-;;;
-;;; Auxiliary, internal
-;;;
-
 (define *scan-procedures*
   (make-hash-table 255))
 
@@ -336,7 +429,8 @@
   (syntax-rules (const
                  scm! fixnum! flonum! pair! vector! box!
                  u64! f64!)
-    ((_ ol) ol)
+    ((_ ol)
+     (set-outline-write-indices! ol (sort (outline-write-indices ol) <)))
     ((_ ol (const arg) . rest) (gen-put-index ol . rest))
     ((_ ol (scm! arg) . rest) (gen-write-index ol arg rest))
     ((_ ol (fixnum! arg) . rest) (gen-write-index ol arg rest))
@@ -382,7 +476,7 @@
                  pair pair! vector vector! box box!
                  bytevector
                  u64 u64! f64 f64!)
-    ((_ ol) (set-outline-write-indices! ol (sort (outline-write-indices ol) <)))
+    ((_ ol) (values))
     ((_ ol (const arg) . rest) (gen-put-element-type ol . rest))
     ((_ ol (scm arg) . rest) (gen-expected ol 'scm &scm arg rest))
     ((_ ol (scm! arg) . rest) (gen-inferred ol 'scm &scm arg rest))
@@ -404,46 +498,17 @@
 
 (define-syntax define-ir
   (syntax-rules ()
-    "Defines procedure to compile VM operation to IR, and optionally local
-accumulator when arguments in definition are lists. E.g:
+    "Defines procedure to compile bytecode operation to IR, and optionally
+defines procedure for scanning locals and types. E.g:
 
-  (define-ir (add1 (local dst) (local src))
+  (define-ir (add (fixnum! dst) (fixnum a) (fixnum b))
     ...)
 
-will define two procedures: one for IR compilation taking two arguments, and
-another procedure for scanner. The procedure for scanner takes two arguments and
-saves index referenced by dst and src values at runtime."
-    ((_ (name) . body)
-     (let ((proc
-            (lambda (%ir %next %ip %ra %dl %locals)
-              (syntax-parameterize
-                  ((ir (identifier-syntax %ir))
-                   (next (identifier-syntax %next))
-                   (ip (identifier-syntax %ip))
-                   (ra (identifier-syntax %ra))
-                   (dl (identifier-syntax %dl))
-                   (locals (identifier-syntax %locals)))
-                . body))))
-       (hashq-set! *ir-procedures* 'name proc)))
+will define two procedures: one for IR compilation taking three arguments, and
+another procedure for scanning locals and types. The procedure for scanner takes
+three arguments and saves index referenced by dst, a, and b values at runtime."
     ((_ (name (flag arg) ...) . body)
-     (let ((scan-proc
-            (lambda (%ip %dl %locals ol arg ...)
-              (let ((initialized? (outline-initialized? ol)))
-                (unless initialized?
-                  (gen-put-index ol (flag arg) ...))
-                (gen-put-element-type ol (flag arg) ...)
-                (unless initialized?
-                  (let ((new-sp-offsets (cons (outline-sp-offset ol)
-                                              (outline-sp-offsets ol)))
-                        (new-fp-offsets (cons (outline-fp-offset ol)
-                                              (outline-fp-offsets ol)))
-                        (writes (outline-write-indices ol))
-                        (buf (outline-write-buf ol)))
-                    (set-outline-sp-offsets! ol new-sp-offsets)
-                    (set-outline-fp-offsets! ol new-fp-offsets)
-                    (set-outline-write-buf! ol (cons writes buf))))
-                (values #t 'name))))
-           (test-proc
+     (let ((test-proc
             (lambda (ol op locals)
               (let lp ((flags '(flag ...)) (ns (cdr op)))
                 (match (cons flags ns)
@@ -458,6 +523,13 @@ saves index referenced by dst and src values at runtime."
                              #f))
                        (lp flags ns)))
                   (_ #t)))))
+           (scan-proc
+            (lambda (%ip %dl %locals ol arg ...)
+              (gen-put-element-type ol (flag arg) ...)
+              (unless (outline-initialized? ol)
+                (gen-put-index ol (flag arg) ...))
+              (set-scan-initial-fields! ol)
+              (values #t 'name)))
            (ir-proc
             (lambda (%ir %next %ip %ra %dl %locals arg ...)
               (syntax-parameterize
@@ -468,30 +540,15 @@ saves index referenced by dst and src values at runtime."
                    (dl (identifier-syntax %dl))
                    (locals (identifier-syntax %locals)))
                 . body))))
-       (let* ((elem (cons test-proc scan-proc))
-              (val (cond ((hashq-ref *scan-procedures* 'name)
-                          => (lambda (found)
-                               (cons elem found)))
-                         (else (list elem)))))
-         (hashq-set! *scan-procedures* 'name val))
-       (let* ((elem (cons test-proc ir-proc))
-              (val (cond ((hashq-ref *ir-procedures* 'name)
-                          => (lambda (found)
-                               (cons elem found)))
-                         (else (list elem)))))
-         (hashq-set! *ir-procedures* 'name val))))
-    ((_ (name arg ...) . body)
-     (let ((proc
-            (lambda (%ir %next %ip %ra %dl %locals arg ...)
-              (syntax-parameterize
-                  ((ir (identifier-syntax %ir))
-                   (next (identifier-syntax %next))
-                   (ip (identifier-syntax %ip))
-                   (ra (identifier-syntax %ra))
-                   (dl (identifier-syntax %dl))
-                   (locals (identifier-syntax %locals)))
-                . body))))
-       (hashq-set! *ir-procedures* 'name proc)))))
+       (let ((add-proc! (lambda (tbl proc)
+                          (let* ((elem (cons test-proc proc))
+                                 (val (cond ((hashq-ref tbl 'name)
+                                             => (lambda (found)
+                                                  (cons elem found)))
+                                            (else (list elem)))))
+                            (hashq-set! tbl 'name val)))))
+         (add-proc! *scan-procedures* scan-proc)
+         (add-proc! *ir-procedures* ir-proc))))))
 
 (define-syntax define-interrupt-ir
   (syntax-rules ()
@@ -662,87 +719,6 @@ saves index referenced by dst and src values at runtime."
        ;; XXX: Add more numbers: bignum, complex, rational.
        (else
         (nyi "with-unboxing: ~a ~a" (pretty-type type) src))))))
-
-
-;;;
-;;; Macros for scan
-;;;
-
-(define-syntax define-scan
-  (syntax-rules ()
-    ((_ (name args ...) . body)
-     (let ((scan-proc
-            (lambda (%ip %dl %locals args ...)
-              (syntax-parameterize
-                  ((ip (identifier-syntax %ip))
-                   (dl (identifier-syntax %dl))
-                   (locals (identifier-syntax %locals)))
-                . body)
-              (values #t 'name))))
-       (hashq-set! *scan-procedures* 'name scan-proc)))))
-
-(define-syntax-rule (push-scan-sp-offset! ol n)
-  (unless (outline-initialized? ol)
-    (set-outline-sp-offset! ol (- (outline-sp-offset ol) n))))
-
-(define-syntax-rule (pop-scan-sp-offset! ol n)
-    (unless (outline-initialized? ol)
-      (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n))))
-
-(define-syntax-rule (push-scan-fp-offset! ol n)
-  (unless (outline-initialized? ol)
-    (set-outline-fp-offset! ol (- (outline-fp-offset ol) n))))
-
-(define-syntax-rule (pop-scan-fp-offset! ol n)
-    (unless (outline-initialized? ol)
-      (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n))))
-
-(define-syntax set-scan-type!
-  (syntax-rules ()
-    ((_ ol (i t) ...)
-     (let* ((types (outline-types ol))
-            (types (assq-set! types (+ i (outline-sp-offset ol)) t))
-            ...)
-       (set-outline-types! ol types)))))
-
-(define-syntax set-scan-scm!
-    (syntax-rules ()
-      ((_ ol i ...)
-       (set-scan-type! ol (i 'scm) ...))))
-
-(define-syntax set-scan-write!
-  (syntax-rules ()
-    ((_ ol i ...)
-     (let* ((sp-offset (outline-sp-offset ol))
-            (writes (outline-write-indices ol))
-            (writes (if (memq (+ i sp-offset) writes)
-                        writes
-                        (cons (+ i sp-offset) writes)))
-            ...)
-       (set-outline-write-indices! ol (sort writes <))))))
-
-(define-syntax set-scan-read!
-  (syntax-rules ()
-    ((_ ol i ...)
-     (let* ((sp-offset (outline-sp-offset ol))
-            (reads (outline-read-indices ol))
-            (reads (if (memq (+ i sp-offset) reads)
-                       reads
-                       (cons (+ i sp-offset) reads)))
-            ...)
-       (set-outline-read-indices! ol reads)))))
-
-(define-syntax-rule (set-scan-initial-fields! ol)
-  (unless (outline-initialized? ol)
-    (let ((new-sp-offsets (cons (outline-sp-offset ol)
-                                (outline-sp-offsets ol)))
-          (new-fp-offsets (cons (outline-fp-offset ol)
-                                (outline-fp-offsets ol)))
-          (writes (outline-write-indices ol))
-          (buf (outline-write-buf ol)))
-      (set-outline-sp-offsets! ol new-sp-offsets)
-      (set-outline-fp-offsets! ol new-fp-offsets)
-      (set-outline-write-buf! ol (cons writes buf)))))
 
 ;;; *** The dynamic environment
 

@@ -45,7 +45,7 @@
         (tjitc-error 'current-ret-type "index ~s out of range ~s"
                      idx ret-types))))
 
-(define-interrupt-ir (subr-call)
+(define-anf (subr-call)
   (let* ((stack-size (vector-length locals))
          (dst/v (var-ref (- stack-size 2)))
          (subr/l (local-ref (- stack-size 1)))
@@ -110,10 +110,12 @@
          (dl-offset (+ ra-offset 1))
          (initialized (outline-initialized? ol)))
     (set-scan-scm! ol stack-size (+ stack-size 1))
+
     (when (outline-infer-type? ol)
       (set-expected-type! ol proc-offset &procedure)
       (set-inferred-type! ol ra-offset &false)
       (set-inferred-type! ol dl-offset &false))
+
     (unless initialized
       (set-scan-write! ol stack-size (+ stack-size 1))
       (set-entry-type! ol proc-offset &procedure)
@@ -121,6 +123,7 @@
                                (outline-sp-offsets ol))))
         (set-outline-sp-offsets! ol new-offsets)))
     (pop-scan-sp-offset! ol (- stack-size 2))
+
     (unless initialized
       (let ((new-offsets (cons (outline-fp-offset ol)
                                (outline-fp-offsets ol)))
@@ -128,6 +131,7 @@
             (buf (outline-write-buf ol)))
         (set-outline-fp-offsets! ol new-offsets)
         (set-outline-write-buf! ol (cons writes buf))))
+
     (pop-scan-fp-offset! ol dl)))
 
 ;; XXX: foreign-call

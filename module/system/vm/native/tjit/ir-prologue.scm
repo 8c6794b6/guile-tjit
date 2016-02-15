@@ -42,11 +42,10 @@
     (if (< stack-size nlocals)
         (begin
           (push-scan-sp-offset! ol diff)
-          (let lp ((n 0))
-            (when (< n diff)
-              (set-scan-scm! ol n)
-              (set-scan-read! ol n)
-              (lp (+ n 1)))))
+          (do ((n 0 (+ n 1))) ((<= diff n))
+            (set-scan-scm! ol n)
+            (unless (outline-initialized? ol)
+              (set-scan-read! ol n))))
         (pop-scan-sp-offset! ol (- diff)))
     (set-scan-initial-fields! ol)))
 
@@ -67,7 +66,7 @@
   ;; XXX: Same as assert-nargs-ee
   (next))
 
-(define-ir (alloc-frame nlocals)
+(define-anf (alloc-frame nlocals)
   (let ((stack-size (vector-length locals))
         (undefined (pointer->scm (make-pointer #x904))))
     (if (< stack-size nlocals)
@@ -83,7 +82,7 @@
 (define-scan (alloc-frame ol nlocals)
   (scan-frame ol 'alloc-frame nlocals))
 
-(define-ir (reset-frame nlocals)
+(define-anf (reset-frame nlocals)
   (let ((stack-size (vector-length locals)))
     (if (and (ir-return-subr? ir)
              (< (ir-max-sp-offset ir) (+ (current-sp-offset) stack-size)))
@@ -100,7 +99,7 @@
 ;; XXX: pop
 ;; XXX: drop
 
-(define-ir (assert-nargs-ee/locals expected nlocals)
+(define-anf (assert-nargs-ee/locals expected nlocals)
   (let* ((stack-size (vector-length locals))
          (undefined (pointer->scm (make-pointer #x904))))
     (expand-stack nlocals)

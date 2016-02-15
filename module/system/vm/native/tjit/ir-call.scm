@@ -48,10 +48,9 @@
         (set-entry-type! ol sp-proc &procedure))
       (set-scan-read! ol (+ sp-proc 1) (+ sp-proc 2))
       (set-scan-write! ol (+ sp-proc 1) (+ sp-proc 2))
-      (let lp ((n 1))
-        (when (< n nlocals)
-          (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm)
-          (lp (+ n 1)))))
+      (do ((n 1 (+ n 1))) ((<= nlocals n))
+        (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm)))
+
     (when (outline-infer-type? ol)
       (unless label?
         (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
@@ -60,30 +59,26 @@
             (dl-ty (make-dynamic-link proc)))
         (set-inferred-type! ol (+ sp-proc sp-offset 1) ra-ty)
         (set-inferred-type! ol (+ sp-proc sp-offset 2) dl-ty))
-      (debug 1 ";;; [scan-locals] scan-call: ~s ~s ~s~%" proc nlocals label?)
-      (do ((n 0 (+ n 1))) ((= n nlocals))
-        (let ((ity (assq-ref (outline-inferred-types ol) n)))
-          (match ity
-            (('copy . dst)
-             (debug 1 ";;; [scan-locals] call arg:~s is copy~%" n)
-             (set-inferred-type! ol n &scm)
-             (set-entry-type! ol dst &scm)
-             (set-expected-type! ol dst &scm))
-            (x
-             (debug 1 ";;; [scan-locals] call arg:~s is ~s~%" n x)
-             (values))))
+      (do ((n 0 (+ n 1))) ((<= nlocals n))
+        (match (assq-ref (outline-inferred-types ol) n)
+          (('copy . dst)
+           (set-inferred-type! ol n &scm)
+           (set-entry-type! ol dst &scm)
+           (set-expected-type! ol dst &scm))
+          (_
+           (values)))
         (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm)))
-    (let lp ((n 0))
-      (when (< n nlocals)
-        (set-scan-scm! ol (- sp-proc n))
-        (lp (+ n 1))))
+
+    (do ((n 0 (+ n 1))) ((<= nlocals n))
+      (set-scan-scm! ol (- sp-proc n)))
+
     (set-scan-initial-fields! ol)
     (push-scan-fp-offset! ol proc)
     (push-scan-sp-offset! ol (- (+ proc nlocals) stack-size))))
 
 ;;; XXX: halt is not defined, might not necessary.
 
-(define-ir (call proc nlocals)
+(define-anf (call proc nlocals)
   ;; When procedure get inlined, taking snapshot of previous frame.
   ;; Contents of previous frame could change in native code. Note that
   ;; frame return address will get checked at the time of `%return'.
@@ -124,7 +119,7 @@
 (define-scan (call ol proc nlocals)
   (scan-call ol proc nlocals #f))
 
-(define-ir (call-label proc nlocals label)
+(define-anf (call-label proc nlocals label)
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
@@ -142,15 +137,18 @@
 (define-scan (call-label ol proc nlocals label)
   (scan-call ol proc nlocals #t))
 
-(define-syntax-rule (scan-tail-call ol nlocals)
-  (let ((stack-size (vector-length locals)))
-    (set-scan-scm! ol (- stack-size 1))
+(define-syntax-rule (scan-tail-call ol nlocals label?)
+  (let* ((stack-size (vector-length locals))
+         (proc-sp (- stack-size 1)))
+    (set-scan-scm! ol proc-sp)
+    (unless label?
+      (set-expected-type! ol proc-sp &procedure))
     (unless (outline-initialized? ol)
-      (set-scan-write! ol (- stack-size 1)))
+      (set-scan-write! ol proc-sp))
     (set-scan-initial-fields! ol)
     (push-scan-sp-offset! ol (- nlocals stack-size))))
 
-(define-ir (tail-call nlocals)
+(define-anf (tail-call nlocals)
   (let* ((stack-size (vector-length locals))
          (proc-index (- stack-size 1))
          (proc/v (var-ref proc-index))
@@ -160,15 +158,15 @@
        ,(next))))
 
 (define-scan (tail-call ol nlocals)
-  (scan-tail-call ol nlocals))
+  (scan-tail-call ol nlocals #f))
 
-(define-ir (tail-call-label nlocals label)
+(define-anf (tail-call-label nlocals label)
   (next))
 
 (define-scan (tail-call-label ol nlocals label)
-  (scan-tail-call ol nlocals))
+  (scan-tail-call ol nlocals #t))
 
-(define-ir (receive dst proc nlocals)
+(define-anf (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
          (dst/i (- stack-size dst 1))
          (dst/v (var-ref dst/i))
@@ -190,15 +188,19 @@
          (fp (- stack-size proc))
          (initialized (outline-initialized? ol)))
     (set-scan-scm! ol (- stack-size dst 1) (- stack-size proc 2))
-    (set-scan-write! ol (- stack-size dst 1))
-    (set-scan-read! ol (- stack-size proc 2))
+
     (unless initialized
+      (set-scan-write! ol (- stack-size dst 1))
+      (set-scan-read! ol (- stack-size proc 2))
       (let ((new-offsets (cons (outline-sp-offset ol)
                                (outline-sp-offsets ol))))
         (set-outline-sp-offsets! ol new-offsets)))
+
     (pop-scan-sp-offset! ol (- stack-size nlocals))
+
     (unless initialized
       (set-scan-write! ol (- nlocals dst 1)))
+
     (when (outline-infer-type? ol)
       (let ((inferred (outline-inferred-types ol))
             (expected (outline-expected-types ol))
@@ -212,6 +214,7 @@
          (else
           (let ((ty `(copy . ,proc/i)))
             (set-inferred-type! ol dst/i ty))))))
+
     (unless initialized
       (let ((new-fp-offsets (cons (outline-fp-offset ol)
                                   (outline-fp-offsets ol)))
@@ -220,7 +223,7 @@
         (set-outline-fp-offsets! ol new-fp-offsets)
         (set-outline-write-buf! ol (cons writes buf))))))
 
-(define-ir (receive-values proc allow-extra? nvalues)
+(define-anf (receive-values proc allow-extra? nvalues)
   (let ((thunk (gen-load-thunk proc nvalues (const #f))))
     (thunk)))
 
@@ -228,10 +231,8 @@
   (if (= nvalues 1)
       (let* ((stack-size (vector-length locals))
              (fp (- stack-size proc 1)))
-        (let lp ((n nvalues))
-          (when (< 0 n)
-            (set-scan-read! ol (- fp n))
-            (lp (- n 1))))
+        (do ((n nvalues (- n 1))) (<= n 0)
+          (set-scan-read! ol (- fp n)))
         (set-scan-initial-fields! ol))
       (begin
         (debug 1 "NYI: receive-values ~a ~a ~a~%" proc allow-extra? nvalues)
@@ -239,7 +240,7 @@
 
 ;; XXX: tail-call/shuffle
 
-(define-ir (return-values nlocals)
+(define-anf (return-values nlocals)
   ;; Two locals below callee procedure in VM frame contain dynamic link and
   ;; return address. VM interpreter refills these two with #f, doing the same
   ;; thing in `emit-next'.
@@ -276,14 +277,13 @@
          (ra-offset stack-size)
          (dl-offset (+ ra-offset 1)))
     (set-scan-scm! ol ra-offset dl-offset)
-    (set-scan-read! ol ra-offset dl-offset)
     (unless (outline-initialized? ol)
+      (set-scan-read! ol ra-offset dl-offset)
       (set-scan-write! ol ra-offset dl-offset))
-    (let lp ((n nlocals))
-      (when (<= 2 n)
-        (set-scan-scm! ol (- stack-size n))
-        (set-scan-read! ol (- stack-size n))
-        (lp (- n 1))))
+    (do ((n nlocals (- n 1))) ((< n 2))
+      (set-scan-scm! ol (- stack-size n))
+      (unless (outline-initialized? ol)
+        (set-scan-read! ol (- stack-size n))))
     (set-scan-initial-fields! ol)
     (pop-scan-sp-offset! ol (- stack-size nlocals))
     (pop-scan-fp-offset! ol dl)))

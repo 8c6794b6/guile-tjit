@@ -66,7 +66,7 @@
 
 
 ;;;
-;;; Traced bytecode to ANF IR, and ANF to primop IR compiler
+;;; Bytecode to ANF, and ANF to primop compiler
 ;;;
 
 (define (compile-ir tj trace)
@@ -397,52 +397,45 @@
           `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
                                       (ir-min-sp-offset ir))))
              _)))))
-    (define (convert-one ir op ip ra dl locals rest)
-      (scan-locals (ir-outline ir) op #f ip dl locals)
-      (cond
-       ((hashq-ref *ir-procedures* (car op))
-        => (lambda (found)
-             (let ((next
-                    (lambda ()
-                      (let* ((old-index (ir-bytecode-index ir))
-                             (new-index (+ old-index 1))
-                             (sp-offsets (outline-sp-offsets (ir-outline ir)))
-                             (sp-offset (vector-ref sp-offsets old-index))
-                             (fp-offsets (outline-fp-offsets (ir-outline ir)))
-                             (fp-offset (vector-ref fp-offsets old-index))
-                             (nlocals (vector-length locals))
-                             (max-offset (get-max-sp-offset sp-offset
-                                                            fp-offset
-                                                            nlocals))
-                             (new-sp-offset
-                              (if (< 0 new-index (vector-length sp-offsets))
+    (define (gen-next ir locals rest)
+      (lambda ()
+        (let* ((old-index (ir-bytecode-index ir))
+               (outline (ir-outline ir))
+               (new-index (+ old-index 1))
+               (sp-offsets (outline-sp-offsets outline))
+               (old-sp-offset (vector-ref sp-offsets old-index))
+               (fp-offsets (outline-fp-offsets outline))
+               (old-fp-offset (vector-ref fp-offsets old-index))
+               (nlocals (vector-length locals))
+               (max-offset (get-max-sp-offset old-sp-offset old-fp-offset
+                                              nlocals))
+               (new-sp-offset (if (< 0 new-index (vector-length sp-offsets))
                                   (vector-ref sp-offsets new-index)
                                   0))
-                             (new-fp-offset
-                              (if (< 0 new-index (vector-length fp-offsets))
+               (new-fp-offset (if (< 0 new-index (vector-length fp-offsets))
                                   (vector-ref fp-offsets new-index)
                                   0)))
-                        (set-ir-bytecode-index! ir new-index)
-                        (set-outline-sp-offset! (ir-outline ir) new-sp-offset)
-                        (set-outline-fp-offset! (ir-outline ir) new-fp-offset)
-                        (when (< sp-offset (ir-min-sp-offset ir))
-                          (set-ir-min-sp-offset! ir sp-offset))
-                        (when (< (ir-max-sp-offset ir) max-offset)
-                          (set-ir-max-sp-offset! ir max-offset)))
-                      (convert ir rest))))
-               (cond
-                ((procedure? found)
-                 (apply found ir next ip ra dl locals (cdr op)))
-                ((list? found)
-                 (let lp ((procs found))
-                   (match procs
-                     (((test . work) . procs)
-                      (if (apply test (list (ir-outline ir) op locals))
-                          (apply work ir next ip ra dl locals (cdr op))
-                          (lp procs)))
-                     (_ (nyi "~a" (car op))))))))))
-       (else
-        (nyi "~a" (car op)))))
+          (set-ir-bytecode-index! ir new-index)
+          (set-outline-sp-offset! outline new-sp-offset)
+          (set-outline-fp-offset! outline new-fp-offset)
+          (when (< old-sp-offset (ir-min-sp-offset ir))
+            (set-ir-min-sp-offset! ir old-sp-offset))
+          (when (< (ir-max-sp-offset ir) max-offset)
+            (set-ir-max-sp-offset! ir max-offset))
+          (convert ir rest))))
+    (define (convert-one ir op ip ra dl locals rest)
+      (scan-locals (ir-outline ir) op #f ip dl locals)
+      (match (hashq-ref *ir-procedures* (car op))
+        ((? list? procs)
+         (let lp ((procs procs))
+           (match procs
+             (((test . work) . procs)
+              (if (apply test (list (ir-outline ir) op locals))
+                  (let ((next (gen-next ir locals rest)))
+                    (apply work ir next ip ra dl locals (cdr op)))
+                  (lp procs)))
+             (_ (nyi "~a" (car op))))))
+        (_ (nyi "~a" (car op)))))
     (define (convert ir trace)
       (match trace
         (((op ip ra dl locals) . ())

@@ -84,21 +84,13 @@
              (fill-false)))
           (fill-false))))
 
-  (cond
-   ((hashq-ref *scan-procedures* (car op))
-    => (lambda (found)
-         (cond
-          ((procedure? found)
-           (apply found ip dl locals ol (cdr op)))
-          ((list? found)
-           (let lp ((procs found))
-             (match procs
-               (((test . work) . procs)
-                (if (apply test (list ol op locals))
-                    (apply work ip dl locals ol (cdr op))
-                    (lp procs)))
-               (_ (nyi)))))
-          (else
-           (nyi)))))
-   (else
-    (nyi))))
+  (match (hashq-ref *scan-procedures* (car op))
+    ((? list? procs)
+     (let lp ((procs procs))
+       (match procs
+         (((test . work) . procs)
+          (if (apply test (list ol op locals))
+              (apply work ip dl locals ol (cdr op))
+              (lp procs)))
+         (_ (nyi)))))
+    (_ (nyi))))
