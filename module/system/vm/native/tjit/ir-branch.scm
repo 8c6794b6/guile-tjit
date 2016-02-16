@@ -109,32 +109,28 @@
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
        (define-ir (name (fixnum a) (fixnum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-           (let* ((sp-offset (current-sp-offset))
-                  (inferred (outline-inferred-types (ir-outline ir)))
-                  (op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
-                  (a/it (assq-ref inferred (+ a sp-offset)))
-                  (b/it (assq-ref inferred (+ b sp-offset))))
+           (let ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
+                 (a/t (ty-ref a))
+                 (b/t (ty-ref b)))
              (cond
-              ((and (eq? &exact-integer a/it) (eq? &exact-integer b/it))
+              ((and (eq? &exact-integer a/t) (eq? &exact-integer b/t))
                `(let ((_ ,(take-snapshot! ip dest)))
                   (let ((_ (,op ,va ,vb)))
                     ,(next))))
               (else
-               (nyi "~s: i=(~a ~a)" 'name (pretty-type a/it)
-                    (pretty-type b/it)))))))
+               (nyi "~s: i=(~a ~a)" 'name (pretty-type a/t)
+                    (pretty-type b/t)))))))
        (define-ir (name (flonum a) (flonum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-           (let* ((sp-offset (current-sp-offset))
-                  (inferred (outline-inferred-types (ir-outline ir)))
-                  (op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
-                  (a/it (assq-ref inferred (+ a sp-offset)))
-                  (b/it (assq-ref inferred (+ b sp-offset))))
+           (let ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
+                 (a/t (ty-ref a))
+                 (b/t (ty-ref b)))
              (cond
-              ((and (eq? &flonum a/it) (eq? &flonum b/it))
+              ((and (eq? &flonum a/t) (eq? &flonum b/t))
                `(let ((_ ,(take-snapshot! ip dest)))
                   (let ((_ (,op ,va ,vb)))
                     ,(next))))
-              ((and (eq? &scm a/it) (eq? &flonum b/it))
+              ((and (eq? &scm a/t) (eq? &flonum b/t))
                (let ((f2 (make-tmpvar/f 2)))
                  (with-unboxing &flonum f2 va
                    (lambda ()
@@ -142,7 +138,7 @@
                         ,(next))))))
               (else
                (nyi "~s: inferred type mismatch i=(~s ~s)"
-                    'name a/it b/it))))))))))
+                    'name a/t b/t))))))))))
 
 (define-br-binary-scm-scm br-if-= = %eq %ne %feq %fne)
 (define-br-binary-scm-scm br-if-< < %lt %ge %flt %fge)
@@ -171,13 +167,23 @@
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
        (define-ir (name (u64 a) (fixnum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-           (let ((r2 (make-tmpvar 2)))
-             `(let ((_ ,(take-snapshot! ip dest)))
-                (let ((,r2 (%rsh ,vb 2)))
-                  (let ((_ ,(if (op-scm ra rb)
-                                `(op-fx-t ,va ,r2)
-                                `(op-fx-f ,va ,r2))))
-                    ,(next)))))))))))
+           (let* ((r2 (make-tmpvar 2))
+                  (b/t (ty-ref b))
+                  (next-thunk
+                   (lambda ()
+                     `(let ((_ ,(take-snapshot! ip dest)))
+                        (let ((,r2 (%rsh ,vb 2)))
+                          (let ((_ ,(if (op-scm ra rb)
+                                        `(op-fx-t ,va ,r2)
+                                        `(op-fx-f ,va ,r2))))
+                            ,(next)))))))
+             (cond
+              ((eq? &exact-integer b/t)
+               (next-thunk))
+              ((eq? &scm b/t)
+               (with-unboxing &exact-integer b/t b/t next-thunk))
+              (else
+               (nyi "~s: et=fixnum it=~a" 'name (pretty-type b/t)))))))))))
 
 (define-br-binary-u64-scm br-if-u64-=-scm = %eq %ne)
 (define-br-binary-u64-scm br-if-u64-<-scm < %lt %ge)

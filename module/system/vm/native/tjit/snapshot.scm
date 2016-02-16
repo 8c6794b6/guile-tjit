@@ -189,14 +189,14 @@
                (and (or (dynamic-link? val)
                         (return-address? val))
                     val))))
-       (define (add-local type)
+       (define-syntax-rule (add-local type)
          (lp is (cons `(,i . ,type) acc)))
        (cond
         ;; ;; Root trace.
         ((not parent-snapshot)
          (add-local (assq-ref (outline-inferred-types outline) i)))
-        ;; (parent-snapshot
-        ;;  (add-local (assq-ref (outline-inferred-types outline) i)))
+        (parent-snapshot
+         (add-local (assq-ref (outline-inferred-types outline) i)))
 
         ;; Side trace.
         ;;

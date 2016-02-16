@@ -86,9 +86,9 @@
     (define (make-initial-outline)
       (match parent-snapshot
         (($ $snapshot id sp fp nlocals locals vars code ip types reads lives)
-         (make-outline (copy-tree types) sp fp (map car locals) lives))
+         (make-outline (copy-tree types) sp fp (map car locals) lives locals))
         (_
-         (make-outline '() 0 0 '() '()))))
+         (make-outline '() 0 0 '() '() '()))))
     (define (go)
       (let lp ((acc '())
                (offset 0)

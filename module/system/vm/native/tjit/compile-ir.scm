@@ -99,6 +99,18 @@
 (define* (add-initial-loads tj snapshots initial-locals initial-sp-offset
                             parent-snapshot vars live-vars-in-parent
                             exp-body #:optional (loaded-vars #f))
+  ;; When local was passed from parent and snapshot 0 contained the local with
+  ;; same type, no need to load from frame. If type does not match, the value
+  ;; passed from parent has different was untagged with different type, reload
+  ;; from frame.
+  ;;
+  ;; When locals index was found in parent snapshot locals and not from snapshot
+  ;; 0 of this trace, the local will be passed from parent fragment, ignoreing.
+  ;;
+  ;; If initial offset is positive and local index is negative, locals from
+  ;; lower frame won't be passed as argument. Loading later with '%fref' or
+  ;; '%fref/f'.
+  ;;
   (let* ((snapshot0 (hashq-ref snapshots 0))
          (snapshot0-locals (snapshot-locals snapshot0))
          (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
@@ -106,17 +118,6 @@
          (outline (tj-outline tj)))
     (define (type-from-snapshot n)
       (assq-ref snapshot0-locals n))
-    (define (type-from-runtime i)
-      (let* ((offset (if (tj-linking-roots? tj)
-                         (tj-last-sp-offset tj)
-                         initial-sp-offset))
-             (type (outline-type-ref outline (+ i offset))))
-        (cond
-         ((eq? type 'f64) &f64)
-         ((eq? type 'u64) &u64)
-         ((eq? type 's64) &s64)
-         ((eq? type 'scm) (type-of (stack-element initial-locals i type)))
-         (else (tjitc-error 'type-from-runtime "~s ~s" i type)))))
     (define (type-from-parent n)
       (assq-ref parent-snapshot-locals n))
     (debug 3 ";;; add-initial-loads:~%")
@@ -134,35 +135,19 @@
            (sort (snapshot-locals snapshot0)
                  (lambda (a b) (< (car a) (car b)))))
     (debug 3 ";;;   live-vars-in-parent=~s~%" live-vars-in-parent)
-    (let lp ((vars (if parent-snapshot
-                       (make-vars (outline-read-indices outline))
-                       (reverse vars))))
+    (let lp ((vars (reverse vars)))
       (match vars
         (((n . var) . vars)
          (let ((j (+ n initial-sp-offset))
                (i (- n (snapshot-sp-offset snapshot0))))
            (cond
-            ;; When local was passed from parent and snapshot 0 contained
-            ;; the local with same type, no need to load from frame. If
-            ;; type does not match, the value passed from parent has
-            ;; different was untagged with different type, reload from
-            ;; frame.
-            ;;
-            ;; When locals index was found in parent snapshot locals and
-            ;; not from snapshot 0 of this trace, the local will be passed
-            ;; from parent fragment, ignoreing.
-            ;;
-            ;; If initial offset is positive and local index is negative,
-            ;; locals from lower frame won't be passed as
-            ;; argument. Loading later with '%fref' or '%fref/f'.
-            ;;
-            ((let ((parent-type (type-from-parent j))
-                   (snapshot-type (type-from-snapshot j)))
-               (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
-                      n initial-sp-offset (pretty-type parent-type)
-                      (pretty-type snapshot-type))
-               (or (< j 0)
-                   (not (<= 0 i (- (vector-length initial-locals) 1)))
+            ((or (< j 0)
+                 (not (<= 0 i (- (vector-length initial-locals) 1)))
+                 (let ((parent-type (type-from-parent j))
+                       (snapshot-type (type-from-snapshot j)))
+                   (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
+                          n initial-sp-offset (pretty-type parent-type)
+                          (pretty-type snapshot-type))
                    (and (not (tj-loop? tj))
                         (or (and parent-type
                                  snapshot-type
@@ -176,23 +161,17 @@
                             (not (memq n (outline-read-indices outline)))
                             (memq var live-vars-in-parent)))))
              (lp vars))
-            (loaded-vars
+            (else
              (let ((guard (assq-ref (outline-entry-types outline) n))
                    (type (assq-ref (outline-inferred-types outline) n)))
                (when loaded-vars
                  (hashq-set! loaded-vars n guard))
-
                ;; XXX: Any other way to select preferred register between GPR
                ;; and FPR?
                (if (or (eq? type &flonum)
                        (eq? type &f64))
                    (with-frame-ref vars var type n lp)
-                   (with-frame-ref vars var guard n lp))))
-            (else
-             (let* ((type (or (assq-ref snapshot0-locals n)
-                              (type-from-runtime i))))
-               (debug 3 ";;;   type: ~a~%" (pretty-type type))
-               (with-frame-ref vars var type n lp))))))
+                   (with-frame-ref vars var guard n lp)))))))
         (()
          exp-body)))))
 
@@ -239,6 +218,7 @@
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
+
     (define (make-anf)
       (let ((emit
              (lambda ()
@@ -259,25 +239,24 @@
                  (trace->anf tj ir trace)))))
         (merge-outline-types! outline (tj-initial-types tj))
 
-        ;; Update inferred type with entry types. At this point, all of the
-        ;; guards for entry types have passed.
-        (let-syntax
-            ((go (syntax-rules ()
-                   ((_ lp srcs dsts n ty exp)
-                    (let lp ((srcs (outline-entry-types outline))
-                             (dsts (outline-inferred-types outline)))
-                      (match srcs
-                        (((n . ty) . srcs) exp)
-                        (_ (set-outline-inferred-types! outline dsts))))))))
-          (if (pair? parent-snapshot-locals)
-              (go lp srcs dsts n ty
-                  (cond
-                   ((assq-ref parent-snapshot-locals n)
-                    => (lambda (ty)
-                         (lp srcs (assq-set! dsts n ty))))
-                   (else
-                    (lp srcs (assq-set! dsts n ty)))))
-              (go lp srcs dsts n ty (lp srcs (assq-set! dsts n ty)))))
+        ;; Update inferred type with entry types. All guards for entry types
+        ;; have passed at this point. Then if this trace was side trace, set
+        ;; inferred types from parent snapshot locals.
+        (let ((srcs (outline-entry-types outline))
+              (dsts (outline-inferred-types outline)))
+          (let lp ((srcs srcs) (dsts dsts))
+            (match srcs
+              (((n . ty) . srcs)
+               (lp srcs (assq-set! dsts n ty)))
+              (()
+               (if (pair? parent-snapshot-locals)
+                   (let lp ((srcs parent-snapshot-locals) (dsts dsts))
+                     (match srcs
+                       (((n . ty) . srcs)
+                        (lp srcs (assq-set! dsts n ty)))
+                       (()
+                        (set-outline-inferred-types! outline dsts))))
+                   (set-outline-inferred-types! outline dsts))))))
 
         (cond
          (root-trace?

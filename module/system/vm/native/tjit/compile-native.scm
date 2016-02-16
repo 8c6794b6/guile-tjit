@@ -152,10 +152,13 @@
       (sp-set! local r0))
 
      ;; Cell values and small integers
-     ((memq type (list &scm &exact-integer &char &null &nil
-                       &symbol &keyword &procedure &pointer
-                       &pair &fluid &vector &box &struct &string &bytevector
-                       &bitvector &array &hash-table &port &u64 &s64))
+     ((or (memq type (list &scm &exact-integer &char &null &nil
+                           &symbol &keyword &procedure &pointer
+                           &pair &fluid &vector &box &struct &string &bytevector
+                           &bitvector &array &hash-table &port &u64 &s64))
+          ;; XXX: Should resolve copy at this point. Storeing copied value as
+          ;; is, assuming that copy source is non-unboxed value.
+          (eq? 'copy (car type)))
       (cond
        ((constant? src)
         (jit-movi r0 (constant src))
