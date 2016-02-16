@@ -69,8 +69,10 @@
                 (b/it (assq-ref inferred b)))
            (debug 1 ";;; [IR] ~s: i=(~a ~a)~%" 'name
                   (pretty-type a/it) (pretty-type b/it))
+
            `(let ((,dst/v (op-fl ,a/v ,b/v)))
               ,(next))
+
            ;; (cond
            ;;  ((and (eq? &flonum a/it) (eq? &flonum b/it))
            ;;   `(let ((,dst/v (op-fl ,a/v ,b/v)))
@@ -81,8 +83,15 @@
            ;;       (lambda ()
            ;;         `(let ((,dst/v (op-fl ,f2 ,b/v)))
            ;;            ,(next))))))
+           ;;  ((and (eq? &flonum a/it) (eq? &scm b/it))
+           ;;   (let ((f2 (make-tmpvar/f 2)))
+           ;;     (with-unboxing &flonum f2 b/v
+           ;;       (lambda ()
+           ;;         `(let ((,dst/v (op-fl ,a/v ,f2)))
+           ;;            ,(next))))))
            ;;  (else
-           ;;   (nyi "~s: type mismatch i=(~s ~s)" 'name a/it b/it)))
+           ;;   (nyi "~s: type mismatch i=(~a ~a)" 'name
+           ;;        (pretty-type a/it) (pretty-type b/it))))
            ))))))
 
 (define-syntax define-binary-arith-scm-imm

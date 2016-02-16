@@ -123,9 +123,11 @@
                   (b/it (assq-ref inferred b)))
              (debug 1 ";;; IR [~s]: x=(fnum fnum) i=(~a ~a)~%"
                     'name (pretty-type a/it) (pretty-type b/it))
+
              `(let ((_ ,(take-snapshot! ip dest)))
                 (let ((_ (,op ,va ,vb)))
                   ,(next)))
+
              ;; (cond
              ;;  ((and (eq? &flonum a/it) (eq? &flonum b/it))
              ;;   `(let ((_ ,(take-snapshot! ip dest)))

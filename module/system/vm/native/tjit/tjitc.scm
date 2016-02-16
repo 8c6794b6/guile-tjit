@@ -98,16 +98,17 @@
                (prev-op #f))
         (match traces
           ((trace . traces)
-           (let*-values (((len op) (disassemble-one bytecode offset))
-                         ((implemented? prev-op)
-                          (if so-far-so-good?
-                              (let ((locals (cadddr trace))
-                                    (ip (car trace))
-                                    (dl (caddr trace)))
-                                (scan-locals ol op prev-op ip dl locals))
-                              (values #f (car op)))))
-             (lp (cons (cons op trace) acc) (+ offset len) traces ol
-                 (and so-far-so-good? implemented?) prev-op)))
+           (match trace
+             ((ip ra dl locals)
+              (let*-values (((len op) (disassemble-one bytecode offset))
+                            ((implemented? prev-op)
+                             (if so-far-so-good?
+                                 (scan-locals ol op prev-op ip dl locals)
+                                 (values #f (car op)))))
+                (infer-type ol ip dl locals op)
+                (lp (cons (cons op trace) acc) (+ offset len) traces ol
+                    (and so-far-so-good? implemented?) prev-op)))
+             (_ (error "malformed trace" trace))))
           (()
            (values (reverse! acc) (arrange-outline ol) so-far-so-good?)))))
     (catch #t go

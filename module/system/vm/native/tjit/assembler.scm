@@ -1086,16 +1086,19 @@ was constant. And, uses OP-RR when both arguments were register or memory."
      ((gpr? dst)
       (cond
        ((gpr? src)    (jit-ldxi-d f0 (gpr src) nw))
+       ((fpr? src)    (jit-ldxi-d f0 (fpr->gpr r0 (fpr src)) nw))
        ((memory? src) (jit-ldxi-d f0 (memory-ref r0 src) nw)))
       (fpr->gpr (gpr dst) f0))
      ((fpr? dst)
       (cond
        ((gpr? src)    (jit-ldxi-d (fpr dst) (gpr src) nw))
+       ((fpr? src)    (jit-ldxi-d (fpr dst) (fpr->gpr r0 (fpr src)) nw))
        ((memory? src) (jit-ldxi-d (fpr dst) (memory-ref r0 src) nw))
        (else (err))))
      ((memory? dst)
       (cond
        ((gpr? src)    (jit-ldxi-d f0 (gpr src) nw))
+       ((fpr? src)    (jit-ldxi-d f0 (fpr->gpr r0 (fpr src)) nw))
        ((memory? src) (jit-ldxi-d f0 (memory-ref r0 src) nw))
        (else (err)))
       (memory-set!/f dst f0))

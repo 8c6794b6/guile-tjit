@@ -27,6 +27,7 @@
 
 (define-module (system vm native tjit ir-immediate)
   #:use-module (system foreign)
+  #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
@@ -61,6 +62,27 @@
               ((flonum? src/l) src/l)
               (else (pointer-address (scm->pointer src/l))))))
        ,(next))))
+
+;; (define-anf (static-ref dst offset)
+;;   (let ((src/l (dereference-scm (+ ip (* 4 offset)))))
+;;     `(let ((,(var-ref dst)
+;;             ,(cond ((flonum? src/l) src/l)
+;;                    (else (pointer-address (scm->pointer src/l))))))
+;;        ,(next))))
+
+;; (define-scan (static-ref ol dst offset)
+;;   (unless (outline-initialized? ol)
+;;     (set-scan-read! ol offset)
+;;     (set-scan-write! ol dst)
+;;     (set-scan-type! ol (offset 'scm))
+;;     (set-scan-initial-fields! ol)))
+
+;; (define-ti (static-ref ol dst offset)
+;;   (let* ((sp-offset (outline-sp-offset ol))
+;;          (val (dereference-scm (+ ip (* 4 offset))))
+;;          (ty (if (flonum? val) &flonum &scm)))
+;;     (when (outline-infer-type? ol)
+;;       (set-inferred-type! ol (+ dst sp-offset) ty))))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!

@@ -181,6 +181,13 @@
                    (type (assq-ref (outline-expected-types outline) n)))
                (when loaded-vars
                  (hashq-set! loaded-vars n guard))
+
+               ;; XXX: After boxing were handled prpoerly with inferred types,
+               ;; remove the tests with &flonum and &f64, and use the guard
+               ;; directly.
+               ;;
+               ;; (with-frame-ref vars var guard n lp)
+               ;;
                (if (or (eq? type &flonum)
                        (eq? type &f64))
                    (with-frame-ref vars var type n lp)
@@ -415,7 +422,7 @@
                (new-fp-offset (if (< 0 new-index (vector-length fp-offsets))
                                   (vector-ref fp-offsets new-index)
                                   0)))
-          (infer-type ip dl locals outline op)
+          (infer-type outline ip dl locals op)
           (set-ir-bytecode-index! ir new-index)
           (set-outline-sp-offset! outline new-sp-offset)
           (set-outline-fp-offset! outline new-fp-offset)
@@ -425,7 +432,7 @@
             (set-ir-max-sp-offset! ir max-offset))
           (convert ir rest))))
     (define (convert-one ir op ip ra dl locals rest)
-      (debug 1 ";;; [convert-one] ~s~%" op)
+      (debug 1 ";;; [convert-one] op=~s~%" op)
       (scan-locals (ir-outline ir) op #f ip dl locals)
       (match (hashq-ref *ir-procedures* (car op))
         ((? list? procs)

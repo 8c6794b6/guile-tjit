@@ -120,6 +120,7 @@
                           (tjitc-error 'box-ref "got ~s" var)))))
         (r2 (make-tmpvar 2)))
     (vector-set! locals dst (scm->pointer src/l))
+
     `(let ((,r2 (%cref ,src/v 1)))
        ,(with-unboxing (type-of src/l) r2 r2
           (lambda ()
@@ -142,6 +143,9 @@
          (emit-next (lambda (tmp)
                       `(let ((_ (%cset ,vdst 1 ,tmp)))
                          ,(next)))))
+    (debug 1 ";;; [IR] box-set! src/ti=~a~%"
+           (pretty-type
+            (assq-ref (outline-inferred-types (ir-outline ir)) src)))
     (with-boxing (type-of rdst) vsrc r2
       emit-next)))
 

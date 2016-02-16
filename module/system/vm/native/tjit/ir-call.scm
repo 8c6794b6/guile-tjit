@@ -70,6 +70,29 @@
     (push-scan-fp-offset! ol proc)
     (push-scan-sp-offset! ol (- (+ proc nlocals) stack-size))))
 
+(define-syntax-rule (ti-call ol proc nlocals label?)
+  ;; Bytecode `call' changes SP after saving for current SP offset, see
+  ;; `scan-call' above.
+  (let* ((stack-size (vector-length locals))
+         (sp-offset
+          (if (outline-initialized? ol)
+              (outline-sp-offset ol)
+              (+ (outline-sp-offset ol) (- (+ proc nlocals) stack-size))))
+         (fp (- stack-size proc))
+         (sp-proc (- stack-size proc 1))
+         (ra-ty (make-return-address
+                 (make-pointer (+ ip (* 4 (if label? 3 2))))))
+         (dl-ty (make-dynamic-link proc)))
+    (set-inferred-type! ol (+ sp-offset fp) ra-ty)
+    (set-inferred-type! ol (+ sp-offset fp 1) dl-ty)
+    (do ((n 0 (+ n 1))) ((<= nlocals n))
+      (match (assq-ref (outline-inferred-types ol) n)
+        (('copy . dst)
+         (set-inferred-type! ol n &scm))
+        (_
+         (values)))
+      (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm))))
+
 ;;; XXX: halt is not defined, might not necessary.
 
 (define-anf (call proc nlocals)
@@ -109,23 +132,6 @@
               (next)
               `(let ((_ (%scall ,proc)))
                  ,(next)))))))
-
-(define-syntax-rule (ti-call ol proc nlocals label?)
-  (let* ((stack-size (vector-length locals))
-         (sp-offset (outline-sp-offset ol))
-         (sp-proc (- stack-size proc 1))
-         (ra-ty (make-return-address
-                 (make-pointer (+ ip (* 4 (if label? 3 2))))))
-         (dl-ty (make-dynamic-link proc)))
-    (set-inferred-type! ol (+ sp-proc sp-offset 1) ra-ty)
-    (set-inferred-type! ol (+ sp-proc sp-offset 2) dl-ty)
-    (do ((n 0 (+ n 1))) ((<= nlocals n))
-      (match (assq-ref (outline-inferred-types ol) n)
-        (('copy . dst)
-         (set-inferred-type! ol n &scm))
-        (_
-         (values)))
-      (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm))))
 
 (define-scan (call ol proc nlocals)
   (scan-call ol proc nlocals #f))
@@ -224,8 +230,12 @@
         (set-outline-write-buf! ol (cons writes buf))))))
 
 (define-ti (receive ol dst proc nlocals)
+  ;; Bytecode `receive' changes SP after saving for current SP offset, see
+  ;; `define-scan' for `receive' above.
   (let* ((stack-size (vector-length locals))
-         (sp-offset (outline-sp-offset ol))
+         (sp-offset (if (outline-initialized? ol)
+                        (outline-sp-offset ol)
+                        (- (outline-sp-offset ol) (- stack-size nlocals))))
          (proc/i (+ (- stack-size proc 2) sp-offset))
          (dst/i (+ (- stack-size dst 1) sp-offset))
          (ty (or (assq-ref (outline-inferred-types ol) proc/i)
@@ -302,3 +312,15 @@
     (set-scan-initial-fields! ol)
     (pop-scan-sp-offset! ol (- stack-size nlocals))
     (pop-scan-fp-offset! ol dl)))
+
+(define-ti (return-values ol nlocals)
+  ;; As in `call' and `receive', `return-values' shifts SP offset, see
+  ;; `define-scan' for `return-values' above.
+  (let* ((stack-size (vector-length locals))
+         (sp-offset (if (outline-initialized? ol)
+                        (outline-sp-offset ol)
+                        (- (outline-sp-offset ol) (- stack-size nlocals))))
+         (ra-offset (+ sp-offset stack-size))
+         (dl-offset (+ ra-offset 1)))
+    (set-inferred-type! ol ra-offset &false)
+    (set-inferred-type! ol dl-offset &false)))
