@@ -109,40 +109,40 @@
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
        (define-ir (name (fixnum a) (fixnum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-           `(let ((_ ,(take-snapshot! ip dest)))
-              (let ((_ ,(if (op-scm ra rb)
-                            `(op-fx-t ,va ,vb)
-                            `(op-fx-f ,va ,vb))))
-                ,(next)))))
+           (let* ((sp-offset (current-sp-offset))
+                  (inferred (outline-inferred-types (ir-outline ir)))
+                  (op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
+                  (a/it (assq-ref inferred (+ a sp-offset)))
+                  (b/it (assq-ref inferred (+ b sp-offset))))
+             (cond
+              ((and (eq? &exact-integer a/it) (eq? &exact-integer b/it))
+               `(let ((_ ,(take-snapshot! ip dest)))
+                  (let ((_ (,op ,va ,vb)))
+                    ,(next))))
+              (else
+               (nyi "~s: i=(~a ~a)" 'name (pretty-type a/it)
+                    (pretty-type b/it)))))))
        (define-ir (name (flonum a) (flonum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-           (let* ((outline (ir-outline ir))
-                  (inferred (outline-inferred-types outline))
+           (let* ((sp-offset (current-sp-offset))
+                  (inferred (outline-inferred-types (ir-outline ir)))
                   (op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
-                  (a/it (assq-ref inferred a))
-                  (b/it (assq-ref inferred b)))
-             (debug 1 ";;; IR [~s]: x=(fnum fnum) i=(~a ~a)~%"
-                    'name (pretty-type a/it) (pretty-type b/it))
-
-             `(let ((_ ,(take-snapshot! ip dest)))
-                (let ((_ (,op ,va ,vb)))
-                  ,(next)))
-
-             ;; (cond
-             ;;  ((and (eq? &flonum a/it) (eq? &flonum b/it))
-             ;;   `(let ((_ ,(take-snapshot! ip dest)))
-             ;;      (let ((_ (,op ,va ,vb)))
-             ;;        ,(next))))
-             ;;  ((and (eq? &scm a/it) (eq? &flonum b/it))
-             ;;   (let ((f2 (make-tmpvar/f 2)))
-             ;;     (with-unboxing &flonum f2 va
-             ;;       (lambda ()
-             ;;         `(let ((_ (,op ,f2 ,vb)))
-             ;;            ,(next))))))
-             ;;  (else
-             ;;   (nyi "~s: inferred type mismatch i=(~s ~s)"
-             ;;        'name a/it b/it)))
-             )))))))
+                  (a/it (assq-ref inferred (+ a sp-offset)))
+                  (b/it (assq-ref inferred (+ b sp-offset))))
+             (cond
+              ((and (eq? &flonum a/it) (eq? &flonum b/it))
+               `(let ((_ ,(take-snapshot! ip dest)))
+                  (let ((_ (,op ,va ,vb)))
+                    ,(next))))
+              ((and (eq? &scm a/it) (eq? &flonum b/it))
+               (let ((f2 (make-tmpvar/f 2)))
+                 (with-unboxing &flonum f2 va
+                   (lambda ()
+                     `(let ((_ (,op ,f2 ,vb)))
+                        ,(next))))))
+              (else
+               (nyi "~s: inferred type mismatch i=(~s ~s)"
+                    'name a/it b/it))))))))))
 
 (define-br-binary-scm-scm br-if-= = %eq %ne %feq %fne)
 (define-br-binary-scm-scm br-if-< < %lt %ge %flt %fge)

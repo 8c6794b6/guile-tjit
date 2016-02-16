@@ -178,16 +178,12 @@
              (lp vars))
             (loaded-vars
              (let ((guard (assq-ref (outline-entry-types outline) n))
-                   (type (assq-ref (outline-expected-types outline) n)))
+                   (type (assq-ref (outline-inferred-types outline) n)))
                (when loaded-vars
                  (hashq-set! loaded-vars n guard))
 
-               ;; XXX: After boxing were handled prpoerly with inferred types,
-               ;; remove the tests with &flonum and &f64, and use the guard
-               ;; directly.
-               ;;
-               ;; (with-frame-ref vars var guard n lp)
-               ;;
+               ;; XXX: Any other way to select preferred register between GPR
+               ;; and FPR?
                (if (or (eq? type &flonum)
                        (eq? type &f64))
                    (with-frame-ref vars var type n lp)
@@ -265,13 +261,23 @@
 
         ;; Update inferred type with entry types. At this point, all of the
         ;; guards for entry types have passed.
-        (let lp ((srcs (outline-entry-types outline))
-                 (dsts (outline-inferred-types outline)))
-          (match srcs
-            (((n . ty) . srcs)
-             (lp srcs (assq-set! dsts n ty)))
-            (()
-             (set-outline-inferred-types! outline dsts))))
+        (let-syntax
+            ((go (syntax-rules ()
+                   ((_ lp srcs dsts n ty exp)
+                    (let lp ((srcs (outline-entry-types outline))
+                             (dsts (outline-inferred-types outline)))
+                      (match srcs
+                        (((n . ty) . srcs) exp)
+                        (_ (set-outline-inferred-types! outline dsts))))))))
+          (if (pair? parent-snapshot-locals)
+              (go lp srcs dsts n ty
+                  (cond
+                   ((assq-ref parent-snapshot-locals n)
+                    => (lambda (ty)
+                         (lp srcs (assq-set! dsts n ty))))
+                   (else
+                    (lp srcs (assq-set! dsts n ty)))))
+              (go lp srcs dsts n ty (lp srcs (assq-set! dsts n ty)))))
 
         (cond
          (root-trace?

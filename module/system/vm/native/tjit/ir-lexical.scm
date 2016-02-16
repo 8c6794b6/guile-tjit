@@ -120,37 +120,27 @@
                           (tjitc-error 'box-ref "got ~s" var)))))
         (r2 (make-tmpvar 2)))
     (vector-set! locals dst (scm->pointer src/l))
-
-    `(let ((,r2 (%cref ,src/v 1)))
-       ,(with-unboxing (type-of src/l) r2 r2
-          (lambda ()
-            `(let ((,dst/v ,r2))
-               ,(next)))))
-
-    ;; `(let ((,dst/v (%cref ,src/v 1)))
-    ;;    ,(next))
-    ))
+    `(let ((,dst/v (%cref ,src/v 1)))
+       ,(next))))
 
 (define-ir (box-set! (box dst) (scm src))
-  (let* ((vdst (var-ref dst))
+  (let* ((src/it (assq-ref (outline-inferred-types (ir-outline ir))
+                           (+ (current-sp-offset) src)))
+         (vdst (var-ref dst))
          (vsrc (var-ref src))
-         (rdst (and (< dst (vector-length locals))
-                    (let ((var (local-ref dst)))
-                      (if (variable? var)
-                          (variable-ref var)
-                          (tjitc-error 'box-set! "got ~s~%" var)))))
-         (r2 (make-tmpvar 2))
-         (emit-next (lambda (tmp)
-                      `(let ((_ (%cset ,vdst 1 ,tmp)))
-                         ,(next)))))
-    (debug 1 ";;; [IR] box-set! src/ti=~a~%"
-           (pretty-type
-            (assq-ref (outline-inferred-types (ir-outline ir)) src)))
-    (with-boxing (type-of rdst) vsrc r2
-      emit-next)))
+         (r2 (make-tmpvar 2)))
+    (debug 1 ";;; [IR] box-set! src/ti=~a~%" (pretty-type src/it))
+    (if (eq? &flonum src/it)
+        (with-boxing src/it vsrc r2
+          (lambda (tmp)
+            `(let ((_ (%cset ,vdst 1 ,tmp)))
+               ,(next))))
+        `(let ((_ (%cset ,vdst 1 ,vsrc)))
+           ,(next)))))
 
 ;; XXX: make-closure
 
+;; XXX: Remove `with-unboxing'.
 (define-ir (free-ref (scm! dst) (scm src) (const idx))
   (let* ((dst/v (var-ref dst))
          (src/v (var-ref src))

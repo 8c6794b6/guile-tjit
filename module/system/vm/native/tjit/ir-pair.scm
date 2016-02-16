@@ -47,6 +47,7 @@
                       (lambda (b)
                         `(let ((,vdst (%cell ,a ,b)))
                            ,(next)))))
+         ;; XXX: Box with inferred types.
          (emit-y (lambda (a)
                    (with-boxing (type-of ly) vy r1
                      (emit-cons a))))
@@ -65,11 +66,8 @@
     (let ((car/l (car src/l))
           (r2 (make-tmpvar 2)))
       `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((,r2 (%cref ,src/v 0)))
-           ,(with-unboxing (type-of car/l) r2 r2
-              (lambda ()
-                `(let ((,dst/v ,r2))
-                   ,(next)))))))))
+         (let ((,dst/v (%cref ,src/v 0)))
+           ,(next))))))
 
 (define-ir (cdr (scm! dst) (pair src))
   (let ((dst/l (local-ref dst))
@@ -81,11 +79,8 @@
     (let ((cdr/l (cdr src/l))
           (r2 (make-tmpvar 2)))
       `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((,r2 (%cref ,src/v 1)))
-           ,(with-unboxing (type-of cdr/l) r2 r2
-              (lambda ()
-                `(let ((,dst/v ,r2))
-                   ,(next)))))))))
+         (let ((,dst/v (%cref ,src/v 1)))
+           ,(next))))))
 
 ;; XXX: set-car!
 ;; XXX: set-cdr!

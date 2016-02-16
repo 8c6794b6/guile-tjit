@@ -80,15 +80,15 @@
                   (else ""))))
       (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
               trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
-  (define (traced-ops bytecode traces parent-snapshot)
+  (define (disassemble-bytecode bytecode traces parent-snapshot)
     (define disassemble-one
       (@@ (system vm disassembler) disassemble-one))
     (define (make-initial-outline)
       (match parent-snapshot
         (($ $snapshot id sp fp nlocals locals vars code ip types reads lives)
-         (make-outline (copy-tree types) sp fp (map car locals) lives locals))
+         (make-outline (copy-tree types) sp fp (map car locals) lives))
         (_
-         (make-outline '() 0 0 '() '() '()))))
+         (make-outline '() 0 0 '() '()))))
     (define (go)
       (let lp ((acc '())
                (offset 0)
@@ -226,7 +226,7 @@
 
     (with-tjitc-error-handler entry-ip
       (let-values (((traces outline implemented?)
-                    (traced-ops bytecode traces parent-snapshot)))
+                    (disassemble-bytecode bytecode traces parent-snapshot)))
         (dump tjit-dump-jitc? implemented? (show-sline sline parent-fragment))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond

@@ -9,7 +9,7 @@
 
 (let* ((v (make-vector 1000 1.2345))
        (r1 (loop v))
-       (_ (vector-set! v 127 'symbol))
+       (_ (vector-set! v 127 'blahblah))
        (r2 (catch #t
              (lambda () (loop v))
              (lambda args args))))

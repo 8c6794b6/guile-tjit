@@ -141,14 +141,13 @@
   ;; Inferred types.
   (inferred-types outline-inferred-types set-outline-inferred-types!))
 
-(define (make-outline types sp-offset fp-offset write-indices live-indices
-                      expected-types)
+(define (make-outline types sp-offset fp-offset write-indices live-indices)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
   (%make-outline #f #t #f '() '() (make-hash-table) '() '() '() types
                  sp-offset fp-offset '() write-indices '()
                  (list write-indices) live-indices
-                 '() (copy-tree expected-types) '()))
+                 '() '() '()))
 
 (define (arrange-outline outline)
   (define (resolve-copies dsts srcs)

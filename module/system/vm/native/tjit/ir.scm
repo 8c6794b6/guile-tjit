@@ -60,6 +60,7 @@
             dereference-scm
             take-snapshot!
             var-ref
+            ty-ref
             with-boxing
             with-unboxing
             current-sp-offset
@@ -636,6 +637,9 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
 
 (define-syntax-rule (var-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
+
+(define-syntax-rule (ty-ref n)
+  (assq-ref (outline-inferred-types (ir-outline ir)) (+ n (current-sp-offset))))
 
 (define-syntax take-snapshot!
   (syntax-rules ()

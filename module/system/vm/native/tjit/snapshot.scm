@@ -193,7 +193,9 @@
          (lp is (cons `(,i . ,type) acc)))
        (cond
         ;; ;; Root trace.
-        ;; ((not parent-snapshot)
+        ((not parent-snapshot)
+         (add-local (assq-ref (outline-inferred-types outline) i)))
+        ;; (parent-snapshot
         ;;  (add-local (assq-ref (outline-inferred-types outline) i)))
 
         ;; Side trace.

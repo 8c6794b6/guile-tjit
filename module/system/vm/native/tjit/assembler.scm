@@ -831,18 +831,18 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                     ((_ dst a)
                      (cond
                       ((constant? b) (op-ri dst a (constant b)))
-                      ((gpr? b)      (op-rr dst a (gpr->fpr f1 (gpr b))))
+                      ((gpr? b)      (op-rr dst a (gpr->fpr f0 (gpr b))))
                       ((fpr? b)      (op-rr dst a (fpr b)))
-                      ((memory? b)   (op-rr dst a (memory-ref/f f1 b)))
+                      ((memory? b)   (op-rr dst a (memory-ref/f f0 b)))
                       (else (err))))))
             (op3a (syntax-rules ()
                     ((_ dst)
                      (begin
                        (cond
-                        ((constant? a) (op3b dst (movi f2 a)))
-                        ((gpr? a)      (op3b dst (gpr->fpr f2 (gpr a))))
+                        ((constant? a) (op3b dst (movi f1 a)))
+                        ((gpr? a)      (op3b dst (gpr->fpr f1 (gpr a))))
                         ((fpr? a)      (op3b dst (fpr a)))
-                        ((memory? a)   (op3b dst (memory-ref/f f2 a)))
+                        ((memory? a)   (op3b dst (memory-ref/f f1 a)))
                         (else (err)))
                        dst))))
             (movi (syntax-rules ()
@@ -850,9 +850,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                      (begin (jit-movi-d x (constant y))
                             x)))))
          (cond
-          ((gpr? dst)    (fpr->gpr (gpr dst) (op3a f0)))
+          ((gpr? dst)    (fpr->gpr (gpr dst) (op3a f2)))
           ((fpr? dst)    (op3a (fpr dst)))
-          ((memory? dst) (memory-set!/f dst (op3a f0)))
+          ((memory? dst) (memory-set!/f dst (op3a f2)))
           (else (err))))))))
 
 (define-binary-arith-double %fadd jit-addi-d jit-addr-d)

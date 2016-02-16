@@ -61,25 +61,17 @@
             `(let ((,ra/v #f))
                (let ((,dl/v #f))
                  ,(next)))))
-         (emit-pop
-          (lambda ()
-            (pop-outline! (ir-outline ir) (current-sp-offset) locals)
-            ;; XXX: Any other way to decide emitting `%return' than SP offset
-            ;; comparison?
-            (if (< (ir-max-sp-offset ir) (+ (current-sp-offset) dl))
-                `(let ((_ ,(take-snapshot! ip 0)))
-                   (let ((_ (%return ,ra)))
-                     ,(emit-next)))
-                (emit-next))))
          (emit-ccall
           (lambda ()
-            `(let ((,r2 (%ccall ,proc-addr)))
-               ,(if ret-type
-                    (with-unboxing ret-type r2 r2
-                      (lambda ()
-                        `(let ((,dst/v ,r2))
-                           ,(emit-pop))))
-                    (emit-pop))))))
+            (pop-outline! (ir-outline ir) (current-sp-offset) locals)
+            `(let ((,dst/v (%ccall ,proc-addr)))
+               ;; XXX: Any other way to decide emitting `%return' than SP
+               ;; offset comparison?
+               ,(if (< (ir-max-sp-offset ir) (+ (current-sp-offset) dl))
+                    `(let ((_ ,(take-snapshot! ip 0)))
+                       (let ((_ (%return ,ra)))
+                         ,(emit-next)))
+                    (emit-next))))))
     (debug 1 ";;; subr-call: (~a) (~s ~{~a~^ ~})~%"
            (pretty-type (current-ret-type))
            (procedure-name subr/l)
@@ -133,6 +125,16 @@
         (set-outline-write-buf! ol (cons writes buf))))
 
     (pop-scan-fp-offset! ol dl)))
+
+;;; XXX: Multiple values return not yet implemented.
+(define-ti (subr-call ol)
+  (let* ((stack-size (vector-length locals))
+         (sp-offset (if (outline-initialized? ol)
+                        (outline-sp-offset ol)
+                        (+ (outline-sp-offset ol) (- stack-size 2))))
+         (proc-offset (+ (- stack-size 1) sp-offset)))
+    (debug 1 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
+    (set-inferred-type! ol (- proc-offset 1) &scm)))
 
 ;; XXX: foreign-call
 ;; XXX: continuation-call
