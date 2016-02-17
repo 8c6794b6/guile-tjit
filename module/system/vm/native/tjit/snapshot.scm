@@ -145,23 +145,6 @@
 (define* (make-snapshot id sp-offset fp-offset nlocals locals
                         parent-snapshot write-indices outline ip
                         #:optional (refill-ra-and-dl? #f))
-  (define initial-offset
-    (or (and=> parent-snapshot snapshot-sp-offset)))
-  (define parent-locals
-    (and=> parent-snapshot snapshot-locals))
-  (define (parent-snapshot-local-ref i)
-    (and parent-snapshot (assq-ref parent-locals i)))
-  (define-syntax-rule (local-ref i)
-    (let ((type (outline-type-ref outline i)))
-      (cond
-       ((eq? 'f64 type) &f64)
-       ((eq? 'u64 type) &u64)
-       ((eq? 's64 type) &s64)
-       ((eq? 'scm type)
-        (type-of (stack-element locals (- i sp-offset) type)))
-       (else
-        (tjitc-error 'make-snapshot "unknown local ~s ~s" type i)))))
-
   (let ((car-< (lambda (a b) (< (car a) (car b)))))
     (debug 1 ";;; [make-snapshot] id:~s sp:~s fp:~s nlocals:~s~%"
            id sp-offset fp-offset nlocals)
@@ -182,82 +165,8 @@
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
-       (define (dl-or-ra i)
-         (or (assq-ref (outline-dls outline) i)
-             (assq-ref (outline-ras outline) i)
-             (let ((val (parent-snapshot-local-ref i)))
-               (and (or (dynamic-link? val)
-                        (return-address? val))
-                    val))))
-       (define-syntax-rule (add-local type)
-         (lp is (cons `(,i . ,type) acc)))
-       (cond
-        ;; ;; Root trace.
-        ((not parent-snapshot)
-         (add-local (assq-ref (outline-inferred-types outline) i)))
-        (parent-snapshot
-         (add-local (assq-ref (outline-inferred-types outline) i)))
-
-        ;; Side trace.
-        ;;
-        ;; Inlined local in initial frame in root trace. The frame contents
-        ;; should be a scheme stack element, not a dynamic link or a return
-        ;; address. Only excpetion is return address and dynamic link for last
-        ;; snapshot in side trace, which is specified by dedicated IP key.
-        ((<= sp-offset i (- (+ sp-offset nlocals) 1))
-         (cond
-          ((and (= ip *ip-key-link*) (dl-or-ra i))
-           => add-local)
-          (else
-           (add-local (local-ref i)))))
-
-        ;; Dynamic link and return address might need to be passed from parent
-        ;; trace. When side trace of inlined procedure takes bailout code,
-        ;; recorded trace might not contain bytecode operation to fill in the
-        ;; dynamic link and return address of past frame.
-        ((dl-or-ra i)
-         => add-local)
-
-        ;; Down frame. Taking local from a vector saved at the tme of recording
-        ;; the trace.
-        ((<= 0 (- i sp-offset) (- (vector-length locals) 1))
-         (add-local (local-ref i)))
-
-        ;; When side trace contains inlined procedure and the guard taking this
-        ;; snapshot is from the caller of the inlined procedure, saving local in
-        ;; upper frame. Looking up locals from newest locals in outline.
-        ;;
-        ;; Side trace could start from the middle of inlined procedure, locals
-        ;; in past frame may not have enough information to recover locals in
-        ;; caller of the inlined procedure. In such case, look up locals in the
-        ;; snapshot of parent trace.
-        ((outline-type-ref outline i)
-         => (lambda (se-type)
-              (cond
-               ((eq? 'f64 se-type) (add-local &f64))
-               ((eq? 'u64 se-type) (add-local &u64))
-               ((eq? 's64 se-type) (add-local &s64))
-               ((eq? 'scm se-type)
-                (cond
-                 ((outline-local-ref outline i)
-                  => (lambda (e)
-                       ;; (debug 1 ";;; [ms] outline-local-ref ~s => ~s~%" i e)
-                       (cond
-                        ((or (dynamic-link? e) (return-address? e))
-                         (add-local e))
-                        (else
-                         (add-local (type-of (resolve-stack-element e)))))))
-                 ((parent-snapshot-local-ref i)
-                  => add-local)
-                 (else
-                  (tjitc-error 'make-snapshot "unresolved scm ~s ~s" id i))))
-               (else
-                (tjitc-error 'make-snapshot "unknown type ~s ~s" id se-type)))))
-
-        ;; Giving up, skip this local.
-        (else
-         (debug 3 "XXX: local for i=~a not found~%" i)
-         (add-local #f))))
+       (let ((type (assq-ref (outline-inferred-types outline) i)))
+         (lp is (cons `(,i . ,type) acc))))
       (()
        (let ((copied-types (copy-tree (outline-types outline))))
          (call-with-values

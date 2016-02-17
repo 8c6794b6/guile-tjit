@@ -51,18 +51,6 @@
       (do ((n 1 (+ n 1))) ((<= nlocals n))
         (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm)))
 
-    (when (outline-infer-type? ol)
-      (unless label?
-        (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
-      (do ((n 0 (+ n 1))) ((<= nlocals n))
-        (match (assq-ref (outline-inferred-types ol) n)
-          (('copy . dst)
-           (set-entry-type! ol dst &scm)
-           (set-expected-type! ol dst &scm))
-          (_
-           (values)))
-        (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm)))
-
     (do ((n 0 (+ n 1))) ((<= nlocals n))
       (set-scan-scm! ol (- sp-proc n)))
 
@@ -83,6 +71,19 @@
          (ra-ty (make-return-address
                  (make-pointer (+ ip (* 4 (if label? 3 2))))))
          (dl-ty (make-dynamic-link proc)))
+
+    (when (outline-infer-type? ol)
+      (unless label?
+        (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
+      (do ((n 0 (+ n 1))) ((<= nlocals n))
+        (match (assq-ref (outline-inferred-types ol) n)
+          (('copy . dst)
+           (set-entry-type! ol dst &scm)
+           (set-expected-type! ol dst &scm))
+          (_
+           (values)))
+        (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm)))
+
     (set-inferred-type! ol (+ sp-offset fp) ra-ty)
     (set-inferred-type! ol (+ sp-offset fp 1) dl-ty)
     (do ((n 0 (+ n 1))) ((<= nlocals n))

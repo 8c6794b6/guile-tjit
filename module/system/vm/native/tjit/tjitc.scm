@@ -105,7 +105,8 @@
                              (if so-far-so-good?
                                  (scan-locals ol op prev-op ip dl locals)
                                  (values #f (car op)))))
-                (infer-type ol ip dl locals op)
+                (when so-far-so-good?
+                  (infer-type ol ip dl locals op))
                 (lp (cons (cons op trace) acc) (+ offset len) traces ol
                     (and so-far-so-good? implemented?) prev-op)))
              (_ (error "malformed trace" trace))))

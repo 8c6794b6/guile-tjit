@@ -35,23 +35,12 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-;; Helper to get type from runtime value returned from external functions, i.e.:
-;; `subr-call' and `foreign-call'.
-(define-syntax-rule (current-ret-type)
-  (let ((idx (+ (ir-bytecode-index ir) 1))
-        (ret-types (outline-ret-types (ir-outline ir))))
-    (if (<= 0 idx (- (vector-length ret-types) 1))
-        (vector-ref ret-types idx)
-        (tjitc-error 'current-ret-type "index ~s out of range ~s"
-                     idx ret-types))))
-
 (define-anf (subr-call)
   (let* ((stack-size (vector-length locals))
          (dst/v (var-ref (- stack-size 2)))
          (subr/l (local-ref (- stack-size 1)))
          (ccode (and (program? subr/l)
                      (program-code subr/l)))
-         ;; (ret-type (current-ret-type))
          (ra/v (var-ref stack-size))
          (dl/v (var-ref (+ stack-size 1)))
          (r2 (make-tmpvar 2))
@@ -72,16 +61,6 @@
                        (let ((_ (%return ,ra)))
                          ,(emit-next)))
                     (emit-next))))))
-    ;; (debug 1 ";;; subr-call: (~a) (~s ~{~a~^ ~})~%"
-    ;;        (pretty-type (current-ret-type))
-    ;;        (procedure-name subr/l)
-    ;;        (let lp ((n 0) (acc '()))
-    ;;          (if (< n (- stack-size 1))
-    ;;              (begin
-    ;;                (let ((arg (local-ref n)))
-    ;;                  (lp (+ n 1)
-    ;;                      (cons (pretty-type (type-of arg)) acc))))
-    ;;              acc)))
     (set-ir-return-subr! ir #t)
     (if (primitive-code? ccode)
         (let lp ((n 0))
@@ -102,11 +81,6 @@
          (dl-offset (+ ra-offset 1))
          (initialized (outline-initialized? ol)))
     (set-scan-scm! ol stack-size (+ stack-size 1))
-
-    (when (outline-infer-type? ol)
-      (set-expected-type! ol proc-offset &procedure)
-      (set-inferred-type! ol ra-offset &false)
-      (set-inferred-type! ol dl-offset &false))
 
     (unless initialized
       (set-scan-write! ol stack-size (+ stack-size 1))
@@ -132,8 +106,14 @@
          (sp-offset (if (outline-initialized? ol)
                         (outline-sp-offset ol)
                         (+ (outline-sp-offset ol) (- stack-size 2))))
-         (proc-offset (+ (- stack-size 1) sp-offset)))
+         (proc-offset (+ (- stack-size 1) sp-offset))
+         (ra-offset (+ proc-offset 1))
+         (dl-offset (+ ra-offset 1)))
     (debug 1 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
+    (when (outline-infer-type? ol)
+      (set-expected-type! ol proc-offset &procedure)
+      (set-inferred-type! ol ra-offset &false)
+      (set-inferred-type! ol dl-offset &false))
     (set-inferred-type! ol (- proc-offset 1) &scm)))
 
 ;; XXX: foreign-call

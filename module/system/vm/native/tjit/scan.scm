@@ -54,34 +54,6 @@
     (begin
       (debug 1 "NYI: ~a~%" (car op))
       (values #f (car op))))
-
-  ;; Look for the type of returned value from C function.
-  ;; (unless (outline-initialized? ol)
-  ;;   (debug 1 ";;; [scan-locals] op=~s~%" op)
-  ;;   (let* ((ret-types (outline-ret-types ol))
-  ;;          (fill-false
-  ;;           (lambda ()
-  ;;             (set-outline-ret-types! ol (cons #f ret-types)))))
-  ;;     (if (eq? 'subr-call prev-op)
-  ;;         (match op
-  ;;           (('receive dst proc nlocals)
-  ;;            (let* ((stack-size (vector-length locals))
-  ;;                   (idx (- stack-size proc 2))
-  ;;                   (val (stack-element locals idx 'scm))
-  ;;                   (type (type-of val)))
-  ;;              (set-outline-ret-types! ol (cons type ret-types))))
-  ;;           (('receive-values proc _ nvalues)
-  ;;            (if (= nvalues 1)
-  ;;                (let* ((stack-size (vector-length locals))
-  ;;                       (idx (- stack-size proc 2))
-  ;;                       (val (stack-element locals idx 'scm))
-  ;;                       (type (type-of val)))
-  ;;                  (set-outline-ret-types! ol (cons type ret-types)))
-  ;;                (fill-false)))
-  ;;           (_
-  ;;            (fill-false)))
-  ;;         (fill-false))))
-
   (match (hashq-ref *scan-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))

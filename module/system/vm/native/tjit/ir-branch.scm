@@ -109,16 +109,27 @@
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
        (define-ir (name (fixnum a) (fixnum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
-           (let ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
-                 (a/t (ty-ref a))
-                 (b/t (ty-ref b)))
+           (let* ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
+                  (a/t (ty-ref a))
+                  (b/t (ty-ref b))
+                  (next-thunk (lambda ()
+                                `(let ((_ ,(take-snapshot! ip dest)))
+                                   (let ((_ (,op ,va ,vb)))
+                                     ,(next))))))
              (cond
               ((and (eq? &exact-integer a/t) (eq? &exact-integer b/t))
-               `(let ((_ ,(take-snapshot! ip dest)))
-                  (let ((_ (,op ,va ,vb)))
-                    ,(next))))
+               (next-thunk))
+              ((and (eq? &scm a/t) (eq? &exact-integer b/t))
+               (with-unboxing &exact-integer va va next-thunk))
+              ((and (eq? &exact-integer a/t) (eq? &scm b/t))
+               (with-unboxing &exact-integer vb vb next-thunk))
+              ((and (eq? &scm a/t) (eq? &scm b/t))
+               (with-unboxing &exact-integer va va
+                 (lambda ()
+                   (with-unboxing &exact-integer vb vb
+                     next-thunk))))
               (else
-               (nyi "~s: i=(~a ~a)" 'name (pretty-type a/t)
+               (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name (pretty-type a/t)
                     (pretty-type b/t)))))))
        (define-ir (name (flonum a) (flonum b) (const invert?) (const offset))
          (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
@@ -137,8 +148,8 @@
                      `(let ((_ (,op ,f2 ,vb)))
                         ,(next))))))
               (else
-               (nyi "~s: inferred type mismatch i=(~s ~s)"
-                    'name a/t b/t))))))))))
+               (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
+                    (pretty-type a/t) (pretty-type b/t)))))))))))
 
 (define-br-binary-scm-scm br-if-= = %eq %ne %feq %fne)
 (define-br-binary-scm-scm br-if-< < %lt %ge %flt %fge)
