@@ -72,17 +72,16 @@
                  (make-pointer (+ ip (* 4 (if label? 3 2))))))
          (dl-ty (make-dynamic-link proc)))
 
-    (when (outline-infer-type? ol)
-      (unless label?
-        (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
-      (do ((n 0 (+ n 1))) ((<= nlocals n))
-        (match (assq-ref (outline-inferred-types ol) n)
-          (('copy . dst)
-           (set-entry-type! ol dst &scm)
-           (set-expected-type! ol dst &scm))
-          (_
-           (values)))
-        (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm)))
+    (unless label?
+      (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
+    (do ((n 0 (+ n 1))) ((<= nlocals n))
+      (match (assq-ref (outline-inferred-types ol) n)
+        (('copy . dst)
+         (set-entry-type! ol dst &scm)
+         (set-expected-type! ol dst &scm))
+        (_
+         (values)))
+      (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm))
 
     (set-inferred-type! ol (+ sp-offset fp) ra-ty)
     (set-inferred-type! ol (+ sp-offset fp 1) dl-ty)
@@ -116,7 +115,7 @@
          (rra (cons (+ sp-offset fp) (make-return-address dst-ptr)))
          (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
          (proc/v (var-ref (- fp 1)))
-         (proc/l (local-ref (- fp 1)))
+         (proc/l (scm-ref (- fp 1)))
          (snapshot
           (begin
             (vector-set! locals (- stack-size proc) (scm->pointer #f))
@@ -126,7 +125,6 @@
                               (primitive-code? (program-code proc/l)))
                          (and (<= (current-fp-offset) 0)
                               (not (tj-linking-roots? (ir-tj ir)))))))
-    (push-outline! (ir-outline ir) rdl rra sp-offset locals)
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,proc/v ,(pointer-address (scm->pointer proc/l)))))
          ,(if inlineable
@@ -149,7 +147,6 @@
          (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
          (inlineable (and (< 0 (current-fp-offset))
                           (not (tj-linking-roots? (ir-tj ir))))))
-    (push-outline! (ir-outline ir) rdl rra sp-offset locals)
     (if inlineable
         `(let ((_ (%scall ,proc)))
            ,(next))
@@ -176,7 +173,7 @@
   (let* ((stack-size (vector-length locals))
          (proc-index (- stack-size 1))
          (proc/v (var-ref proc-index))
-         (proc/l (local-ref proc-index))
+         (proc/l (scm-ref proc-index))
          (proc-addr (pointer-address (scm->pointer proc/l))))
     `(let ((_ (%eq ,proc/v ,proc-addr)))
        ,(next))))
@@ -196,13 +193,7 @@
          (dst/v (var-ref dst/i))
          (src/i (- (- stack-size proc) 2))
          (src/v (var-ref src/i))
-         (thunk (gen-load-thunk proc nlocals (lambda (v) (eq? v dst/v))))
-         (last-local-index (- (vector-length locals) 1)))
-    ;; Update values in local, so that snapshot can resolve value from stack
-    ;; element type.
-    (when (and (<= 0 src/i last-local-index)
-               (<= 0 dst/i last-local-index))
-      (vector-set! locals dst/i (scm->pointer (local-ref src/i))))
+         (thunk (gen-load-thunk proc nlocals (lambda (v) (eq? v dst/v)))))
     `(let ((,dst/v ,src/v))
        ,(thunk))))
 
@@ -274,10 +265,7 @@
          (dl/val (make-dynamic-link dl))
          (stack-size (vector-length locals))
          (inlineable (< (current-fp-offset) 0))
-         (_ (set-outline-previous-dl-and-ra! (ir-outline ir) stack-size
-                                             ra/val dl/val))
          (snapshot (take-snapshot! ip 0)))
-    (pop-outline! (ir-outline ir) (current-sp-offset) locals)
     (let* ((sp-offset (current-sp-offset))
            (ra-offset (+ sp-offset stack-size))
            (dl-offset (+ ra-offset 1)))

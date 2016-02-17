@@ -54,8 +54,6 @@
   `(let ((,(var-ref dst) ,(+ ip (* 4 offset))))
      ,(next)))
 
-;;; XXX: Below implementation of `static-ref' causes segfault in REPL.
-
 (define-anf (static-ref dst offset)
   (let* ((ptr (make-pointer (+ ip (* 4 offset))))
          (ref (dereference-pointer ptr))

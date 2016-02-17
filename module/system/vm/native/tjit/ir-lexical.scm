@@ -46,7 +46,6 @@
          (src+sp (+ src sp-offset))
          (entry (outline-entry-types ol))
          (initialized? (outline-initialized? ol))
-         (infer-type? (outline-infer-type? ol))
          (backward? (outline-backward? ol)))
     (unless initialized?
       (set-scan-read! ol src)
@@ -59,9 +58,8 @@
     ;; type clue here, use existing data stored in outline. If src could not
     ;; resolved, a tagged `copy' type with local index are stored, to be
     ;; resolved later .
-    (when (and infer-type?
-               (not (or (assq-ref (outline-inferred-types ol) src+sp)
-                        (assq-ref (outline-expected-types ol) src+sp))))
+    (when (not (or (assq-ref (outline-inferred-types ol) src+sp)
+                   (assq-ref (outline-expected-types ol) src+sp)))
       (set-expected-type! ol src+sp `(copy . ,dst+sp)))
 
     (if backward?
@@ -95,12 +93,16 @@
         (r2 (make-tmpvar 2))
         (dst/v (var-ref dst))
         (src/v (var-ref src))
-        (src/l (local-ref src)))
-    `(let ((,r2 ,%tc7-variable))
-       ,(with-boxing (type-of src/l) src/v r1
-          (lambda (src/v)
-            `(let ((,dst/v (%cell ,r2 ,src/v)))
-               ,(next)))))))
+        (src/t (ty-ref src)))
+    (if (eq? &flonum src/t)
+        `(let ((,r2 ,%tc7-variable))
+           ,(with-boxing src/t src/v r1
+              (lambda (src/v)
+                `(let ((,dst/v (%cell ,r2 ,src/v)))
+                   ,(next)))))
+        `(let ((,r2 ,%tc7-variable))
+           (let ((,dst/v (%cell ,r2 ,src/v)))
+             ,(next))))))
 
 ;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'.
 ;; Boxing back tagged value every time will make the loop slow, need
@@ -112,29 +114,21 @@
 
 (define-ir (box-ref (scm! dst) (box src))
   (let ((dst/v (var-ref dst))
-        (src/v (var-ref src))
-        (src/l (and (< src (vector-length locals))
-                    (let ((var (local-ref src)))
-                      (if (variable? var)
-                          (variable-ref var)
-                          (tjitc-error 'box-ref "got ~s" var)))))
-        (r2 (make-tmpvar 2)))
-    (vector-set! locals dst (scm->pointer src/l))
+        (src/v (var-ref src)))
     `(let ((,dst/v (%cref ,src/v 1)))
        ,(next))))
 
 (define-ir (box-set! (box dst) (scm src))
-  (let* ((src/it (assq-ref (outline-inferred-types (ir-outline ir))
-                           (+ (current-sp-offset) src)))
+  (let* ((src/t (ty-ref src))
          (vdst (var-ref dst))
-         (vsrc (var-ref src))
-         (r2 (make-tmpvar 2)))
-    (debug 1 ";;; [IR] box-set! src/ti=~a~%" (pretty-type src/it))
-    (if (eq? &flonum src/it)
-        (with-boxing src/it vsrc r2
-          (lambda (tmp)
-            `(let ((_ (%cset ,vdst 1 ,tmp)))
-               ,(next))))
+         (vsrc (var-ref src)))
+    (debug 1 ";;; [IR] box-set! src/t=~a~%" (pretty-type src/t))
+    (if (eq? &flonum src/t)
+        (let ((r2 (make-tmpvar 2)))
+          (with-boxing src/t vsrc r2
+            (lambda (tmp)
+              `(let ((_ (%cset ,vdst 1 ,tmp)))
+                 ,(next)))))
         `(let ((_ (%cset ,vdst 1 ,vsrc)))
            ,(next)))))
 
@@ -144,15 +138,12 @@
 (define-ir (free-ref (scm! dst) (scm src) (const idx))
   (let* ((dst/v (var-ref dst))
          (src/v (var-ref src))
-         (src/l (local-ref src))
+         (src/l (scm-ref src))
          (ref/l (and (program? src/l)
                      (program-free-variable-ref src/l idx)))
          (r2 (make-tmpvar 2)))
     `(let ((,r2 (%add ,src/v ,(* 2 %word-size))))
-       (let ((,r2 (%cref ,r2 ,idx)))
-         ,(with-unboxing (type-of ref/l) r2 r2
-            (lambda ()
-              `(let ((,dst/v ,r2))
-                 ,(next))))))))
+       (let ((,dst/v (%cref ,r2 ,idx)))
+         ,(next)))))
 
 ;; XXX: free-set!

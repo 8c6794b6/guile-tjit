@@ -39,7 +39,7 @@
 
 (define-ir (br-if-true (scm test) (const invert) (const offset))
   (let* ((test/v (var-ref test))
-         (test/l (local-ref test))
+         (test/l (scm-ref test))
          (dest (if test/l
                    (if invert offset 2)
                    (if invert 2 offset)))
@@ -49,7 +49,7 @@
          ,(next)))))
 
 (define-ir (br-if-null (scm test) (const invert) (const offset))
-  (let* ((test/l (local-ref test))
+  (let* ((test/l (scm-ref test))
          (test/v (var-ref test))
          (dest (if (null? test/l)
                    (if invert offset 2)
@@ -62,7 +62,7 @@
 ;; XXX: br-if-nil
 
 ;; (define-ir (br-if-pair (scm test) (const invert) (const offset))
-;;   (let* ((test/l (local-ref test))
+;;   (let* ((test/l (scm-ref test))
 ;;          (test/v (var-ref test))
 ;;          (dest (if (pair? test/l)
 ;;                    (if invert offset 2)
@@ -87,18 +87,33 @@
 
 (define-syntax define-br-binary-body
   (syntax-rules ()
-    ((_ name a b invert? offset test ra rb va vb dest . body)
-     (let* ((ra (local-ref a))
-            (rb (local-ref b))
+    ((_ name a b invert? offset test a-ref b-ref ra rb va vb dest . body)
+     (let* ((ra (a-ref a))
+            (rb (b-ref b))
             (va (var-ref a))
             (vb (var-ref b))
-            (dest (if (and (number? ra)
-                           (number? rb))
-                      (if (test ra rb)
-                          (if invert? offset 3)
-                          (if invert? 3 offset))
-                      (tjitc-error "~s: got ~s ~s" 'name ra rb))))
+            (dest (if (test ra rb)
+                      (if invert? offset 3)
+                      (if invert? 3 offset))))
        . body))))
+
+(define-syntax define-br-binary-scm-scm-body
+  (syntax-rules ()
+    ((_ name a b invert? offset test ra rb va vb dest . body)
+     (define-br-binary-body name a b invert? offset test scm-ref scm-ref
+       ra rb va vb dest . body))))
+
+(define-syntax define-br-binary-u64-scm-body
+  (syntax-rules ()
+    ((_ name a b invert? offset test ra rb va vb dest . body)
+     (define-br-binary-body name a b invert? offset test u64-ref scm-ref
+       ra rb va vb dest . body))))
+
+(define-syntax define-br-binary-u64-u64-body
+  (syntax-rules ()
+    ((_ name a b invert? offset test ra rb va vb dest . body)
+     (define-br-binary-body name a b invert? offset test u64-ref u64-ref
+       ra rb va vb dest . body))))
 
 (define-syntax define-br-binary-scm-scm
   (syntax-rules ()
@@ -108,7 +123,8 @@
        (define-ir (name (scm a) (scm b) (const invert?) (const offset))
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
        (define-ir (name (fixnum a) (fixnum b) (const invert?) (const offset))
-         (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
+         (define-br-binary-scm-scm-body name a b invert? offset op-scm
+           ra rb va vb dest
            (let* ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
                   (a/t (ty-ref a))
                   (b/t (ty-ref b))
@@ -132,7 +148,8 @@
                (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name (pretty-type a/t)
                     (pretty-type b/t)))))))
        (define-ir (name (flonum a) (flonum b) (const invert?) (const offset))
-         (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
+         (define-br-binary-scm-scm-body name a b invert? offset op-scm
+           ra rb va vb dest
            (let ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
                  (a/t (ty-ref a))
                  (b/t (ty-ref b)))
@@ -159,7 +176,8 @@
   (syntax-rules ()
     ((_ name op-scm op-fx-t op-fx-f)
      (define-ir (name (u64 a) (u64 b) (const invert?) (const offset))
-       (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
+       (define-br-binary-u64-u64-body name a b invert? offset op-scm
+         ra rb va vb dest
          `(let ((_ ,(take-snapshot! ip dest)))
             (let ((_ ,(if (op-scm ra rb)
                           `(op-fx-t ,va ,vb)
@@ -177,7 +195,8 @@
        (define-ir (name (u64 a) (scm b) (const invert?) (const offset))
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
        (define-ir (name (u64 a) (fixnum b) (const invert?) (const offset))
-         (define-br-binary-body name a b invert? offset op-scm ra rb va vb dest
+         (define-br-binary-u64-scm-body name a b invert? offset op-scm
+           ra rb va vb dest
            (let* ((r2 (make-tmpvar 2))
                   (b/t (ty-ref b))
                   (next-thunk

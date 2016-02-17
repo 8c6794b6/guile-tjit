@@ -59,6 +59,8 @@
             gen-put-index
             dereference-scm
             take-snapshot!
+            scm-ref
+            u64-ref
             var-ref
             ty-ref
             with-boxing
@@ -94,8 +96,7 @@
 
             *scan-procedures*
             *ir-procedures*
-            *ti-procedures*)
-  #:replace (local-ref))
+            *ti-procedures*))
 
 ;;;
 ;;; IR record type
@@ -167,7 +168,7 @@
                           (dl (identifier-syntax %dl))
                           (locals (identifier-syntax %locals)))
                        . body)
-                     (values #t 'name))))
+                     #t)))
     (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
 
 (define-syntax-rule (push-scan-sp-offset! ol n)
@@ -260,7 +261,7 @@
                      . body))))
     (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
 
-(define (infer-type ol ip dl locals op)
+(define (infer-type ol op ip dl locals)
   (match (hashq-ref *ti-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))
@@ -406,8 +407,9 @@
                      ((< min-local-index n max-local-index)
                       (let* ((i (- n sp-offset))
                              (e (outline-type-ref (ir-outline ir) n))
-                             (_ (debug 1 " loading, i=~s e=~s~%" i e))
                              (t (se-type i e)))
+                        (debug 1 ";;; [luf] rt=~a it=~a~%"
+                               (pretty-type t) (pretty-type (ty-ref n)))
                         (if (eq? t &unspecified)
                             (lp vars)
                             (begin
@@ -589,7 +591,7 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
               (unless (outline-initialized? ol)
                 (gen-put-index ol (flag arg) ...))
               (set-scan-initial-fields! ol)
-              (values #t 'name)))
+              #t))
            (ti-proc
             (lambda (%ip %dl %locals ol arg ...)
               (gen-infer-type ol (flag arg) ...)))
@@ -631,9 +633,11 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (current-fp-offset)
   (vector-ref (outline-fp-offsets (ir-outline ir)) (ir-bytecode-index ir)))
 
-(define-syntax-rule (local-ref n)
-  (let ((t (outline-type-ref (ir-outline ir) (+ n (current-sp-offset)))))
-    (stack-element locals n t)))
+(define-syntax-rule (scm-ref n)
+  (pointer->scm (vector-ref locals n)))
+
+(define-syntax-rule (u64-ref n)
+  (pointer-address (vector-ref locals n)))
 
 (define-syntax-rule (var-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))

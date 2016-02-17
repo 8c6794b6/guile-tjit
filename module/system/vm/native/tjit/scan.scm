@@ -35,7 +35,7 @@
   #:use-module (system vm native tjit snapshot)
   #:export (scan-locals))
 
-(define (scan-locals ol op prev-op ip dl locals)
+(define (scan-locals ol op ip dl locals)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; The stack used by VM interpreter grows down. Lower frame data is saved at
@@ -53,7 +53,7 @@
   (define-syntax-rule (nyi)
     (begin
       (debug 1 "NYI: ~a~%" (car op))
-      (values #f (car op))))
+      #f))
   (match (hashq-ref *scan-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))

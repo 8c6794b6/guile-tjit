@@ -36,7 +36,6 @@
             make-outline
             outline-locals
             outline-local-indices set-outline-local-indices!
-            outline-local-ref
             outline-type-ref
             outline-initialized?
             outline-infer-type? set-outline-infer-type!
@@ -44,11 +43,8 @@
             outline-sp-offsets set-outline-sp-offsets!
             outline-fp-offsets set-outline-fp-offsets!
             outline-types set-outline-types!
-            outline-dls
-            outline-ras
             outline-sp-offset set-outline-sp-offset!
             outline-fp-offset set-outline-fp-offset!
-            outline-ret-types set-outline-ret-types!
             outline-write-indices set-outline-write-indices!
             outline-read-indices set-outline-read-indices!
             outline-write-buf set-outline-write-buf!
@@ -57,8 +53,6 @@
             outline-inferred-types set-outline-inferred-types!
             outline-expected-types set-outline-expected-types!
 
-            pop-outline!
-            push-outline!
             arrange-outline
             expand-outline
             set-outline-previous-dl-and-ra!
@@ -75,8 +69,8 @@
 ;; procedure ... etc.
 (define-record-type $outline
   (%make-outline initialized? infer-type? backward?
-                 dls ras locals local-indices
-                 sp-offsets fp-offsets types sp-offset fp-offset ret-types
+                 locals local-indices
+                 sp-offsets fp-offsets types sp-offset fp-offset
                  write-indices read-indices write-buf live-indices
                  entry-types expected-types inferred-types)
   outline?
@@ -89,12 +83,6 @@
 
   ;; Flag to hold whether the operation goes backward.
   (backward? outline-backward? set-outline-backward!)
-
-  ;; Association list for dynamic link: (local . pointer to fp).
-  (dls outline-dls set-outline-dls!)
-
-  ;; Association list for return address: (local . pointer to ra).
-  (ras outline-ras set-outline-ras!)
 
   ;; Vector containing locals.
   (locals outline-locals)
@@ -116,9 +104,6 @@
 
   ;; Current FP offset.
   (fp-offset outline-fp-offset set-outline-fp-offset!)
-
-  ;; Returned types from C functions.
-  (ret-types outline-ret-types set-outline-ret-types!)
 
   ;; Local indices for write.
   (write-indices outline-write-indices set-outline-write-indices!)
@@ -145,8 +130,8 @@
                       types-from-parent)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (%make-outline #f #t #f '() '() (make-hash-table) '() '() '() types
-                 sp-offset fp-offset '() write-indices '()
+  (%make-outline #f #t #f (make-hash-table) '() '() '() types
+                 sp-offset fp-offset write-indices '()
                  (list write-indices) live-indices
                  '() '() (copy-tree types-from-parent)))
 
@@ -168,7 +153,6 @@
            dsts)))))
   (let* ((sp-offsets/vec (list->vector (reverse! (outline-sp-offsets outline))))
          (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline))))
-         ;; (ret-types/vec (list->vector (reverse! (outline-ret-types outline))))
          (reads/list (sort (outline-read-indices outline) <))
          (writes/list (sort (outline-write-indices outline) <))
          (write-buf/vec (list->vector (reverse! (outline-write-buf outline))))
@@ -177,7 +161,6 @@
     (set-outline-local-indices! outline locals/list)
     (set-outline-sp-offsets! outline sp-offsets/vec)
     (set-outline-fp-offsets! outline fp-offsets/vec)
-    ;; (set-outline-ret-types! outline ret-types/vec)
     (set-outline-read-indices! outline reads/list)
     (set-outline-write-indices! outline writes/list)
     (set-outline-write-buf! outline write-buf/vec)
@@ -188,32 +171,6 @@
       (set-outline-expected-types! outline (resolve-copies expected entry))
       (set-outline-inferred-types! outline (resolve-copies inferred entry)))
     (set-outline-initialized! outline #t)
-    outline))
-
-(define (push-outline! outline dl ra sp-offset locals)
-  (set-outline-dls! outline (cons dl (outline-dls outline)))
-  (set-outline-ras! outline (cons ra (outline-ras outline)))
-  (let lp ((i 0)
-           (end (vector-length locals))
-           (to-update (outline-locals outline)))
-    (when (< i end)
-      (hashq-set! to-update (+ i sp-offset) (vector-ref locals i))
-      (lp (+ i 1) end to-update)))
-  outline)
-
-(define (pop-outline! outline sp-offset locals)
-  (let ((old-dls (outline-dls outline))
-        (old-ras (outline-ras outline)))
-    (when (not (null? old-dls))
-      (set-outline-dls! outline (cdr old-dls)))
-    (when (not (null? old-ras))
-      (set-outline-ras! outline (cdr old-ras)))
-    (let lp ((i 0)
-             (end (vector-length locals))
-             (t (outline-locals outline)))
-      (when (< i end)
-        (hashq-set! t (+ i sp-offset) (vector-ref locals i))
-        (lp (+ i 1) end t)))
     outline))
 
 (define (expand-outline outline offset nlocals)
@@ -227,14 +184,6 @@
                             acc
                             (cons n acc))))
           (set-outline-live-indices! outline (sort acc <))))))
-
-(define (set-outline-previous-dl-and-ra! outline stack-size ra dl)
-  (let ((locals (outline-locals outline)))
-    (hashq-set! locals (- stack-size 1) ra)
-    (hashq-set! locals stack-size dl)))
-
-(define (outline-local-ref outline i)
-  (hashq-ref (outline-locals outline) i))
 
 (define (outline-type-ref outline i)
   (assq-ref (outline-types outline) i))

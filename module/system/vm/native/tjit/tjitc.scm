@@ -94,21 +94,20 @@
                (offset 0)
                (traces (reverse! traces))
                (ol (make-initial-outline))
-               (so-far-so-good? #t)
-               (prev-op #f))
+               (so-far-so-good? #t))
         (match traces
           ((trace . traces)
            (match trace
              ((ip ra dl locals)
               (let*-values (((len op) (disassemble-one bytecode offset))
-                            ((implemented? prev-op)
+                            ((implemented?)
                              (if so-far-so-good?
-                                 (scan-locals ol op prev-op ip dl locals)
-                                 (values #f (car op)))))
+                                 (scan-locals ol op ip dl locals)
+                                 #f)))
                 (when so-far-so-good?
-                  (infer-type ol ip dl locals op))
+                  (infer-type ol op ip dl locals))
                 (lp (cons (cons op trace) acc) (+ offset len) traces ol
-                    (and so-far-so-good? implemented?) prev-op)))
+                    (and so-far-so-good? implemented?))))
              (_ (error "malformed trace" trace))))
           (()
            (values (reverse! acc) (arrange-outline ol) so-far-so-good?)))))
@@ -129,7 +128,7 @@
           (((op ip _ dl locals) . traces)
            (set-outline-sp-offset! ol (vector-ref sp-offsets index))
            (set-outline-fp-offset! ol (vector-ref fp-offsets index))
-           (scan-locals ol op #f ip dl locals)
+           (scan-locals ol op ip dl locals)
            (lp traces (- index 1)))
           (()
            (set-outline-sp-offset! ol sp)

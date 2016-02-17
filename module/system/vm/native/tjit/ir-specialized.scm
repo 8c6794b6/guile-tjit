@@ -38,7 +38,7 @@
 (define-anf (subr-call)
   (let* ((stack-size (vector-length locals))
          (dst/v (var-ref (- stack-size 2)))
-         (subr/l (local-ref (- stack-size 1)))
+         (subr/l (scm-ref (- stack-size 1)))
          (ccode (and (program? subr/l)
                      (program-code subr/l)))
          (ra/v (var-ref stack-size))
@@ -52,7 +52,6 @@
                  ,(next)))))
          (emit-ccall
           (lambda ()
-            (pop-outline! (ir-outline ir) (current-sp-offset) locals)
             `(let ((,dst/v (%ccall ,proc-addr)))
                ;; XXX: Any other way to decide emitting `%return' than SP
                ;; offset comparison?
@@ -66,7 +65,7 @@
         (let lp ((n 0))
           (if (< n (- stack-size 1))
               (let ((n/v (var-ref n))
-                    (n/l (local-ref n)))
+                    (n/l (scm-ref n)))
                 (with-boxing (type-of n/l) n/v n/v
                   (lambda (boxed)
                     `(let ((_ (%carg ,boxed)))
@@ -110,10 +109,12 @@
          (ra-offset (+ proc-offset 1))
          (dl-offset (+ ra-offset 1)))
     (debug 1 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
-    (when (outline-infer-type? ol)
-      (set-expected-type! ol proc-offset &procedure)
-      (set-inferred-type! ol ra-offset &false)
-      (set-inferred-type! ol dl-offset &false))
+    (set-expected-type! ol proc-offset &procedure)
+    (set-inferred-type! ol ra-offset &false)
+    (set-inferred-type! ol dl-offset &false)
+
+    ;; Returned value from C function is stored in (- proc-offset 1). The stack
+    ;; item type of the value is always `scm'.
     (set-inferred-type! ol (- proc-offset 1) &scm)))
 
 ;; XXX: foreign-call
