@@ -35,10 +35,19 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-;; XXX: Could infer type from value of `low-bits'.
-(define-ir (make-short-immediate (scm! dst) (const low-bits))
+(define-anf (make-short-immediate dst low-bits)
   `(let ((,(var-ref dst) ,low-bits))
      ,(next)))
+
+(define-scan (make-short-immediate ol dst low-bits)
+  (unless (outline-initialized? ol)
+    (set-scan-write! ol dst)
+    (set-scan-initial-fields! ol)))
+
+(define-ti (make-short-immediate ol dst low-bits)
+  (let* ((sp-offset (outline-sp-offset ol))
+         (v (pointer->scm (make-pointer low-bits))))
+    (set-inferred-type! ol (+ dst sp-offset) (type-of v))))
 
 (define-ir (make-long-immediate (scm! dst) (const low-bits))
   `(let ((,(var-ref dst) ,low-bits))
