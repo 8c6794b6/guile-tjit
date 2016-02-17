@@ -418,7 +418,6 @@
           (convert ir rest))))
     (define (convert-one ir op ip ra dl locals rest)
       (debug 1 ";;; [convert-one] op=~s~%" op)
-      (scan-locals (ir-outline ir) op ip dl locals)
       (match (hashq-ref *ir-procedures* (car op))
         ((? list? procs)
          (let lp ((procs procs))
