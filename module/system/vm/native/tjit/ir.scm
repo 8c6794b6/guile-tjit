@@ -522,7 +522,7 @@
     ((_ ol (const arg) . rest) (gen-put-element-type ol . rest))
     ((_ ol (scm arg) . rest) (gen-expected ol 'scm &scm arg rest))
     ((_ ol (scm! arg) . rest) (gen-inferred ol 'scm arg rest))
-    ((_ ol (fixnum arg) . rest) (gen-expected ol 'scm &exact-integer arg rest))
+    ((_ ol (fixnum arg) . rest) (gen-expected ol 'scm &fixnum arg rest))
     ((_ ol (fixnum! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (flonum arg) . rest) (gen-expected ol 'scm &flonum arg rest))
     ((_ ol (flonum! arg) . rest) (gen-inferred ol 'scm arg rest))
@@ -543,7 +543,7 @@
     ((_ ol (scm! arg) . rest)
      (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &scm))
     ((_ ol (fixnum! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &exact-integer))
+     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &fixnum))
     ((_ ol (flonum! arg) . rest)
      (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &flonum))
     ((_ ol (pair! arg) . rest)
@@ -675,7 +675,7 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    ;; XXX: Add more types.
-   ((memq type (list &exact-integer
+   ((memq type (list &fixnum
                      ;; &complex
                      ;; &fraction
                      &char
@@ -756,7 +756,7 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
                                      (let ((,dst (%cref/f ,src 2)))
                                        ,(thunk)))))))
       (cond
-       ((eq? type &exact-integer) (guard-tc2 %tc2-int))
+       ((eq? type &fixnum) (guard-tc2 %tc2-int))
        ((eq? type &flonum) (guard-tc16/f %tc16-real))
        ((eq? type &char) (guard-tc8 %tc8-char))
        ((eq? type &unspecified) (guard-const *unspecified*))

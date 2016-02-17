@@ -133,16 +133,16 @@
                                    (let ((_ (,op ,va ,vb)))
                                      ,(next))))))
              (cond
-              ((and (eq? &exact-integer a/t) (eq? &exact-integer b/t))
+              ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
                (next-thunk))
-              ((and (eq? &scm a/t) (eq? &exact-integer b/t))
-               (with-unboxing &exact-integer va va next-thunk))
-              ((and (eq? &exact-integer a/t) (eq? &scm b/t))
-               (with-unboxing &exact-integer vb vb next-thunk))
+              ((and (eq? &scm a/t) (eq? &fixnum b/t))
+               (with-unboxing &fixnum va va next-thunk))
+              ((and (eq? &fixnum a/t) (eq? &scm b/t))
+               (with-unboxing &fixnum vb vb next-thunk))
               ((and (eq? &scm a/t) (eq? &scm b/t))
-               (with-unboxing &exact-integer va va
+               (with-unboxing &fixnum va va
                  (lambda ()
-                   (with-unboxing &exact-integer vb vb
+                   (with-unboxing &fixnum vb vb
                      next-thunk))))
               (else
                (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name (pretty-type a/t)
@@ -208,10 +208,10 @@
                                         `(op-fx-f ,va ,r2))))
                             ,(next)))))))
              (cond
-              ((eq? &exact-integer b/t)
+              ((eq? &fixnum b/t)
                (next-thunk))
               ((eq? &scm b/t)
-               (with-unboxing &exact-integer b/t b/t next-thunk))
+               (with-unboxing &fixnum b/t b/t next-thunk))
               (else
                (nyi "~s: et=fixnum it=~a" 'name (pretty-type b/t)))))))))))
 

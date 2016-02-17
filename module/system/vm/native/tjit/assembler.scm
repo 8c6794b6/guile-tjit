@@ -946,7 +946,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                   (memory-set!/f dst f0))
                  (else (err))))))))
        (cond
-        ((eq? type &exact-integer) (load-tc2 %tc2-int))
+        ((eq? type &fixnum) (load-tc2 %tc2-int))
         ((eq? type &flonum) (load-tc16/f %tc16-real))
         ((eq? type &char) (load-tc8 %tc8-char))
         ((eq? type &unspecified) (load-constant *scm-unspecified*))

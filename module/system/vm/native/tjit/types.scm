@@ -44,6 +44,7 @@
             dynamic-link?
             dynamic-link-offset
 
+            &fixnum
             &undefined
             &port
             &scm
@@ -85,8 +86,7 @@
             %tc16-real
 
             type->stack-element-type)
-  #:re-export (&exact-integer
-               &flonum
+  #:re-export (&flonum
                &complex
                &fraction
                &char
@@ -175,6 +175,8 @@
 ;; XXX: Any better number to use ...?
 (define &undefined 0)
 
+(define-syntax &fixnum (identifier-syntax &exact-integer))
+
 (define &port %tc7-port)
 
 (define &scm (@@ (language cps types) &all-types))
@@ -223,7 +225,7 @@
 (define (type-of obj)
   (cond
    ;; From (@ language cps types)
-   ((fixnum? obj) &exact-integer)
+   ((fixnum? obj) &fixnum)
    ((flonum? obj) &flonum)
    ((complex? obj) &complex)
    ((char? obj) &char)
@@ -256,8 +258,8 @@
   (cond
    ;; From (@ language cps types)
    ((eq? type &scm) "scm")
-   ((eq? type &exact-integer) (blue "snum"))
-   ((eq? type &flonum) (magenta "fnum"))
+   ((eq? type &fixnum) (blue "fixn"))
+   ((eq? type &flonum) (magenta "flon"))
    ((eq? type &char) (blue "char"))
    ((eq? type &unspecified) (green "uspc"))
    ((eq? type &unbound) (green "ubnd"))
@@ -296,7 +298,7 @@
 (define (flag->type flag)
   (cond
    ((eq? flag 'scm) &scm)
-   ((eq? flag 'fixnum) &exact-integer)
+   ((eq? flag 'fixnum) &fixnum)
    ((eq? flag 'flonum) &flonum)
    ((eq? flag 'procedure) &procedure)
    ((eq? flag 'pair) &pair)

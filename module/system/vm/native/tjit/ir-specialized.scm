@@ -80,23 +80,8 @@
          (dl-offset (+ ra-offset 1))
          (initialized (outline-initialized? ol)))
     (set-scan-scm! ol stack-size (+ stack-size 1))
-
-    (unless initialized
-      (set-scan-write! ol stack-size (+ stack-size 1))
-      (set-entry-type! ol proc-offset &procedure)
-      (let ((new-offsets (cons (outline-sp-offset ol)
-                               (outline-sp-offsets ol))))
-        (set-outline-sp-offsets! ol new-offsets)))
+    (set-scan-initial-fields! ol)
     (pop-scan-sp-offset! ol (- stack-size 2))
-
-    (unless initialized
-      (let ((new-offsets (cons (outline-fp-offset ol)
-                               (outline-fp-offsets ol)))
-            (writes (outline-write-indices ol))
-            (buf (outline-write-buf ol)))
-        (set-outline-fp-offsets! ol new-offsets)
-        (set-outline-write-buf! ol (cons writes buf))))
-
     (pop-scan-fp-offset! ol dl)))
 
 ;;; XXX: Multiple values return not yet implemented.

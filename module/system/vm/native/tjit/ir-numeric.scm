@@ -55,16 +55,16 @@
                       (let ((,dst/v (op-fx2 ,dst/v 2)))
                         ,(next))))))
            (cond
-            ((and (eq? &exact-integer a/t) (eq? &exact-integer b/t))
+            ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
              (next-thunk))
-            ((and (eq? &scm a/t) (eq? &exact-integer b/t))
-             (with-unboxing &exact-integer a/v a/v next-thunk))
-            ((and (eq? &exact-integer a/t) (eq? &scm b/t))
-             (with-unboxing &exact-integer b/v b/v next-thunk))
+            ((and (eq? &scm a/t) (eq? &fixnum b/t))
+             (with-unboxing &fixnum a/v a/v next-thunk))
+            ((and (eq? &fixnum a/t) (eq? &scm b/t))
+             (with-unboxing &fixnum b/v b/v next-thunk))
             ((and (eq? &scm a/t) (eq? &scm b/t))
-             (with-unboxing &exact-integer a/v a/v
+             (with-unboxing &fixnum a/v a/v
                (lambda ()
-                 (with-unboxing &exact-integer b/v b/v
+                 (with-unboxing &fixnum b/v b/v
                    next-thunk))))
             (else
              (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name
@@ -78,13 +78,13 @@
                 (r2 (make-tmpvar 2))
                 (f2 (make-tmpvar/f 2)))
            (cond
-            ((and (eq? &exact-integer a/t) (eq? &flonum b/t))
+            ((and (eq? &fixnum a/t) (eq? &flonum b/t))
              `(let ((,r2 (%rsh ,a/v 2)))
                 (let ((,f2 (%i2d ,r2)))
                   (let ((,dst/v (op-fl ,f2 ,b/v)))
                     ,(next)))))
             ((and (eq? &scm a/t) (eq? &flonum b/t))
-             (with-unboxing &exact-integer a/v a/v
+             (with-unboxing &fixnum a/v a/v
                (lambda ()
                  `(let ((,r2 (%rsh ,a/v 2)))
                     (let ((,f2 (%i2d ,r2)))
@@ -102,13 +102,13 @@
                 (r2 (make-tmpvar 2))
                 (f2 (make-tmpvar/f 2)))
            (cond
-            ((and (eq? &flonum a/t) (eq? &exact-integer b/t))
+            ((and (eq? &flonum a/t) (eq? &fixnum b/t))
              `(let ((,r2 (%rsh ,b/v 2)))
                 (let ((,f2 (%i2d ,r2)))
                   (let ((,dst/v (op-fl ,a/v ,f2)))
                     ,(next)))))
             ((and (eq? &flonum a/t) (eq? &scm b/t))
-             (with-unboxing &exact-integer b/v b/v
+             (with-unboxing &fixnum b/v b/v
                (lambda ()
                  `(let ((,r2 (%rsh ,b/v 2)))
                     (let ((,f2 (%i2d ,r2)))
@@ -136,8 +136,8 @@
                (lambda ()
                  `(let ((,dst/v (op-fl ,f2 ,b/v)))
                     ,(next)))))
-            ((and (eq? &flonum a/t) (eq? &exact-integer b/t))
-             (with-unboxing &exact-integer b/v b/v
+            ((and (eq? &flonum a/t) (eq? &fixnum b/t))
+             (with-unboxing &fixnum b/v b/v
                (lambda ()
                  `(let ((,r2 (%rsh ,b/v 2)))
                     (let ((,f2 (%i2d ,r2)))
@@ -167,10 +167,10 @@
                    `(let ((,dst/v (op-fx ,src/v ,(* imm 4))))
                       ,(next)))))
            (cond
-            ((eq? &exact-integer src/t)
+            ((eq? &fixnum src/t)
              (next-thunk))
             ((eq? &scm src/t)
-             (with-unboxing &exact-integer src/v src/v
+             (with-unboxing &fixnum src/v src/v
                next-thunk))
             (else
              (nyi "~s: et=fixnum it=~a" 'name (pretty-type src/t))))))))))
@@ -194,7 +194,7 @@
                          (let ((,f2 (%i2d ,r2)))
                            (let ((,dst/v (%fmul ,a/v ,f2)))
                              ,(next)))))))
-    (with-unboxing &exact-integer b/v b/v emit-next)))
+    (with-unboxing &fixnum b/v b/v emit-next)))
 
 (define-ir (mul (flonum! dst) (flonum a) (flonum b))
   `(let ((,(var-ref dst) (%fmul ,(var-ref a) ,(var-ref b))))
@@ -213,12 +213,12 @@
          (a/t (ty-ref a))
          (b/t (ty-ref b)))
     (cond
-     ((and (eq? &exact-integer a/t) (eq? &flonum b/t))
+     ((and (eq? &fixnum a/t) (eq? &flonum b/t))
       `(let ((,r2 (%rsh ,a/v 2)))
          (let ((,f2 (%i2d ,r2)))
            (let ((,dst/v (%fdiv ,f2 ,b/v)))
              ,(next)))))
-     ((and (eq? &exact-integer a/t) (eq? &scm b/t))
+     ((and (eq? &fixnum a/t) (eq? &scm b/t))
       (with-unboxing &flonum f1 b/v
         (lambda ()
           `(let ((,r2 (%rsh ,a/v 2)))
@@ -226,7 +226,7 @@
                (let ((,dst/v (%fdiv ,f2 ,f1)))
                  ,(next)))))))
      ((and (eq? &scm a/t) (eq? &scm b/t))
-      (with-unboxing &exact-integer a/v a/v
+      (with-unboxing &fixnum a/v a/v
         (with-unboxing &flonum f2 b/v
           (lambda ()
             `(let ((,r2 (%rsh ,a/v 2)))
