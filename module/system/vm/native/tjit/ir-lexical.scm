@@ -44,14 +44,12 @@
   (let* ((sp-offset (outline-sp-offset ol))
          (dst+sp (+ dst sp-offset))
          (src+sp (+ src sp-offset))
-         (entry (outline-entry-types ol))
-         (initialized? (outline-initialized? ol)))
-    (unless initialized?
-      (set-scan-read! ol src)
-      (set-scan-write! ol dst)
-      (unless (or (assq-ref (outline-inferred-types ol) src+sp)
-                  (assq-ref (outline-entry-types ol) src+sp))
-        (set-entry-type! ol src+sp `(copy . ,dst+sp))))
+         (entry (outline-entry-types ol)))
+    (set-scan-read! ol src)
+    (set-scan-write! ol dst)
+    (unless (or (assq-ref (outline-inferred-types ol) src+sp)
+                (assq-ref (outline-entry-types ol) src+sp))
+      (set-entry-type! ol src+sp `(copy . ,dst+sp)))
 
     ;; Resolving expcting and inferred type for dst and src. There are no SCM
     ;; type clue here, use existing data stored in outline. If src could not

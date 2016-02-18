@@ -58,7 +58,6 @@
   #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
-  #:use-module (system vm native tjit scan)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)

@@ -40,9 +40,8 @@
      ,(next)))
 
 (define-scan (make-short-immediate ol dst low-bits)
-  (unless (outline-initialized? ol)
-    (set-scan-write! ol dst)
-    (set-scan-initial-fields! ol)))
+  (set-scan-write! ol dst)
+  (set-scan-initial-fields! ol))
 
 (define-ti (make-short-immediate ol dst low-bits)
   (let* ((sp-offset (outline-sp-offset ol))
@@ -73,9 +72,8 @@
        ,(next))))
 
 (define-scan (static-ref ol dst offset)
-  (unless (outline-initialized? ol)
-    (set-scan-write! ol dst)
-    (set-scan-initial-fields! ol)))
+  (set-scan-write! ol dst)
+  (set-scan-initial-fields! ol))
 
 (define-ti (static-ref ol dst offset)
   (let* ((sp-offset (outline-sp-offset ol))

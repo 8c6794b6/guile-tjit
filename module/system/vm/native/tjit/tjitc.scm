@@ -47,7 +47,6 @@
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
-  #:use-module (system vm native tjit scan)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
@@ -102,7 +101,7 @@
               (let*-values (((len op) (disassemble-one bytecode offset))
                             ((implemented?)
                              (if so-far-so-good?
-                                 (scan-locals ol op ip dl locals)
+                                 (scan-trace ol op ip dl locals)
                                  #f)))
                 (when so-far-so-good?
                   (infer-type ol op ip dl locals))

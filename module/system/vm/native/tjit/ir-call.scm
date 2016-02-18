@@ -41,15 +41,13 @@
   (let* ((stack-size (vector-length locals))
          (sp-offset (outline-sp-offset ol))
          (sp-proc (- stack-size proc 1)))
-    (unless (outline-initialized? ol)
-      (unless label?
-        (set-scan-read! ol sp-proc)
-        (set-entry-type! ol sp-proc &procedure))
-      (set-scan-read! ol (+ sp-proc 1) (+ sp-proc 2))
-      (set-scan-write! ol (+ sp-proc 1) (+ sp-proc 2))
-      (do ((n 1 (+ n 1))) ((<= nlocals n))
-        (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm)))
-
+    (unless label?
+      (set-scan-read! ol sp-proc)
+      (set-entry-type! ol sp-proc &procedure))
+    (set-scan-read! ol (+ sp-proc 1) (+ sp-proc 2))
+    (set-scan-write! ol (+ sp-proc 1) (+ sp-proc 2))
+    (do ((n 1 (+ n 1))) ((<= nlocals n))
+      (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm))
     (set-scan-initial-fields! ol)
     (push-scan-fp-offset! ol proc)
     (push-scan-sp-offset! ol (- (+ proc nlocals) stack-size))))
@@ -58,16 +56,14 @@
   ;; Bytecode `call' changes SP after saving for current SP offset, see
   ;; `scan-call' above.
   (let* ((stack-size (vector-length locals))
-         (sp-offset
-          (if (outline-initialized? ol)
-              (outline-sp-offset ol)
-              (+ (outline-sp-offset ol) (- (+ proc nlocals) stack-size))))
+         (sp-offset (if (outline-initialized? ol)
+                        (outline-sp-offset ol)
+                        (car (outline-sp-offsets ol))))
          (fp (- stack-size proc))
          (sp-proc (- stack-size proc 1))
          (ra-ty (make-return-address
                  (make-pointer (+ ip (* 4 (if label? 3 2))))))
          (dl-ty (make-dynamic-link proc)))
-
     (unless label?
       (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
     (do ((n 0 (+ n 1))) ((<= nlocals n))
@@ -78,7 +74,6 @@
         (_
          (values)))
       (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm))
-
     (set-inferred-type! ol (+ sp-offset fp) ra-ty)
     (set-inferred-type! ol (+ sp-offset fp 1) dl-ty)
     (do ((n 0 (+ n 1))) ((<= nlocals n))
@@ -112,11 +107,7 @@
          (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
          (proc/v (var-ref (- fp 1)))
          (proc/l (scm-ref (- fp 1)))
-         (snapshot
-          (begin
-            (vector-set! locals (- stack-size proc) (scm->pointer #f))
-            (vector-set! locals (+ (- stack-size proc) 1) (scm->pointer #f))
-            (take-snapshot! ip 0)))
+         (snapshot (take-snapshot! ip 0))
          (inlineable (or (and (program? proc/l)
                               (primitive-code? (program-code proc/l)))
                          (and (<= (current-fp-offset) 0)
@@ -159,8 +150,7 @@
          (proc-sp (- stack-size 1)))
     (unless label?
       (set-expected-type! ol proc-sp &procedure))
-    (unless (outline-initialized? ol)
-      (set-scan-write! ol proc-sp))
+    (set-scan-write! ol proc-sp)
     (set-scan-initial-fields! ol)
     (push-scan-sp-offset! ol (- nlocals stack-size))))
 
@@ -195,25 +185,20 @@
 (define-scan (receive ol dst proc nlocals)
   (let* ((stack-size (vector-length locals))
          (sp-offset (outline-sp-offset ol))
-         (fp (- stack-size proc))
-         (initialized (outline-initialized? ol)))
-
-    (unless initialized
-      (set-scan-write! ol (- stack-size dst 1))
-      (set-scan-read! ol (- stack-size proc 2))
-      (let ((new-offsets (cons (outline-sp-offset ol)
-                               (outline-sp-offsets ol))))
-        (set-outline-sp-offsets! ol new-offsets)))
+         (fp (- stack-size proc)))
+    (set-scan-write! ol (- stack-size dst 1))
+    (set-scan-read! ol (- stack-size proc 2))
+    (let ((new-offsets (cons (outline-sp-offset ol)
+                             (outline-sp-offsets ol))))
+      (set-outline-sp-offsets! ol new-offsets))
     (pop-scan-sp-offset! ol (- stack-size nlocals))
-    (unless initialized
-      (set-scan-write! ol (- nlocals dst 1)))
-    (unless initialized
-      (let ((new-fp-offsets (cons (outline-fp-offset ol)
-                                  (outline-fp-offsets ol)))
-            (writes (outline-write-indices ol))
-            (buf (outline-write-buf ol)))
-        (set-outline-fp-offsets! ol new-fp-offsets)
-        (set-outline-write-buf! ol (cons writes buf))))))
+    (set-scan-write! ol (- nlocals dst 1))
+    (let ((new-fp-offsets (cons (outline-fp-offset ol)
+                                (outline-fp-offsets ol)))
+          (writes (outline-write-indices ol))
+          (buf (outline-write-buf ol)))
+      (set-outline-fp-offsets! ol new-fp-offsets)
+      (set-outline-write-buf! ol (cons writes buf)))))
 
 (define-ti (receive ol dst proc nlocals)
   ;; Bytecode `receive' changes SP after saving for current SP offset, see
@@ -221,7 +206,7 @@
   (let* ((stack-size (vector-length locals))
          (sp-offset (if (outline-initialized? ol)
                         (outline-sp-offset ol)
-                        (- (outline-sp-offset ol) (- stack-size nlocals))))
+                        (car (outline-sp-offsets ol))))
          (proc/i (+ (- stack-size proc 2) sp-offset))
          (dst/i (+ (- stack-size dst 1) sp-offset))
          (ty (or (assq-ref (outline-inferred-types ol) proc/i)
@@ -284,11 +269,10 @@
          (stack-size (vector-length locals))
          (ra-offset stack-size)
          (dl-offset (+ ra-offset 1)))
-    (unless (outline-initialized? ol)
-      (set-scan-read! ol ra-offset dl-offset)
-      (set-scan-write! ol ra-offset dl-offset)
-      (do ((n nlocals (- n 1))) ((< n 2))
-        (set-scan-read! ol (- stack-size n))))
+    (set-scan-read! ol ra-offset dl-offset)
+    (set-scan-write! ol ra-offset dl-offset)
+    (do ((n nlocals (- n 1))) ((< n 2))
+      (set-scan-read! ol (- stack-size n)))
     (set-scan-initial-fields! ol)
     (pop-scan-sp-offset! ol (- stack-size nlocals))
     (pop-scan-fp-offset! ol dl)))
@@ -299,7 +283,7 @@
   (let* ((stack-size (vector-length locals))
          (sp-offset (if (outline-initialized? ol)
                         (outline-sp-offset ol)
-                        (- (outline-sp-offset ol) (- stack-size nlocals))))
+                        (car (outline-sp-offsets ol))))
          (ra-offset (+ sp-offset stack-size))
          (dl-offset (+ ra-offset 1)))
     (set-inferred-type! ol ra-offset &false)

@@ -81,6 +81,7 @@
             define-anf
 
             define-scan
+            scan-trace
             push-scan-sp-offset!
             pop-scan-sp-offset!
             push-scan-fp-offset!
@@ -169,21 +170,42 @@
                      #t)))
     (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
 
+(define (scan-trace ol op ip dl locals)
+  ;; Compute local indices and stack element types in op.
+  ;;
+  ;; The stack used by VM interpreter grows down. Lower frame data is saved at
+  ;; the time of accumulation.  If one of the guard operation appeared soon
+  ;; after bytecode sequence `return' or `receive', snapshot does not know the
+  ;; value of locals in lower frame. When recorded bytecode contains `return'
+  ;; before `call', snapshot will recover a frame higher than the one used to
+  ;; enter the native call.
+  ;;
+  (define-syntax-rule (nyi)
+    (begin
+      (debug 1 "NYI: ~a~%" (car op))
+      #f))
+  (match (hashq-ref *scan-procedures* (car op))
+    ((? list? procs)
+     (let lp ((procs procs))
+       (match procs
+         (((test . work) . procs)
+          (if (apply test (list op locals))
+              (apply work ip dl locals ol (cdr op))
+              (lp procs)))
+         (_ (nyi)))))
+    (_ (nyi))))
+
 (define-syntax-rule (push-scan-sp-offset! ol n)
-  (unless (outline-initialized? ol)
-    (set-outline-sp-offset! ol (- (outline-sp-offset ol) n))))
+  (set-outline-sp-offset! ol (- (outline-sp-offset ol) n)))
 
 (define-syntax-rule (pop-scan-sp-offset! ol n)
-  (unless (outline-initialized? ol)
-    (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n))))
+  (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n)))
 
 (define-syntax-rule (push-scan-fp-offset! ol n)
-  (unless (outline-initialized? ol)
-    (set-outline-fp-offset! ol (- (outline-fp-offset ol) n))))
+  (set-outline-fp-offset! ol (- (outline-fp-offset ol) n)))
 
 (define-syntax-rule (pop-scan-fp-offset! ol n)
-  (unless (outline-initialized? ol)
-    (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n))))
+  (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n)))
 
 (define-syntax-rule (set-scan-write! ol i ...)
   (let* ((sp-offset (outline-sp-offset ol))
@@ -204,16 +226,15 @@
     (set-outline-read-indices! ol reads)))
 
 (define-syntax-rule (set-scan-initial-fields! ol)
-  (unless (outline-initialized? ol)
-    (let ((new-sp-offsets (cons (outline-sp-offset ol)
-                                (outline-sp-offsets ol)))
-          (new-fp-offsets (cons (outline-fp-offset ol)
-                                (outline-fp-offsets ol)))
-          (writes (outline-write-indices ol))
-          (buf (outline-write-buf ol)))
-      (set-outline-sp-offsets! ol new-sp-offsets)
-      (set-outline-fp-offsets! ol new-fp-offsets)
-      (set-outline-write-buf! ol (cons writes buf)))))
+  (let ((new-sp-offsets (cons (outline-sp-offset ol)
+                              (outline-sp-offsets ol)))
+        (new-fp-offsets (cons (outline-fp-offset ol)
+                              (outline-fp-offsets ol)))
+        (writes (outline-write-indices ol))
+        (buf (outline-write-buf ol)))
+    (set-outline-sp-offsets! ol new-sp-offsets)
+    (set-outline-fp-offsets! ol new-fp-offsets)
+    (set-outline-write-buf! ol (cons writes buf))))
 
 
 ;;;
@@ -457,8 +478,7 @@
 (define-syntax-rule (gen-expected ol sty ty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
     (gen-put-element-type ol . rest)
-    (unless (outline-initialized? ol)
-      (set-entry-type! ol i ty))
+    (set-entry-type! ol i ty)
     (set-expected-type! ol i ty)))
 
 (define-syntax gen-put-element-type
@@ -525,8 +545,7 @@ index referenced by dst, a, and b values at runtime."
            (scan-proc
             (lambda (%ip %dl %locals ol arg ...)
               (gen-put-element-type ol (flag arg) ...)
-              (unless (outline-initialized? ol)
-                (gen-put-index ol (flag arg) ...))
+              (gen-put-index ol (flag arg) ...)
               (set-scan-initial-fields! ol)
               #t))
            (ti-proc

@@ -43,8 +43,7 @@
         (begin
           (push-scan-sp-offset! ol diff)
           (do ((n 0 (+ n 1))) ((<= diff n))
-            (unless (outline-initialized? ol)
-              (set-scan-read! ol n))))
+            (set-scan-read! ol n)))
         (pop-scan-sp-offset! ol (- diff)))
     (set-scan-initial-fields! ol)))
 
@@ -109,14 +108,12 @@
           (next)))))
 
 (define-scan (assert-nargs-ee/locals ol expected nlocals)
-  (begin
-    (push-scan-sp-offset! ol nlocals)
-    (let lp ((n nlocals) (sp-offset (outline-sp-offset ol)))
-      (when (< 0 n)
-        (unless (outline-initialized? ol)
-          (set-scan-write! ol (- n 1)))
-        (lp (- n 1) sp-offset)))
-    (set-scan-initial-fields! ol)))
+  (push-scan-sp-offset! ol nlocals)
+  (let lp ((n nlocals) (sp-offset (outline-sp-offset ol)))
+    (when (< 0 n)
+      (set-scan-write! ol (- n 1))
+      (lp (- n 1) sp-offset)))
+  (set-scan-initial-fields! ol))
 
 (define-ti (assert-nargs-ee/locals ol expected nlocals)
   (let ((sp-offset (outline-sp-offset ol)))
