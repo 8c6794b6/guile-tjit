@@ -36,10 +36,7 @@
             make-outline
             outline-locals
             outline-local-indices set-outline-local-indices!
-            outline-type-ref
             outline-initialized?
-            outline-infer-type? set-outline-infer-type!
-            outline-backward? set-outline-backward!
             outline-sp-offsets set-outline-sp-offsets!
             outline-fp-offsets set-outline-fp-offsets!
             outline-types set-outline-types!
@@ -55,8 +52,6 @@
 
             arrange-outline
             expand-outline
-            set-outline-previous-dl-and-ra!
-            merge-outline-types!
             set-entry-type!
             set-expected-type!
             set-inferred-type!))
@@ -68,8 +63,7 @@
 ;; return addresses, past frame locals, locals of caller procedure in inlined
 ;; procedure ... etc.
 (define-record-type $outline
-  (%make-outline initialized? infer-type? backward?
-                 locals local-indices
+  (%make-outline initialized? locals local-indices
                  sp-offsets fp-offsets types sp-offset fp-offset
                  write-indices read-indices write-buf live-indices
                  entry-types expected-types inferred-types)
@@ -77,12 +71,6 @@
 
   ;; Flag to hold whether initialized.
   (initialized? outline-initialized? set-outline-initialized!)
-
-  ;; Flag to hold whether infer type.
-  (infer-type? outline-infer-type? set-outline-infer-type!)
-
-  ;; Flag to hold whether the operation goes backward.
-  (backward? outline-backward? set-outline-backward!)
 
   ;; Vector containing locals.
   (locals outline-locals)
@@ -130,7 +118,7 @@
                       types-from-parent)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (%make-outline #f #t #f (make-hash-table) '() '() '() types
+  (%make-outline #f (make-hash-table) '() '() '() types
                  sp-offset fp-offset write-indices '()
                  (list write-indices) live-indices
                  '() '() (copy-tree types-from-parent)))
@@ -174,32 +162,14 @@
     outline))
 
 (define (expand-outline outline offset nlocals)
-  (let ((locals (outline-locals outline))
-        (undefined (make-pointer #x904)))
+  (let ((undefined (make-pointer #x904)))
     (let lp ((n 0) (acc (outline-live-indices outline)))
       (if (< n nlocals)
           (begin
-            (hashq-set! locals (+ offset n) undefined)
             (lp (+ n 1) (if (memq n acc)
                             acc
                             (cons n acc))))
           (set-outline-live-indices! outline (sort acc <))))))
-
-(define (outline-type-ref outline i)
-  (assq-ref (outline-types outline) i))
-
-(define (merge-outline-types! outline local-x-types)
-  (let lp ((locals local-x-types)
-           (types (outline-types outline)))
-    (match locals
-      (((local . type) . locals)
-       (let* ((etype (if (symbol? type)
-                         type
-                         (type->stack-element-type type)))
-              (types (assq-set! types local etype)))
-         (lp locals types)))
-      (_
-       (set-outline-types! outline types)))))
 
 (define (set-entry-type! outline n t)
   (let* ((inferred (outline-inferred-types outline))

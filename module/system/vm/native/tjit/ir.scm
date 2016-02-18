@@ -85,8 +85,6 @@
             pop-scan-sp-offset!
             push-scan-fp-offset!
             pop-scan-fp-offset!
-            set-scan-type!
-            set-scan-scm!
             set-scan-write!
             set-scan-read!
             set-scan-initial-fields!
@@ -186,15 +184,6 @@
 (define-syntax-rule (pop-scan-fp-offset! ol n)
   (unless (outline-initialized? ol)
     (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n))))
-
-(define-syntax-rule (set-scan-type! ol (i t) ...)
-  (let* ((types (outline-types ol))
-         (types (assq-set! types (+ i (outline-sp-offset ol)) t))
-         ...)
-    (set-outline-types! ol types)))
-
-(define-syntax-rule (set-scan-scm! ol i ...)
-  (set-scan-type! ol (i 'scm) ...))
 
 (define-syntax-rule (set-scan-write! ol i ...)
   (let* ((sp-offset (outline-sp-offset ol))
@@ -344,19 +333,6 @@
             (sp-offset (current-sp-offset))
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
             (max-local-index (+ stack-size sp-offset))
-            (se-type (lambda (i e)
-                       (debug 1 ";;; [gen-load-thunk] (se-type ~s ~s) => " i e)
-                       (let ((r (cond
-                                 ((eq? 'f64 e) &f64)
-                                 ((eq? 'u64 e) &u64)
-                                 ((eq? 's64 e) &s64)
-                                 ((eq? 'scm e)
-                                  (type-of (stack-element locals i e)))
-                                 (else
-                                  (tjitc-error 'receive "unknown type ~s ~s"
-                                               i e)))))
-                         (debug 1 "~a~%" (pretty-type r))
-                         r)))
             (acc (make-hash-table))
             (load-down-frame
              (lambda ()
@@ -405,11 +381,9 @@
                       (debug 1 " skipping~%")
                       (lp vars))
                      ((< min-local-index n max-local-index)
-                      (let* ((i (- n sp-offset))
-                             (e (outline-type-ref (ir-outline ir) n))
-                             (t (se-type i e)))
-                        (debug 1 ";;; [luf] rt=~a it=~a~%"
-                               (pretty-type t) (pretty-type (ty-ref n)))
+                      (let* ((entries (outline-entry-types (ir-outline ir)))
+                             (t (assq-ref entries n)))
+                        (debug 1 " t=~a~%" (pretty-type t))
                         (if (eq? t &unspecified)
                             (lp vars)
                             (begin
@@ -461,13 +435,6 @@
       (set-outline-write-indices! ol (cons i writes)))
     (gen-put-index ol . rest)))
 
-(define-syntax-rule (gen-read-index ol arg rest)
-  (let* ((i (+ arg (outline-sp-offset ol)))
-         (reads (outline-read-indices ol)))
-    (unless (memq i reads)
-      (set-outline-read-indices! ol (cons i reads)))
-    (gen-put-index ol . rest)))
-
 (define-syntax gen-put-index
   (syntax-rules (const
                  scm! fixnum! flonum! pair! vector! box!
@@ -490,23 +457,12 @@
          (set-outline-read-indices! ol (cons i reads)))
        (gen-put-index ol . rest)))))
 
-;; Reorder expressions to resolve the types of IR arguments before updating the
-;; types with `dst'.
-;;
-;; `gen-inferred' and `gen-expected' will reorder the evaluation. Will evaluate
-;; expressions resulting from `rest' parameter, then evaluate the expression
-;; constructed from other argument. This reordering is done because in IR
-;; containing `dst' variable will write the contents of current VM stack, and
-;; the `dst' argument, if exist, is always the first argument of IR.
-
 (define-syntax-rule (gen-inferred ol sty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
-    (set-outline-types! ol (assq-set! (outline-types ol) i sty))
     (gen-put-element-type ol . rest)))
 
 (define-syntax-rule (gen-expected ol sty ty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
-    (set-outline-types! ol (assq-set! (outline-types ol) i sty))
     (gen-put-element-type ol . rest)
     (unless (outline-initialized? ol)
       (set-entry-type! ol i ty))

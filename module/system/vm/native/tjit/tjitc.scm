@@ -83,7 +83,7 @@
   (define (disassemble-bytecode bytecode traces parent-snapshot)
     (define disassemble-one
       (@@ (system vm disassembler) disassemble-one))
-    (define (make-initial-outline)
+    (define initial-outline
       (match parent-snapshot
         (($ $snapshot id sp fp nlocals locals vars code ip types reads lives)
          (make-outline (copy-tree types) sp fp (map car locals) lives locals))
@@ -93,7 +93,7 @@
       (let lp ((acc '())
                (offset 0)
                (traces (reverse! traces))
-               (ol (make-initial-outline))
+               (ol initial-outline)
                (so-far-so-good? #t))
         (match traces
           ((trace . traces)
@@ -115,37 +115,6 @@
       (lambda (x y fmt args . z)
         (debug 1 "XXX: ~s~%" (apply format #f fmt args))
         (values '() #f #f))))
-  (define (scan-backward traces ol parent-snapshot sp fp)
-    (let ((sp-offsets (outline-sp-offsets ol))
-          (fp-offsets (outline-fp-offsets ol))
-          (linked (get-root-trace linked-ip)))
-      (set-outline-backward! ol #t)
-      (when linked
-        (merge-outline-types! ol (fragment-loop-locals linked)))
-      (let lp ((traces (reverse traces))
-               (index (- (vector-length sp-offsets) 1)))
-        (match traces
-          (((op ip _ dl locals) . traces)
-           (set-outline-sp-offset! ol (vector-ref sp-offsets index))
-           (set-outline-fp-offset! ol (vector-ref fp-offsets index))
-           (scan-locals ol op ip dl locals)
-           (lp traces (- index 1)))
-          (()
-           (set-outline-sp-offset! ol sp)
-           (set-outline-fp-offset! ol fp)
-           (set-outline-backward! ol #f)
-           ol)))))
-  (define (merge-types dsts snapshot)
-    (let ((sp (snapshot-sp-offset snapshot))
-          (nlocals (snapshot-nlocals snapshot)))
-      (let lp ((dsts dsts) (srcs (snapshot-outline-types snapshot)))
-        (match srcs
-          (((n . t) . srcs)
-           (if (<= sp n (- (+ sp nlocals) 1))
-               (lp (assq-set! dsts n t) srcs)
-               (lp dsts srcs)))
-          (_
-           dsts)))))
 
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
@@ -178,15 +147,10 @@
       ;; bytecode operation, because some bytecode operations modify SP offset
       ;; after saving the SP offset.
       ;;
-      (let* ((initial-stack-item-types (copy-tree (outline-types outline)))
-             (last-sp-offset (outline-sp-offset outline))
-             (outline (scan-backward traces outline parent-snapshot
-                                     initial-sp-offset
-                                     initial-fp-offset))
-             (initial-stack-item-types
-              (if (or (not parent-fragment) loop?)
-                  initial-stack-item-types
-                  (merge-types initial-stack-item-types parent-snapshot)))
+      (let* ((last-sp-offset (outline-sp-offset outline))
+             (_ (begin
+                  (set-outline-sp-offset! outline initial-sp-offset)
+                  (set-outline-fp-offset! outline initial-fp-offset)))
              (linking-roots?
               (let ((origin-id
                      ;; Chasing parent id until it reaches to root trace. This
@@ -208,7 +172,7 @@
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
                           loop? downrec? uprec? #f
-                          initial-stack-item-types last-sp-offset #f #f
+                          last-sp-offset #f #f
                           linking-roots?)))
         (let-values (((snapshots anf ops) (compile-ir tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
@@ -243,20 +207,7 @@
                (not (zero? (outline-sp-offset outline))))
           (failure "NYI looping root trace with SP shift"))
          (else
-          (let ((verbosity (lightning-verbosity)))
-            (when (and (number? verbosity) (<= 1 verbosity))
-              (dump-outline outline)
-              (match parent-snapshot
-                (($ $snapshot id sp fp nlocals locals vars code ip
-                    outline-types reads lives)
-                 (format #t ";;; parent-snapshot:~%")
-                 (format #t ";;;   locals: ~a~%"
-                         (map (match-lambda
-                                ((k . t) (cons k (pretty-type t))))
-                              locals))
-                 (format #t ";;;   read-indices: ~a~%" reads)
-                 (format #t ";;;   live-indices: ~a~%" lives))
-                (_ (values)))))
+          (debug 1 "~a" (begin (dump-outline outline) ""))
           (with-nyi-handler entry-ip
             (compile-traces traces outline))))))))
 

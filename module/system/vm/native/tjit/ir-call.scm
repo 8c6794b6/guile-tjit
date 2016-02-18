@@ -42,7 +42,6 @@
          (sp-offset (outline-sp-offset ol))
          (sp-proc (- stack-size proc 1)))
     (unless (outline-initialized? ol)
-      (set-scan-scm! ol sp-proc (+ sp-proc 1) (+ sp-proc 2))
       (unless label?
         (set-scan-read! ol sp-proc)
         (set-entry-type! ol sp-proc &procedure))
@@ -50,9 +49,6 @@
       (set-scan-write! ol (+ sp-proc 1) (+ sp-proc 2))
       (do ((n 1 (+ n 1))) ((<= nlocals n))
         (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm)))
-
-    (do ((n 0 (+ n 1))) ((<= nlocals n))
-      (set-scan-scm! ol (- sp-proc n)))
 
     (set-scan-initial-fields! ol)
     (push-scan-fp-offset! ol proc)
@@ -161,7 +157,6 @@
 (define-syntax-rule (scan-tail-call ol nlocals label?)
   (let* ((stack-size (vector-length locals))
          (proc-sp (- stack-size 1)))
-    (set-scan-scm! ol proc-sp)
     (unless label?
       (set-expected-type! ol proc-sp &procedure))
     (unless (outline-initialized? ol)
@@ -202,7 +197,6 @@
          (sp-offset (outline-sp-offset ol))
          (fp (- stack-size proc))
          (initialized (outline-initialized? ol)))
-    (set-scan-scm! ol (- stack-size dst 1) (- stack-size proc 2))
 
     (unless initialized
       (set-scan-write! ol (- stack-size dst 1))
@@ -290,13 +284,10 @@
          (stack-size (vector-length locals))
          (ra-offset stack-size)
          (dl-offset (+ ra-offset 1)))
-    (set-scan-scm! ol ra-offset dl-offset)
     (unless (outline-initialized? ol)
       (set-scan-read! ol ra-offset dl-offset)
-      (set-scan-write! ol ra-offset dl-offset))
-    (do ((n nlocals (- n 1))) ((< n 2))
-      (set-scan-scm! ol (- stack-size n))
-      (unless (outline-initialized? ol)
+      (set-scan-write! ol ra-offset dl-offset)
+      (do ((n nlocals (- n 1))) ((< n 2))
         (set-scan-read! ol (- stack-size n))))
     (set-scan-initial-fields! ol)
     (pop-scan-sp-offset! ol (- stack-size nlocals))

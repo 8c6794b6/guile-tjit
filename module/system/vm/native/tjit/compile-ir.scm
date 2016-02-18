@@ -130,7 +130,6 @@
                    (vector-set! copy i (format #f "#x~x" addr))
                    (lp copy (- i 1))))))
     (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
-    (debug 3 ";;;   initial-types=~a~%" (tj-initial-types tj))
     (debug 3 ";;;   locals0=~a~%"
            (sort (snapshot-locals snapshot0)
                  (lambda (a b) (< (car a) (car b)))))
@@ -237,7 +236,6 @@
                                                       initial-nlocals)
                                    0 #f tj)))
                  (trace->anf tj ir trace)))))
-        (merge-outline-types! outline (tj-initial-types tj))
 
         ;; Update inferred type with entry types. All guards for entry types
         ;; have passed at this point. Then if this trace was side trace, set

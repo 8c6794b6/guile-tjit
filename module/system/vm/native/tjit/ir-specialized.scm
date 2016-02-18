@@ -79,7 +79,6 @@
          (ra-offset stack-size)
          (dl-offset (+ ra-offset 1))
          (initialized (outline-initialized? ol)))
-    (set-scan-scm! ol stack-size (+ stack-size 1))
     (set-scan-initial-fields! ol)
     (pop-scan-sp-offset! ol (- stack-size 2))
     (pop-scan-fp-offset! ol dl)))

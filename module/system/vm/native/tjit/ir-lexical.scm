@@ -45,8 +45,7 @@
          (dst+sp (+ dst sp-offset))
          (src+sp (+ src sp-offset))
          (entry (outline-entry-types ol))
-         (initialized? (outline-initialized? ol))
-         (backward? (outline-backward? ol)))
+         (initialized? (outline-initialized? ol)))
     (unless initialized?
       (set-scan-read! ol src)
       (set-scan-write! ol dst)
@@ -62,13 +61,6 @@
                    (assq-ref (outline-expected-types ol) src+sp)))
       (set-expected-type! ol src+sp `(copy . ,dst+sp)))
 
-    (if backward?
-        (and=> (outline-type-ref ol dst+sp)
-               (lambda (type)
-                 (set-scan-type! ol (src type))))
-        (and=> (outline-type-ref ol src+sp)
-               (lambda (type)
-                 (set-scan-type! ol (dst type)))))
     (set-scan-initial-fields! ol)))
 
 (define-ti (mov ol dst src)

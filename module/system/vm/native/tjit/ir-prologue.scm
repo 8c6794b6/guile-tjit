@@ -43,7 +43,6 @@
         (begin
           (push-scan-sp-offset! ol diff)
           (do ((n 0 (+ n 1))) ((<= diff n))
-            (set-scan-scm! ol n)
             (unless (outline-initialized? ol)
               (set-scan-read! ol n))))
         (pop-scan-sp-offset! ol (- diff)))
@@ -114,7 +113,6 @@
     (push-scan-sp-offset! ol nlocals)
     (let lp ((n nlocals) (sp-offset (outline-sp-offset ol)))
       (when (< 0 n)
-        (set-scan-scm! ol (- n 1))
         (unless (outline-initialized? ol)
           (set-scan-write! ol (- n 1)))
         (lp (- n 1) sp-offset)))
