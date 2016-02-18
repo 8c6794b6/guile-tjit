@@ -213,7 +213,7 @@
                                    (get-max-sp-offset initial-sp-offset
                                                       initial-fp-offset
                                                       initial-nlocals)
-                                   parent-snapshot outline)))
+                                   outline)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
@@ -262,8 +262,8 @@
                                         (<= 0 n (- initial-nlocals 1)))
                                       (reverse local-indices)))
                  (args (map make-var (reverse local-indices)))
-                 (snap0 (make-snapshot 0 0 0 initial-nlocals initial-locals
-                                       #f arg-indices outline initial-ip))
+                 (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
+                                       outline initial-ip))
                  (_ (hashq-set! snapshots 0 snap0))
                  (vt (make-hash-table)))
             (set-outline-live-indices! outline (outline-read-indices outline))
@@ -325,7 +325,7 @@
                                    (outline-write-indices (ir-outline ir))
                                    (ir-snapshot-id ir) sp-offset last-fp-offset
                                    min-sp (ir-max-sp-offset ir)
-                                   (tj-parent-snapshot tj) (tj-outline tj))))
+                                   (tj-outline tj))))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))

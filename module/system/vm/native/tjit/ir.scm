@@ -300,7 +300,7 @@
     (_ 0)))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
-                        min-sp-offset max-sp-offset parent-snapshot outline
+                        min-sp-offset max-sp-offset outline
                         #:optional (refill? #f))
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
@@ -318,9 +318,8 @@
                         (append acc (list (make-var (+ sp-offset nlocals))
                                           (make-var (+ sp-offset nlocals 1))))
                         acc)))))
-         (snapshot (make-snapshot id sp-offset fp-offset nlocals locals
-                                  parent-snapshot indices outline dst-ip
-                                  refill?)))
+         (snapshot (make-snapshot id sp-offset fp-offset nlocals indices
+                                  outline dst-ip refill?)))
     (values `(%snap ,id ,@args) snapshot)))
 
 (define-syntax gen-load-thunk
@@ -436,9 +435,7 @@
     (gen-put-index ol . rest)))
 
 (define-syntax gen-put-index
-  (syntax-rules (const
-                 scm! fixnum! flonum! pair! vector! box!
-                 u64! f64!)
+  (syntax-rules (const scm! fixnum! flonum! pair! vector! box! u64! f64!)
     ((_ ol)
      (set-outline-write-indices! ol (sort (outline-write-indices ol) <)))
     ((_ ol (const arg) . rest) (gen-put-index ol . rest))
@@ -457,10 +454,6 @@
          (set-outline-read-indices! ol (cons i reads)))
        (gen-put-index ol . rest)))))
 
-(define-syntax-rule (gen-inferred ol sty arg rest)
-  (let* ((i (+ arg (outline-sp-offset ol))))
-    (gen-put-element-type ol . rest)))
-
 (define-syntax-rule (gen-expected ol sty ty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
     (gen-put-element-type ol . rest)
@@ -469,30 +462,18 @@
     (set-expected-type! ol i ty)))
 
 (define-syntax gen-put-element-type
-  (syntax-rules (const
-                 scm scm! fixnum fixnum! flonum flonum!
-                 pair pair! vector vector! box box!
-                 bytevector
-                 u64 u64! f64 f64!)
+  (syntax-rules (scm fixnum flonum pair vector box bytevector u64 f64)
     ((_ ol) (values))
-    ((_ ol (const arg) . rest) (gen-put-element-type ol . rest))
     ((_ ol (scm arg) . rest) (gen-expected ol 'scm &scm arg rest))
-    ((_ ol (scm! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (fixnum arg) . rest) (gen-expected ol 'scm &fixnum arg rest))
-    ((_ ol (fixnum! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (flonum arg) . rest) (gen-expected ol 'scm &flonum arg rest))
-    ((_ ol (flonum! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (pair arg) . rest) (gen-expected ol 'scm &pair arg rest))
-    ((_ ol (pair! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (vector arg) . rest) (gen-expected ol 'scm &vector arg rest))
-    ((_ ol (vector! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (box arg) . rest) (gen-expected ol 'scm &box arg rest))
-    ((_ ol (box! arg) . rest) (gen-inferred ol 'scm arg rest))
     ((_ ol (bytevector arg) . rest) (gen-expected ol 'scm &bytevector arg rest))
     ((_ ol (u64 arg) . rest) (gen-expected ol 'u64 &u64 arg rest))
-    ((_ ol (u64! arg) . rest) (gen-inferred ol 'u64 arg rest))
     ((_ ol (f64 arg) . rest) (gen-expected ol 'f64 &f64 arg rest))
-    ((_ ol (f64! arg) . rest) (gen-inferred ol 'f64 arg rest))))
+    ((_ ol (other arg) . rest) (gen-put-element-type ol . rest))))
 
 (define-syntax gen-infer-type
   (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
@@ -523,8 +504,8 @@ defines procedure for scanning locals and types. E.g:
     ...)
 
 will define two procedures: one for IR compilation taking three arguments, and
-another procedure for scanning locals and types. The procedure for scanner takes
-three arguments and saves index referenced by dst, a, and b values at runtime."
+another procedure for scanning locals and types. The procedure for scanner saves
+index referenced by dst, a, and b values at runtime."
     ((_ (name (flag arg) ...) . body)
      (let ((test-proc
             (lambda (op locals)
@@ -617,8 +598,7 @@ three arguments and saves index referenced by dst, a, and b values at runtime."
                                   (ir-snapshot-id ir)
                                   (current-sp-offset) (current-fp-offset)
                                   (ir-min-sp-offset ir) (ir-max-sp-offset ir)
-                                  (ir-parent-snapshot ir) (ir-outline ir)
-                                  refill?)))
+                                  (ir-outline ir) refill?)))
        (let ((old-id (ir-snapshot-id ir)))
          (hashq-set! (ir-snapshots ir) old-id snapshot)
          (set-ir-snapshot-id! ir (+ old-id 1)))

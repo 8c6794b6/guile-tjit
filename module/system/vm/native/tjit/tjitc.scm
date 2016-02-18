@@ -85,10 +85,10 @@
       (@@ (system vm disassembler) disassemble-one))
     (define initial-outline
       (match parent-snapshot
-        (($ $snapshot id sp fp nlocals locals vars code ip types reads lives)
-         (make-outline (copy-tree types) sp fp (map car locals) lives locals))
+        (($ $snapshot id sp fp nlocals locals vars code ip reads lives)
+         (make-outline sp fp (map car locals) lives locals))
         (_
-         (make-outline '() 0 0 '() '() '()))))
+         (make-outline 0 0 '() '() '()))))
     (define (go)
       (let lp ((acc '())
                (offset 0)
@@ -171,8 +171,7 @@
                      (not (eq? origin-id linked-id)))))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot outline
-                          loop? downrec? uprec? #f
-                          last-sp-offset #f #f
+                          loop? downrec? uprec? #f last-sp-offset #f #f
                           linking-roots?)))
         (let-values (((snapshots anf ops) (compile-ir tj traces)))
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))

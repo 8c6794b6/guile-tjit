@@ -362,11 +362,9 @@ option was set to true."
           car-<))
   (format #t ";;; outline:~%")
   (format #t "~{;;;  ~a~%~}"
-          `((local-indices . ,(outline-local-indices outline))
-            (types . ,(sort (outline-types outline) car-<))
-            (read-indices . ,(outline-read-indices outline))
+          `((read-indices . ,(outline-read-indices outline))
             (live-indices . ,(outline-live-indices outline))
             (write-indices . ,(outline-write-indices outline))
-            ("entry   "  . ,(sort-types outline-entry-types))
+            (entry  . ,(sort-types outline-entry-types))
             (expected . ,(sort-types outline-expected-types))
             (inferred . ,(sort-types outline-inferred-types)))))

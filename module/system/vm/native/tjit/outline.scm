@@ -35,11 +35,9 @@
   #:export ($outline
             make-outline
             outline-locals
-            outline-local-indices set-outline-local-indices!
             outline-initialized?
             outline-sp-offsets set-outline-sp-offsets!
             outline-fp-offsets set-outline-fp-offsets!
-            outline-types set-outline-types!
             outline-sp-offset set-outline-sp-offset!
             outline-fp-offset set-outline-fp-offset!
             outline-write-indices set-outline-write-indices!
@@ -51,6 +49,7 @@
             outline-expected-types set-outline-expected-types!
 
             arrange-outline
+            outline-local-indices
             expand-outline
             set-entry-type!
             set-expected-type!
@@ -63,8 +62,7 @@
 ;; return addresses, past frame locals, locals of caller procedure in inlined
 ;; procedure ... etc.
 (define-record-type $outline
-  (%make-outline initialized? locals local-indices
-                 sp-offsets fp-offsets types sp-offset fp-offset
+  (%make-outline initialized? sp-offsets fp-offsets sp-offset fp-offset
                  write-indices read-indices write-buf live-indices
                  entry-types expected-types inferred-types)
   outline?
@@ -72,20 +70,11 @@
   ;; Flag to hold whether initialized.
   (initialized? outline-initialized? set-outline-initialized!)
 
-  ;; Vector containing locals.
-  (locals outline-locals)
-
-  ;; All local indices found in trace.
-  (local-indices outline-local-indices set-outline-local-indices!)
-
   ;; Vector containing SP offset per bytecode operation.
   (sp-offsets outline-sp-offsets set-outline-sp-offsets!)
 
   ;; Vector containing FP offset per bytecode operation.
   (fp-offsets outline-fp-offsets set-outline-fp-offsets!)
-
-  ;; Stack element types.
-  (types outline-types set-outline-types!)
 
   ;; Current SP offset.
   (sp-offset outline-sp-offset set-outline-sp-offset!)
@@ -114,14 +103,18 @@
   ;; Inferred types.
   (inferred-types outline-inferred-types set-outline-inferred-types!))
 
-(define (make-outline types sp-offset fp-offset write-indices live-indices
+(define (make-outline sp-offset fp-offset write-indices live-indices
                       types-from-parent)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (%make-outline #f (make-hash-table) '() '() '() types
-                 sp-offset fp-offset write-indices '()
-                 (list write-indices) live-indices
+  (%make-outline #f '() '() sp-offset fp-offset
+                 write-indices '() (list write-indices) live-indices
                  '() '() (copy-tree types-from-parent)))
+
+(define (outline-local-indices ol)
+  (sort (delete-duplicates (append (outline-write-indices ol)
+                                   (outline-read-indices ol)))
+        >))
 
 (define (arrange-outline outline)
   (define (resolve-copies dsts srcs)
@@ -143,10 +136,7 @@
          (fp-offsets/vec (list->vector (reverse! (outline-fp-offsets outline))))
          (reads/list (sort (outline-read-indices outline) <))
          (writes/list (sort (outline-write-indices outline) <))
-         (write-buf/vec (list->vector (reverse! (outline-write-buf outline))))
-         (locals/list
-          (sort (delete-duplicates (append writes/list reads/list)) >)))
-    (set-outline-local-indices! outline locals/list)
+         (write-buf/vec (list->vector (reverse! (outline-write-buf outline)))))
     (set-outline-sp-offsets! outline sp-offsets/vec)
     (set-outline-fp-offsets! outline fp-offsets/vec)
     (set-outline-read-indices! outline reads/list)
@@ -162,14 +152,12 @@
     outline))
 
 (define (expand-outline outline offset nlocals)
-  (let ((undefined (make-pointer #x904)))
-    (let lp ((n 0) (acc (outline-live-indices outline)))
-      (if (< n nlocals)
-          (begin
-            (lp (+ n 1) (if (memq n acc)
-                            acc
-                            (cons n acc))))
-          (set-outline-live-indices! outline (sort acc <))))))
+  (let lp ((n 0) (acc (outline-live-indices outline)))
+    (if (< n nlocals)
+        (lp (+ n 1) (if (memq n acc)
+                        acc
+                        (cons n acc)))
+        (set-outline-live-indices! outline (sort acc <)))))
 
 (define (set-entry-type! outline n t)
   (let* ((inferred (outline-inferred-types outline))
