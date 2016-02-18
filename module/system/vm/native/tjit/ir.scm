@@ -536,7 +536,7 @@ index referenced by dst, a, and b values at runtime."
                    (if (memq f '(fixnum
                                  flonum procedure pair vector
                                  struct string bytevector array))
-                       (let* ((v (pointer->scm (vector-ref locals n)))
+                       (let* ((v (vector-ref locals n))
                               (t (type-of v)))
                          (if (eq? t (flag->type f))
                              (lp flags ns)
@@ -591,10 +591,10 @@ index referenced by dst, a, and b values at runtime."
   (vector-ref (outline-fp-offsets (ir-outline ir)) (ir-bytecode-index ir)))
 
 (define-syntax-rule (scm-ref n)
-  (pointer->scm (vector-ref locals n)))
+  (vector-ref locals n))
 
 (define-syntax-rule (u64-ref n)
-  (pointer-address (vector-ref locals n)))
+  (pointer-address (scm->pointer (vector-ref locals n))))
 
 (define-syntax-rule (var-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
