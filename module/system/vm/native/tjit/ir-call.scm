@@ -43,11 +43,22 @@
          (sp-proc (- stack-size proc 1)))
     (unless label?
       (set-scan-read! ol sp-proc)
-      (set-entry-type! ol sp-proc &procedure))
+      (set-entry-type! ol sp-proc &procedure)
+      (set-expected-type! ol sp-proc &procedure))
     (set-scan-read! ol (+ sp-proc 1) (+ sp-proc 2))
     (set-scan-write! ol (+ sp-proc 1) (+ sp-proc 2))
     (do ((n 1 (+ n 1))) ((<= nlocals n))
-      (set-entry-type! ol (- (+ sp-proc sp-offset) n) &scm))
+      (let ((i (- (+ sp-proc sp-offset) n)))
+        (set-entry-type! ol i &scm)
+        (set-expected-type! ol i &scm)))
+    (do ((n 0 (+ n 1))) ((<= nlocals n))
+      (let ((i (- (+ sp-proc sp-offset) n)))
+        (match (assq-ref (outline-inferred-types ol) i)
+          (('copy . dst)
+           (set-entry-type! ol dst &scm)
+           (set-expected-type! ol dst &scm))
+          (_
+           (values)))))
     (set-scan-initial-fields! ol)
     (push-scan-fp-offset! ol proc)
     (push-scan-sp-offset! ol (- (+ proc nlocals) stack-size))))
@@ -64,16 +75,6 @@
          (ra-ty (make-return-address
                  (make-pointer (+ ip (* 4 (if label? 3 2))))))
          (dl-ty (make-dynamic-link proc)))
-    (unless label?
-      (set-expected-type! ol (+ sp-proc sp-offset) &procedure))
-    (do ((n 0 (+ n 1))) ((<= nlocals n))
-      (match (assq-ref (outline-inferred-types ol) n)
-        (('copy . dst)
-         (set-entry-type! ol dst &scm)
-         (set-expected-type! ol dst &scm))
-        (_
-         (values)))
-      (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm))
     (set-inferred-type! ol (+ sp-offset fp) ra-ty)
     (set-inferred-type! ol (+ sp-offset fp 1) dl-ty)
     (do ((n 0 (+ n 1))) ((<= nlocals n))
@@ -81,8 +82,7 @@
         (('copy . dst)
          (set-inferred-type! ol n &scm))
         (_
-         (values)))
-      (set-expected-type! ol (- (+ sp-proc sp-offset) n) &scm))))
+         (values))))))
 
 ;;; XXX: halt is not defined, might not necessary.
 

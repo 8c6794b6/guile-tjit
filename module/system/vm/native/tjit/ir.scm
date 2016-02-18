@@ -184,6 +184,7 @@
     (begin
       (debug 1 "NYI: ~a~%" (car op))
       #f))
+  (debug 1 ";;; [scan-trace] op=~a~%" op)
   (match (hashq-ref *scan-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))

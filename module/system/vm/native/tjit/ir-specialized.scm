@@ -87,7 +87,7 @@
   (let* ((stack-size (vector-length locals))
          (sp-offset (if (outline-initialized? ol)
                         (outline-sp-offset ol)
-                        (+ (outline-sp-offset ol) (- stack-size 2))))
+                        (car (outline-sp-offsets ol))))
          (proc-offset (+ (- stack-size 1) sp-offset))
          (ra-offset (+ proc-offset 1))
          (dl-offset (+ ra-offset 1)))
