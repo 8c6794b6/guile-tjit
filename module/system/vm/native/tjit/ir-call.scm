@@ -245,12 +245,6 @@
          (stack-size (vector-length locals))
          (inlineable (< (current-fp-offset) 0))
          (snapshot (take-snapshot! ip 0)))
-    (let* ((sp-offset (current-sp-offset))
-           (ra-offset (+ sp-offset stack-size))
-           (dl-offset (+ ra-offset 1)))
-      ;; XXX: Move the updates of inferred types.
-      (set-inferred-type! (ir-outline ir) ra-offset &false)
-      (set-inferred-type! (ir-outline ir) dl-offset &false))
     (set-ir-return-subr! ir #f)
     `(let ((_ ,snapshot))
        ,(if inlineable

@@ -53,7 +53,6 @@
             snapshot-code set-snapshot-code!
             snapshot-ip
             snapshot-outline-types
-            snapshot-read-indices
             snapshot-live-indices
 
             snapshot-link?
@@ -67,7 +66,7 @@
 ;; Record type for snapshot.
 (define-record-type $snapshot
   (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
-                  read-indices live-indices)
+                  live-indices)
   snapshot?
 
   ;; ID number of this snapshot.
@@ -94,9 +93,6 @@
   ;; Bytecode IP of this snapshot to return.
   (ip snapshot-ip)
 
-  ;; Read indices.
-  (read-indices snapshot-read-indices)
-
   ;; Live indices.
   (live-indices snapshot-live-indices))
 
@@ -111,8 +107,6 @@
     (debug 1 ";;; [make-snapshot] id:~s sp:~s fp:~s nlocals:~s~%"
            id sp-offset fp-offset nlocals)
     (debug 1 ";;; write-indices:~s~%" write-indices)
-    (debug 1 ";;; read-indices: ~s~%" (outline-read-indices outline))
-    (debug 1 ";;; live-indices:~a~%" (outline-live-indices outline))
     (debug 1 ";;; refill-ra-and-dl?:~a~%" refill-ra-and-dl?)
     (debug 1 "~a"
            (and ((@ (system vm native tjit dump) dump-outline) outline) "")))
@@ -131,9 +125,7 @@
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
            (%make-snapshot id sp-offset fp-offset nlocals (reverse! acc)
-                           #f #f ip
-                           (outline-read-indices outline)
-                           (outline-live-indices outline))))))))
+                           #f #f ip (outline-live-indices outline))))))))
 
 
 ;;;

@@ -86,7 +86,7 @@
       (let* ((parent-snapshot-vars
               (or (and=> snapshot snapshot-variables) '()))
              (parent-read-vars
-              (map make-var (snapshot-read-indices snapshot))))
+              (map make-var (snapshot-live-indices snapshot))))
         (hash-fold (lambda (k v acc)
                      (if (and (memq v parent-snapshot-vars)
                               (not (memq k acc)))

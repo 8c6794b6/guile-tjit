@@ -84,16 +84,13 @@
       (@@ (system vm disassembler) disassemble-one))
     (define initial-outline
       (match parent-snapshot
-        (($ $snapshot id sp fp nlocals locals vars code ip reads lives)
+        (($ $snapshot id sp fp nlocals locals vars code ip lives)
          (make-outline sp fp (map car locals) lives locals))
         (_
          (make-outline 0 0 '() '() '()))))
     (define (go)
-      (let lp ((acc '())
-               (offset 0)
-               (traces (reverse! traces))
-               (ol initial-outline)
-               (so-far-so-good? #t))
+      (let lp ((acc '()) (offset 0) (traces (reverse! traces))
+               (ol initial-outline) (so-far-so-good? #t))
         (match traces
           ((trace . traces)
            (match trace
@@ -105,8 +102,8 @@
                                  #f)))
                 (when so-far-so-good?
                   (infer-type ol op ip dl locals))
-                (lp (cons (cons op trace) acc) (+ offset len) traces ol
-                    (and so-far-so-good? implemented?))))
+                (lp (cons (cons op trace) acc) (+ offset len) traces
+                    ol (and so-far-so-good? implemented?))))
              (_ (error "malformed trace" trace))))
           (()
            (values (reverse! acc) (arrange-outline ol) so-far-so-good?)))))
@@ -137,12 +134,8 @@
         (debug 1 ";;; trace ~a: ~a~%" trace-id msg)
         (tjit-increment-compilation-failure! entry-ip)))
     (define (compile-traces traces outline)
-      ;; Copy outline types before scanning backward. Then if this trace was
-      ;; side trace, update the initial stack item types with locals from parent
-      ;; snapshot.
-      ;;
-      ;; Also save the last SP offset after initial scanning. Note that the last
-      ;; SP offset may differ from the SP offset coupled with last recorded
+      ;; Saving the last SP offset after initial scanning. Note that the last SP
+      ;; offset may differ from the SP offset coupled with last recorded
       ;; bytecode operation, because some bytecode operations modify SP offset
       ;; after saving the SP offset.
       ;;
