@@ -75,31 +75,31 @@
               (emit-ccall)))
         (tjitc-error 'subr-call "not a primitive ~s" subr/l))))
 
-(define-scan (subr-call ol)
+(define-scan (subr-call)
   (let* ((stack-size (vector-length locals))
          (proc-offset (- stack-size 1))
          (ra-offset stack-size)
          (dl-offset (+ ra-offset 1)))
-    (set-scan-initial-fields! ol)
-    (pop-scan-sp-offset! ol (- stack-size 2))
-    (pop-scan-fp-offset! ol dl)))
+    (set-scan-initial-fields! outline)
+    (pop-scan-sp-offset! outline (- stack-size 2))
+    (pop-scan-fp-offset! outline dl)))
 
 ;;; XXX: Multiple values return not yet implemented.
-(define-ti (subr-call ol)
+(define-ti (subr-call)
   (let* ((stack-size (vector-length locals))
-         (sp-offset (if (outline-initialized? ol)
-                        (outline-sp-offset ol)
-                        (car (outline-sp-offsets ol))))
+         (sp-offset (if (outline-initialized? outline)
+                        (outline-sp-offset outline)
+                        (car (outline-sp-offsets outline))))
          (proc-offset (+ (- stack-size 1) sp-offset))
          (ra-offset (+ proc-offset 1))
          (dl-offset (+ ra-offset 1)))
     (debug 1 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
-    (set-inferred-type! ol ra-offset &false)
-    (set-inferred-type! ol dl-offset &false)
+    (set-inferred-type! outline ra-offset &false)
+    (set-inferred-type! outline dl-offset &false)
 
     ;; Returned value from C function is stored in (- proc-offset 1). The stack
     ;; item type of the value is always `scm'.
-    (set-inferred-type! ol (- proc-offset 1) &scm)))
+    (set-inferred-type! outline (- proc-offset 1) &scm)))
 
 ;; XXX: foreign-call
 ;; XXX: continuation-call

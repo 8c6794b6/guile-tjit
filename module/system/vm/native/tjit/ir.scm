@@ -145,11 +145,12 @@
 (define-syntax-rule (define-scan (name args ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (scan-proc (lambda (%ip %dl %locals args ...)
+        (scan-proc (lambda (%ip %dl %locals %outline args ...)
                      (syntax-parameterize
                          ((ip (identifier-syntax %ip))
                           (dl (identifier-syntax %dl))
-                          (locals (identifier-syntax %locals)))
+                          (locals (identifier-syntax %locals))
+                          (outline (identifier-syntax %outline)))
                        . body)
                      #t)))
     (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
@@ -247,14 +248,15 @@
 ;;; Macros for type inference
 ;;;
 
-(define-syntax-rule (define-ti (name ol args ...) . body)
+(define-syntax-rule (define-ti (name args ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (ti-proc (lambda (%ip %dl %locals ol args ...)
+        (ti-proc (lambda (%ip %dl %locals %outline args ...)
                    (syntax-parameterize
                        ((ip (identifier-syntax %ip))
                         (dl (identifier-syntax %dl))
-                        (locals (identifier-syntax %locals)))
+                        (locals (identifier-syntax %locals))
+                        (outline (identifier-syntax %outline)))
                      . body))))
     (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
 
@@ -528,14 +530,14 @@ index referenced by dst, a, and b values at runtime."
                        (lp flags ns)))
                   (_ #t)))))
            (scan-proc
-            (lambda (%ip %dl %locals ol arg ...)
-              (gen-put-element-type ol (flag arg) ...)
-              (gen-put-index ol (flag arg) ...)
-              (set-scan-initial-fields! ol)
+            (lambda (%ip %dl %locals %outline arg ...)
+              (gen-put-element-type %outline (flag arg) ...)
+              (gen-put-index %outline (flag arg) ...)
+              (set-scan-initial-fields! %outline)
               #t))
            (ti-proc
-            (lambda (%ip %dl %locals ol arg ...)
-              (gen-infer-type ol (flag arg) ...)))
+            (lambda (%ip %dl %locals %outline arg ...)
+              (gen-infer-type %outline (flag arg) ...)))
            (anf-proc
             (lambda (%tj %outline %ir %next %ip %ra %dl %locals arg ...)
               (syntax-parameterize

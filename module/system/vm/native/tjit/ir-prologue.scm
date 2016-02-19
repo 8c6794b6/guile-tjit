@@ -36,16 +36,16 @@
 (define-syntax-rule (expand-stack nlocals)
   (expand-outline outline (current-sp-offset) nlocals))
 
-(define-syntax-rule (scan-frame ol op nlocals)
+(define-syntax-rule (scan-frame nlocals)
   (let* ((stack-size (vector-length locals))
          (diff (- nlocals stack-size)))
     (if (< stack-size nlocals)
         (begin
-          (push-scan-sp-offset! ol diff)
+          (push-scan-sp-offset! outline diff)
           (do ((n 0 (+ n 1))) ((<= diff n))
-            (set-scan-read! ol n)))
-        (pop-scan-sp-offset! ol (- diff)))
-    (set-scan-initial-fields! ol)))
+            (set-scan-read! outline n)))
+        (pop-scan-sp-offset! outline (- diff)))
+    (set-scan-initial-fields! outline)))
 
 ;; XXX: br-if-nargs-ne
 ;; XXX: br-if-nargs-lt
@@ -77,8 +77,8 @@
                 (next))))
         (next))))
 
-(define-scan (alloc-frame ol nlocals)
-  (scan-frame ol 'alloc-frame nlocals))
+(define-scan (alloc-frame nlocals)
+  (scan-frame nlocals))
 
 (define-anf (reset-frame nlocals)
   (let ((stack-size (vector-length locals)))
@@ -90,8 +90,8 @@
             (thunk)))
         (next))))
 
-(define-scan (reset-frame ol nlocals)
-  (scan-frame ol 'reset-frame nlocals))
+(define-scan (reset-frame nlocals)
+  (scan-frame nlocals))
 
 ;; XXX: push
 ;; XXX: pop
@@ -107,18 +107,18 @@
              ,(lp (- n 1)))
           (next)))))
 
-(define-scan (assert-nargs-ee/locals ol expected nlocals)
-  (push-scan-sp-offset! ol nlocals)
-  (let lp ((n nlocals) (sp-offset (outline-sp-offset ol)))
+(define-scan (assert-nargs-ee/locals expected nlocals)
+  (push-scan-sp-offset! outline nlocals)
+  (let lp ((n nlocals) (sp-offset (outline-sp-offset outline)))
     (when (< 0 n)
-      (set-scan-write! ol (- n 1))
+      (set-scan-write! outline (- n 1))
       (lp (- n 1) sp-offset)))
-  (set-scan-initial-fields! ol))
+  (set-scan-initial-fields! outline))
 
-(define-ti (assert-nargs-ee/locals ol expected nlocals)
-  (let ((sp-offset (outline-sp-offset ol)))
+(define-ti (assert-nargs-ee/locals expected nlocals)
+  (let ((sp-offset (outline-sp-offset outline)))
     (do ((n nlocals (- n 1))) ((<= n 0))
-      (set-inferred-type! ol (+ (- n 1) sp-offset) &undefined))))
+      (set-inferred-type! outline (+ (- n 1) sp-offset) &undefined))))
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args

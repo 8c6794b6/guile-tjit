@@ -39,14 +39,14 @@
   `(let ((,(var-ref dst) ,low-bits))
      ,(next)))
 
-(define-scan (make-short-immediate ol dst low-bits)
-  (set-scan-write! ol dst)
-  (set-scan-initial-fields! ol))
+(define-scan (make-short-immediate dst low-bits)
+  (set-scan-write! outline dst)
+  (set-scan-initial-fields! outline))
 
-(define-ti (make-short-immediate ol dst low-bits)
-  (let* ((sp-offset (outline-sp-offset ol))
+(define-ti (make-short-immediate dst low-bits)
+  (let* ((sp-offset (outline-sp-offset outline))
          (v (pointer->scm (make-pointer low-bits))))
-    (set-inferred-type! ol (+ dst sp-offset) (type-of v))))
+    (set-inferred-type! outline (+ dst sp-offset) (type-of v))))
 
 (define-ir (make-long-immediate (scm! dst) (const low-bits))
   `(let ((,(var-ref dst) ,low-bits))
@@ -71,15 +71,15 @@
                    (else (pointer-address ref)))))
        ,(next))))
 
-(define-scan (static-ref ol dst offset)
-  (set-scan-write! ol dst)
-  (set-scan-initial-fields! ol))
+(define-scan (static-ref dst offset)
+  (set-scan-write! outline dst)
+  (set-scan-initial-fields! outline))
 
-(define-ti (static-ref ol dst offset)
-  (let* ((sp-offset (outline-sp-offset ol))
+(define-ti (static-ref dst offset)
+  (let* ((sp-offset (outline-sp-offset outline))
          (val (dereference-scm (+ ip (* 4 offset))))
          (ty (if (flonum? val) &flonum &scm)))
-    (set-inferred-type! ol (+ dst sp-offset) ty)))
+    (set-inferred-type! outline (+ dst sp-offset) ty)))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!
