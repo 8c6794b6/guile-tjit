@@ -82,7 +82,6 @@
             pop-scan-sp-offset!
             push-scan-fp-offset!
             pop-scan-fp-offset!
-            set-scan-read!
             set-scan-initial-fields!
 
             define-ti
@@ -191,15 +190,6 @@
 
 (define-syntax-rule (pop-scan-fp-offset! ol n)
   (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n)))
-
-(define-syntax-rule (set-scan-read! ol i ...)
-  (let* ((sp-offset (outline-sp-offset ol))
-         (reads (outline-read-indices ol))
-         (reads (if (memq (+ i sp-offset) reads)
-                    reads
-                    (cons (+ i sp-offset) reads)))
-         ...)
-    (set-outline-read-indices! ol reads)))
 
 (define-syntax-rule (set-scan-initial-fields! ol)
   (let ((new-sp-offsets (cons (outline-sp-offset ol)
@@ -423,43 +413,24 @@
 
 (define-ir-syntax-parameters tj outline ir ip ra dl locals next)
 
-(define-syntax gen-put-index
-  (syntax-rules (const scm! fixnum! flonum! pair! vector! box! u64! f64!)
-    ((_ ol) (values))
-    ((_ ol (const arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (scm! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (fixnum! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (flonum! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (pair! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (vector! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (box! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (u64! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (f64! arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (other arg) . rest)
-     (let* ((i (+ arg (outline-sp-offset ol)))
-            (reads (outline-read-indices ol)))
-       (unless (memq i reads)
-         (set-outline-read-indices! ol (cons i reads)))
-       (gen-put-index ol . rest)))))
+(define-syntax-rule (gen-entry-type ol ty arg rest)
+  (let ((i (+ arg (outline-sp-offset ol))))
+    (set-entry-type! ol i ty)
+    (gen-scan-type ol . rest)))
 
-(define-syntax-rule (gen-expected ol sty ty arg rest)
-  (let* ((i (+ arg (outline-sp-offset ol))))
-    (gen-put-element-type ol . rest)
-    (set-entry-type! ol i ty)))
-
-(define-syntax gen-put-element-type
+(define-syntax gen-scan-type
   (syntax-rules (scm fixnum flonum pair vector box bytevector u64 f64)
     ((_ ol) (values))
-    ((_ ol (scm arg) . rest) (gen-expected ol 'scm &scm arg rest))
-    ((_ ol (fixnum arg) . rest) (gen-expected ol 'scm &fixnum arg rest))
-    ((_ ol (flonum arg) . rest) (gen-expected ol 'scm &flonum arg rest))
-    ((_ ol (pair arg) . rest) (gen-expected ol 'scm &pair arg rest))
-    ((_ ol (vector arg) . rest) (gen-expected ol 'scm &vector arg rest))
-    ((_ ol (box arg) . rest) (gen-expected ol 'scm &box arg rest))
-    ((_ ol (bytevector arg) . rest) (gen-expected ol 'scm &bytevector arg rest))
-    ((_ ol (u64 arg) . rest) (gen-expected ol 'u64 &u64 arg rest))
-    ((_ ol (f64 arg) . rest) (gen-expected ol 'f64 &f64 arg rest))
-    ((_ ol (other arg) . rest) (gen-put-element-type ol . rest))))
+    ((_ ol (scm arg) . rest) (gen-entry-type ol &scm arg rest))
+    ((_ ol (fixnum arg) . rest) (gen-entry-type ol &fixnum arg rest))
+    ((_ ol (flonum arg) . rest) (gen-entry-type ol &flonum arg rest))
+    ((_ ol (pair arg) . rest) (gen-entry-type ol &pair arg rest))
+    ((_ ol (vector arg) . rest) (gen-entry-type ol &vector arg rest))
+    ((_ ol (box arg) . rest) (gen-entry-type ol &box arg rest))
+    ((_ ol (bytevector arg) . rest) (gen-entry-type ol &bytevector arg rest))
+    ((_ ol (u64 arg) . rest) (gen-entry-type ol &u64 arg rest))
+    ((_ ol (f64 arg) . rest) (gen-entry-type ol &f64 arg rest))
+    ((_ ol (other arg) . rest) (gen-scan-type ol . rest))))
 
 (define-syntax gen-infer-type
   (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
@@ -510,8 +481,7 @@ index referenced by dst, a, and b values at runtime."
                   (_ #t)))))
            (scan-proc
             (lambda (%ip %dl %locals %outline arg ...)
-              (gen-put-element-type %outline (flag arg) ...)
-              (gen-put-index %outline (flag arg) ...)
+              (gen-scan-type %outline (flag arg) ...)
               (set-scan-initial-fields! %outline)
               #t))
            (ti-proc

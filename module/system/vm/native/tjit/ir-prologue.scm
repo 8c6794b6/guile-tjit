@@ -40,10 +40,7 @@
   (let* ((stack-size (vector-length locals))
          (diff (- nlocals stack-size)))
     (if (< stack-size nlocals)
-        (begin
-          (push-scan-sp-offset! outline diff)
-          (do ((n 0 (+ n 1))) ((<= diff n))
-            (set-scan-read! outline n)))
+        (push-scan-sp-offset! outline diff)
         (pop-scan-sp-offset! outline (- diff)))
     (set-scan-initial-fields! outline)))
 
@@ -112,7 +109,9 @@
   (set-scan-initial-fields! outline))
 
 (define-ti (assert-nargs-ee/locals expected nlocals)
-  (let ((sp-offset (outline-sp-offset outline)))
+  (let ((sp-offset (if (outline-initialized? outline)
+                       (outline-sp-offset outline)
+                       (car (outline-sp-offsets outline)))))
     (do ((n nlocals (- n 1))) ((<= n 0))
       (set-inferred-type! outline (+ (- n 1) sp-offset) &undefined))))
 
