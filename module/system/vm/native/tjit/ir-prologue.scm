@@ -62,13 +62,14 @@
   (next))
 
 (define-anf (alloc-frame nlocals)
-  (let ((stack-size (vector-length locals))
-        (undefined (pointer->scm (make-pointer #x904))))
+  (let* ((stack-size (vector-length locals))
+         (diff (- nlocals stack-size))
+         (undefined (pointer->scm (make-pointer #x904))))
     (if (< stack-size nlocals)
         (begin
-          (expand-stack (- nlocals stack-size))
+          (expand-stack diff)
           (let lp ((n 0))
-            (if (< n (- nlocals stack-size))
+            (if (< n diff)
                 `(let ((,(var-ref (- n)) ,undefined))
                    ,(lp (+ n 1)))
                 (next))))
@@ -76,6 +77,16 @@
 
 (define-scan (alloc-frame nlocals)
   (scan-frame nlocals))
+
+(define-ti (alloc-frame nlocals)
+  (let* ((stack-size (vector-length locals))
+         (diff (- nlocals stack-size))
+         (sp-offset (if (outline-initialized? outline)
+                        (outline-sp-offset outline)
+                        (car (outline-sp-offsets outline)))))
+    (when (< stack-size nlocals)
+      (do ((n 0 (+ n 1))) ((= n diff))
+        (set-inferred-type! outline (- sp-offset n) &undefined)))))
 
 (define-anf (reset-frame nlocals)
   (let ((stack-size (vector-length locals)))
@@ -95,8 +106,7 @@
 ;; XXX: drop
 
 (define-anf (assert-nargs-ee/locals expected nlocals)
-  (let* ((stack-size (vector-length locals))
-         (undefined (pointer->scm (make-pointer #x904))))
+  (let ((undefined (pointer->scm (make-pointer #x904))))
     (expand-stack nlocals)
     (let lp ((n nlocals))
       (if (< 0 n)
