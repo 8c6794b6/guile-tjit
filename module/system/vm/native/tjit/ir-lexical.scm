@@ -55,9 +55,6 @@
     (unless (or (assq-ref (outline-inferred-types ol) src+sp)
                 (assq-ref (outline-entry-types ol) src+sp))
       (set-entry-type! ol src+sp `(copy . ,dst+sp)))
-    (unless (or (assq-ref (outline-inferred-types ol) src+sp)
-                (assq-ref (outline-expected-types ol) src+sp))
-      (set-expected-type! ol src+sp `(copy . ,dst+sp)))
 
     (set-scan-initial-fields! ol)))
 
@@ -67,7 +64,7 @@
          (src+sp (+ src sp-offset)))
     (cond
      ((or (assq-ref (outline-inferred-types ol) src+sp)
-          (assq-ref (outline-expected-types ol) src+sp))
+          (assq-ref (outline-entry-types ol) src+sp))
       => (lambda (ty)
            (set-inferred-type! ol dst+sp ty)))
      (else

@@ -464,8 +464,7 @@
 (define-syntax-rule (gen-expected ol sty ty arg rest)
   (let* ((i (+ arg (outline-sp-offset ol))))
     (gen-put-element-type ol . rest)
-    (set-entry-type! ol i ty)
-    (set-expected-type! ol i ty)))
+    (set-entry-type! ol i ty)))
 
 (define-syntax gen-put-element-type
   (syntax-rules (scm fixnum flonum pair vector box bytevector u64 f64)

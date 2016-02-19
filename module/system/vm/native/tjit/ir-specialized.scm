@@ -94,7 +94,6 @@
          (ra-offset (+ proc-offset 1))
          (dl-offset (+ ra-offset 1)))
     (debug 1 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
-    (set-expected-type! ol proc-offset &procedure)
     (set-inferred-type! ol ra-offset &false)
     (set-inferred-type! ol dl-offset &false)
 

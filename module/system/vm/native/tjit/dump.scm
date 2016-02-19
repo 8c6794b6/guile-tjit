@@ -367,5 +367,4 @@ option was set to true."
             (live-indices . ,(outline-live-indices outline))
             (write-indices . ,(outline-write-indices outline))
             (entry  . ,(sort-types outline-entry-types))
-            (expected . ,(sort-types outline-expected-types))
             (inferred . ,(sort-types outline-inferred-types)))))

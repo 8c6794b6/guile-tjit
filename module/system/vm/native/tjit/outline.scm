@@ -46,13 +46,11 @@
             outline-live-indices set-outline-live-indices!
             outline-entry-types set-outline-entry-types!
             outline-inferred-types set-outline-inferred-types!
-            outline-expected-types set-outline-expected-types!
 
             arrange-outline!
             outline-local-indices
             expand-outline
             set-entry-type!
-            set-expected-type!
             set-inferred-type!))
 
 
@@ -64,7 +62,7 @@
 (define-record-type $outline
   (%make-outline initialized? sp-offsets fp-offsets sp-offset fp-offset
                  write-indices read-indices write-buf live-indices
-                 entry-types expected-types inferred-types)
+                 entry-types inferred-types)
   outline?
 
   ;; Flag to hold whether initialized.
@@ -97,9 +95,6 @@
   ;; Entry types.
   (entry-types outline-entry-types set-outline-entry-types!)
 
-  ;; Expected types.
-  (expected-types outline-expected-types set-outline-expected-types!)
-
   ;; Inferred types.
   (inferred-types outline-inferred-types set-outline-inferred-types!))
 
@@ -109,7 +104,7 @@
   ;; value.
   (%make-outline #f '() '() sp-offset fp-offset
                  write-indices '() (list write-indices) live-indices
-                 '() '() (copy-tree types-from-parent)))
+                 '() (copy-tree types-from-parent)))
 
 (define (outline-local-indices ol)
   (sort (delete-duplicates (append (outline-write-indices ol)
@@ -143,10 +138,8 @@
     (set-outline-write-indices! outline writes/list)
     (set-outline-write-buf! outline write-buf/vec)
     (let ((entry (outline-entry-types outline))
-          (expected (outline-expected-types outline))
           (inferred (outline-inferred-types outline)))
       (set-outline-entry-types! outline (resolve-copies entry entry))
-      (set-outline-expected-types! outline (resolve-copies expected entry))
       (set-outline-inferred-types! outline (resolve-copies inferred entry)))
     (set-outline-initialized! outline #t)))
 
@@ -174,19 +167,6 @@
                     (() acc)))))
     (debug 1 ";;; [set-entry-type!] ~s => ~a~%" n (pretty-type t))
     (set-outline-entry-types! outline entry)))
-
-(define (set-expected-type! outline n t)
-  (let* ((expected (outline-expected-types outline))
-         (expected (assq-set! expected n t))
-         (expected (let lp ((current expected) (acc expected))
-                     (match current
-                       (((i 'copy . (? (lambda (x) (= x n)))) . current)
-                        (lp current (assq-set! acc i t)))
-                       ((_ . current)
-                        (lp current acc))
-                       (() acc)))))
-    (debug 1 ";;; [set-expected-type!] ~s => ~a~%" n (pretty-type t))
-    (set-outline-expected-types! outline expected)))
 
 (define (set-inferred-type! outline n t)
   (let* ((inferred (outline-inferred-types outline))
