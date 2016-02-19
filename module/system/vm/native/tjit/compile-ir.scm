@@ -68,12 +68,12 @@
 ;;; Bytecode to ANF, and ANF to primop compiler
 ;;;
 
-(define (compile-ir tj trace)
+(define (compile-ir tj outline trace)
   "Compiles TRACE to primops with TJ and TRACE."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-scm! log (get-internal-run-time))))
-  (let*-values (((vars snapshots anf) (compile-anf tj trace))
+  (let*-values (((vars snapshots anf) (compile-anf tj outline trace))
                 ((snapshot0) (hashq-ref snapshots 0)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (tj-id tj))))
@@ -95,7 +95,8 @@
                    parent-read-vars env))
       '()))
 
-(define* (add-initial-loads tj snapshots initial-locals initial-sp-offset
+(define* (add-initial-loads tj outline snapshots
+                            initial-locals initial-sp-offset
                             parent-snapshot vars live-vars-in-parent
                             exp-body #:optional (loaded-vars #f))
   ;; When local was passed from parent and snapshot 0 contained the local with
@@ -113,8 +114,7 @@
   (let* ((snapshot0 (hashq-ref snapshots 0))
          (snapshot0-locals (snapshot-locals snapshot0))
          (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
-                                     '()))
-         (outline (tj-outline tj)))
+                                     '())))
     (define (type-from-snapshot n)
       (assq-ref snapshot0-locals n))
     (define (type-from-parent n)
@@ -173,9 +173,8 @@
         (()
          exp-body)))))
 
-(define (compile-anf tj trace)
+(define (compile-anf tj outline trace)
   (let* ((parent-snapshot (tj-parent-snapshot tj))
-         (outline (tj-outline tj))
          (root-trace? (not parent-snapshot))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
@@ -233,8 +232,8 @@
                                    (get-max-sp-offset initial-sp-offset
                                                       initial-fp-offset
                                                       initial-nlocals)
-                                   0 #f tj)))
-                 (trace->anf tj ir trace)))))
+                                   0 #f)))
+                 (trace->anf tj outline ir trace)))))
 
         ;; Update inferred type with entry types. All guards for entry types
         ;; have passed at this point. Then if this trace was side trace, set
@@ -268,7 +267,8 @@
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
-                                 ,(add-initial-loads tj snapshots initial-locals
+                                 ,(add-initial-loads tj outline snapshots
+                                                     initial-locals
                                                      initial-sp-offset
                                                      #f vars '() `(loop ,@args)
                                                      vt))))
@@ -289,7 +289,8 @@
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ,args-from-parent
                                (let ((_ ,snap0))
-                                 ,(add-initial-loads tj snapshots initial-locals
+                                 ,(add-initial-loads tj outline snapshots
+                                                     initial-locals
                                                      initial-sp-offset
                                                      parent-snapshot
                                                      vars live-vars-in-parent
@@ -302,7 +303,8 @@
           (let ((snap0 (initial-snapshot!)))
             `(letrec ((patch (lambda ,args-from-parent
                                (let ((_ ,snap0))
-                                 ,(add-initial-loads tj snapshots initial-locals
+                                 ,(add-initial-loads tj outline snapshots
+                                                     initial-locals
                                                      initial-sp-offset
                                                      parent-snapshot
                                                      vars live-vars-in-parent
@@ -311,20 +313,19 @@
 
     (values vars snapshots (make-anf))))
 
-(define (trace->anf tj ir traces)
+(define (trace->anf tj outline ir traces)
   (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
          (last-sp-offset (tj-last-sp-offset tj))
-         (last-fp-offset (let* ((fp-offsets (outline-fp-offsets
-                                             (tj-outline tj)))
+         (last-fp-offset (let* ((fp-offsets (outline-fp-offsets outline))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i))))
     (define (entry-snapshot! ip locals sp-offset min-sp)
       (let-values (((ret snapshot)
                     (take-snapshot ip 0 locals (ir-vars ir)
-                                   (outline-write-indices (ir-outline ir))
+                                   (outline-write-indices outline)
                                    (ir-snapshot-id ir) sp-offset last-fp-offset
                                    min-sp (ir-max-sp-offset ir)
-                                   (tj-outline tj))))
+                                   outline)))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
@@ -389,7 +390,6 @@
     (define (gen-next ir ip dl locals op rest)
       (lambda ()
         (let* ((old-index (ir-bytecode-index ir))
-               (outline (ir-outline ir))
                (new-index (+ old-index 1))
                (sp-offsets (outline-sp-offsets outline))
                (old-sp-offset (vector-ref sp-offsets old-index))
@@ -422,7 +422,7 @@
              (((test . work) . procs)
               (if (apply test (list op locals))
                   (let ((next (gen-next ir ip dl locals op rest)))
-                    (apply work ir next ip ra dl locals (cdr op)))
+                    (apply work tj outline ir next ip ra dl locals (cdr op)))
                   (lp procs)))
              (_ (nyi "~a" (car op))))))
         (_ (nyi "~a" (car op)))))

@@ -34,7 +34,7 @@
   #:use-module (system vm native tjit variables))
 
 (define-syntax-rule (expand-stack nlocals)
-  (expand-outline (ir-outline ir) (current-sp-offset) nlocals))
+  (expand-outline outline (current-sp-offset) nlocals))
 
 (define-syntax-rule (scan-frame ol op nlocals)
   (let* ((stack-size (vector-length locals))

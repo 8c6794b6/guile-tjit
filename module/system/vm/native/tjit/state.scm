@@ -35,7 +35,6 @@
             tj-parent-exit-id
             tj-parent-fragment
             tj-parent-snapshot
-            tj-outline
             tj-loop?
             tj-downrec?
             tj-uprec?
@@ -47,7 +46,7 @@
 
 (define-record-type $tj
   (make-tj id entry-ip linked-ip
-           parent-exit-id parent-fragment parent-snapshot outline
+           parent-exit-id parent-fragment parent-snapshot
            loop? downrec? uprec? handle-interrupts?
            last-sp-offset loop-locals loop-vars linking-roots?)
   tj?
@@ -69,9 +68,6 @@
 
   ;; Parent snapshot, snapshot of parent-exit-id in parent fragment.
   (parent-snapshot tj-parent-snapshot)
-
-  ;; Past frame info of this trace.
-  (outline tj-outline)
 
   ;; Flag for loop trace.
   (loop? tj-loop?)

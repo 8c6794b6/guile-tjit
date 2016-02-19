@@ -362,8 +362,7 @@ are local index number."
             (end-address (or (and=> (tj-parent-fragment tj)
                                     fragment-end-address)
                              (jit-address epilog-label)))
-            (parent-id (or (and=> (tj-parent-fragment tj)
-                                  fragment-id)
+            (parent-id (or (and=> (tj-parent-fragment tj) fragment-id)
                            0))
             (verbosity (lightning-verbosity))
             (gdb-jit-entry

@@ -32,6 +32,7 @@
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
@@ -61,6 +62,7 @@
                          ,(emit-next)))
                     (emit-next))))))
     (set-ir-return-subr! ir #t)
+    (set-tj-handle-interrupts! tj #t)
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))

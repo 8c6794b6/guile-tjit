@@ -48,10 +48,6 @@
             ir-bytecode-index set-ir-bytecode-index!
             ir-vars
             ir-return-subr? set-ir-return-subr!
-            ir-tj
-            ir-parent-snapshot
-            ir-outline
-            ir-loop?
 
             define-ir
             define-interrupt-ir
@@ -67,7 +63,7 @@
             with-unboxing
             current-sp-offset
             current-fp-offset
-            ir ip ra dl locals next
+            tj outline ir ip ra dl locals next
 
             make-var
             make-vars
@@ -103,7 +99,7 @@
 
 (define-record-type <ir>
   (make-ir snapshots snapshot-id vars min-sp-offset max-sp-offset
-           bytecode-index return-subr? tj)
+           bytecode-index return-subr?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -125,19 +121,7 @@
   (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
 
   ;; Flag for subr call.
-  (return-subr? ir-return-subr? set-ir-return-subr!)
-
-  ;; Tjit state for this ir.
-  (tj ir-tj))
-
-(define (ir-parent-snapshot ir)
-  (tj-parent-snapshot (ir-tj ir)))
-
-(define (ir-outline ir)
-  (tj-outline (ir-tj ir)))
-
-(define (ir-loop? ir)
-  (tj-loop? (ir-tj ir)))
+  (return-subr? ir-return-subr? set-ir-return-subr!))
 
 
 ;;;
@@ -245,9 +229,11 @@
 (define-syntax-rule (define-anf (name arg ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (anf-proc (lambda (%ir %next %ip %ra %dl %locals arg ...)
+        (anf-proc (lambda (%tj %outline %ir %next %ip %ra %dl %locals arg ...)
                     (syntax-parameterize
-                        ((ir (identifier-syntax %ir))
+                        ((tj (identifier-syntax %tj))
+                         (outline (identifier-syntax %outline))
+                         (ir (identifier-syntax %ir))
                          (next (identifier-syntax %next))
                          (ip (identifier-syntax %ip))
                          (ra (identifier-syntax %ra))
@@ -364,7 +350,7 @@
                      ((skip-var? var)
                       (lp vars))
                      ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
-                      (if (not (ir-parent-snapshot ir))
+                      (if (not (tj-parent-snapshot tj))
                           (nyi "root trace loading down frame")
                           (with-frame-ref vars var #f n lp)))
                      (else
@@ -375,13 +361,12 @@
                                                (if (memq k acc)
                                                    acc
                                                    (cons k acc)))
-                                             (outline-live-indices
-                                              (ir-outline ir))
+                                             (outline-live-indices outline)
                                              acc)
                                   <)))
                       (debug 1 ";;; [gen-load-thunk] live-indices=~a~%"
                              live-indices)
-                      (set-outline-live-indices! (ir-outline ir) live-indices)
+                      (set-outline-live-indices! outline live-indices)
                       (thunk)))))))
             (load-up-frame
              (lambda ()
@@ -402,7 +387,7 @@
                       (debug 1 " skipping~%")
                       (lp vars))
                      ((< min-local-index n max-local-index)
-                      (let* ((entries (outline-entry-types (ir-outline ir)))
+                      (let* ((entries (outline-entry-types outline))
                              (t (assq-ref entries n)))
                         (debug 1 " t=~a~%" (pretty-type t))
                         (if (eq? t &unspecified)
@@ -447,7 +432,7 @@
            'name "uninitialized" x))
        ...))))
 
-(define-ir-syntax-parameters ir ip ra dl locals next)
+(define-ir-syntax-parameters tj outline ir ip ra dl locals next)
 
 (define-syntax-rule (gen-write-index ol arg rest)
   (let* ((i (+ arg (outline-sp-offset ol)))
@@ -553,9 +538,11 @@ index referenced by dst, a, and b values at runtime."
             (lambda (%ip %dl %locals ol arg ...)
               (gen-infer-type ol (flag arg) ...)))
            (anf-proc
-            (lambda (%ir %next %ip %ra %dl %locals arg ...)
+            (lambda (%tj %outline %ir %next %ip %ra %dl %locals arg ...)
               (syntax-parameterize
-                  ((ir (identifier-syntax %ir))
+                  ((tj (identifier-syntax %tj))
+                   (outline (identifier-syntax %outline))
+                   (ir (identifier-syntax %ir))
                    (next (identifier-syntax %next))
                    (ip (identifier-syntax %ip))
                    (ra (identifier-syntax %ra))
@@ -578,17 +565,17 @@ index referenced by dst, a, and b values at runtime."
     ((_ names-and-args . body)
      (define-ir names-and-args
        (begin
-         (set-tj-handle-interrupts! (ir-tj ir) #t)
+         (set-tj-handle-interrupts! tj #t)
          . body)))))
 
 (define-syntax-rule (dereference-scm addr)
   (pointer->scm (dereference-pointer (make-pointer addr))))
 
 (define-syntax-rule (current-sp-offset)
-  (vector-ref (outline-sp-offsets (ir-outline ir)) (ir-bytecode-index ir)))
+  (vector-ref (outline-sp-offsets outline) (ir-bytecode-index ir)))
 
 (define-syntax-rule (current-fp-offset)
-  (vector-ref (outline-fp-offsets (ir-outline ir)) (ir-bytecode-index ir)))
+  (vector-ref (outline-fp-offsets outline) (ir-bytecode-index ir)))
 
 (define-syntax-rule (scm-ref n)
   (vector-ref locals n))
@@ -600,7 +587,7 @@ index referenced by dst, a, and b values at runtime."
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
 
 (define-syntax-rule (ty-ref n)
-  (assq-ref (outline-inferred-types (ir-outline ir)) (+ n (current-sp-offset))))
+  (assq-ref (outline-inferred-types outline) (+ n (current-sp-offset))))
 
 (define-syntax take-snapshot!
   (syntax-rules ()
@@ -609,16 +596,16 @@ index referenced by dst, a, and b values at runtime."
     ((_ ip dst-offset refill?)
      (let-values (((ret snapshot)
                    (take-snapshot ip dst-offset locals (ir-vars ir)
-                                  (if (and (ir-parent-snapshot ir)
-                                           (not (ir-loop? ir)))
+                                  (if (and (tj-parent-snapshot tj)
+                                           (not (tj-loop? tj)))
                                       (vector-ref
-                                       (outline-write-buf (ir-outline ir))
+                                       (outline-write-buf outline)
                                        (ir-bytecode-index ir))
-                                      (outline-write-indices (ir-outline ir)))
+                                      (outline-write-indices outline))
                                   (ir-snapshot-id ir)
                                   (current-sp-offset) (current-fp-offset)
                                   (ir-min-sp-offset ir) (ir-max-sp-offset ir)
-                                  (ir-outline ir) refill?)))
+                                  outline refill?)))
        (let ((old-id (ir-snapshot-id ir)))
          (hashq-set! (ir-snapshots ir) old-id snapshot)
          (set-ir-snapshot-id! ir (+ old-id 1)))
@@ -627,7 +614,7 @@ index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
    ((eq? type &flonum)
-    (set-tj-handle-interrupts! (ir-tj ir) #t)
+    (set-tj-handle-interrupts! tj #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    ;; XXX: Add more types.

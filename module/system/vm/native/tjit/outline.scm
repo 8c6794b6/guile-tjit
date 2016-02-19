@@ -48,7 +48,7 @@
             outline-inferred-types set-outline-inferred-types!
             outline-expected-types set-outline-expected-types!
 
-            arrange-outline
+            arrange-outline!
             outline-local-indices
             expand-outline
             set-entry-type!
@@ -116,7 +116,7 @@
                                    (outline-read-indices ol)))
         >))
 
-(define (arrange-outline outline)
+(define (arrange-outline! outline)
   (define (resolve-copies dsts srcs)
     (let ((copies (let lp ((dsts dsts) (acc '()))
                     (match dsts
@@ -148,8 +148,7 @@
       (set-outline-entry-types! outline (resolve-copies entry entry))
       (set-outline-expected-types! outline (resolve-copies expected entry))
       (set-outline-inferred-types! outline (resolve-copies inferred entry)))
-    (set-outline-initialized! outline #t)
-    outline))
+    (set-outline-initialized! outline #t)))
 
 (define (expand-outline outline offset nlocals)
   (let lp ((n 0) (acc (outline-live-indices outline)))

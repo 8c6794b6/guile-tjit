@@ -111,7 +111,7 @@
          (inlineable (or (and (program? proc/l)
                               (primitive-code? (program-code proc/l)))
                          (and (<= (current-fp-offset) 0)
-                              (not (tj-linking-roots? (ir-tj ir)))))))
+                              (not (tj-linking-roots? tj))))))
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,proc/v ,(pointer-address (scm->pointer proc/l)))))
          ,(if inlineable
@@ -133,7 +133,7 @@
          (rra (cons (+ sp-offset fp) (make-return-address dst-ptr)))
          (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
          (inlineable (and (< 0 (current-fp-offset))
-                          (not (tj-linking-roots? (ir-tj ir))))))
+                          (not (tj-linking-roots? tj)))))
     (if inlineable
         `(let ((_ (%scall ,proc)))
            ,(next))
