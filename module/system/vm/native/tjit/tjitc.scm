@@ -75,7 +75,8 @@
          (sline (addr->source-line entry-ip))
          (outline (match parent-snapshot
                     (($ $snapshot id sp fp nlocals locals vars code ip lives)
-                     (make-outline sp fp (map car locals) lives locals))
+                     (let ((inferred (if loop? '() locals)))
+                       (make-outline sp fp (map car locals) lives inferred)))
                     (_
                      (make-outline 0 0 '() '() '()))))
          (initial-sp-offset (outline-sp-offset outline))

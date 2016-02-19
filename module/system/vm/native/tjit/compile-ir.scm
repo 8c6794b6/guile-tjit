@@ -245,7 +245,8 @@
               (((n . ty) . srcs)
                (lp srcs (assq-set! dsts n ty)))
               (()
-               (if (pair? parent-snapshot-locals)
+               (if (and (pair? parent-snapshot-locals)
+                        (not (tj-loop? tj)))
                    (let lp ((srcs parent-snapshot-locals) (dsts dsts))
                      (match srcs
                        (((n . ty) . srcs)
