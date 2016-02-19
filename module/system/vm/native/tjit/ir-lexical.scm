@@ -46,7 +46,6 @@
          (src+sp (+ src sp-offset))
          (entry (outline-entry-types outline)))
     (set-scan-read! outline src)
-    (set-scan-write! outline dst)
 
     ;; Resolving expcting and inferred type for dst and src. There are no SCM
     ;; type clue here, use existing data stored in outline. If src could not

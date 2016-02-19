@@ -108,13 +108,17 @@
             ((trace . traces)
              (match trace
                ((ip ra dl locals)
-                (let*-values (((len op) (disassemble-one bytecode offset))
-                              ((implemented?)
-                               (if so-far-so-good?
-                                   (let ((ret (scan-trace ol op ip dl locals)))
-                                     (infer-type ol op ip dl locals)
-                                     ret)
-                                   #f)))
+                (let*-values
+                    (((len op) (disassemble-one bytecode offset))
+                     ((implemented?)
+                      (if so-far-so-good?
+                          (let* ((ret (scan-trace ol op ip dl locals))
+                                 (_ (infer-type ol op ip dl locals))
+                                 (ws (map car (outline-inferred-types ol)))
+                                 (buf (outline-write-buf ol)))
+                            (set-outline-write-buf! ol (cons (sort ws <) buf))
+                            ret)
+                          #f)))
                   (lp (cons (cons op trace) acc) (+ offset len) traces
                       ol implemented?)))
                (_ (error "malformed trace" trace))))

@@ -40,7 +40,6 @@
      ,(next)))
 
 (define-scan (make-short-immediate dst low-bits)
-  (set-scan-write! outline dst)
   (set-scan-initial-fields! outline))
 
 (define-ti (make-short-immediate dst low-bits)
@@ -72,7 +71,6 @@
        ,(next))))
 
 (define-scan (static-ref dst offset)
-  (set-scan-write! outline dst)
   (set-scan-initial-fields! outline))
 
 (define-ti (static-ref dst offset)

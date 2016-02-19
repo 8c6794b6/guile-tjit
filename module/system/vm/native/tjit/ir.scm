@@ -82,7 +82,6 @@
             pop-scan-sp-offset!
             push-scan-fp-offset!
             pop-scan-fp-offset!
-            set-scan-write!
             set-scan-read!
             set-scan-initial-fields!
 
@@ -193,15 +192,6 @@
 (define-syntax-rule (pop-scan-fp-offset! ol n)
   (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n)))
 
-(define-syntax-rule (set-scan-write! ol i ...)
-  (let* ((sp-offset (outline-sp-offset ol))
-         (writes (outline-write-indices ol))
-         (writes (if (memq (+ i sp-offset) writes)
-                     writes
-                     (cons (+ i sp-offset) writes)))
-         ...)
-    (set-outline-write-indices! ol (sort writes <))))
-
 (define-syntax-rule (set-scan-read! ol i ...)
   (let* ((sp-offset (outline-sp-offset ol))
          (reads (outline-read-indices ol))
@@ -215,12 +205,9 @@
   (let ((new-sp-offsets (cons (outline-sp-offset ol)
                               (outline-sp-offsets ol)))
         (new-fp-offsets (cons (outline-fp-offset ol)
-                              (outline-fp-offsets ol)))
-        (writes (outline-write-indices ol))
-        (buf (outline-write-buf ol)))
+                              (outline-fp-offsets ol))))
     (set-outline-sp-offsets! ol new-sp-offsets)
-    (set-outline-fp-offsets! ol new-fp-offsets)
-    (set-outline-write-buf! ol (cons writes buf))))
+    (set-outline-fp-offsets! ol new-fp-offsets)))
 
 
 ;;;
@@ -436,26 +423,18 @@
 
 (define-ir-syntax-parameters tj outline ir ip ra dl locals next)
 
-(define-syntax-rule (gen-write-index ol arg rest)
-  (let* ((i (+ arg (outline-sp-offset ol)))
-         (writes (outline-write-indices ol)))
-    (unless (memq i writes)
-      (set-outline-write-indices! ol (cons i writes)))
-    (gen-put-index ol . rest)))
-
 (define-syntax gen-put-index
   (syntax-rules (const scm! fixnum! flonum! pair! vector! box! u64! f64!)
-    ((_ ol)
-     (set-outline-write-indices! ol (sort (outline-write-indices ol) <)))
+    ((_ ol) (values))
     ((_ ol (const arg) . rest) (gen-put-index ol . rest))
-    ((_ ol (scm! arg) . rest) (gen-write-index ol arg rest))
-    ((_ ol (fixnum! arg) . rest) (gen-write-index ol arg rest))
-    ((_ ol (flonum! arg) . rest) (gen-write-index ol arg rest))
-    ((_ ol (pair! arg) . rest) (gen-write-index ol arg rest))
-    ((_ ol (vector! arg) . rest) (gen-write-index ol arg rest))
-    ((_ ol (box! arg) . rest) (gen-write-index ol arg rest))
-    ((_ ol (u64! arg) . rest) (gen-write-index ol arg rest))
-    ((_ ol (f64! arg) . rest) (gen-write-index ol arg rest))
+    ((_ ol (scm! arg) . rest) (gen-put-index ol . rest))
+    ((_ ol (fixnum! arg) . rest) (gen-put-index ol . rest))
+    ((_ ol (flonum! arg) . rest) (gen-put-index ol . rest))
+    ((_ ol (pair! arg) . rest) (gen-put-index ol . rest))
+    ((_ ol (vector! arg) . rest) (gen-put-index ol . rest))
+    ((_ ol (box! arg) . rest) (gen-put-index ol . rest))
+    ((_ ol (u64! arg) . rest) (gen-put-index ol . rest))
+    ((_ ol (f64! arg) . rest) (gen-put-index ol . rest))
     ((_ ol (other arg) . rest)
      (let* ((i (+ arg (outline-sp-offset ol)))
             (reads (outline-read-indices ol)))

@@ -109,10 +109,6 @@
 
 (define-scan (assert-nargs-ee/locals expected nlocals)
   (push-scan-sp-offset! outline nlocals)
-  (let lp ((n nlocals) (sp-offset (outline-sp-offset outline)))
-    (when (< 0 n)
-      (set-scan-write! outline (- n 1))
-      (lp (- n 1) sp-offset)))
   (set-scan-initial-fields! outline))
 
 (define-ti (assert-nargs-ee/locals expected nlocals)
