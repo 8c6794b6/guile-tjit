@@ -42,7 +42,7 @@
          (sp-offset (outline-sp-offset outline))
          (sp-proc (- stack-size proc 1)))
     (unless label?
-      (set-entry-type! outline sp-proc &procedure))
+      (set-entry-type! outline (+ sp-proc sp-offset) &procedure))
     (do ((n 1 (+ n 1))) ((<= nlocals n))
       (let ((i (- (+ sp-proc sp-offset) n)))
         (set-entry-type! outline i &scm)))
