@@ -119,7 +119,6 @@
 
 ;; XXX: make-closure
 
-;; XXX: Remove `with-unboxing'.
 (define-ir (free-ref (scm! dst) (scm src) (const idx))
   (let* ((dst/v (var-ref dst))
          (src/v (var-ref src))

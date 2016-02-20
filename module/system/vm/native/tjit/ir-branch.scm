@@ -136,14 +136,13 @@
               ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
                (next-thunk))
               ((and (eq? &scm a/t) (eq? &fixnum b/t))
-               (with-unboxing &fixnum va va next-thunk))
+               (with-unboxing &fixnum va next-thunk))
               ((and (eq? &fixnum a/t) (eq? &scm b/t))
-               (with-unboxing &fixnum vb vb next-thunk))
+               (with-unboxing &fixnum vb next-thunk))
               ((and (eq? &scm a/t) (eq? &scm b/t))
-               (with-unboxing &fixnum va va
+               (with-unboxing &fixnum va
                  (lambda ()
-                   (with-unboxing &fixnum vb vb
-                     next-thunk))))
+                   (with-unboxing &fixnum vb next-thunk))))
               (else
                (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name (pretty-type a/t)
                     (pretty-type b/t)))))))
@@ -160,10 +159,11 @@
                     ,(next))))
               ((and (eq? &scm a/t) (eq? &flonum b/t))
                (let ((f2 (make-tmpvar/f 2)))
-                 (with-unboxing &flonum f2 va
+                 (with-unboxing &flonum va
                    (lambda ()
-                     `(let ((_ (,op ,f2 ,vb)))
-                        ,(next))))))
+                     `(let ((,f2 (%cref/f ,va 2)))
+                        (let ((_ (,op ,f2 ,vb)))
+                          ,(next)))))))
               (else
                (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                     (pretty-type a/t) (pretty-type b/t)))))))))))
@@ -211,7 +211,7 @@
               ((eq? &fixnum b/t)
                (next-thunk))
               ((eq? &scm b/t)
-               (with-unboxing &fixnum b/t b/t next-thunk))
+               (with-unboxing &fixnum b/t next-thunk))
               (else
                (nyi "~s: et=fixnum it=~a" 'name (pretty-type b/t)))))))))))
 

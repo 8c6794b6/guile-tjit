@@ -970,7 +970,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((eq? type &bitvector) (load-tc7 %tc7-bitvector))
         ((eq? type &array) (load-tc7 %tc7-array))
         ((eq? type &hash-table) (load-tc7 %tc7-hashtable))
-        ((eq? type &port) (load-tc7 %tc7-port))
         ((memq type (list #f &scm &s64 &u64)) (move-stack-element))
         (else (err)))))))
 
@@ -1238,7 +1237,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (cond
      ((gpr? dst)
       (cond
-       ((constant? src) (jit-movi (gpr dst) (constant src)))
+       ((constant? src) (let ((val (ref-value src)))
+                          (cond
+                           ((flonum? val)
+                            (jit-movi-d f0 (constant src))
+                            (fpr->gpr (gpr dst) f0))
+                           (else
+                            (jit-movi (gpr dst) (constant src))))))
        ((gpr? src)      (jit-movr (gpr dst) (gpr src)))
        ((fpr? src)      (fpr->gpr (gpr dst) (fpr src)))
        ((memory? src)   (memory-ref (gpr dst) src))
@@ -1247,7 +1252,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (cond
        ((constant? src) (let ((val (ref-value src)))
                           (cond
-                           ((and (number? val) (flonum? val))
+                           ((flonum? val)
                             (jit-movi-d (fpr dst) (constant src)))
                            (else
                             (jit-movi r0 (constant src))

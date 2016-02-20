@@ -46,7 +46,6 @@
 
             &fixnum
             &undefined
-            &port
             &scm
 
             fixnum?
@@ -177,8 +176,6 @@
 
 (define-syntax &fixnum (identifier-syntax &exact-integer))
 
-(define &port %tc7-port)
-
 (define &scm (@@ (language cps types) &all-types))
 
 
@@ -227,7 +224,7 @@
    ;; From (@ language cps types)
    ((fixnum? obj) &fixnum)
    ((flonum? obj) &flonum)
-   ((complex? obj) &complex)
+   ((number? obj) &number)
    ((char? obj) &char)
    ((unspecified? obj) &unspecified)
    ((false? obj) &false)
@@ -249,9 +246,7 @@
    ((hash-table? obj) &hash-table)
    ;; Not from (@ language cps types)
    ((undefined? obj) &undefined)
-   ((port? obj) &port)
-   (else
-    (tjitc-error 'type-of "~s" obj))))
+   (else &scm)))
 
 (define (pretty-type type)
   "Show string representation of TYPE."
@@ -285,7 +280,6 @@
    ((eq? type &s64) "s64")
    ;; Not from (@ language cps types)
    ((eq? type &undefined) (green "udef"))
-   ((eq? type &port) (yellow "port"))
    ((dynamic-link? type)
     (let ((diff (number->string (dynamic-link-offset type))))
       (string-append "dl:" (cyan diff))))

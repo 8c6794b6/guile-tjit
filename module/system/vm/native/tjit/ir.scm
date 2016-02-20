@@ -592,24 +592,17 @@ index referenced by dst, a, and b values at runtime."
                      ;; &bitvector
                      ;; &array
                      &hash-table
-                     &port
                      &undefined))
     (proc var))
    (else
     (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
 
-(define-syntax-rule (with-unboxing type dst src thunk)
-  (let ((tmp (if (equal? dst (make-tmpvar 2))
+(define-syntax-rule (with-unboxing type src thunk)
+  (let ((tmp (if (equal? src (make-tmpvar 2))
                  (make-tmpvar 1)
                  (make-tmpvar 2))))
     (letrec-syntax
-        ((guard-const
-          (syntax-rules ()
-            ((_ val)
-             `(let ((_ ,(take-snapshot! ip 0)))
-                (let ((_ (%eq ,src val)))
-                  ,(thunk))))))
-         (gen-guard-imm
+        ((gen-guard-imm
           (syntax-rules ()
             ((_ mask tcx)
              `(let ((_ ,(take-snapshot! ip 0)))
@@ -618,16 +611,14 @@ index referenced by dst, a, and b values at runtime."
                     ,(thunk)))))))
          (gen-guard-cell
           (syntax-rules ()
-            ((_ mask tcx expr)
+            ((_ mask tcx)
              `(let ((_ ,(take-snapshot! ip 0)))
                 (let ((,tmp (%band ,src 6)))
                   (let ((_ (%eq ,tmp 0)))
                     (let ((,tmp (%cref ,src 0)))
                       (let ((,tmp (%band ,tmp mask)))
                         (let ((_ (%eq ,tmp ,tcx)))
-                          expr)))))))
-            ((_ mask tcx)
-             (gen-guard-cell mask tcx ,(thunk)))))
+                          ,(thunk))))))))))
          (guard-tc1
           (syntax-rules ()
             ((_ tag) (gen-guard-cell #x1 tag))))
@@ -645,26 +636,11 @@ index referenced by dst, a, and b values at runtime."
             ((_ tag) (gen-guard-imm #xff tag))))
          (guard-tc16/f
           (syntax-rules ()
-            ((_ tag) (gen-guard-cell #xffff tag
-                                     (let ((,dst (%cref/f ,src 2)))
-                                       ,(thunk)))))))
+            ((_ tag) (gen-guard-cell #xffff tag)))))
       (cond
        ((eq? type &fixnum) (guard-tc2 %tc2-int))
        ((eq? type &flonum) (guard-tc16/f %tc16-real))
        ((eq? type &char) (guard-tc8 %tc8-char))
-       ((eq? type &unspecified) (guard-const *unspecified*))
-       ((eq? type &unbound) (guard-const *unbound*))
-
-       ;; Guard for true and false disabled for now. Perhaps more proper way is
-       ;; to call `with-unboxing' only when necessary, e.g.: detect unmatch
-       ;; between inferred type and expected type and skip `with-unboxing' if
-       ;; matched.
-       ;;
-       ((eq? type &false) (thunk))
-       ((eq? type &true) (thunk))
-
-       ((eq? type &nil) (guard-const #nil))
-       ((eq? type &null) (thunk))
        ((eq? type &symbol) (guard-tc7 %tc7-symbol))
        ((eq? type &keyword) (guard-tc7 %tc7-keyword))
        ((eq? type &procedure) (guard-tc7 %tc7-program))
@@ -679,8 +655,6 @@ index referenced by dst, a, and b values at runtime."
        ((eq? type &bitvector) (guard-tc7 %tc7-bitvector))
        ((eq? type &array) (guard-tc7 %tc7-array))
        ((eq? type &hash-table) (guard-tc7 %tc7-hashtable))
-       ((eq? type &port) (guard-tc7 %tc7-port))
-       ;; XXX: Add more numbers: bignum, complex, rational.
        (else
         (nyi "with-unboxing: ~a ~a" (pretty-type type) src))))))
 

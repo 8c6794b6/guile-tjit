@@ -155,7 +155,7 @@
      ((or (memq type (list &scm &fixnum &char &null &nil
                            &symbol &keyword &procedure &pointer
                            &pair &fluid &vector &box &struct &string &bytevector
-                           &bitvector &array &hash-table &port &u64 &s64))
+                           &bitvector &array &hash-table &u64 &s64))
           ;; XXX: Should resolve copy at this point. Storeing copied value as
           ;; is, assuming that copy source is non-unboxed value.
           (eq? 'copy (car type)))
