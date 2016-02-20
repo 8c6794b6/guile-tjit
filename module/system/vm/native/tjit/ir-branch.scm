@@ -126,8 +126,8 @@
          (define-br-binary-scm-scm-body name a b invert? offset op-scm
            ra rb va vb dest
            (let* ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
-                  (a/t (ty-ref a))
-                  (b/t (ty-ref b))
+                  (a/t (type-ref a))
+                  (b/t (type-ref b))
                   (next-thunk (lambda ()
                                 `(let ((_ ,(take-snapshot! ip dest)))
                                    (let ((_ (,op ,va ,vb)))
@@ -150,8 +150,8 @@
          (define-br-binary-scm-scm-body name a b invert? offset op-scm
            ra rb va vb dest
            (let ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
-                 (a/t (ty-ref a))
-                 (b/t (ty-ref b)))
+                 (a/t (type-ref a))
+                 (b/t (type-ref b)))
              (cond
               ((and (eq? &flonum a/t) (eq? &flonum b/t))
                `(let ((_ ,(take-snapshot! ip dest)))
@@ -198,7 +198,7 @@
          (define-br-binary-u64-scm-body name a b invert? offset op-scm
            ra rb va vb dest
            (let* ((r2 (make-tmpvar 2))
-                  (b/t (ty-ref b))
+                  (b/t (type-ref b))
                   (next-thunk
                    (lambda ()
                      `(let ((_ ,(take-snapshot! ip dest)))

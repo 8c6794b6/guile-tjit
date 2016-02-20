@@ -78,7 +78,7 @@
         (r2 (make-tmpvar 2))
         (dst/v (var-ref dst))
         (src/v (var-ref src))
-        (src/t (ty-ref src)))
+        (src/t (type-ref src)))
     (if (eq? &flonum src/t)
         `(let ((,r2 ,%tc7-variable))
            ,(with-boxing src/t src/v r1
@@ -104,7 +104,7 @@
        ,(next))))
 
 (define-ir (box-set! (box dst) (scm src))
-  (let* ((src/t (ty-ref src))
+  (let* ((src/t (type-ref src))
          (vdst (var-ref dst))
          (vsrc (var-ref src)))
     (debug 1 ";;; [IR] box-set! src/t=~a~%" (pretty-type src/t))

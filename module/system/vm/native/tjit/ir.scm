@@ -58,7 +58,7 @@
             scm-ref
             u64-ref
             var-ref
-            ty-ref
+            type-ref
             with-boxing
             with-unboxing
             current-sp-offset
@@ -536,7 +536,7 @@ index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (var-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
 
-(define-syntax-rule (ty-ref n)
+(define-syntax-rule (type-ref n)
   (assq-ref (outline-inferred-types outline) (+ n (current-sp-offset))))
 
 (define-syntax take-snapshot!
