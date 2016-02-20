@@ -72,9 +72,10 @@
 
             make-tjit-time-log
             set-tjit-time-log-start!
-            set-tjit-time-log-scm!
+            set-tjit-time-log-anf!
             set-tjit-time-log-ops!
             set-tjit-time-log-assemble!
+            set-tjit-time-log-bailout!
             set-tjit-time-log-end!
             diff-tjit-time-log
 
@@ -96,7 +97,7 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode dwarf ops jitc locals ncode scm time exit)
+  (make-tjit-dump abort bytecode dwarf ops jitc locals ncode anf time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
@@ -105,7 +106,7 @@
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-verbose? set-tjit-dump-verbose!)
   (ncode tjit-dump-ncode? set-tjit-dump-ncode!)
-  (scm tjit-dump-anf? set-tjit-dump-anf!)
+  (anf tjit-dump-anf? set-tjit-dump-anf!)
   (time tjit-dump-time? set-tjit-dump-time!)
   (exit tjit-dump-exit? set-tjit-dump-exit!))
 
@@ -176,16 +177,24 @@ fields to @code{#f}."
 
 ;; Record type to hold internal run time at each stage of compilation.
 (define-record-type <tjit-time-log>
-  (make-tjit-time-log start scm ops assemble end)
+  (make-tjit-time-log start anf ops assemble bailout end)
   tjit-time-log?
+
   ;; Internal time at the time of tjitc entry.
   (start tjit-time-log-start set-tjit-time-log-start!)
-  ;; Time at SCM compilation entry.
-  (scm tjit-time-log-scm set-tjit-time-log-scm!)
-  ;; Time at primitive operation list compilation entry.
+
+  ;; At ANF compilation entry.
+  (anf tjit-time-log-anf set-tjit-time-log-anf!)
+
+  ;; At primitive operation list compilation entry.
   (ops tjit-time-log-ops set-tjit-time-log-ops!)
+
   ;; At assemble entry.
   (assemble tjit-time-log-assemble set-tjit-time-log-assemble!)
+
+  ;; At bailout compilation entry.
+  (bailout tjit-time-log-bailout set-tjit-time-log-bailout!)
+
   ;; At end.
   (end tjit-time-log-end set-tjit-time-log-end!))
 
@@ -195,15 +204,17 @@ fields to @code{#f}."
         (exact->inexact (/ (- b a) internal-time-units-per-second))
         0.0))
   (let ((start (tjit-time-log-start log))
-        (scm (tjit-time-log-scm log))
+        (anf (tjit-time-log-anf log))
         (ops (tjit-time-log-ops log))
         (assemble (tjit-time-log-assemble log))
+        (bailout (tjit-time-log-bailout log))
         (end (tjit-time-log-end log)))
     (list (diff start end)
-          (diff start scm)
-          (diff scm ops)
+          (diff start anf)
+          (diff anf ops)
           (diff ops assemble)
-          (diff assemble end))))
+          (diff assemble bailout)
+          (diff bailout end))))
 
 (define *tjit-time-logs*
   ;; Hash table containing log of compilation times.

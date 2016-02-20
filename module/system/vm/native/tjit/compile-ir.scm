@@ -72,7 +72,7 @@
   "Compiles TRACE to primops with TJ and TRACE."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (tj-id tj))))
-      (set-tjit-time-log-scm! log (get-internal-run-time))))
+      (set-tjit-time-log-anf! log (get-internal-run-time))))
   (let*-values (((vars snapshots anf) (compile-anf tj outline trace))
                 ((snapshot0) (hashq-ref snapshots 0)))
     (when (tjit-dump-time? (tjit-dump-option))

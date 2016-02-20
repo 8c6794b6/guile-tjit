@@ -381,6 +381,10 @@ are local index number."
                  #f)))
        (make-bytevector-executable! code)
 
+       (when (tjit-dump-time? (tjit-dump-option))
+         (let ((log (get-tjit-time-log (tj-id tj))))
+           (set-tjit-time-log-bailout! log (get-internal-run-time))))
+
        ;; Emit bailouts with end address of this code. Side traces need to
        ;; jump to the address of epilogue of parent root trace, to manage
        ;; non-volatile registers.

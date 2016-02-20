@@ -63,7 +63,7 @@
 (define (tjitc trace-id bytecode traces parent-ip parent-exit-id linked-ip
                loop? downrec? uprec?)
   (when (tjit-dump-time? (tjit-dump-option))
-    (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0)))
+    (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0 0)))
       (put-tjit-time-log! trace-id log)))
   (let* ((parent-fragment (get-fragment parent-ip))
          (parent-snapshot (if parent-fragment
