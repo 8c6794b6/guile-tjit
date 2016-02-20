@@ -567,35 +567,8 @@ index referenced by dst, a, and b values at runtime."
     (set-tj-handle-interrupts! tj #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
-   ;; XXX: Add more types.
-   ((memq type (list &fixnum
-                     ;; &complex
-                     ;; &fraction
-                     &char
-                     ;; &unspecified
-                     ;; &unbound
-                     &false
-                     ;; &true
-                     ;; &nil
-                     &null
-                     &symbol
-                     ;; &keyword
-                     &procedure
-                     ;; &pointer
-                     &pair
-                     ;; &fluid
-                     &vector
-                     ;; &box
-                     &struct
-                     &string
-                     ;; &bytevector
-                     ;; &bitvector
-                     ;; &array
-                     &hash-table
-                     &undefined))
-    (proc var))
    (else
-    (nyi "with-boxing: ~a ~s ~s" (pretty-type type) var tmp))))
+    (proc var))))
 
 (define-syntax-rule (with-unboxing type src thunk)
   (let ((tmp (if (equal? src (make-tmpvar 2))
@@ -645,7 +618,7 @@ index referenced by dst, a, and b values at runtime."
        ((eq? type &keyword) (guard-tc7 %tc7-keyword))
        ((eq? type &procedure) (guard-tc7 %tc7-program))
        ((eq? type &pointer) (guard-tc7 %tc7-pointer))
-       ((eq? type &pair) (thunk))
+       ((eq? type &pair) (guard-tc1 %tc3-cons))
        ((eq? type &fluid) (guard-tc7 %tc7-fluid))
        ((eq? type &vector) (guard-tc7 %tc7-vector))
        ((eq? type &box) (guard-tc7 %tc7-variable))

@@ -196,7 +196,7 @@ option was set to true."
 (define (dump-primops trace-id plist snapshots)
   (define (mark-op op)
     (case (car op)
-      ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fge)
+      ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fge %tyeq)
        "  >")
       ((%fref)
        (let ((t (cdr (cadddr op))))
@@ -271,6 +271,11 @@ option was set to true."
                     '%fref/f
                     (pretty-register dst)
                     (pretty-constant n)
+                    (pretty-type (cdr type))))
+           (('%tyeq src type)
+            (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
+                    '%tyeq
+                    (pretty-register src)
                     (pretty-type (cdr type))))
            (('%return (const . ra))
             (let ((sinfo (addr->source-line ra)))

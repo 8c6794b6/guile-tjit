@@ -88,7 +88,8 @@
             vm-sync-fp
             vm-handle-interrupts
             vm-expand-stack
-            unbox-stack-element))
+            unbox-stack-element
+            guard-stack-element))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -202,6 +203,47 @@
 (define-cell-guard guard-tc3 #x7)
 (define-cell-guard guard-tc7 #x7f)
 (define-cell-guard guard-tc16 #xffff)
+
+(define-syntax guard-type
+  (syntax-rules ()
+    ((_ src type)
+     (letrec-syntax
+         ((err
+           (syntax-rules ()
+             ((_)
+              (tjitc-error 'guard-stack-element "~a ~a ~s"
+                           (physical-name src) (pretty-type type)))))
+          (guard-constant
+           (syntax-rules ()
+             ((_ constant)
+              (jump (jit-bnei src constant) (bailout))))))
+       (cond
+        ((eq? type &fixnum) (guard-tc2 src %tc2-int))
+        ((eq? type &flonum) (guard-tc16 src %tc16-real))
+        ((eq? type &char) (guard-tc8 src %tc8-char))
+        ((eq? type &unspecified) (guard-constant *scm-unspecified*))
+        ((eq? type &unbound) (guard-constant *scm-unspecified*))
+        ((eq? type &undefined) (guard-constant *scm-undefined*))
+        ((eq? type &false) (guard-constant *scm-false*))
+        ((eq? type &true) (guard-constant *scm-true*))
+        ((eq? type &nil) (guard-constant *scm-nil*))
+        ((eq? type &null) (values))
+        ((eq? type &symbol) (guard-tc7 src %tc7-symbol))
+        ((eq? type &keyword) (guard-tc7 src %tc7-keyword))
+        ((eq? type &procedure) (guard-tc7 src %tc7-program))
+        ((eq? type &pointer) (guard-tc7 src %tc7-pointer))
+        ((eq? type &fluid) (guard-tc7 src %tc7-fluid))
+        ((eq? type &pair) (guard-tc1 src %tc3-cons))
+        ((eq? type &vector) (guard-tc7 src %tc7-vector))
+        ((eq? type &box) (guard-tc7 src %tc7-variable))
+        ((eq? type &struct) (guard-tc3 src %tc3-struct))
+        ((eq? type &string) (guard-tc7 src %tc7-string))
+        ((eq? type &bytevector) (guard-tc7 src %tc7-bytevector))
+        ((eq? type &bitvector) (guard-tc7 src %tc7-bitvector))
+        ((eq? type &array) (guard-tc7 src %tc7-array))
+        ((eq? type &hash-table) (guard-tc7 src %tc7-hashtable))
+        ((memq type (list #f &scm &s64 &u64)) (values))
+        (else (err)))))))
 
 
 ;;;
@@ -693,6 +735,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-guard-double %flt >= jit-bgei-d jit-bger-d)
 (define-binary-guard-double %fge < jit-blti-d jit-bltr-d)
 
+;;; Type guard.
+(define-native (%tyeq (int src) (void type))
+  (let ((reg (cond ((gpr? src) (gpr src))
+                   ((fpr? src) (fpr->gpr r0 src))
+                   ((memory? src) (memory-ref r0 src)))))
+    (guard-type reg (ref-value type))))
+
 
 ;;;
 ;;; Call and return
@@ -865,128 +914,34 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Load and store
 ;;;
 
-(define-syntax unbox-stack-element
-  (syntax-rules ()
-    ((_ dst src type guard?)
-     ;; Passing `guard?' parameter to control expansion of `(bailout)' at
-     ;; macro-expansion time, since it uses syntax paramter `asm'.
-     (letrec-syntax
-         ((err
-           (syntax-rules ()
-             ((_)
-              (tjitc-error 'unbox-stack-element "~a ~a ~s"
-                           (if (or (fpr? dst) (gpr? dst))
-                               (physical-name dst)
-                               dst)
-                           (pretty-type type)
-                           guard?))))
-          (maybe-guard
-           (syntax-rules ()
-             ((_ #f exp)
-              (values))
-             ((_ any exp)
-              exp)))
-          (move-stack-element
-           (syntax-rules ()
-             ((_)
-              (cond
-               ((gpr? dst) (jit-movr (gpr dst) src))
-               ((fpr? dst) (gpr->fpr (fpr dst) src))
-               ((memory? dst) (memory-set! dst src))
-               (else (err))))))
-          (load-constant
-           (syntax-rules ()
-             ((_ constant)
-              (begin
-                (maybe-guard guard? (jump (jit-bnei src constant) (bailout)))
-                (move-stack-element)))))
-          (load-tc1
-           (syntax-rules ()
-             ((_ tc1)
-              (begin
-                (maybe-guard guard? (guard-tc1 src tc1))
-                (move-stack-element)))))
-          (load-tc2
-           (syntax-rules ()
-             ((_ tc2)
-              (begin
-                (maybe-guard guard? (guard-tc2 src tc2))
-                (move-stack-element)))))
-          (load-tc3
-           (syntax-rules ()
-             ((_ tc3)
-              (begin
-                (maybe-guard guard? (guard-tc3 src tc3))
-                (move-stack-element)))))
-          (load-tc7
-           (syntax-rules ()
-             ((_ tc7)
-              (begin
-                (maybe-guard guard? (guard-tc7 src tc7))
-                (move-stack-element)))))
-          (load-tc8
-           (syntax-rules ()
-             ((_ tc8)
-              (begin
-                (maybe-guard guard? (guard-tc8 src tc8))
-                (move-stack-element)))))
-          (load-tc16/f
-           (syntax-rules ()
-             ((_ tc16)
-              (begin
-                (maybe-guard guard? (guard-tc16 src tc16))
-                (cond
-                 ((gpr? dst)
-                  (scm-real-value f0 src)
-                  (fpr->gpr (gpr dst) f0))
-                 ((fpr? dst)
-                  (scm-real-value (fpr dst) src))
-                 ((memory? dst)
-                  (scm-real-value f0 src)
-                  (memory-set!/f dst f0))
-                 (else (err))))))))
-       (cond
-        ((eq? type &fixnum) (load-tc2 %tc2-int))
-        ((eq? type &flonum) (load-tc16/f %tc16-real))
-        ((eq? type &char) (load-tc8 %tc8-char))
-        ((eq? type &unspecified) (load-constant *scm-unspecified*))
-        ((eq? type &unbound) (load-constant *scm-unspecified*))
-        ((eq? type &undefined) (load-constant *scm-undefined*))
-        ((eq? type &false) (load-constant *scm-false*))
-        ((eq? type &true) (load-constant *scm-true*))
-        ((eq? type &nil) (load-constant *scm-nil*))
-        ((eq? type &null) (move-stack-element))
-        ((eq? type &symbol) (load-tc7 %tc7-symbol))
-        ((eq? type &keyword) (load-tc7 %tc7-keyword))
-        ((eq? type &procedure) (load-tc7 %tc7-program))
-        ((eq? type &pointer) (load-tc7 %tc7-pointer))
-        ((eq? type &fluid) (load-tc7 %tc7-fluid))
-        ((eq? type &pair) (load-tc1 %tc3-cons))
-        ((eq? type &vector) (load-tc7 %tc7-vector))
-        ((eq? type &box) (load-tc7 %tc7-variable))
-        ((eq? type &struct) (load-tc3 %tc3-struct))
-        ((eq? type &string) (load-tc7 %tc7-string))
-        ((eq? type &bytevector) (load-tc7 %tc7-bytevector))
-        ((eq? type &bitvector) (load-tc7 %tc7-bitvector))
-        ((eq? type &array) (load-tc7 %tc7-array))
-        ((eq? type &hash-table) (load-tc7 %tc7-hashtable))
-        ((memq type (list #f &scm &s64 &u64)) (move-stack-element))
-        (else (err)))))))
-
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
 ;;; instructions with expected type as done in bytecode, to have vector-ref,
 ;;; struct-ref, box-ref, string-ref, fluid-ref, bv-u8-ref ... etc or not. When
 ;;; instructions specify its operand type, size of ANF will be more compact, but
 ;;; may loose chances to optimize away type checking instructions.
 
+(define (unbox-stack-element dst src type)
+  (if (eq? type &flonum)
+      (cond
+       ((gpr? dst)    (begin (scm-real-value f0 src)
+                             (fpr->gpr (gpr dst) f0)))
+       ((fpr? dst)    (scm-real-value (fpr dst) src))
+       ((memory? dst) (begin (scm-real-value f0 src)
+                             (memory-set!/f dst f0))))
+      (cond
+       ((gpr? dst) (jit-movr (gpr dst) src))
+       ((fpr? dst) (gpr->fpr (fpr dst) src))
+       ((memory? dst) (memory-set! dst src)))))
+
 ;; Type check local N with TYPE and load to gpr or memory DST.
 (define-native (%fref (int dst) (void n) (void type))
-  (let ((t (ref-value type)))
+  (let ((tref (ref-value type)))
     (when (or (not (constant? n))
               (not (constant? type)))
       (err))
     (sp-ref r0 (ref-value n))
-    (unbox-stack-element dst r0 t t)))
+    (guard-type r0 tref)
+    (unbox-stack-element dst r0 tref)))
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.

@@ -82,7 +82,7 @@
   (debug 3 ";;; load-frame: local:~a type:~a dst:~a~%"
          local (pretty-type type) dst)
   (sp-ref r0 local)
-  (unbox-stack-element dst r0 type #f))
+  (unbox-stack-element dst r0 type))
 
 (define (store-frame asm local type src)
   (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
@@ -251,7 +251,7 @@ are local index number."
            (physical-name dst) (physical-name src)))
   (define (dump-load local dst type)
     (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
-           (physical-name dst) type))
+           (physical-name dst) (pretty-type type)))
   (let ((dsts-list (hash-map->list cons dsts))
         (car-< (lambda (a b) (< (car a) (car b)))))
     (debug 3 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
@@ -299,32 +299,34 @@ are local index number."
            (lp rest))))
         (() (values))))))
 
-(define (adjust-downrec-stack asm loop? snapshots dsts)
-  (let* ((last-index (- (hash-count (const #t) snapshots) 1))
-         (last-snapshot (hashq-ref snapshots last-index))
-         (last-sp-offset (snapshot-sp-offset last-snapshot))
-         (last-fp-offset (snapshot-fp-offset last-snapshot))
-         (last-nlocals (snapshot-nlocals last-snapshot))
-         (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
-    (vm-expand-stack asm last-sp-offset)
-    (shift-fp (if loop?
-                  (- (+ last-sp-offset last-nlocals) initial-nlocals)
-                  last-sp-offset))
-    (let lp ((locals (snapshot-locals last-snapshot))
-             (vars (snapshot-variables last-snapshot)))
-      (match (list locals vars)
-        ((((local . type) . locals) (var . vars))
-         (store-frame asm (- local last-sp-offset) type var)
-         (lp locals vars))
-        (_
-         (let lp ((dsts dsts)
-                  (srcs (snapshot-variables last-snapshot)))
-           (match (list dsts srcs)
-             (((dst . dsts) (src . srcs))
-              (move dst src)
-              (lp dsts srcs))
-             (_
-              (values)))))))))
+;;; XXX: Incomplete
+
+;; (define (adjust-downrec-stack asm loop? snapshots dsts)
+;;   (let* ((last-index (- (hash-count (const #t) snapshots) 1))
+;;          (last-snapshot (hashq-ref snapshots last-index))
+;;          (last-sp-offset (snapshot-sp-offset last-snapshot))
+;;          (last-fp-offset (snapshot-fp-offset last-snapshot))
+;;          (last-nlocals (snapshot-nlocals last-snapshot))
+;;          (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
+;;     (vm-expand-stack asm last-sp-offset)
+;;     (shift-fp (if loop?
+;;                   (- (+ last-sp-offset last-nlocals) initial-nlocals)
+;;                   last-sp-offset))
+;;     (let lp ((locals (snapshot-locals last-snapshot))
+;;              (vars (snapshot-variables last-snapshot)))
+;;       (match (list locals vars)
+;;         ((((local . type) . locals) (var . vars))
+;;          (store-frame asm (- local last-sp-offset) type var)
+;;          (lp locals vars))
+;;         (_
+;;          (let lp ((dsts dsts)
+;;                   (srcs (snapshot-variables last-snapshot)))
+;;            (match (list dsts srcs)
+;;              (((dst . dsts) (src . srcs))
+;;               (move dst src)
+;;               (lp dsts srcs))
+;;              (_
+;;               (values)))))))))
 
 (define (dump-bailout ip exit-id code)
   (let ((verbosity (lightning-verbosity)))

@@ -125,7 +125,8 @@
                     (i (- (vector-length initial-locals) 1)))
              (if (< i 0)
                  copy
-                 (let ((addr (pointer-address (vector-ref copy i))))
+                 (let ((addr (pointer-address
+                              (scm->pointer (vector-ref copy i)))))
                    (vector-set! copy i (format #f "#x~x" addr))
                    (lp copy (- i 1))))))
     (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)

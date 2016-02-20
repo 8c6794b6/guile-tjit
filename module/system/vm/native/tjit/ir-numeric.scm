@@ -183,7 +183,7 @@
 (define-syntax-rule (define-mul-div-scm-scm name op)
   (begin
     (define-ir (name (scm! dst) (scm a) (scm b))
-      (nyi "~s: ~s ~s ~s~%" dst a b))
+      (nyi "~s: ~s ~s ~s~%" 'name dst a b))
     (define-ir (name (flonum! dst) (fixnum a) (flonum b))
       (let* ((dst/v (var-ref dst))
              (a/v (var-ref a))
