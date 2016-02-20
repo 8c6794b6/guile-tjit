@@ -41,8 +41,7 @@
   (let* ((stack-size (vector-length locals))
          (sp-offset (outline-sp-offset outline))
          (sp-proc (- stack-size proc 1)))
-    (unless label?
-      (set-entry-type! outline (+ sp-proc sp-offset) &procedure))
+    (set-entry-type! outline (+ sp-proc sp-offset) &procedure)
     (do ((n 1 (+ n 1))) ((<= nlocals n))
       (let ((i (- (+ sp-proc sp-offset) n)))
         (set-entry-type! outline i &scm)))
@@ -96,9 +95,6 @@
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
-         (dst-ptr (make-pointer (+ ip (* 2 4))))
-         (rra (cons (+ sp-offset fp) (make-return-address dst-ptr)))
-         (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
          (proc/v (var-ref (- fp 1)))
          (proc/l (scm-ref (- fp 1)))
          (snapshot (take-snapshot! ip 0))
@@ -124,8 +120,6 @@
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
          (dst-ptr (make-pointer (+ ip (* 2 4))))
-         (rra (cons (+ sp-offset fp) (make-return-address dst-ptr)))
-         (rdl (cons (+ sp-offset fp 1) (make-dynamic-link proc)))
          (inlineable (and (< 0 (current-fp-offset))
                           (not (tj-linking-roots? tj)))))
     (if inlineable

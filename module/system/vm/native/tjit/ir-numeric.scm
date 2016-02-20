@@ -37,7 +37,7 @@
 
 ;; Definition order matters, define general types first, then follows
 ;; more specific types.
-(define-syntax define-binary-arith-scm-scm
+(define-syntax define-add-sub-scm-scm
   (syntax-rules ()
     ((_ name op-fx1 op-fx2 op-fl)
      (begin
@@ -153,7 +153,7 @@
              (nyi "~s: et=(flonum flonum) i=(~a ~a)" 'name
                   (pretty-type a/t) (pretty-type b/t))))))))))
 
-(define-syntax define-binary-arith-scm-imm
+(define-syntax define-add-sub-scm-imm
   (syntax-rules ()
     ((_ name op-fx)
      (begin
@@ -175,82 +175,66 @@
             (else
              (nyi "~s: et=fixnum it=~a" 'name (pretty-type src/t))))))))))
 
-(define-binary-arith-scm-scm add %add %sub %fadd)
-(define-binary-arith-scm-imm add/immediate %add)
-(define-binary-arith-scm-scm sub %sub %add %fsub)
-(define-binary-arith-scm-imm sub/immediate %sub)
+(define-add-sub-scm-scm add %add %sub %fadd)
+(define-add-sub-scm-imm add/immediate %add)
+(define-add-sub-scm-scm sub %sub %add %fsub)
+(define-add-sub-scm-imm sub/immediate %sub)
 
-(define-ir (mul (scm! dst) (scm a) (scm b))
-  (nyi "mul: ~a ~a ~a" dst a b))
+(define-syntax-rule (define-mul-div-scm-scm name op)
+  (begin
+    (define-ir (name (scm! dst) (scm a) (scm b))
+      (nyi "~s: ~s ~s ~s~%" dst a b))
+    (define-ir (name (flonum! dst) (fixnum a) (flonum b))
+      (let* ((dst/v (var-ref dst))
+             (a/v (var-ref a))
+             (b/v (var-ref b))
+             (r2 (make-tmpvar 2))
+             (f1 (make-tmpvar/f 1))
+             (f2 (make-tmpvar/f 2))
+             (a/t (ty-ref a))
+             (b/t (ty-ref b)))
+        (cond
+         ((and (eq? &fixnum a/t) (eq? &flonum b/t))
+          `(let ((,r2 (%rsh ,a/v 2)))
+             (let ((,f2 (%i2d ,r2)))
+               (let ((,dst/v (op ,f2 ,b/v)))
+                 ,(next)))))
+         ((and (eq? &fixnum a/t) (eq? &scm b/t))
+          (with-unboxing &flonum b/v
+            (lambda ()
+              `(let ((,f1 (%cref/f ,b/v 2)))
+                 (let ((,r2 (%rsh ,a/v 2)))
+                   (let ((,f2 (%i2d ,r2)))
+                     (let ((,dst/v (op ,f2 ,f1)))
+                       ,(next))))))))
+         ((and (eq? &scm a/t) (eq? &scm b/t))
+          (with-unboxing &fixnum a/v
+            (with-unboxing &flonum b/v
+              (lambda ()
+                `(let ((,f2 (%cref/f ,b/v 2)))
+                   (let ((,r2 (%rsh ,a/v 2)))
+                     (let ((,f1 (%i2d ,r2)))
+                       (let ((,dst/v (op ,f1 ,f2)))
+                         ,(next)))))))))
+         (else
+          (nyi "~s: et=(fixnum flonum) it=(~a ~a)~%"
+               'name (pretty-type a/t) (pretty-type b/t))))))
+    (define-ir (name (flonum! dst) (flonum a) (flonum b))
+      (let* ((dst/v (var-ref dst))
+             (a/v (var-ref a))
+             (b/v (var-ref b))
+             (a/t (ty-ref a))
+             (b/t (ty-ref b)))
+        (cond
+         ((and (eq? &flonum a/t) (eq? &flonum b/t))
+          `(let ((,dst/v (op ,a/v ,b/v)))
+             ,(next)))
+         (else
+          (nyi "~s: et=(flonum flonum) it=(~a ~a)~%" 'name
+               (pretty-type a/t) (pretty-type b/t))))))))
 
-(define-ir (mul (flonum! dst) (flonum a) (fixnum b))
-  (let* ((dst/v (var-ref dst))
-         (a/v (var-ref a))
-         (b/v (var-ref b))
-         (r2 (make-tmpvar 2))
-         (f2 (make-tmpvar/f 2))
-         (emit-next (lambda ()
-                      `(let ((,r2 (%rsh ,b/v 2)))
-                         (let ((,f2 (%i2d ,r2)))
-                           (let ((,dst/v (%fmul ,a/v ,f2)))
-                             ,(next)))))))
-    (with-unboxing &fixnum b/v emit-next)))
-
-(define-ir (mul (flonum! dst) (flonum a) (flonum b))
-  `(let ((,(var-ref dst) (%fmul ,(var-ref a) ,(var-ref b))))
-     ,(next)))
-
-(define-ir (div (scm! dst) (scm a) (scm b))
-  (nyi "div: ~s ~s ~s~%" dst a b))
-
-(define-ir (div (flonum! dst) (fixnum a) (flonum b))
-  (let* ((dst/v (var-ref dst))
-         (a/v (var-ref a))
-         (b/v (var-ref b))
-         (r2 (make-tmpvar 2))
-         (f1 (make-tmpvar/f 1))
-         (f2 (make-tmpvar/f 2))
-         (a/t (ty-ref a))
-         (b/t (ty-ref b)))
-    (cond
-     ((and (eq? &fixnum a/t) (eq? &flonum b/t))
-      `(let ((,r2 (%rsh ,a/v 2)))
-         (let ((,f2 (%i2d ,r2)))
-           (let ((,dst/v (%fdiv ,f2 ,b/v)))
-             ,(next)))))
-     ((and (eq? &fixnum a/t) (eq? &scm b/t))
-      (with-unboxing &flonum b/v
-        (lambda ()
-          `(let ((,f1 (%cref/f ,b/v 2)))
-             (let ((,r2 (%rsh ,a/v 2)))
-               (let ((,f2 (%i2d ,r2)))
-                 (let ((,dst/v (%fdiv ,f2 ,f1)))
-                   ,(next))))))))
-     ((and (eq? &scm a/t) (eq? &scm b/t))
-      (with-unboxing &fixnum a/v
-        (with-unboxing &flonum b/v
-          (lambda ()
-            `(let ((,f2 (%cref/f ,b/v 2)))
-               (let ((,r2 (%rsh ,a/v 2)))
-                 (let ((,f1 (%i2d ,r2)))
-                   (let ((,dst/v (%fdiv ,f1 ,f2)))
-                     ,(next)))))))))
-     (else
-      (nyi "div: ety=(fixnum flonum) ity=(~a ~a)~%"
-           (pretty-type a/t) (pretty-type b/t))))))
-
-(define-ir (div (flonum! dst) (flonum a) (flonum b))
-  (let* ((dst/v (var-ref dst))
-         (a/v (var-ref a))
-         (b/v (var-ref b))
-         (a/t (ty-ref a))
-         (b/t (ty-ref b)))
-    (cond
-     ((and (eq? &flonum a/t) (eq? &flonum b/t))
-      `(let ((,dst/v (%fdiv ,a/v ,b/v)))
-         ,(next)))
-     (else
-      (nyi "div: it=(~a ~a)~%" a/t b/t)))))
+(define-mul-div-scm-scm mul %fmul)
+(define-mul-div-scm-scm div %fdiv)
 
 (define-syntax define-binary-arith-fx-fx
   (syntax-rules ()

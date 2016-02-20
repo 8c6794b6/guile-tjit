@@ -44,8 +44,8 @@
                      (program-code subr/l)))
          (ra/v (var-ref stack-size))
          (dl/v (var-ref (+ stack-size 1)))
-         (r2 (make-tmpvar 2))
          (proc-addr (pointer-address (scm->pointer subr/l)))
+         (inlineable (<= (+ (current-sp-offset) dl) (ir-max-sp-offset ir)))
          (emit-next
           (lambda ()
             `(let ((,ra/v #f))
@@ -56,11 +56,11 @@
             `(let ((,dst/v (%ccall ,proc-addr)))
                ;; XXX: Any other way to decide emitting `%return' than SP
                ;; offset comparison?
-               ,(if (< (ir-max-sp-offset ir) (+ (current-sp-offset) dl))
+               ,(if inlineable
+                    (emit-next)
                     `(let ((_ ,(take-snapshot! ip 0)))
                        (let ((_ (%return ,ra)))
-                         ,(emit-next)))
-                    (emit-next))))))
+                         ,(emit-next))))))))
     (set-ir-return-subr! ir #t)
     (set-tj-handle-interrupts! tj #t)
     (if (primitive-code? ccode)
