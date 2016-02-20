@@ -130,7 +130,7 @@
 (define-scan (call-label proc nlocals label)
   (scan-call proc nlocals #t))
 
-(define-ti (call-label ol proc nlocals label)
+(define-ti (call-label proc nlocals label)
   (ti-call proc nlocals #t))
 
 (define-syntax-rule (scan-tail-call nlocals label?)
