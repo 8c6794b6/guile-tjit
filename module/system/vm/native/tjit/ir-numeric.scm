@@ -58,13 +58,13 @@
             ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
              (next-thunk))
             ((and (eq? &scm a/t) (eq? &fixnum b/t))
-             (with-unboxing &fixnum a/v next-thunk))
+             (with-type-guard &fixnum a/v next-thunk))
             ((and (eq? &fixnum a/t) (eq? &scm b/t))
-             (with-unboxing &fixnum b/v next-thunk))
+             (with-type-guard &fixnum b/v next-thunk))
             ((and (eq? &scm a/t) (eq? &scm b/t))
-             (with-unboxing &fixnum  a/v
+             (with-type-guard &fixnum a/v
                (lambda ()
-                 (with-unboxing &fixnum b/v next-thunk))))
+                 (with-type-guard &fixnum b/v next-thunk))))
             (else
              (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name
                   (pretty-type a/t) (pretty-type b/t))))))
@@ -83,7 +83,7 @@
                   (let ((,dst/v (op-fl ,f2 ,b/v)))
                     ,(next)))))
             ((and (eq? &scm a/t) (eq? &flonum b/t))
-             (with-unboxing &fixnum a/v
+             (with-type-guard &fixnum a/v
                (lambda ()
                  `(let ((,r2 (%rsh ,a/v 2)))
                     (let ((,f2 (%i2d ,r2)))
@@ -107,7 +107,7 @@
                   (let ((,dst/v (op-fl ,a/v ,f2)))
                     ,(next)))))
             ((and (eq? &flonum a/t) (eq? &scm b/t))
-             (with-unboxing &fixnum b/v
+             (with-type-guard &fixnum b/v
                (lambda ()
                  `(let ((,r2 (%rsh ,b/v 2)))
                     (let ((,f2 (%i2d ,r2)))
@@ -131,20 +131,20 @@
              `(let ((,dst/v (op-fl ,a/v ,b/v)))
                 ,(next)))
             ((and (eq? &scm a/t) (eq? &flonum b/t))
-             (with-unboxing &flonum a/v
+             (with-type-guard &flonum a/v
                (lambda ()
                  `(let ((,f2 (%cref/f ,a/v 2)))
                     (let ((,dst/v (op-fl ,f2 ,b/v)))
                       ,(next))))))
             ((and (eq? &flonum a/t) (eq? &fixnum b/t))
-             (with-unboxing &fixnum b/v
+             (with-type-guard &fixnum b/v
                (lambda ()
                  `(let ((,r2 (%rsh ,b/v 2)))
                     (let ((,f2 (%i2d ,r2)))
                       (let ((,dst/v (op-fl ,a/v ,f2)))
                         ,(next)))))))
             ((and (eq? &flonum a/t) (eq? &scm b/t))
-             (with-unboxing &flonum b/v
+             (with-type-guard &flonum b/v
                (lambda ()
                  `(let ((,f2 (%cref/f ,b/v 2)))
                     (let ((,dst/v (op-fl ,a/v ,f2)))
@@ -171,7 +171,7 @@
             ((eq? &fixnum src/t)
              (next-thunk))
             ((eq? &scm src/t)
-             (with-unboxing &fixnum src/v next-thunk))
+             (with-type-guard &fixnum src/v next-thunk))
             (else
              (nyi "~s: et=fixnum it=~a" 'name (pretty-type src/t))))))))))
 
@@ -200,7 +200,7 @@
                (let ((,dst/v (op ,f2 ,b/v)))
                  ,(next)))))
          ((and (eq? &fixnum a/t) (eq? &scm b/t))
-          (with-unboxing &flonum b/v
+          (with-type-guard &flonum b/v
             (lambda ()
               `(let ((,f1 (%cref/f ,b/v 2)))
                  (let ((,r2 (%rsh ,a/v 2)))
@@ -208,14 +208,15 @@
                      (let ((,dst/v (op ,f2 ,f1)))
                        ,(next))))))))
          ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-unboxing &fixnum a/v
-            (with-unboxing &flonum b/v
-              (lambda ()
-                `(let ((,f2 (%cref/f ,b/v 2)))
-                   (let ((,r2 (%rsh ,a/v 2)))
-                     (let ((,f1 (%i2d ,r2)))
-                       (let ((,dst/v (op ,f1 ,f2)))
-                         ,(next)))))))))
+          (with-type-guard &fixnum a/v
+            (lambda ()
+              (with-type-guard &flonum b/v
+                (lambda ()
+                  `(let ((,f2 (%cref/f ,b/v 2)))
+                     (let ((,r2 (%rsh ,a/v 2)))
+                       (let ((,f1 (%i2d ,r2)))
+                         (let ((,dst/v (op ,f1 ,f2)))
+                           ,(next))))))))))
          (else
           (nyi "~s: et=(fixnum flonum) it=(~a ~a)~%"
                'name (pretty-type a/t) (pretty-type b/t))))))

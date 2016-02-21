@@ -60,7 +60,7 @@
             var-ref
             type-ref
             with-boxing
-            with-unboxing
+            with-type-guard
             current-sp-offset
             current-fp-offset
             tj outline ir ip ra dl locals next
@@ -570,66 +570,10 @@ index referenced by dst, a, and b values at runtime."
    (else
     (proc var))))
 
-(define-syntax-rule (with-unboxing type src thunk)
-  (let ((tmp (if (equal? src (make-tmpvar 2))
-                 (make-tmpvar 1)
-                 (make-tmpvar 2))))
-    (letrec-syntax
-        ((gen-guard-imm
-          (syntax-rules ()
-            ((_ mask tcx)
-             `(let ((_ ,(take-snapshot! ip 0)))
-                (let ((,tmp (%band ,src ,mask)))
-                  (let ((_ (%eq ,tmp ,tcx)))
-                    ,(thunk)))))))
-         (gen-guard-cell
-          (syntax-rules ()
-            ((_ mask tcx)
-             `(let ((_ ,(take-snapshot! ip 0)))
-                (let ((,tmp (%band ,src 6)))
-                  (let ((_ (%eq ,tmp 0)))
-                    (let ((,tmp (%cref ,src 0)))
-                      (let ((,tmp (%band ,tmp mask)))
-                        (let ((_ (%eq ,tmp ,tcx)))
-                          ,(thunk))))))))))
-         (guard-tc1
-          (syntax-rules ()
-            ((_ tag) (gen-guard-cell #x1 tag))))
-         (guard-tc2
-          (syntax-rules ()
-            ((_ tag) (gen-guard-imm #x2 tag))))
-         (guard-tc3
-          (syntax-rules ()
-            ((_ tag) (gen-guard-cell #x7 tag))))
-         (guard-tc7
-          (syntax-rules ()
-            ((_ tag) (gen-guard-cell #x7f tag))))
-         (guard-tc8
-          (syntax-rules ()
-            ((_ tag) (gen-guard-imm #xff tag))))
-         (guard-tc16/f
-          (syntax-rules ()
-            ((_ tag) (gen-guard-cell #xffff tag)))))
-      (cond
-       ((eq? type &fixnum) (guard-tc2 %tc2-int))
-       ((eq? type &flonum) (guard-tc16/f %tc16-real))
-       ((eq? type &char) (guard-tc8 %tc8-char))
-       ((eq? type &symbol) (guard-tc7 %tc7-symbol))
-       ((eq? type &keyword) (guard-tc7 %tc7-keyword))
-       ((eq? type &procedure) (guard-tc7 %tc7-program))
-       ((eq? type &pointer) (guard-tc7 %tc7-pointer))
-       ((eq? type &pair) (guard-tc1 %tc3-cons))
-       ((eq? type &fluid) (guard-tc7 %tc7-fluid))
-       ((eq? type &vector) (guard-tc7 %tc7-vector))
-       ((eq? type &box) (guard-tc7 %tc7-variable))
-       ((eq? type &struct) (guard-tc3 %tc3-struct))
-       ((eq? type &string) (guard-tc7 %tc7-string))
-       ((eq? type &bytevector) (guard-tc7 %tc7-bytevector))
-       ((eq? type &bitvector) (guard-tc7 %tc7-bitvector))
-       ((eq? type &array) (guard-tc7 %tc7-array))
-       ((eq? type &hash-table) (guard-tc7 %tc7-hashtable))
-       (else
-        (nyi "with-unboxing: ~a ~a" (pretty-type type) src))))))
+(define-syntax-rule (with-type-guard type src thunk)
+  `(let ((_ ,(take-snapshot! ip 0)))
+     (let ((_ (%teq ,src ,type)))
+       ,(thunk))))
 
 ;;; *** The dynamic environment
 
