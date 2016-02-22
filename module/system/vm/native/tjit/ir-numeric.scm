@@ -183,7 +183,40 @@
 (define-syntax-rule (define-mul-div-scm-scm name op)
   (begin
     (define-ir (name (scm! dst) (scm a) (scm b))
-      (nyi "~s: ~s ~s ~s~%" 'name dst a b))
+      (let ((a/t (type-ref a))
+            (b/t (type-ref b)))
+        (nyi "~s: et=(scm scm) it=(~a ~a)~%" 'name dst
+             (pretty-type a/t) (pretty-type b/t))))
+    (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
+      (let ((a/t (type-ref a))
+            (b/t (type-ref b)))
+        (nyi "~s: et=(fixnum fixnum) it=(~a ~a)~%" 'name dst
+             (pretty-type a/t) (pretty-type b/t))))
+    (define-ir (name (flonum! dst) (flonum a) (fixnum b))
+      (let* ((dst/v (var-ref dst))
+             (a/v (var-ref a))
+             (b/v (var-ref b))
+             (r2 (make-tmpvar 2))
+             (f1 (make-tmpvar/f 1))
+             (f2 (make-tmpvar/f 2))
+             (a/t (type-ref a))
+             (b/t (type-ref b)))
+        (cond
+         ((and (eq? &flonum a/t) (eq? &fixnum b/t))
+          `(let ((,r2 (%rsh ,b/v 2)))
+             (let ((,f2 (%i2d ,r2)))
+               (let ((,dst/v (op ,a/v ,f2)))
+                 ,(next)))))
+         ((and (eq? &flonum a/t) (eq? &scm b/t))
+          (with-type-guard &fixnum b/v
+            (lambda ()
+              `(let ((,r2 (%rsh ,b/v 2)))
+                 (let ((,f2 (%i2d ,r2)))
+                   (let ((,dst/v (op ,a/v ,f2)))
+                     ,(next)))))))
+         (else
+          (nyi "~s: et=(flonum fixnum) it=(~a ~a)" 'name
+               (pretty-type a/t) (pretty-type b/t))))))
     (define-ir (name (flonum! dst) (fixnum a) (flonum b))
       (let* ((dst/v (var-ref dst))
              (a/v (var-ref a))
@@ -225,7 +258,8 @@
              (a/v (var-ref a))
              (b/v (var-ref b))
              (a/t (type-ref a))
-             (b/t (type-ref b)))
+             (b/t (type-ref b))
+             (f2 (make-tmpvar/f 2)))
         (cond
          ((and (eq? &flonum a/t) (eq? &flonum b/t))
           `(let ((,dst/v (op ,a/v ,b/v)))
@@ -266,6 +300,8 @@
 ;; XXX: logxor
 ;; XXX: make-vector
 ;; XXX: make-vector/immediate
+
+;;; XXX: No bound checks done in vector operations.
 
 (define-ir (vector-length (u64! dst) (vector src))
   (let ((dst/v (var-ref dst))
