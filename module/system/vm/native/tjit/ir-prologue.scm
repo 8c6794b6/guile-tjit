@@ -61,6 +61,19 @@
   ;; XXX: Same as assert-nargs-ee
   (next))
 
+(define-scan (alloc-frame nlocals)
+  (scan-frame nlocals))
+
+(define-ti (alloc-frame nlocals)
+  (let* ((stack-size (vector-length locals))
+         (diff (- nlocals stack-size))
+         (sp-offset (if (outline-initialized? outline)
+                        (outline-sp-offset outline)
+                        (car (outline-sp-offsets outline)))))
+    (when (< stack-size nlocals)
+      (do ((n 0 (+ n 1))) ((= n diff))
+        (set-inferred-type! outline (- sp-offset n) &undefined)))))
+
 (define-anf (alloc-frame nlocals)
   (let* ((stack-size (vector-length locals))
          (diff (- nlocals stack-size))
@@ -75,18 +88,8 @@
                 (next))))
         (next))))
 
-(define-scan (alloc-frame nlocals)
+(define-scan (reset-frame nlocals)
   (scan-frame nlocals))
-
-(define-ti (alloc-frame nlocals)
-  (let* ((stack-size (vector-length locals))
-         (diff (- nlocals stack-size))
-         (sp-offset (if (outline-initialized? outline)
-                        (outline-sp-offset outline)
-                        (car (outline-sp-offsets outline)))))
-    (when (< stack-size nlocals)
-      (do ((n 0 (+ n 1))) ((= n diff))
-        (set-inferred-type! outline (- sp-offset n) &undefined)))))
 
 (define-anf (reset-frame nlocals)
   (let ((stack-size (vector-length locals)))
@@ -98,21 +101,9 @@
             (thunk)))
         (next))))
 
-(define-scan (reset-frame nlocals)
-  (scan-frame nlocals))
-
 ;; XXX: push
 ;; XXX: pop
 ;; XXX: drop
-
-(define-anf (assert-nargs-ee/locals expected nlocals)
-  (let ((undefined (pointer->scm (make-pointer #x904))))
-    (expand-stack nlocals)
-    (let lp ((n nlocals))
-      (if (< 0 n)
-          `(let ((,(var-ref (- n 1)) ,undefined))
-             ,(lp (- n 1)))
-          (next)))))
 
 (define-scan (assert-nargs-ee/locals expected nlocals)
   (push-scan-sp-offset! outline nlocals)
@@ -124,6 +115,15 @@
                        (car (outline-sp-offsets outline)))))
     (do ((n nlocals (- n 1))) ((<= n 0))
       (set-inferred-type! outline (+ (- n 1) sp-offset) &undefined))))
+
+(define-anf (assert-nargs-ee/locals expected nlocals)
+  (let ((undefined (pointer->scm (make-pointer #x904))))
+    (expand-stack nlocals)
+    (let lp ((n nlocals))
+      (if (< 0 n)
+          `(let ((,(var-ref (- n 1)) ,undefined))
+             ,(lp (- n 1)))
+          (next)))))
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args

@@ -36,10 +36,6 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-(define-anf (mov dst src)
-  `(let ((,(var-ref dst) ,(var-ref src)))
-     ,(next)))
-
 (define-scan (mov dst src)
   (let* ((sp-offset (outline-sp-offset outline))
          (dst+sp (+ dst sp-offset))
@@ -67,6 +63,10 @@
            (set-inferred-type! outline dst+sp ty)))
      (else
       (set-inferred-type! outline dst+sp `(copy . ,src+sp))))))
+
+(define-anf (mov dst src)
+  `(let ((,(var-ref dst) ,(var-ref src)))
+     ,(next)))
 
 
 ;; XXX: long-mov

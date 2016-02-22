@@ -35,10 +35,6 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-(define-anf (make-short-immediate dst low-bits)
-  `(let ((,(var-ref dst) ,low-bits))
-     ,(next)))
-
 (define-scan (make-short-immediate dst low-bits)
   (set-scan-initial-fields! outline))
 
@@ -46,6 +42,10 @@
   (let* ((sp-offset (outline-sp-offset outline))
          (v (pointer->scm (make-pointer low-bits))))
     (set-inferred-type! outline (+ dst sp-offset) (type-of v))))
+
+(define-anf (make-short-immediate dst low-bits)
+  `(let ((,(var-ref dst) ,low-bits))
+     ,(next)))
 
 (define-ir (make-long-immediate (scm! dst) (const low-bits))
   `(let ((,(var-ref dst) ,low-bits))
@@ -61,15 +61,6 @@
   `(let ((,(var-ref dst) ,(+ ip (* 4 offset))))
      ,(next)))
 
-(define-anf (static-ref dst offset)
-  (let* ((ptr (make-pointer (+ ip (* 4 offset))))
-         (ref (dereference-pointer ptr))
-         (src/l (pointer->scm ref)))
-    `(let ((,(var-ref dst)
-            ,(cond ((flonum? src/l) src/l)
-                   (else (pointer-address ref)))))
-       ,(next))))
-
 (define-scan (static-ref dst offset)
   (set-scan-initial-fields! outline))
 
@@ -78,6 +69,15 @@
          (val (dereference-scm (+ ip (* 4 offset))))
          (ty (if (flonum? val) &flonum &scm)))
     (set-inferred-type! outline (+ dst sp-offset) ty)))
+
+(define-anf (static-ref dst offset)
+  (let* ((ptr (make-pointer (+ ip (* 4 offset))))
+         (ref (dereference-pointer ptr))
+         (src/l (pointer->scm ref)))
+    `(let ((,(var-ref dst)
+            ,(cond ((flonum? src/l) src/l)
+                   (else (pointer-address ref)))))
+       ,(next))))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!

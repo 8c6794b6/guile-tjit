@@ -80,6 +80,12 @@
 
 ;;; XXX: halt is not defined, might not necessary.
 
+(define-scan (call proc nlocals)
+  (scan-call proc nlocals #f))
+
+(define-ti (call proc nlocals)
+  (ti-call proc nlocals #f))
+
 (define-anf (call proc nlocals)
   ;; When procedure get inlined, taking snapshot of previous frame.
   ;; Contents of previous frame could change in native code. Note that
@@ -110,11 +116,11 @@
               `(let ((_ (%scall ,proc)))
                  ,(next)))))))
 
-(define-scan (call proc nlocals)
-  (scan-call proc nlocals #f))
+(define-scan (call-label proc nlocals label)
+  (scan-call proc nlocals #t))
 
-(define-ti (call proc nlocals)
-  (ti-call proc nlocals #f))
+(define-ti (call-label proc nlocals label)
+  (ti-call proc nlocals #t))
 
 (define-anf (call-label proc nlocals label)
   (let* ((sp-offset (current-sp-offset))
@@ -128,12 +134,6 @@
            ,(next))
         (next))))
 
-(define-scan (call-label proc nlocals label)
-  (scan-call proc nlocals #t))
-
-(define-ti (call-label proc nlocals label)
-  (ti-call proc nlocals #t))
-
 (define-syntax-rule (scan-tail-call nlocals label?)
   (let* ((stack-size (vector-length locals))
          (proc-sp (- stack-size 1)))
@@ -141,6 +141,9 @@
       (set-entry-type! outline proc-sp &procedure))
     (set-scan-initial-fields! outline)
     (push-scan-sp-offset! outline (- nlocals stack-size))))
+
+(define-scan (tail-call nlocals)
+  (scan-tail-call nlocals #f))
 
 (define-anf (tail-call nlocals)
   (let* ((stack-size (vector-length locals))
@@ -151,24 +154,11 @@
     `(let ((_ (%eq ,proc/v ,proc-addr)))
        ,(next))))
 
-(define-scan (tail-call nlocals)
-  (scan-tail-call nlocals #f))
-
-(define-anf (tail-call-label nlocals label)
-  (next))
-
 (define-scan (tail-call-label nlocals label)
   (scan-tail-call nlocals #t))
 
-(define-anf (receive dst proc nlocals)
-  (let* ((stack-size (vector-length locals))
-         (dst/i (- stack-size dst 1))
-         (dst/v (var-ref dst/i))
-         (src/i (- (- stack-size proc) 2))
-         (src/v (var-ref src/i))
-         (thunk (gen-load-thunk proc nlocals (lambda (v) (eq? v dst/v)))))
-    `(let ((,dst/v ,src/v))
-       ,(thunk))))
+(define-anf (tail-call-label nlocals label)
+  (next))
 
 (define-scan (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
@@ -196,22 +186,51 @@
                  `(copy . ,proc/i))))
     (set-inferred-type! outline dst/i ty)))
 
-(define-anf (receive-values proc allow-extra? nvalues)
-  (let ((thunk (gen-load-thunk proc nvalues (const #f))))
-    (thunk)))
+(define-anf (receive dst proc nlocals)
+  (let* ((stack-size (vector-length locals))
+         (dst/i (- stack-size dst 1))
+         (dst/v (var-ref dst/i))
+         (src/i (- (- stack-size proc) 2))
+         (src/v (var-ref src/i))
+         (thunk (gen-load-thunk proc nlocals (lambda (v) (eq? v dst/v)))))
+    `(let ((,dst/v ,src/v))
+       ,(thunk))))
 
 (define-scan (receive-values proc allow-extra? nvalues)
   (if (= nvalues 1)
       (set-scan-initial-fields! outline)
       (begin
         (debug 1 "NYI: receive-values ~a ~a ~a~%" proc allow-extra? nvalues)
-        (values #f 'receive-values))))
+        #f)))
 
 (define-ti (receive-values proc allow-extra? nvalues)
   ;; XXX: Should infer multiple values.
   (values))
 
+(define-anf (receive-values proc allow-extra? nvalues)
+  (let ((thunk (gen-load-thunk proc nvalues (const #f))))
+    (thunk)))
+
 ;; XXX: tail-call/shuffle
+
+(define-scan (return-values nlocals)
+  (let* ((sp-offset (outline-sp-offset outline))
+         (stack-size (vector-length locals)))
+    (set-scan-initial-fields! outline)
+    (pop-scan-sp-offset! outline (- stack-size nlocals))
+    (pop-scan-fp-offset! outline dl)))
+
+(define-ti (return-values nlocals)
+  ;; As in `call' and `receive', `return-values' shifts SP offset, see
+  ;; `define-scan' for `return-values' above.
+  (let* ((stack-size (vector-length locals))
+         (sp-offset (if (outline-initialized? outline)
+                        (outline-sp-offset outline)
+                        (car (outline-sp-offsets outline))))
+         (ra-offset (+ sp-offset stack-size))
+         (dl-offset (+ ra-offset 1)))
+    (set-inferred-type! outline ra-offset &false)
+    (set-inferred-type! outline dl-offset &false)))
 
 (define-anf (return-values nlocals)
   ;; Two locals below callee procedure in VM frame contain dynamic link and
@@ -235,22 +254,3 @@
                    (let ((,vdl #f))
                      (let ((_ ,(take-snapshot! ra 0 #t)))
                        ,(next))))))))))
-
-(define-scan (return-values nlocals)
-  (let* ((sp-offset (outline-sp-offset outline))
-         (stack-size (vector-length locals)))
-    (set-scan-initial-fields! outline)
-    (pop-scan-sp-offset! outline (- stack-size nlocals))
-    (pop-scan-fp-offset! outline dl)))
-
-(define-ti (return-values nlocals)
-  ;; As in `call' and `receive', `return-values' shifts SP offset, see
-  ;; `define-scan' for `return-values' above.
-  (let* ((stack-size (vector-length locals))
-         (sp-offset (if (outline-initialized? outline)
-                        (outline-sp-offset outline)
-                        (car (outline-sp-offsets outline))))
-         (ra-offset (+ sp-offset stack-size))
-         (dl-offset (+ ra-offset 1)))
-    (set-inferred-type! outline ra-offset &false)
-    (set-inferred-type! outline dl-offset &false)))
