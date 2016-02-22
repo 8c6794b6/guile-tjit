@@ -193,13 +193,16 @@
          ((not implemented?)
           (failure "NYI found, aborted"))
          (uprec?
-          (failure "NYI up recursion"))
+          (failure "NYI - up recursion"))
          (downrec?
-          (failure "NYI down recursion"))
+          (failure "NYI - down recursion"))
          ((and (not parent-snapshot)
                loop?
                (not (zero? (outline-sp-offset outline))))
-          (failure "NYI looping root trace with SP shift"))
+          (failure "NYI - looping root trace with SP shift"))
+         ((and (not parent-snapshot)
+               (not loop?))
+          (failure "NYI - loop-less root trace"))
          (else
           (debug 1 "~a" (begin (dump-outline outline) ""))
           (with-nyi-handler entry-ip (compile-traces traces))))))))
