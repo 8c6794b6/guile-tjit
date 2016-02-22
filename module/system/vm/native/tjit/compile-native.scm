@@ -194,24 +194,20 @@
        (lp local-x-types srcs))
       (_ (values)))))
 
-(define (shift-fp offset)
-  (let ((op (if (< 0 offset)
-                jit-addi
-                jit-subi))
-        (vp r0)
+(define (shift-fp nlocals)
+  "Adjust FP with SP and NLOCALS."
+  (let ((vp r0)
         (vp->fp r1))
     (load-vp vp)
-    (load-vp->fp vp->fp vp)
-    (op vp->fp vp->fp (imm (* (abs offset) %word-size)))
+    (jit-addi vp->fp %sp (imm (* nlocals %word-size)))
     (store-vp->fp vp vp->fp)))
 
 (define (shift-sp offset)
   (let ((op (if (< 0 offset)
                 jit-addi
-                jit-subi))
-        (vp->sp %sp))
-    (op vp->sp vp->sp (imm (* (abs offset) %word-size)))
-    (vm-sync-sp vp->sp)))
+                jit-subi)))
+    (op %sp %sp (imm (* (abs offset) %word-size)))
+    (vm-sync-sp %sp)))
 
 (define (env->src-table env indices shift)
   (debug 1 ";;; [env->src-table] indices=~s~%" indices)
@@ -605,14 +601,10 @@ are local index number."
           (when (not (zero? sp-offset))
             (shift-sp sp-offset))
 
-          ;; Shift FP, adjust with SP and nlocals unless moved to up-frame
-          ;; explicitly with primitive operations which update `vp->fp'.
+          ;; Shift FP, unless moved to up-frame explicitly with primitive
+          ;; operations which update `vp->fp'.
           (when (<= fp-offset 0)
-            (let ((vp r0)
-                  (vp->fp r1))
-              (jit-addi vp->fp %sp (imm (* nlocals %word-size)))
-              (load-vp vp)
-              (store-vp->fp vp vp->fp)))
+            (shift-fp nlocals))
 
           ;; Sync next IP with vp->ip for VM.
           (jit-movi r0 (imm ip))
@@ -666,7 +658,7 @@ are local index number."
   (let* ((linked-fragment (get-root-trace (tj-linked-ip tj)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot
-      (($ $snapshot _ sp-offset fp-offset _ local-x-types vars)
+      (($ $snapshot _ sp-offset fp-offset nlocals local-x-types vars)
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
@@ -690,9 +682,10 @@ are local index number."
                 (shift-sp sp-offset))
               (move-or-load-carefully dst-table src-table type-table)))))
 
-       ;; Shift FP for loop-less root trace.
-       (when (not (tj-parent-fragment tj))
-         (shift-fp fp-offset))
+       ;; Shift FP when loop-less root trace or linking root traces.
+       (when (or (not (tj-parent-fragment tj))
+                 (tj-linking-roots? tj))
+         (shift-fp nlocals))
 
        ;; Jump to the beginning of the loop in linked trace.
        (jumpi (fragment-loop-address linked-fragment)))
