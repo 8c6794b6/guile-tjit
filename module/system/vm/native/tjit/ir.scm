@@ -312,13 +312,12 @@
 (define-syntax gen-load-thunk
   (syntax-rules ()
     ((_ proc nlocals skip-var?)
-     (gen-load-thunk proc nlocals skip-var? next))
-    ((_ proc nlocals skip-var? thunk)
      (let* ((return-subr? (ir-return-subr? ir))
             (stack-size (vector-length locals))
             (sp-offset (current-sp-offset))
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
             (max-local-index (+ stack-size sp-offset))
+            (live-indices (outline-live-indices outline))
             (acc (make-hash-table))
             (load-down-frame
              (lambda ()
@@ -326,7 +325,8 @@
                  (match vars
                    (((n . var) . vars)
                     (cond
-                     ((skip-var? var)
+                     ((or (skip-var? var)
+                          (memq n live-indices))
                       (lp vars))
                      ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
                       (if (not (tj-parent-snapshot tj))
@@ -340,13 +340,13 @@
                                                (if (memq k acc)
                                                    acc
                                                    (cons k acc)))
-                                             (outline-live-indices outline)
+                                             live-indices
                                              acc)
                                   <)))
                       (debug 1 ";;; [gen-load-thunk] live-indices=~a~%"
                              live-indices)
                       (set-outline-live-indices! outline live-indices)
-                      (thunk)))))))
+                      (next)))))))
             (load-up-frame
              (lambda ()
                ;; Ignoring `unspecified' values when loading from previous
@@ -362,7 +362,8 @@
                    (((n . var) . vars)
                     (debug 1 ";;; [load-up-frame] n=~s" n)
                     (cond
-                     ((skip-var? var)
+                     ((or (skip-var? var)
+                          (memq n live-indices))
                       (debug 1 " skipping~%")
                       (lp vars))
                      ((< min-local-index n max-local-index)

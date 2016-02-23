@@ -99,6 +99,7 @@ TESTS = \
 	t-nest-23c.scm \
 	t-nest-24.scm \
 	t-nest-26.scm \
+	t-nest-26c.scm \
 	t-nest-28.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \

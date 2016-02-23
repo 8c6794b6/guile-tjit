@@ -336,7 +336,7 @@
         (define (var-index sym)
           (string->number (substring (symbol->string sym) 1)))
         (sort (hash-map->list (lambda (k v)
-                                (list k v)) t)
+                                (list k (physical-name v))) t)
               (lambda (a b)
                 (< (var-index (car a))
                    (var-index (car b))))))

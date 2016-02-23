@@ -98,7 +98,7 @@
 (define* (add-initial-loads tj outline snapshots
                             initial-locals initial-sp-offset
                             parent-snapshot vars live-vars-in-parent
-                            exp-body #:optional (loaded-vars #f))
+                            loaded-vars thunk)
   ;; When local was passed from parent and snapshot 0 contained the local with
   ;; same type, no need to load from frame. If type does not match, the value
   ;; passed from parent has different was untagged with different type, reload
@@ -163,8 +163,7 @@
             (else
              (let ((guard (assq-ref (outline-entry-types outline) n))
                    (type (assq-ref (outline-inferred-types outline) n)))
-               (when loaded-vars
-                 (hashq-set! loaded-vars n guard))
+               (hashq-set! loaded-vars n guard)
                ;; XXX: Any other way to select preferred register between GPR
                ;; and FPR?
                (if (or (eq? type &flonum)
@@ -172,7 +171,16 @@
                    (with-frame-ref vars var type n lp)
                    (with-frame-ref vars var guard n lp)))))))
         (()
-         exp-body)))))
+         (let ((live-indices
+                (sort (hash-fold (lambda (k v acc)
+                                   (if (memq k acc)
+                                       acc
+                                       (cons k acc)))
+                                 (outline-live-indices outline)
+                                 loaded-vars)
+                      <)))
+           (set-outline-live-indices! outline live-indices))
+         (thunk))))))
 
 (define (compile-anf tj outline trace)
   (let* ((parent-snapshot (tj-parent-snapshot tj))
@@ -262,22 +270,26 @@
                                         (<= 0 n (- initial-nlocals 1)))
                                       (reverse local-indices)))
                  (args (map make-var (reverse local-indices)))
+                 (thunk (lambda ()
+                          `(loop ,@args)))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
                                        outline initial-ip))
                  (_ (hashq-set! snapshots 0 snap0))
-                 (vt (make-hash-table)))
+                 (loaded-vars (make-hash-table)))
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
                                  ,(add-initial-loads tj outline snapshots
                                                      initial-locals
                                                      initial-sp-offset
-                                                     #f vars '() `(loop ,@args)
-                                                     vt))))
+                                                     #f vars '()
+                                                     loaded-vars
+                                                     thunk))))
                       (loop (lambda ,args
-                              ,(let* ((locals (sort (hash-map->list cons vt)
-                                                    (lambda (a b)
-                                                      (< (car a) (car b)))))
+                              ,(let* ((locals
+                                       (sort (hash-map->list cons loaded-vars)
+                                             (lambda (a b)
+                                               (< (car a) (car b)))))
                                       (vars (map (lambda (l)
                                                    (make-var (car l)))
                                                  (reverse locals))))
@@ -286,8 +298,11 @@
                                  (emit)))))
                entry)))
          ((tj-loop? tj)
-          (let ((args-from-vars (reverse! (map cdr vars)))
-                (snap0 (initial-snapshot!)))
+          (let* ((args-from-vars (reverse! (map cdr vars)))
+                 (thunk (lambda ()
+                          `(loop ,@args-from-vars)))
+                 (loaded-vars (make-hash-table))
+                 (snap0 (initial-snapshot!)))
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ,args-from-parent
                                (let ((_ ,snap0))
@@ -296,13 +311,14 @@
                                                      initial-sp-offset
                                                      parent-snapshot
                                                      vars live-vars-in-parent
-                                                     `(loop ,@args-from-vars)
-                                                     #f))))
+                                                     loaded-vars
+                                                     thunk))))
                       (loop (lambda ,args-from-vars
                               ,(emit))))
                entry)))
          (else
-          (let ((snap0 (initial-snapshot!)))
+          (let ((snap0 (initial-snapshot!))
+                (loaded-vars (make-hash-table)))
             `(letrec ((patch (lambda ,args-from-parent
                                (let ((_ ,snap0))
                                  ,(add-initial-loads tj outline snapshots
@@ -310,7 +326,8 @@
                                                      initial-sp-offset
                                                      parent-snapshot
                                                      vars live-vars-in-parent
-                                                     (emit) #f)))))
+                                                     loaded-vars
+                                                     emit)))))
                patch))))))
 
     (values vars snapshots (make-anf))))

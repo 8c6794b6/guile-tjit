@@ -178,8 +178,10 @@
   "Store src in SRCS to frame when local is not found in REFERENCES."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
-  (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
-  (debug 3 ";;;   references:    ~a~%" references)
+  (debug 3 ";;;   local-x-types: ~a~%"
+         (map (match-lambda ((n . t) `(,n . ,(pretty-type t))))
+              local-x-types))
+  (debug 3 ";;;   references:    ~a~%" (hash-map->list cons references))
   (let lp ((local-x-types local-x-types)
            (srcs srcs))
     (match (list local-x-types srcs)
@@ -250,8 +252,14 @@ are local index number."
            (physical-name dst) (pretty-type type)))
   (let ((dsts-list (hash-map->list cons dsts))
         (car-< (lambda (a b) (< (car a) (car b)))))
-    (debug 3 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
-    (debug 3 ";;; molc: srcs: ~a~%" (sort (hash-map->list cons srcs) car-<))
+    (debug 3 ";;; molc: dsts: ~a~%"
+           (sort (map (match-lambda ((k . v) (cons k (physical-name v))))
+                      dsts-list)
+                 car-<))
+    (debug 3 ";;; molc: srcs: ~a~%"
+           (sort (map (match-lambda ((k . v) (cons k (physical-name v))))
+                      (hash-map->list cons srcs))
+                 car-<))
     (let lp ((dsts dsts-list))
       (match dsts
         (((local . dst-var) . rest)
