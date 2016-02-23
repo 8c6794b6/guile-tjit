@@ -70,6 +70,7 @@ TESTS = \
 	t-free-ref-02.scm \
 	t-free-ref-03.scm \
 	t-guard-01.scm \
+	t-make-long-long-immediate-01.scm \
 	t-mov-01.scm \
 	t-mov-02.scm \
 	t-nest-01.scm \
