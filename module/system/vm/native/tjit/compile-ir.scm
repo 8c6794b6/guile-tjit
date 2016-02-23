@@ -141,7 +141,12 @@
                (i (- n (snapshot-sp-offset snapshot0))))
            (cond
             ((or (< j 0)
-                 (not (<= 0 i (- (vector-length initial-locals) 1)))
+                 ;; For side trace, skip the indices exceeding locals at the
+                 ;; time of recording. Root trace may contain bytecode operation
+                 ;; `return' before `call', loading at the time of native code
+                 ;; entry.
+                 (and parent-snapshot
+                      (not (<= 0 i (- (vector-length initial-locals) 1))))
                  (let ((parent-type (type-from-parent j))
                        (snapshot-type (type-from-snapshot j)))
                    (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
@@ -195,9 +200,8 @@
          (vars (make-vars local-indices))
          (snapshots (make-hash-table))
          (snapshot-id (if root-trace? 1 0))
-         (parent-snapshot-locals (match parent-snapshot
-                                   (($ $snapshot _ _ _ _ locals) locals)
-                                   (_ '())))
+         (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
+                                     '()))
          (live-vars-in-parent
           (get-live-vars-in-parent (and=> (tj-parent-fragment tj) fragment-env)
                                    parent-snapshot))

@@ -47,6 +47,8 @@ TESTS = \
 	t-call-02.scm \
 	t-call-03.scm \
 	t-call-04.scm \
+	t-call-05.scm \
+	t-call-06.scm \
 	t-call-label-01.scm \
 	t-call-label-02.scm \
 	t-call-label-03.scm \

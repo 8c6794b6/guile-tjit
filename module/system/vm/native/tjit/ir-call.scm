@@ -151,8 +151,9 @@
          (proc/v (var-ref proc-index))
          (proc/l (scm-ref proc-index))
          (proc-addr (pointer-address (scm->pointer proc/l))))
-    `(let ((_ (%eq ,proc/v ,proc-addr)))
-       ,(next))))
+    `(let ((_ ,(take-snapshot! ip 0)))
+       (let ((_ (%eq ,proc/v ,proc-addr)))
+         ,(next)))))
 
 (define-scan (tail-call-label nlocals label)
   (scan-tail-call nlocals #t))
