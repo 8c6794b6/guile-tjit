@@ -158,7 +158,8 @@
                            &bitvector &array &hash-table &u64 &s64))
           ;; XXX: Should resolve copy at this point. Storeing copied value as
           ;; is, assuming that copy source is non-unboxed value.
-          (eq? 'copy (car type)))
+          (and (pair? type)
+               (eq? 'copy (car type))))
       (cond
        ((constant? src)
         (jit-movi r0 (constant src))
