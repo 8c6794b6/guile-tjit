@@ -61,6 +61,7 @@
 
 ;; XXX: br-if-nil
 
+;; XXX: br-if-pair
 ;; (define-ir (br-if-pair (scm test) (const invert) (const offset))
 ;;   (let* ((test/l (scm-ref test))
 ;;          (test/v (var-ref test))
@@ -81,7 +82,21 @@
 ;; XXX: br-if-struct
 ;; XXX: br-if-char
 ;; XXX: br-if-tc7
+
 ;; XXX: br-if-eq
+;; (define-ir (br-if-eq (scm a) (scm b) (const invert) (const offset))
+;;   (let* ((a/l (scm-ref a))
+;;          (b/l (scm-ref b))
+;;          (a/v (var-ref a))
+;;          (b/v (var-ref b))
+;;          (dest (if (eq? a/l b/l)
+;;                    (if invert offset 2)
+;;                    (if invert 2 offset)))
+;;          (op (if (eq? a/l b/l) '%eq '%ne)))
+;;     `(let ((_ ,(take-snapshot! ip dest)))
+;;        (let ((_ (,op ,a/v ,b/v)))
+;;          ,(next)))))
+
 ;; XXX: br-if-eqv
 ;; XXX: br-if-logtest
 

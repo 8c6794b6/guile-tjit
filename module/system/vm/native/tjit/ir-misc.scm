@@ -54,15 +54,15 @@
   (set-entry-type! outline (+ src (outline-sp-offset outline)) &u64)
   (set-scan-initial-fields! outline))
 
+;; XXX: Non-fixnum number conversion not yet implemented.
 (define-ti (u64->scm dst src)
   (let* ((src/l (u64-ref src))
          (sp-offset (outline-sp-offset outline))
          (type (if (< src/l most-positive-fixnum)
                             &fixnum
-                            &scm)))
+                            (nyi "u64->scm: src=~a" src/l))))
     (set-inferred-type! outline (+ dst sp-offset) type)))
 
-;; XXX: Overflow check not yet done.
 (define-anf (u64->scm dst src)
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))

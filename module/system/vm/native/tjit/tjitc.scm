@@ -80,7 +80,21 @@
                     (_
                      (make-outline 0 0 '() '() '()))))
          (initial-sp-offset (outline-sp-offset outline))
-         (initial-fp-offset (outline-fp-offset outline)))
+         (initial-fp-offset (outline-fp-offset outline))
+         (linking-roots?
+          (let ((origin-id
+                 (let lp ((fragment parent-fragment))
+                   (if (not fragment)
+                       #f
+                       (let ((parent-id (fragment-parent-id fragment)))
+                         (if (zero? parent-id)
+                             (fragment-id fragment)
+                             (lp (get-fragment parent-id)))))))
+                (linked-id
+                 (and linked-ip
+                      (and=> (get-root-trace linked-ip) fragment-id))))
+            (and origin-id linked-id
+                 (not (eq? origin-id linked-id))))))
     (define (show-sline sline)
       (let ((exit-pair (if (< 0 parent-ip)
                            (format #f " (~a:~a)"
@@ -149,20 +163,6 @@
       ;; avoided by saving the origin trace id in fragment record type.
       ;;
       (let* ((last-sp-offset (outline-sp-offset outline))
-             (linking-roots?
-              (let ((origin-id
-                     (let lp ((fragment parent-fragment))
-                       (if (not fragment)
-                           #f
-                           (let ((parent-id (fragment-parent-id fragment)))
-                             (if (zero? parent-id)
-                                 (fragment-id fragment)
-                                 (lp (get-fragment parent-id)))))))
-                    (linked-id
-                     (and linked-ip
-                          (and=> (get-root-trace linked-ip) fragment-id))))
-                (and origin-id linked-id
-                     (not (eq? origin-id linked-id)))))
              (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
                           parent-fragment parent-snapshot
                           loop? downrec? uprec? #f last-sp-offset #f #f
