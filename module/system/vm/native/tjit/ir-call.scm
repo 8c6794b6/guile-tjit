@@ -141,16 +141,14 @@
            ,(next))
         (next))))
 
-(define-syntax-rule (scan-tail-call nlocals label?)
+(define-syntax-rule (scan-tail-call nlocals)
   (let* ((stack-size (vector-length locals))
          (proc-sp (- stack-size 1)))
-    (unless label?
-      (set-entry-type! outline proc-sp &procedure))
     (set-scan-initial-fields! outline)
     (push-scan-sp-offset! outline (- nlocals stack-size))))
 
 (define-scan (tail-call nlocals)
-  (scan-tail-call nlocals #f))
+  (scan-tail-call nlocals))
 
 (define-ti (tail-call nlocals)
   (values))
@@ -166,7 +164,7 @@
          ,(next)))))
 
 (define-scan (tail-call-label nlocals label)
-  (scan-tail-call nlocals #t))
+  (scan-tail-call nlocals))
 
 (define-ti (tail-call-label nlocals label)
   (values))
