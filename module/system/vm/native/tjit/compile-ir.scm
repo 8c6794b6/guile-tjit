@@ -444,7 +444,7 @@ Currently does nothing, returns the given argument."
             (set-ir-max-sp-offset! ir max-offset))
           (convert ir rest))))
     (define (convert-one ir op ip ra dl locals rest)
-      (debug 1 ";;; [convert-one] op=~s~%" op)
+      (debug 2 ";;; [convert-one] op=~s~%" op)
       (match (hashq-ref *ir-procedures* (car op))
         ((? list? procs)
          (let lp ((procs procs))

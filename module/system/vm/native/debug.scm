@@ -37,10 +37,10 @@
 ;;
 ;; Current policy:
 ;; - #f : Do not show messages.
-;; -  0 : Show message when something went wrong (default).
-;; -  1 : Informative messages in scheme code.
-;; -  2 : More informative messages in scheme code.
-;; -  3 : All of the above, and dump from lightning C library.
+;; -  0 : Show TJITC ERROR messages (default).
+;; -  1 : Show Not-Yet-Implemented messages
+;; -  2 : Informative messages in scheme code
+;; -  3 : More informative messages, and dump from lightning C library.
 ;;
 (define lightning-verbosity (make-parameter 0))
 

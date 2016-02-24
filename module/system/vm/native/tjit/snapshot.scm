@@ -104,11 +104,11 @@
 (define* (make-snapshot id sp-offset fp-offset nlocals write-indices
                         outline ip #:optional (refill-ra-and-dl? #f))
   (begin
-    (debug 1 ";;; [make-snapshot] id:~s sp:~s fp:~s nlocals:~s~%"
+    (debug 2 ";;; [make-snapshot] id:~s sp:~s fp:~s nlocals:~s~%"
            id sp-offset fp-offset nlocals)
-    (debug 1 ";;; write-indices:~s~%" write-indices)
-    (debug 1 ";;; refill-ra-and-dl?:~a~%" refill-ra-and-dl?)
-    (debug 1 "~a"
+    (debug 2 ";;; write-indices:~s~%" write-indices)
+    (debug 2 ";;; refill-ra-and-dl?:~a~%" refill-ra-and-dl?)
+    (debug 2 "~a"
            (and ((@ (system vm native tjit dump) dump-outline) outline) "")))
   (let lp ((is write-indices) (acc '()))
     (match is

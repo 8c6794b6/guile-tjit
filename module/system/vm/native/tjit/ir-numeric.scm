@@ -124,7 +124,7 @@
                 (b/t (type-ref b))
                 (r2 (make-tmpvar 2))
                 (f2 (make-tmpvar/f 2)))
-           (debug 1 ";;; [IR] ~s: i=(~a ~a)~%" 'name
+           (debug 2 ";;; [IR] ~s: i=(~a ~a)~%" 'name
                   (pretty-type a/t) (pretty-type b/t))
            (cond
             ((and (eq? &flonum a/t) (eq? &flonum b/t))
@@ -185,12 +185,12 @@
     (define-ir (name (scm! dst) (scm a) (scm b))
       (let ((a/t (type-ref a))
             (b/t (type-ref b)))
-        (nyi "~s: et=(scm scm) it=(~a ~a)~%" 'name dst
+        (nyi "~s: et=(scm scm) it=(~a ~a)" 'name dst
              (pretty-type a/t) (pretty-type b/t))))
     (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
       (let ((a/t (type-ref a))
             (b/t (type-ref b)))
-        (nyi "~s: et=(fixnum fixnum) it=(~a ~a)~%" 'name dst
+        (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name dst
              (pretty-type a/t) (pretty-type b/t))))
     (define-ir (name (flonum! dst) (flonum a) (fixnum b))
       (let* ((dst/v (var-ref dst))
@@ -251,7 +251,7 @@
                          (let ((,dst/v (op ,f1 ,f2)))
                            ,(next))))))))))
          (else
-          (nyi "~s: et=(fixnum flonum) it=(~a ~a)~%"
+          (nyi "~s: et=(fixnum flonum) it=(~a ~a)"
                'name (pretty-type a/t) (pretty-type b/t))))))
     (define-ir (name (flonum! dst) (flonum a) (flonum b))
       (let* ((dst/v (var-ref dst))
@@ -265,7 +265,7 @@
           `(let ((,dst/v (op ,a/v ,b/v)))
              ,(next)))
          (else
-          (nyi "~s: et=(flonum flonum) it=(~a ~a)~%" 'name
+          (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                (pretty-type a/t) (pretty-type b/t))))))))
 
 (define-mul-div-scm-scm mul %fmul)

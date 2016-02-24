@@ -112,12 +112,12 @@
                     (else ""))))
         (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
                 trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
-    (define (disassemble-bytecode traces)
+    (define (parse-bytecode traces)
       (define disassemble-one
         (@@ (system vm disassembler) disassemble-one))
       (define (go)
         (let lp ((acc '()) (offset 0) (traces (reverse! traces))
-                 (ol outline) (so-far-so-good? #t))
+                 (so-far-so-good? #t))
           (match traces
             ((trace . traces)
              (match trace
@@ -126,22 +126,23 @@
                     (((len op) (disassemble-one bytecode offset))
                      ((implemented?)
                       (if so-far-so-good?
-                          (let* ((ret (scan-trace ol op ip dl locals))
-                                 (_ (infer-type ol op ip dl locals))
-                                 (ws (map car (outline-inferred-types ol)))
-                                 (buf (outline-write-buf ol)))
-                            (set-outline-write-buf! ol (cons (sort ws <) buf))
+                          (let* ((ret (scan-trace outline op ip dl locals))
+                                 (_ (infer-type outline op ip dl locals))
+                                 (ws (map car (outline-inferred-types outline)))
+                                 (buf (outline-write-buf outline))
+                                 (buf (cons (sort ws <) buf)))
+                            (set-outline-write-buf! outline buf)
                             ret)
                           #f)))
                   (lp (cons (cons op trace) acc) (+ offset len) traces
-                      ol implemented?)))
+                      implemented?)))
                (_ (error "malformed trace" trace))))
             (()
-             (arrange-outline! ol)
+             (arrange-outline! outline)
              (values (reverse! acc) so-far-so-good?)))))
       (catch #t go
         (lambda (x y fmt args . z)
-          (debug 1 "XXX: ~a~%" (apply format #f fmt args))
+          (debug 2 "XXX: ~a~%" (apply format #f fmt args))
           (values '() #f))))
     (define-syntax dump
       (syntax-rules ()
@@ -150,7 +151,7 @@
                     (or data (tjit-dump-abort? dump-option)))
            exp))))
     (define (failure msg)
-      (debug 1 ";;; trace ~a: ~a~%" trace-id msg)
+      (debug 2 ";;; trace ~a: ~a~%" trace-id msg)
       (tjit-increment-compilation-failure! entry-ip))
     (define (compile-traces traces)
       ;; Saving the last SP offset after trace scan. Note that the last SP
@@ -184,7 +185,7 @@
               (set-tjit-time-log-end! log t))))))
 
     (with-tjitc-error-handler entry-ip
-      (let-values (((traces implemented?) (disassemble-bytecode traces)))
+      (let-values (((traces implemented?) (parse-bytecode traces)))
         (dump tjit-dump-jitc? implemented? (show-sline sline))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond

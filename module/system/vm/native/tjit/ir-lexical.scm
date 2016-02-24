@@ -105,7 +105,7 @@
   (let* ((src/t (type-ref src))
          (vdst (var-ref dst))
          (vsrc (var-ref src)))
-    (debug 1 ";;; [IR] box-set! src/t=~a~%" (pretty-type src/t))
+    (debug 2 ";;; [IR] box-set! src/t=~a~%" (pretty-type src/t))
     (if (eq? &flonum src/t)
         (let ((r2 (make-tmpvar 2)))
           (with-boxing src/t vsrc r2

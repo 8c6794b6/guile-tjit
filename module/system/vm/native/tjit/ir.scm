@@ -167,7 +167,7 @@
     (begin
       (debug 1 "NYI: ~a~%" (car op))
       #f))
-  (debug 1 ";;; [scan-trace] op=~a~%" op)
+  (debug 2 ";;; [scan-trace] op=~a~%" op)
   (match (hashq-ref *scan-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))
@@ -343,7 +343,7 @@
                                              live-indices
                                              acc)
                                   <)))
-                      (debug 1 ";;; [gen-load-thunk] live-indices=~a~%"
+                      (debug 2 ";;; [gen-load-thunk] live-indices=~a~%"
                              live-indices)
                       (set-outline-live-indices! outline live-indices)
                       (next)))))))
@@ -360,23 +360,23 @@
                (let lp ((vars (reverse (ir-vars ir))))
                  (match vars
                    (((n . var) . vars)
-                    (debug 1 ";;; [load-up-frame] n=~s" n)
+                    (debug 2 ";;; [load-up-frame] n=~s" n)
                     (cond
                      ((or (skip-var? var)
                           (memq n live-indices))
-                      (debug 1 " skipping~%")
+                      (debug 2 " skipping~%")
                       (lp vars))
                      ((< min-local-index n max-local-index)
                       (let* ((entries (outline-entry-types outline))
                              (t (assq-ref entries n)))
-                        (debug 1 " t=~a~%" (pretty-type t))
+                        (debug 2 " t=~a~%" (pretty-type t))
                         (if (eq? t &unspecified)
                             (lp vars)
                             (begin
                               (hashq-set! acc n var)
                               (with-frame-ref vars var t n lp)))))
                      (else
-                      (debug 1 " skipping~%")
+                      (debug 2 " skipping~%")
                       (lp vars))))
                    (()
                     (load-down-frame)))))))

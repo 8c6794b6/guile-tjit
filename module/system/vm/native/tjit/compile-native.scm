@@ -213,7 +213,7 @@
     (vm-sync-sp %sp)))
 
 (define (env->src-table env indices shift)
-  (debug 1 ";;; [env->src-table] indices=~s~%" indices)
+  (debug 2 ";;; [env->src-table] indices=~s~%" indices)
   (let ((ret (make-hash-table)))
     (for-each (lambda (n)
                 (let ((var (make-var n)))
@@ -644,7 +644,7 @@ are local index number."
                 (jit-calli %scm-tjit-dump-locals)
                 (jit-movr %retval %thread)))))
          (_
-          (debug 1 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
+          (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
 
        (jumpi end-address)
        (jit-epilog)

@@ -164,11 +164,11 @@
                     ((_ . current)
                      (lp current acc))
                     (() acc)))))
-    (debug 1 ";;; [set-entry-type!] ~s => ~a~%" n (pretty-type t))
+    (debug 2 ";;; [set-entry-type!] ~s => ~a~%" n (pretty-type t))
     (set-outline-entry-types! outline entry)))
 
 (define (set-inferred-type! outline n t)
   (let* ((inferred (outline-inferred-types outline))
          (inferred (assq-set! inferred n t)))
-    (debug 1 ";;; [set-inferred-type!] ~s => ~a~%" n (pretty-type t))
+    (debug 2 ";;; [set-inferred-type!] ~s => ~a~%" n (pretty-type t))
     (set-outline-inferred-types! outline inferred)))
