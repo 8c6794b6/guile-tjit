@@ -75,12 +75,12 @@
 
 
 ;;;
-;;; Code generation
+;;; Auxiliary
 ;;;
 
 (define (load-frame local type dst)
   (debug 3 ";;; load-frame: local:~a type:~a dst:~a~%"
-         local (pretty-type type) dst)
+         local (pretty-type type) (physical-name dst))
   (sp-ref r0 local)
   (unbox-stack-element dst r0 type))
 
@@ -251,58 +251,53 @@ are local index number."
   (define (dump-load local dst type)
     (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
            (physical-name dst) (pretty-type type)))
-  (let ((dsts-list (hash-map->list cons dsts))
-        (car-< (lambda (a b) (< (car a) (car b)))))
-    (debug 3 ";;; molc: dsts: ~a~%"
-           (sort (map (match-lambda ((k . v) (cons k (physical-name v))))
-                      dsts-list)
-                 car-<))
-    (debug 3 ";;; molc: srcs: ~a~%"
-           (sort (map (match-lambda ((k . v) (cons k (physical-name v))))
-                      (hash-map->list cons srcs))
-                 car-<))
-    (let lp ((dsts dsts-list))
-      (match dsts
-        (((local . dst-var) . rest)
-         (cond
-          ((in-srcs? dst-var)
-           => (lambda (src-var)
-                (cond
-                 ((equal? dst-var src-var)
-                  (hashq-remove! srcs local)
-                  (lp rest))
-                 ((dst-is-full? (map cdr dsts)
-                                (map cdr (hash-map->list cons srcs)))
-                  ;; When all of the elements in dsts are in srcs, move one
-                  ;; of the srcs to temporary location.  `-2' is for gpr R1
-                  ;; or fpr F1 in lightning, used as scratch register in
-                  ;; this module.
-                  (let ((tmp (if (fpr? src-var)
-                                 (make-fpr -2)
-                                 (make-gpr -2)))
-                        (src-local (find-src-local src-var)))
-                    (dump-move local tmp src-var)
-                    (move tmp src-var)
-                    (hashq-set! srcs src-local tmp)
-                    (lp dsts)))
-                 (else
-                  ;; Rotate the list and try again.
-                  (lp (append rest (list (cons local dst-var))))))))
-          ((hashq-ref srcs local)
-           => (lambda (src-var)
-                (when (not (equal? src-var dst-var))
-                  (dump-move local dst-var src-var)
-                  (move dst-var src-var))
+  (define (dump-regs label regs)
+    (let ((car-< (lambda (a b) (< (car a) (car b)))))
+      (debug 3 ";;; molc: ~s: ~a~%" label
+             (sort (map (match-lambda ((k . v) (cons k (physical-name v))))
+                        regs)
+                   car-<))))
+  (dump-regs 'dsts (hash-map->list cons dsts))
+  (dump-regs 'srcs (hash-map->list cons srcs))
+  (let lp ((dsts (hash-map->list cons dsts)))
+    (match dsts
+      (((local . dst-var) . rest)
+       (cond
+        ((in-srcs? dst-var)
+         => (lambda (src-var)
+              (cond
+               ((equal? dst-var src-var)
                 (hashq-remove! srcs local)
-                (lp rest)))
-          (else
-           (dump-load local dst-var (hashq-ref types local))
-           (let ((type (hashq-ref types local)))
-             ;; XXX: Add test to check the case ignoring `load-frame'.
-             (when type
-               (load-frame local type dst-var)))
-           (lp rest))))
-        (() (values))))))
+                (lp rest))
+               ((dst-is-full? (map cdr dsts)
+                              (map cdr (hash-map->list cons srcs)))
+                ;; When all of the elements in dsts are in srcs, move one of the
+                ;; srcs to temporary location. `-2' is for gpr R1 or fpr F1 in
+                ;; lightning, used as scratch register in this module.
+                (let ((tmp (if (fpr? src-var)
+                               (make-fpr -2)
+                               (make-gpr -2)))
+                      (src-local (find-src-local src-var)))
+                  (dump-move local tmp src-var)
+                  (move tmp src-var)
+                  (hashq-set! srcs src-local tmp)
+                  (lp dsts)))
+               (else
+                ;; Rotate the list and try again.
+                (lp (append rest (list (cons local dst-var))))))))
+        ((hashq-ref srcs local)
+         => (lambda (src-var)
+              (when (not (equal? src-var dst-var))
+                (dump-move local dst-var src-var)
+                (move dst-var src-var))
+              (hashq-remove! srcs local)
+              (lp rest)))
+        (else
+         (dump-load local dst-var (hashq-ref types local))
+         (let ((type (hashq-ref types local)))
+           (load-frame local type dst-var))
+         (lp rest))))
+      (() (values)))))
 
 ;;; XXX: Incomplete
 
@@ -347,12 +342,12 @@ are local index number."
 ;;; The Native Code Compiler
 ;;;
 
-(define (compile-native tj primops snapshots sline)
+(define (compile-native tj outline primops snapshots sline)
   (with-jit-state
    (jit-prolog)
    (let-values
        (((trampoline loop-label bailouts env)
-         (compile-entry tj primops snapshots)))
+         (compile-entry tj outline primops snapshots)))
      (let* ((epilog-label (jit-label))
             (_ (begin
                  (jit-patch epilog-label)
@@ -429,7 +424,7 @@ are local index number."
              (set-snapshot-code! (tj-parent-snapshot tj) code)))
          (values code size code-address loop-address trampoline))))))
 
-(define (compile-entry tj primops snapshots)
+(define (compile-entry tj outline primops snapshots)
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (tj-id tj))))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
@@ -492,9 +487,9 @@ are local index number."
                       (tj-parent-exit-id tj))))))
 
     ;; Assemble the primitives.
-    (compile-body tj primops snapshots trampoline)))
+    (compile-body tj outline primops snapshots trampoline)))
 
-(define (compile-body tj primops snapshots trampoline)
+(define (compile-body tj outline primops snapshots trampoline)
   (define (compile-ops asm ops env acc)
     (let lp ((ops ops) (acc acc))
       (match ops
@@ -520,7 +515,7 @@ are local index number."
                  ;;                 (tj-loop-vars tj))
                  ;;  (lp ops acc))
                  ((snapshot-link? snapshot)
-                  (compile-link tj asm args snapshot env)
+                  (compile-link tj outline asm args snapshot env)
                   (lp ops acc))
                  (else
                   (let ((out-code (trampoline-ref trampoline snapshot-id))
@@ -663,7 +658,7 @@ are local index number."
            (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline id ptr)))))))
 
-(define (compile-link tj asm args snapshot env)
+(define (compile-link tj outline asm args snapshot env)
   (let* ((linked-fragment (get-root-trace (tj-linked-ip tj)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot
@@ -673,8 +668,7 @@ are local index number."
        ;; root trace or not.
        (let* ((type-table (make-hash-table))
               (dst-table (make-hash-table))
-              (live-indices
-               (or (and=> (tj-parent-snapshot tj) snapshot-live-indices) '()))
+              (live-indices (outline-live-indices outline))
               (src-table (env->src-table env live-indices sp-offset)))
          (let lp ((loop-locals loop-locals)
                   (dsts (fragment-loop-vars linked-fragment)))

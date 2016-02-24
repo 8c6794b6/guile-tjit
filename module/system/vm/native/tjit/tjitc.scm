@@ -173,7 +173,7 @@
           (dump tjit-dump-anf? anf (dump-anf trace-id anf))
           (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
           (let-values (((code size adjust loop-address trampoline)
-                        (compile-native tj ops snapshots sline)))
+                        (compile-native tj outline ops snapshots sline)))
             (tjit-increment-id!)
             (when (tjit-dump-ncode? dump-option)
               (dump-ncode trace-id entry-ip code size adjust loop-address
@@ -188,23 +188,16 @@
         (dump tjit-dump-jitc? implemented? (show-sline sline))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond
-         ((not outline)
-          (failure "error during scan"))
-         ((not implemented?)
-          (failure "NYI found, aborted"))
-         (uprec?
-          (failure "NYI - up recursion"))
-         (downrec?
-          (failure "NYI - down recursion"))
-         ((and (not parent-snapshot)
-               loop?
+         ((not outline) (failure "error during scan"))
+         ((not implemented?) (failure "NYI found, aborted"))
+         (uprec? (failure "NYI - up recursion"))
+         (downrec? (failure "NYI - down recursion"))
+         ((and (not parent-snapshot) loop?
                (not (zero? (outline-sp-offset outline))))
           (failure "NYI - looping root trace with SP shift"))
-         ((and (not parent-snapshot)
-               (not loop?))
+         ((and (not parent-snapshot) (not loop?))
           (failure "NYI - loop-less root trace"))
          (else
-          (debug 1 "~a" (begin (dump-outline outline) ""))
           (with-nyi-handler entry-ip (compile-traces traces))))))))
 
 

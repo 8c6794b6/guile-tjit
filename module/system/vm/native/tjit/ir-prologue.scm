@@ -91,6 +91,9 @@
 (define-scan (reset-frame nlocals)
   (scan-frame nlocals))
 
+(define-ti (reset-frame nlocals)
+  (values))
+
 (define-anf (reset-frame nlocals)
   (let ((stack-size (vector-length locals)))
     (if (and (ir-return-subr? ir)

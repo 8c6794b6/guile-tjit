@@ -78,8 +78,15 @@
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (tj-id tj))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
-    (let ((primops (anf->primops anf tj snapshot0 vars snapshots)))
+    (let* ((anf (optimize-anf anf))
+           (primops (anf->primops anf tj snapshot0 vars snapshots)))
       (values snapshots anf primops))))
+
+(define (optimize-anf anf)
+  "Potential path to optimize ANF.
+
+Currently does nothing, returns the given argument."
+  anf)
 
 (define (get-live-vars-in-parent env snapshot)
   (if (and env snapshot)
@@ -95,10 +102,10 @@
                    parent-read-vars env))
       '()))
 
-(define* (add-initial-loads tj outline snapshots
-                            initial-locals initial-sp-offset
-                            parent-snapshot vars live-vars-in-parent
-                            loaded-vars thunk)
+(define (add-initial-loads tj outline snapshots
+                           initial-locals initial-sp-offset
+                           parent-snapshot vars live-vars-in-parent
+                           loaded-vars thunk)
   ;; When local was passed from parent and snapshot 0 contained the local with
   ;; same type, no need to load from frame. If type does not match, the value
   ;; passed from parent has different was untagged with different type, reload
@@ -238,14 +245,14 @@
                        (vector-ref (outline-sp-offsets outline) 0))
                       (outline-fp-offset
                        (vector-ref (outline-fp-offsets outline) 0))
-                      (_ (set-outline-sp-offset! outline outline-sp-offset))
-                      (_ (set-outline-fp-offset! outline outline-fp-offset))
                       (ir (make-ir snapshots snapshot-id vars
                                    (min initial-sp-offset 0)
                                    (get-max-sp-offset initial-sp-offset
                                                       initial-fp-offset
                                                       initial-nlocals)
                                    0 #f)))
+                 (set-outline-sp-offset! outline outline-sp-offset)
+                 (set-outline-fp-offset! outline outline-fp-offset)
                  (trace->anf tj outline ir trace)))))
 
         ;; Update inferred type with entry types. All guards for entry types

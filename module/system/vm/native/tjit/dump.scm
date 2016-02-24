@@ -71,7 +71,7 @@ option was set to true."
          (anf-time (if dump-time 0 #f))
          (ops-time (if dump-time 0 #f))
          (asm-time (if dump-time 0 #f))
-         (blo-time (if dump-time 0 #f))
+         (bailout-time (if dump-time 0 #f))
          (num-fragments (hash-count (const #t) (tjit-fragment))))
     (when dump-time
       (fold-tjit-time-logs
@@ -83,7 +83,7 @@ option was set to true."
             (set! anf-time (+ anf-time s))
             (set! ops-time (+ ops-time c))
             (set! asm-time (+ asm-time a))
-            (set! blo-time (+ blo-time b)))))
+            (set! bailout-time (+ bailout-time b)))))
        #f))
     (list `(hot-loop . ,hot-loop)
           `(hot-call . ,hot-call)
@@ -93,7 +93,7 @@ option was set to true."
           `(anf-time . ,anf-time)
           `(ops-time . ,ops-time)
           `(asm-time . ,asm-time)
-          `(blo-time . ,blo-time)
+          `(bailout-time . ,bailout-time)
           `(total-time . ,total-time))))
 
 ;;;
@@ -320,7 +320,7 @@ option was set to true."
 
 (define (dump-ncode trace-id entry-ip code code-size adjust
                     loop-address snapshots trampoline root?)
-  (format #t ";;; trace ~a: ncode~%" trace-id)
+  (format #t ";;; trace ~a: ncode ~a~%" trace-id code-size)
   ((tjit-disassembler) trace-id entry-ip code code-size adjust
    loop-address snapshots trampoline root?))
 

@@ -292,7 +292,9 @@
   (jit-andi dst obj (imm #xffff)))
 
 (define-syntax-rule (scm-real-value dst src)
-  (jit-ldxi-d dst src (imm (* 2 %word-size))))
+  (begin
+    (jit-ldxi-d dst src (imm (* 2 %word-size)))
+    dst))
 
 (define %scm-from-double
   (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
@@ -924,11 +926,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define (unbox-stack-element dst src type)
   (if (eq? type &flonum)
       (cond
-       ((gpr? dst)    (begin (scm-real-value f0 src)
-                             (fpr->gpr (gpr dst) f0)))
+       ((gpr? dst)    (fpr->gpr (gpr dst) (scm-real-value f0 src)))
        ((fpr? dst)    (scm-real-value (fpr dst) src))
-       ((memory? dst) (begin (scm-real-value f0 src)
-                             (memory-set!/f dst f0))))
+       ((memory? dst) (memory-set!/f dst (scm-real-value f0 src))))
       (cond
        ((gpr? dst) (jit-movr (gpr dst) src))
        ((fpr? dst) (gpr->fpr (fpr dst) src))
@@ -964,11 +964,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        ((fpr? dst)
         (scm-real-value (fpr dst) r0))
        ((gpr? dst)
-        (scm-real-value f0 r0)
-        (fpr->gpr (gpr dst) f0))
+        (fpr->gpr (gpr dst) (scm-real-value f0 r0)))
        ((memory? dst)
-        (scm-real-value f0 r0)
-        (memory-set!/f dst f0))
+        (memory-set!/f dst (scm-real-value f0 r0)))
        (else (err))))
      ((= t &f64)
       (cond

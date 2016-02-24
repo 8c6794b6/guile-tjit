@@ -37,6 +37,15 @@
   #:use-module (system vm native tjit variables)
   #:use-module (system vm program))
 
+(define-syntax-rule (current-sp-for-ti)
+  ;; Type inference procedures are called during initialization and ANF IR
+  ;; compilation. Some bytecode operation shift SP during outline
+  ;; initialization. This macro test whether outline is initialized and get
+  ;; current SP offset appropriately.
+  (if (outline-initialized? outline)
+      (outline-sp-offset outline)
+      (car (outline-sp-offsets outline))))
+
 (define-syntax-rule (scan-call proc nlocals label?)
   (let* ((stack-size (vector-length locals))
          (sp-offset (outline-sp-offset outline))
@@ -61,9 +70,7 @@
   ;; Bytecode `call' changes SP after saving for current SP offset, see
   ;; `scan-call' above.
   (let* ((stack-size (vector-length locals))
-         (sp-offset (if (outline-initialized? outline)
-                        (outline-sp-offset outline)
-                        (car (outline-sp-offsets outline))))
+         (sp-offset (current-sp-for-ti))
          (fp (- stack-size proc))
          (sp-proc (- stack-size proc 1))
          (ra-ty (make-return-address
@@ -97,7 +104,7 @@
   ;; redefined.
   ;;
   ;; Call to C subroutines (a.k.a: primitive-code) are inlined, will not emit
-  ;; native operation.
+  ;; primitive operation.
   ;;
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
@@ -145,6 +152,9 @@
 (define-scan (tail-call nlocals)
   (scan-tail-call nlocals #f))
 
+(define-ti (tail-call nlocals)
+  (values))
+
 (define-anf (tail-call nlocals)
   (let* ((stack-size (vector-length locals))
          (proc-index (- stack-size 1))
@@ -157,6 +167,9 @@
 
 (define-scan (tail-call-label nlocals label)
   (scan-tail-call nlocals #t))
+
+(define-ti (tail-call-label nlocals label)
+  (values))
 
 (define-anf (tail-call-label nlocals label)
   (next))
@@ -178,9 +191,7 @@
   ;; Bytecode `receive' changes SP after saving for current SP offset, see
   ;; `define-scan' for `receive' above.
   (let* ((stack-size (vector-length locals))
-         (sp-offset (if (outline-initialized? outline)
-                        (outline-sp-offset outline)
-                        (car (outline-sp-offsets outline))))
+         (sp-offset (current-sp-for-ti))
          (proc/i (+ (- stack-size proc 2) sp-offset))
          (dst/i (+ (- stack-size dst 1) sp-offset))
          (ty (or (assq-ref (outline-inferred-types outline) proc/i)
@@ -225,9 +236,7 @@
   ;; As in `call' and `receive', `return-values' shifts SP offset, see
   ;; `define-scan' for `return-values' above.
   (let* ((stack-size (vector-length locals))
-         (sp-offset (if (outline-initialized? outline)
-                        (outline-sp-offset outline)
-                        (car (outline-sp-offsets outline))))
+         (sp-offset (current-sp-for-ti))
          (ra-offset (+ sp-offset stack-size))
          (dl-offset (+ ra-offset 1)))
     (set-inferred-type! outline ra-offset &false)
@@ -237,7 +246,6 @@
   ;; Two locals below callee procedure in VM frame contain dynamic link and
   ;; return address. VM interpreter refills these two with #f, doing the same
   ;; thing in `emit-next'.
-  ;;
   (let* ((ra/val (make-return-address (make-pointer ra)))
          (dl/val (make-dynamic-link dl))
          (stack-size (vector-length locals))
@@ -247,11 +255,20 @@
     `(let ((_ ,snapshot))
        ,(if inlineable
             (next)
-            (let* ((stack-size (vector-length locals))
-                   (vra (var-ref stack-size))
-                   (vdl (var-ref (+ stack-size 1))))
+            (let* ((ra/v (var-ref stack-size))
+                   (dl/v (var-ref (+ stack-size 1)))
+                   (ra/i (+ stack-size (current-sp-offset)))
+                   (dl/i (+ ra/i 1))
+                   (live-indices (outline-live-indices outline))
+                   (live-indices (if (memq ra/i live-indices)
+                                     live-indices
+                                     (cons ra/i live-indices)))
+                   (live-indices (if (memq dl/i live-indices)
+                                     live-indices
+                                     (cons dl/i live-indices))))
+              (set-outline-live-indices! outline live-indices)
               `(let ((_ (%return ,ra)))
-                 (let ((,vra #f))
-                   (let ((,vdl #f))
+                 (let ((,ra/v #f))
+                   (let ((,dl/v #f))
                      (let ((_ ,(take-snapshot! ra 0 #t)))
                        ,(next))))))))))

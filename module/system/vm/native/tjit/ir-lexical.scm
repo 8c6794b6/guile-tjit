@@ -41,7 +41,6 @@
          (dst+sp (+ dst sp-offset))
          (src+sp (+ src sp-offset))
          (entry (outline-entry-types outline)))
-
     ;; Resolving expcting and inferred type for dst and src. There are no SCM
     ;; type clue here, use existing data stored in outline. If src could not
     ;; resolved, a tagged `copy' type with local index are stored, to be
@@ -49,7 +48,6 @@
     (unless (or (assq-ref (outline-inferred-types outline) src+sp)
                 (assq-ref (outline-entry-types outline) src+sp))
       (set-entry-type! outline src+sp `(copy . ,dst+sp)))
-
     (set-scan-initial-fields! outline)))
 
 (define-ti (mov dst src)
