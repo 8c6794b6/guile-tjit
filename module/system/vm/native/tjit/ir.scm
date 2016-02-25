@@ -576,7 +576,7 @@ index referenced by dst, a, and b values at runtime."
 
 (define-syntax-rule (with-type-guard type src thunk)
   `(let ((_ ,(take-snapshot! ip 0)))
-     (let ((_ (%teq ,src ,type)))
+     (let ((_ (%typeq ,src ,type)))
        ,(thunk))))
 
 ;;; *** The dynamic environment

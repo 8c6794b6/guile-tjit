@@ -722,7 +722,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-guard-double %fge < jit-blti-d jit-bltr-d)
 
 ;;; Type guard.
-(define-native (%teq (int src) (void type))
+(define-native (%typeq (int src) (void type))
   (unless (constant? src)
     (let ((reg (cond ((gpr? src) (gpr src))
                      ((fpr? src) (fpr->gpr r0 (fpr src)))
