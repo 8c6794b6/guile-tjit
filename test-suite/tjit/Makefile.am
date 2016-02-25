@@ -52,8 +52,10 @@ TESTS = \
 	t-call-label-01.scm \
 	t-call-label-02.scm \
 	t-call-label-03.scm \
+	t-call-label-04.scm \
 	t-deoptimize-01.scm \
 	t-deoptimize-02.scm \
+	t-deoptimize-03.scm \
 	t-div-01.scm \
 	t-escape-01.scm \
 	t-f64-01.scm \
@@ -74,6 +76,7 @@ TESTS = \
 	t-make-long-long-immediate-01.scm \
 	t-mov-01.scm \
 	t-mov-02.scm \
+	t-mul-01.scm \
 	t-nest-01.scm \
 	t-nest-02.scm \
 	t-nest-03.scm \
@@ -95,6 +98,7 @@ TESTS = \
 	t-nest-17.scm \
 	t-nest-18.scm \
 	t-nest-19.scm \
+	t-nest-19b.scm \
 	t-nest-20.scm \
 	t-nest-21.scm \
 	t-nest-22.scm \
@@ -118,7 +122,9 @@ TESTS = \
 	t-pairs-09.scm \
 	t-pairs-10.scm \
 	t-pairs-11.scm \
+	t-pairs-12.scm \
 	t-reset-frame-01.scm \
+	t-reset-frame-02.scm \
 	t-repl-01.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
@@ -137,6 +143,7 @@ TESTS = \
 	t-side-exit-15.scm \
 	t-side-exit-16.scm \
 	t-side-exit-17.scm \
+	t-side-exit-18.scm \
 	t-subr-call-01.scm \
 	t-subr-call-02.scm \
 	t-subr-call-03.scm \
