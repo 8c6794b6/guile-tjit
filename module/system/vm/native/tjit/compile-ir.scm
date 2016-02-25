@@ -205,7 +205,8 @@ Currently does nothing, returns the given argument."
          (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
                                      '()))
          (live-vars-in-parent
-          (get-live-vars-in-parent (and=> (tj-parent-fragment tj) fragment-env)
+          (get-live-vars-in-parent (and=> (tj-parent-fragment tj)
+                                          fragment-storage)
                                    parent-snapshot))
          (vars-from-parent
           (filter (match-lambda

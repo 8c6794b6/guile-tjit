@@ -212,12 +212,12 @@
     (op %sp %sp (imm (* (abs offset) %word-size)))
     (vm-sync-sp %sp)))
 
-(define (env->src-table env indices shift)
-  (debug 2 ";;; [env->src-table] indices=~s~%" indices)
+(define (storage->src-table storage indices shift)
+  (debug 2 ";;; [storage->src-table] indices=~s~%" indices)
   (let ((ret (make-hash-table)))
     (for-each (lambda (n)
                 (let ((var (make-var n)))
-                  (and=> (hashq-ref env var)
+                  (and=> (hashq-ref storage var)
                          (lambda (phy)
                            (hashq-set! ret (- n shift) phy)))))
               indices)
@@ -346,7 +346,7 @@ are local index number."
   (with-jit-state
    (jit-prolog)
    (let-values
-       (((trampoline loop-label bailouts env)
+       (((trampoline loop-label bailouts storage)
          (compile-entry tj outline primops snapshots)))
      (let* ((epilog-label (jit-label))
             (_ (begin
@@ -379,7 +379,8 @@ are local index number."
                  (let lp ((vars (reverse (tj-loop-vars tj))) (acc '()))
                    (if (null? vars)
                        (reverse! acc)
-                       (lp (cdr vars) (cons (hashq-ref env (car vars)) acc))))
+                       (lp (cdr vars)
+                           (cons (hashq-ref storage (car vars)) acc))))
                  #f)))
        (make-bytevector-executable! code)
 
@@ -410,7 +411,7 @@ are local index number."
                                      trampoline
                                      end-address
                                      gdb-jit-entry
-                                     env))
+                                     storage))
 
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
@@ -490,7 +491,7 @@ are local index number."
     (compile-body tj outline primops snapshots trampoline)))
 
 (define (compile-body tj outline primops snapshots trampoline)
-  (define (compile-ops asm ops env acc)
+  (define (compile-ops asm ops storage acc)
     (let lp ((ops ops) (acc acc))
       (match ops
         ((('%snap snapshot-id . args) . ops)
@@ -515,7 +516,7 @@ are local index number."
                  ;;                 (tj-loop-vars tj))
                  ;;  (lp ops acc))
                  ((snapshot-link? snapshot)
-                  (compile-link tj outline asm args snapshot env)
+                  (compile-link tj outline asm args snapshot storage)
                   (lp ops acc))
                  (else
                   (let ((out-code (trampoline-ref trampoline snapshot-id))
@@ -541,7 +542,7 @@ are local index number."
            (tjitc-error 'compile-ops "op not found ~s" op-name))))
         (()
          acc))))
-  (define (compile-loop asm loop env gen-bailouts)
+  (define (compile-loop asm loop storage gen-bailouts)
     (if (null? loop)
         (values #f gen-bailouts)
         (let ((loop-label (jit-label)))
@@ -549,21 +550,21 @@ are local index number."
           (jit-patch loop-label)
           (when (tj-handle-interrupts? tj)
             (vm-handle-interrupts asm))
-          (let ((gen-bailouts (compile-ops asm loop env gen-bailouts)))
+          (let ((gen-bailouts (compile-ops asm loop storage gen-bailouts)))
             (jump loop-label)
             (values loop-label gen-bailouts)))))
   (match primops
-    (($ $primops entry loop mem-idx env)
+    (($ $primops entry loop mem-idx storage)
      (let* ((fragment (tj-parent-fragment tj))
             (end-address (or (and=> fragment
                                     fragment-end-address)
                              (and=> (get-root-trace (tj-linked-ip tj))
                                     fragment-end-address)))
-            (asm (make-asm env end-address))
-            (gen-bailouts (compile-ops asm entry env '())))
+            (asm (make-asm storage end-address))
+            (gen-bailouts (compile-ops asm entry storage '())))
        (let-values (((loop-label gen-bailouts)
-                     (compile-loop asm loop env gen-bailouts)))
-         (values trampoline loop-label gen-bailouts env))))
+                     (compile-loop asm loop storage gen-bailouts)))
+         (values trampoline loop-label gen-bailouts storage))))
     (_
      (tjitc-error 'compile-body "not a $primops" primops))))
 
@@ -658,7 +659,7 @@ are local index number."
            (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline id ptr)))))))
 
-(define (compile-link tj outline asm args snapshot env)
+(define (compile-link tj outline asm args snapshot storage)
   (let* ((linked-fragment (get-root-trace (tj-linked-ip tj)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot
@@ -669,7 +670,7 @@ are local index number."
        (let* ((type-table (make-hash-table))
               (dst-table (make-hash-table))
               (live-indices (outline-live-indices outline))
-              (src-table (env->src-table env live-indices sp-offset)))
+              (src-table (storage->src-table storage live-indices sp-offset)))
          (let lp ((loop-locals loop-locals)
                   (dsts (fragment-loop-vars linked-fragment)))
            (match (list loop-locals dsts)

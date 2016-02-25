@@ -50,7 +50,7 @@
             fragment-loop-vars
             fragment-end-address
             fragment-gdb-jit-entry
-            fragment-env
+            fragment-storage
 
             put-fragment!
             get-fragment
@@ -157,7 +157,7 @@
 (define-record-type <fragment>
   (%make-fragment id code exit-counts downrec? uprec? entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
-                  snapshots trampoline end-address gdb-jit-entry env)
+                  snapshots trampoline end-address gdb-jit-entry storage)
   fragment?
 
   ;; Trace id number.
@@ -206,7 +206,7 @@
   (gdb-jit-entry fragment-gdb-jit-entry)
 
   ;; Hash table of variable symbol => assigned register
-  (env fragment-env))
+  (storage fragment-storage))
 
 (define make-fragment %make-fragment)
 

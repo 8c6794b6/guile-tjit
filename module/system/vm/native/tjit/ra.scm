@@ -54,7 +54,7 @@
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primops
-  (make-primops entry loop nspills env)
+  (make-primops entry loop nspills storage)
   primops?
   ;; List of primitives for entry clause.
   (entry primops-entry)
@@ -66,7 +66,7 @@
   (nspills primops-nspills)
 
   ;; Hash-table containing variable information.
-  (env primops-env))
+  (storage primops-storage))
 
 
 ;;;
@@ -109,38 +109,38 @@
   (lambda (x)
     (syntax-violation 'free-fprs "free-fprs undefined" x)))
 
-(define-syntax-parameter env
+(define-syntax-parameter storage
   (lambda (x)
-    (syntax-violation 'env "env undefined" x)))
+    (syntax-violation 'storage "storage undefined" x)))
 
 (define-syntax-rule (gen-mem)
   (let ((ret (make-memory (variable-ref mem-idx))))
     (variable-set! mem-idx (+ 1 (variable-ref mem-idx)))
     ret))
 
-(define-syntax-rule (set-env! gen var)
+(define-syntax-rule (set-storage! gen var)
   (let ((ret gen))
-    (hashq-set! env var ret)
+    (hashq-set! storage var ret)
     ret))
 
 (define-syntax-rule (get-mem! var)
-  (set-env! (gen-mem) var))
+  (set-storage! (gen-mem) var))
 
 (define-syntax-rule (get-gpr! var)
-  (set-env! (or (acquire-gpr! free-gprs)
+  (set-storage! (or (acquire-gpr! free-gprs)
                 (gen-mem))
             var))
 
 (define-syntax-rule (get-fpr! var)
-  (set-env! (or (acquire-fpr! free-fprs)
+  (set-storage! (or (acquire-fpr! free-fprs)
                 (gen-mem))
             var))
 
-(define (assign-registers term snapshots arg-env arg-free-gprs arg-free-fprs
+(define (assign-registers term snapshots arg-storage arg-free-gprs arg-free-fprs
                           arg-mem-idx snapshot-id)
   "Compile ANF term to list of primitive operations."
   (syntax-parameterize
-      ((env (identifier-syntax arg-env))
+      ((storage (identifier-syntax arg-storage))
        (free-gprs (identifier-syntax arg-free-gprs))
        (free-fprs (identifier-syntax arg-free-fprs))
        (mem-idx (identifier-syntax arg-mem-idx)))
@@ -165,7 +165,7 @@
                (lp types args (cons (make-constant arg) acc)))
               ((symbol? arg)
                (cond
-                ((hashq-ref env arg)
+                ((hashq-ref storage arg)
                  => (lambda (reg)
                       (lp types args (cons reg acc))))
                 ((= type int)
@@ -183,7 +183,7 @@
     (define (get-dst-type! op dst)
       ;; Get assigned register. Will assign new register if not assigned yet.
       (let ((type (car (lookup-prim-type op)))
-            (assigned (hashq-ref env dst)))
+            (assigned (hashq-ref storage dst)))
         (cond
          (assigned
           ;; Doing additional check for `%fref' and `%fref/f' operations, to
@@ -206,7 +206,7 @@
     (define (ref k)
       (cond
        ((constant? k) (make-constant k))
-       ((symbol? k) (hashq-ref env k))
+       ((symbol? k) (hashq-ref storage k))
        (else (tjitc-error 'assign-registers "ref ~s not found" k))))
     (define (constant? x)
       (cond
@@ -269,12 +269,12 @@
         (initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
-        (initial-env (make-hash-table))
+        (initial-storage (make-hash-table))
         (initial-local-x-types (snapshot-locals initial-snapshot)))
-    (define (merge-env env)
+    (define (merge-storage storage)
       (hash-for-each
        (lambda (k v)
-         (hashq-set! initial-env k v)
+         (hashq-set! initial-storage k v)
          (cond
           ((gpr? v)
            (let ((i (ref-value v)))
@@ -290,29 +290,30 @@
                (variable-set! initial-mem-idx (+ i 1)))))
           (else
            (tjitc-error 'anf->primops "unknown var ~s" v))))
-       env))
+       storage))
 
     ;; Sharing registers and memory offset for side trace to share variables
     ;; with parent trace. Also sharing registers and variables for loop-less
     ;; root tracec.
-    (and=> (and=> (tj-parent-fragment tj) fragment-env) merge-env)
+    (and=> (and=> (tj-parent-fragment tj) fragment-storage) merge-storage)
     (when (and (not (tj-parent-fragment tj))
                (not (tj-loop? tj)))
-      (and=> (and=> (get-root-trace (tj-linked-ip tj)) fragment-env) merge-env))
+      (and=> (and=> (get-root-trace (tj-linked-ip tj)) fragment-storage)
+             merge-storage))
 
     ;; Assign scratch registers to tmporary variables.
-    (hashq-set! initial-env (make-tmpvar 0) (make-gpr -1))
-    (hashq-set! initial-env (make-tmpvar 1) (make-gpr -2))
-    (hashq-set! initial-env (make-tmpvar 2) (make-gpr -3))
-    (hashq-set! initial-env (make-tmpvar/f 0) (make-fpr -1))
-    (hashq-set! initial-env (make-tmpvar/f 1) (make-fpr -2))
-    (hashq-set! initial-env (make-tmpvar/f 2) (make-fpr -3))
+    (hashq-set! initial-storage (make-tmpvar 0) (make-gpr -1))
+    (hashq-set! initial-storage (make-tmpvar 1) (make-gpr -2))
+    (hashq-set! initial-storage (make-tmpvar 2) (make-gpr -3))
+    (hashq-set! initial-storage (make-tmpvar/f 0) (make-fpr -1))
+    (hashq-set! initial-storage (make-tmpvar/f 1) (make-fpr -2))
+    (hashq-set! initial-storage (make-tmpvar/f 2) (make-fpr -3))
 
     (syntax-parameterize
         ((free-gprs (identifier-syntax initial-free-gprs))
          (free-fprs (identifier-syntax initial-free-fprs))
          (mem-idx (identifier-syntax initial-mem-idx))
-         (env (identifier-syntax initial-env)))
+         (storage (identifier-syntax initial-storage)))
       (define-syntax-rule (set-initial-args! initial-args initial-locals)
         (let lp ((args initial-args)
                  (local-x-types initial-locals)
@@ -320,7 +321,7 @@
           (match (list args local-x-types)
             (((arg . args) ((local . type) . local-x-types))
              (cond
-              ((hashq-ref env arg)
+              ((hashq-ref storage arg)
                => (lambda (reg)
                     (lp args local-x-types (cons reg acc))))
               (else
@@ -332,7 +333,7 @@
              (reverse! acc)))))
       (define-syntax-rule (make-var n)
         (string->symbol (string-append "v" (number->string n))))
-      (define (sort-variables-in-env t)
+      (define (sort-variables-in-storage t)
         (define (var-index sym)
           (string->number (substring (symbol->string sym) 1)))
         (sort (hash-map->list (lambda (k v)
@@ -341,8 +342,8 @@
                 (< (var-index (car a))
                    (var-index (car b))))))
 
-      (debug 2 ";;; env (before)~%~{;;;   ~a~%~}"
-             (sort-variables-in-env env))
+      (debug 2 ";;; storage (before)~%~{;;;   ~a~%~}"
+             (sort-variables-in-storage storage))
 
       (match term
         ;; ANF with entry clause and loop body.
@@ -353,16 +354,16 @@
             entry)
          (set-initial-args! entry-args initial-local-x-types)
          (let*-values (((entry-ops snapshot-idx)
-                        (assign-registers entry-body snapshots env
+                        (assign-registers entry-body snapshots storage
                                           free-gprs free-fprs mem-idx
                                           0))
                        ((loop-ops snapshot-idx)
-                        (assign-registers loop-body snapshots env
+                        (assign-registers loop-body snapshots storage
                                           free-gprs free-fprs mem-idx
                                           snapshot-idx)))
-           (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
-                  (sort-variables-in-env env))
-           (make-primops entry-ops loop-ops (variable-ref mem-idx) env)))
+           (debug 2 ";;; storage (after)~%~{;;;   ~a~%~}"
+                  (sort-variables-in-storage storage))
+           (make-primops entry-ops loop-ops (variable-ref mem-idx) storage)))
 
         ;; ANF without loop.
         (`(letrec ((patch (lambda ,patch-args
@@ -380,7 +381,7 @@
                      (locals (reverse locals)))
               (match (list variables locals)
                 (((var . vars) ((local . type) . locals))
-                 (hashq-set! env (make-var local) var)
+                 (hashq-set! storage (make-var local) var)
                  (match var
                    (('gpr . n)
                     (vector-set! free-gprs n #f))
@@ -399,11 +400,11 @@
             (debug 2 ";;; ir->primops: perhaps loop-less root trace~%")))
 
          (let-values (((patch-ops snapshot-idx)
-                       (assign-registers patch-body snapshots env
+                       (assign-registers patch-body snapshots storage
                                          free-gprs free-fprs mem-idx
                                          0)))
-           (debug 2 ";;; env (after)~%~{;;;   ~a~%~}"
-                  (sort-variables-in-env env))
-           (make-primops patch-ops '() (variable-ref mem-idx) env)))
+           (debug 2 ";;; storage (after)~%~{;;;   ~a~%~}"
+                  (sort-variables-in-storage storage))
+           (make-primops patch-ops '() (variable-ref mem-idx) storage)))
         (_
          (tjitc-error 'ir->primops "malformed term" term))))))
