@@ -341,12 +341,12 @@ are local index number."
 ;;; The Native Code Compiler
 ;;;
 
-(define (compile-native tj outline primops snapshots sline)
+(define (compile-native outline primops snapshots sline)
   (with-jit-state
    (jit-prolog)
    (let-values
        (((trampoline loop-label bailouts storage)
-         (compile-entry tj outline primops snapshots)))
+         (compile-entry outline primops snapshots)))
      (let* ((epilog-label (jit-label))
             (_ (begin
                  (jit-patch epilog-label)
@@ -424,7 +424,7 @@ are local index number."
              (set-snapshot-code! (outline-parent-snapshot outline) code)))
          (values code size code-address loop-address trampoline))))))
 
-(define (compile-entry tj outline primops snapshots)
+(define (compile-entry outline primops snapshots)
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (outline-id outline))))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
@@ -487,9 +487,9 @@ are local index number."
                       (outline-parent-exit-id outline))))))
 
     ;; Assemble the primitives.
-    (compile-body tj outline primops snapshots trampoline)))
+    (compile-body outline primops snapshots trampoline)))
 
-(define (compile-body tj outline primops snapshots trampoline)
+(define (compile-body outline primops snapshots trampoline)
   (define (compile-ops asm ops storage acc)
     (let lp ((ops ops) (acc acc))
       (match ops
@@ -515,11 +515,11 @@ are local index number."
                  ;;                 (outline-loop-vars outline))
                  ;;  (lp ops acc))
                  ((snapshot-link? snapshot)
-                  (compile-link tj outline asm args snapshot storage)
+                  (compile-link outline asm args snapshot storage)
                   (lp ops acc))
                  (else
                   (let ((out-code (trampoline-ref trampoline snapshot-id))
-                        (gen-bailout (compile-bailout tj outline asm snapshot
+                        (gen-bailout (compile-bailout outline asm snapshot
                                                       trampoline args)))
                     (set-asm-out-code! asm out-code)
                     (let ((exit (jit-forward)))
@@ -567,7 +567,7 @@ are local index number."
     (_
      (tjitc-error 'compile-body "not a $primops" primops))))
 
-(define (compile-bailout tj outline asm snapshot trampoline args)
+(define (compile-bailout outline asm snapshot trampoline args)
   (lambda (end-address)
     (let ((ip (snapshot-ip snapshot))
           (id (snapshot-id snapshot)))
@@ -658,7 +658,7 @@ are local index number."
            (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline id ptr)))))))
 
-(define (compile-link tj outline asm args snapshot storage)
+(define (compile-link outline asm args snapshot storage)
   (let* ((linked-fragment (get-root-trace (outline-linked-ip outline)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot

@@ -264,7 +264,7 @@
 ;;; IR to list of primitive operations
 ;;;
 
-(define (anf->primops term tj outline initial-snapshot vars snapshots)
+(define (anf->primops term outline initial-snapshot vars snapshots)
   (let ((parent-snapshot (outline-parent-snapshot outline))
         (initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))

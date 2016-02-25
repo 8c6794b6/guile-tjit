@@ -67,18 +67,18 @@
 ;;; Bytecode to ANF, and ANF to primop compiler
 ;;;
 
-(define (compile-ir tj outline trace)
-  "Compiles TRACE to primops with TJ and TRACE."
+(define (compile-ir outline trace)
+  "Compiles TRACE to primops with OUTLINE and TRACE."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (outline-id outline))))
       (set-tjit-time-log-anf! log (get-internal-run-time))))
-  (let*-values (((vars snapshots anf) (compile-anf tj outline trace))
+  (let*-values (((vars snapshots anf) (compile-anf outline trace))
                 ((snapshot0) (hashq-ref snapshots 0)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (outline-id outline))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
     (let* ((anf (optimize-anf anf))
-           (primops (anf->primops anf tj outline snapshot0 vars snapshots)))
+           (primops (anf->primops anf outline snapshot0 vars snapshots)))
       (values snapshots anf primops))))
 
 (define (optimize-anf anf)
@@ -101,7 +101,7 @@ Currently does nothing, returns the given argument."
                    parent-read-vars env))
       '()))
 
-(define (add-initial-loads tj outline snapshots
+(define (add-initial-loads outline snapshots
                            initial-locals initial-sp-offset
                            parent-snapshot vars live-vars-in-parent
                            loaded-vars thunk)
@@ -188,7 +188,7 @@ Currently does nothing, returns the given argument."
            (set-outline-live-indices! outline live-indices))
          (thunk))))))
 
-(define (compile-anf tj outline trace)
+(define (compile-anf outline trace)
   (let* ((parent-snapshot (outline-parent-snapshot outline))
          (root-trace? (not parent-snapshot))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
@@ -248,7 +248,7 @@ Currently does nothing, returns the given argument."
                                    0 #f)))
                  (set-outline-sp-offset! outline outline-sp-offset)
                  (set-outline-fp-offset! outline outline-fp-offset)
-                 (trace->anf tj outline ir trace)))))
+                 (trace->anf outline ir trace)))))
 
         ;; Update inferred type with entry types. All guards for entry types
         ;; have passed at this point. Then if this trace was side trace, set
@@ -285,7 +285,7 @@ Currently does nothing, returns the given argument."
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
-                                 ,(add-initial-loads tj outline snapshots
+                                 ,(add-initial-loads outline snapshots
                                                      initial-locals
                                                      initial-sp-offset
                                                      #f vars '()
@@ -312,7 +312,7 @@ Currently does nothing, returns the given argument."
             (set-outline-live-indices! outline (outline-read-indices outline))
             `(letrec ((entry (lambda ,args-from-parent
                                (let ((_ ,snap0))
-                                 ,(add-initial-loads tj outline snapshots
+                                 ,(add-initial-loads outline snapshots
                                                      initial-locals
                                                      initial-sp-offset
                                                      parent-snapshot
@@ -327,7 +327,7 @@ Currently does nothing, returns the given argument."
                 (loaded-vars (make-hash-table)))
             `(letrec ((patch (lambda ,args-from-parent
                                (let ((_ ,snap0))
-                                 ,(add-initial-loads tj outline snapshots
+                                 ,(add-initial-loads outline snapshots
                                                      initial-locals
                                                      initial-sp-offset
                                                      parent-snapshot
@@ -338,7 +338,7 @@ Currently does nothing, returns the given argument."
 
     (values vars snapshots (make-anf))))
 
-(define (trace->anf tj outline ir traces)
+(define (trace->anf outline ir traces)
   (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
          (last-sp-offset (outline-last-sp-offset outline))
          (last-fp-offset (let* ((fp-offsets (outline-fp-offsets outline))
@@ -447,7 +447,7 @@ Currently does nothing, returns the given argument."
              (((test . work) . procs)
               (if (apply test (list op locals))
                   (let ((next (gen-next ir ip dl locals op rest)))
-                    (apply work tj outline ir next ip ra dl locals (cdr op)))
+                    (apply work outline ir next ip ra dl locals (cdr op)))
                   (lp procs)))
              (_ (nyi "~a" (car op))))))
         (_ (nyi "~a" (car op)))))

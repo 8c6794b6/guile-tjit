@@ -178,9 +178,9 @@
                  write-indices '() (list write-indices) live-indices
                  '() (copy-tree types-from-parent)))
 
-(define (outline-local-indices ol)
-  (sort (delete-duplicates (append (outline-write-indices ol)
-                                   (outline-read-indices ol)))
+(define (outline-local-indices outline)
+  (sort (delete-duplicates (append (outline-write-indices outline)
+                                   (outline-read-indices outline)))
         >))
 
 (define (arrange-outline! outline)

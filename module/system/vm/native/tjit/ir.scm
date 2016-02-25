@@ -62,7 +62,7 @@
             with-type-guard
             current-sp-offset
             current-fp-offset
-            tj outline ir ip ra dl locals next
+            outline ir ip ra dl locals next
 
             make-var
             make-vars
@@ -142,7 +142,7 @@
 (define-syntax-rule (define-scan (name args ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (scan-proc (lambda (%ip %dl %locals %outline args ...)
+        (scan-proc (lambda (%outline %ip %dl %locals args ...)
                      (syntax-parameterize
                          ((ip (identifier-syntax %ip))
                           (dl (identifier-syntax %dl))
@@ -152,7 +152,7 @@
                      #t)))
     (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
 
-(define (scan-trace ol op ip dl locals)
+(define (scan-trace outline op ip dl locals)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; The stack used by VM interpreter grows down. Lower frame data is saved at
@@ -173,30 +173,30 @@
        (match procs
          (((test . work) . procs)
           (if (apply test (list op locals))
-              (apply work ip dl locals ol (cdr op))
+              (apply work outline ip dl locals (cdr op))
               (lp procs)))
          (_ (nyi)))))
     (_ (nyi))))
 
-(define-syntax-rule (push-scan-sp-offset! ol n)
-  (set-outline-sp-offset! ol (- (outline-sp-offset ol) n)))
+(define-syntax-rule (push-scan-sp-offset! outline n)
+  (set-outline-sp-offset! outline (- (outline-sp-offset outline) n)))
 
-(define-syntax-rule (pop-scan-sp-offset! ol n)
-  (set-outline-sp-offset! ol (+ (outline-sp-offset ol) n)))
+(define-syntax-rule (pop-scan-sp-offset! outline n)
+  (set-outline-sp-offset! outline (+ (outline-sp-offset outline) n)))
 
-(define-syntax-rule (push-scan-fp-offset! ol n)
-  (set-outline-fp-offset! ol (- (outline-fp-offset ol) n)))
+(define-syntax-rule (push-scan-fp-offset! outline n)
+  (set-outline-fp-offset! outline (- (outline-fp-offset outline) n)))
 
-(define-syntax-rule (pop-scan-fp-offset! ol n)
-  (set-outline-fp-offset! ol (+ (outline-fp-offset ol) n)))
+(define-syntax-rule (pop-scan-fp-offset! outline n)
+  (set-outline-fp-offset! outline (+ (outline-fp-offset outline) n)))
 
-(define-syntax-rule (set-scan-initial-fields! ol)
-  (let ((new-sp-offsets (cons (outline-sp-offset ol)
-                              (outline-sp-offsets ol)))
-        (new-fp-offsets (cons (outline-fp-offset ol)
-                              (outline-fp-offsets ol))))
-    (set-outline-sp-offsets! ol new-sp-offsets)
-    (set-outline-fp-offsets! ol new-fp-offsets)))
+(define-syntax-rule (set-scan-initial-fields! outline)
+  (let ((new-sp-offsets (cons (outline-sp-offset outline)
+                              (outline-sp-offsets outline)))
+        (new-fp-offsets (cons (outline-fp-offset outline)
+                              (outline-fp-offsets outline))))
+    (set-outline-sp-offsets! outline new-sp-offsets)
+    (set-outline-fp-offsets! outline new-fp-offsets)))
 
 
 ;;;
@@ -206,10 +206,9 @@
 (define-syntax-rule (define-anf (name arg ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (anf-proc (lambda (%tj %outline %ir %next %ip %ra %dl %locals arg ...)
+        (anf-proc (lambda (%outline %ir %next %ip %ra %dl %locals arg ...)
                     (syntax-parameterize
-                        ((tj (identifier-syntax %tj))
-                         (outline (identifier-syntax %outline))
+                        ((outline (identifier-syntax %outline))
                          (ir (identifier-syntax %ir))
                          (next (identifier-syntax %next))
                          (ip (identifier-syntax %ip))
@@ -227,7 +226,7 @@
 (define-syntax-rule (define-ti (name args ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (ti-proc (lambda (%ip %dl %locals %outline args ...)
+        (ti-proc (lambda (%outline %ip %dl %locals args ...)
                    (syntax-parameterize
                        ((ip (identifier-syntax %ip))
                         (dl (identifier-syntax %dl))
@@ -236,14 +235,14 @@
                      . body))))
     (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
 
-(define (infer-type ol op ip dl locals)
+(define (infer-type outline op ip dl locals)
   (match (hashq-ref *ti-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))
        (match procs
          (((test . work) . procs)
           (if (apply test (list op locals))
-              (apply work ip dl locals ol (cdr op))
+              (apply work outline ip dl locals (cdr op))
               (lp procs)))
          (() (values)))))
     (_ (values))))
@@ -414,12 +413,12 @@
            'name "uninitialized" x))
        ...))))
 
-(define-ir-syntax-parameters tj outline ir ip ra dl locals next)
+(define-ir-syntax-parameters outline ir ip ra dl locals next)
 
-(define-syntax-rule (gen-entry-type ol ty arg rest)
-  (let ((i (+ arg (outline-sp-offset ol))))
-    (set-entry-type! ol i ty)
-    (gen-scan-type ol . rest)))
+(define-syntax-rule (gen-entry-type outline ty arg rest)
+  (let ((i (+ arg (outline-sp-offset outline))))
+    (set-entry-type! outline i ty)
+    (gen-scan-type outline . rest)))
 
 (define-syntax gen-scan-type
   (syntax-rules (scm fixnum flonum pair vector box bytevector u64 f64)
@@ -483,18 +482,17 @@ index referenced by dst, a, and b values at runtime."
                        (lp flags ns)))
                   (_ #t)))))
            (scan-proc
-            (lambda (%ip %dl %locals %outline arg ...)
+            (lambda (%outline %ip %dl %locals arg ...)
               (gen-scan-type %outline (flag arg) ...)
               (set-scan-initial-fields! %outline)
               #t))
            (ti-proc
-            (lambda (%ip %dl %locals %outline arg ...)
+            (lambda (%outline %ip %dl %locals arg ...)
               (gen-infer-type %outline (flag arg) ...)))
            (anf-proc
-            (lambda (%tj %outline %ir %next %ip %ra %dl %locals arg ...)
+            (lambda (%outline %ir %next %ip %ra %dl %locals arg ...)
               (syntax-parameterize
-                  ((tj (identifier-syntax %tj))
-                   (outline (identifier-syntax %outline))
+                  ((outline (identifier-syntax %outline))
                    (ir (identifier-syntax %ir))
                    (next (identifier-syntax %next))
                    (ip (identifier-syntax %ip))
