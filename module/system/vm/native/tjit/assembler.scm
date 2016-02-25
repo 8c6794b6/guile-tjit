@@ -276,21 +276,6 @@
 ;;; SCM macros
 ;;;
 
-(define-syntax scm-cell-object
-  (syntax-rules ()
-    ((_ dst obj 0)
-     (jit-ldr dst obj))
-    ((_ dst obj 1)
-     (jit-ldxi dst obj (imm %word-size)))
-    ((_ dst obj n)
-     (jit-ldxi dst obj (imm (* n %word-size))))))
-
-(define-syntax-rule (scm-cell-type dst src)
-  (scm-cell-object dst src 0))
-
-(define-syntax-rule (scm-typ16 dst obj)
-  (jit-andi dst obj (imm #xffff)))
-
 (define-syntax-rule (scm-real-value dst src)
   (begin
     (jit-ldxi-d dst src (imm (* 2 %word-size)))
@@ -312,11 +297,10 @@
        (jit-calli %scm-from-double)
        (jit-retval dst)
        (for-each (lambda (reg)
-                   (when (not (cond ((fpr? reg)
-                                     (equal? (fpr reg) dst))
-                                    ((gpr? reg)
-                                     (equal? (gpr reg) dst))
-                                    (else #f)))
+                   (unless (cond
+                            ((fpr? reg) (equal? (fpr reg) dst))
+                            ((gpr? reg) (equal? (gpr reg) dst))
+                            (else #f))
                      (load-volatile reg)))
                  volatiles)))))
 
@@ -956,10 +940,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (cond
      ((= t &flonum)
       (sp-ref r0 (ref-value n))
-      (jump (scm-imp r0) (bailout))
-      (scm-cell-type r1 r0)
-      (scm-typ16 r1 r1)
-      (jump (scm-not-realp r1) (bailout))
+      (guard-tc16 r0 %tc16-real)
       (cond
        ((fpr? dst)
         (scm-real-value (fpr dst) r0))
@@ -1169,9 +1150,14 @@ was constant. And, uses OP-RR when both arguments were register or memory."
              (cond
               ((constant? src) (begin (jit-movi-d f0 (constant src))
                                       (scm-from-double dst f0)))
-              ((gpr? src)      (scm-from-double dst (gpr->fpr f0 (gpr src))))
-              ((fpr? src)      (scm-from-double dst (fpr src)))
-              ((memory? src)   (scm-from-double dst (memory-ref/f f0 src)))
+              ((gpr? src)
+               (gpr->fpr f0 (gpr src))
+               (scm-from-double dst f0))
+              ((fpr? src)
+               (scm-from-double dst (fpr src)))
+              ((memory? src)
+               (memory-ref/f f0 src)
+               (scm-from-double dst f0))
               (else (err)))
              dst)))))
     (cond
