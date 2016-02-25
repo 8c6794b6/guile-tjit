@@ -36,7 +36,6 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export (make-ir
@@ -329,7 +328,7 @@
                           (memq n live-indices))
                       (lp vars))
                      ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
-                      (if (not (tj-parent-snapshot tj))
+                      (if (not (outline-parent-snapshot outline))
                           (nyi "root trace loading down frame")
                           (with-frame-ref vars var #f n lp)))
                      (else
@@ -381,7 +380,7 @@
                    (()
                     (load-down-frame)))))))
        (lambda ()
-         (when (and (not (tj-parent-snapshot tj))
+         (when (and (not (outline-parent-snapshot outline))
                     (< 0 (current-fp-offset)))
            (nyi "root trace with up-frame load"))
          (set-ir-return-subr! ir #f)
@@ -519,7 +518,7 @@ index referenced by dst, a, and b values at runtime."
     ((_ names-and-args . body)
      (define-ir names-and-args
        (begin
-         (set-tj-handle-interrupts! tj #t)
+         (set-outline-handle-interrupts! outline #t)
          . body)))))
 
 (define-syntax-rule (dereference-scm addr)
@@ -550,8 +549,8 @@ index referenced by dst, a, and b values at runtime."
     ((_ ip dst-offset refill?)
      (let-values (((ret snapshot)
                    (take-snapshot ip dst-offset locals (ir-vars ir)
-                                  (if (and (tj-parent-snapshot tj)
-                                           (not (tj-loop? tj)))
+                                  (if (and (outline-parent-snapshot outline)
+                                           (not (outline-loop? outline)))
                                       (vector-ref
                                        (outline-write-buf outline)
                                        (ir-bytecode-index ir))
@@ -568,7 +567,7 @@ index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
    ((eq? type &flonum)
-    (set-tj-handle-interrupts! tj #t)
+    (set-outline-handle-interrupts! outline #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    (else

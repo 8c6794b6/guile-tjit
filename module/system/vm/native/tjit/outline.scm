@@ -34,12 +34,25 @@
   #:use-module (system vm native tjit types)
   #:export ($outline
             make-outline
-            outline-locals
+            outline-id
+            outline-entry-ip
+            outline-linked-ip
+            outline-parent-exit-id
+            outline-parent-fragment
+            outline-parent-snapshot
+            outline-loop?
+            outline-downrec?
+            outline-uprec?
+            outline-linking-roots?
+            outline-handle-interrupts? set-outline-handle-interrupts!
+            outline-loop-locals set-outline-loop-locals!
+            outline-loop-vars set-outline-loop-vars!
             outline-initialized?
             outline-sp-offsets set-outline-sp-offsets!
             outline-fp-offsets set-outline-fp-offsets!
             outline-sp-offset set-outline-sp-offset!
             outline-fp-offset set-outline-fp-offset!
+            outline-last-sp-offset
             outline-write-indices set-outline-write-indices!
             outline-read-indices set-outline-read-indices!
             outline-write-buf set-outline-write-buf!
@@ -60,13 +73,58 @@
 ;; return addresses, past frame locals, locals of caller procedure in inlined
 ;; procedure ... etc.
 (define-record-type $outline
-  (%make-outline initialized? sp-offsets fp-offsets sp-offset fp-offset
+  (%make-outline id entry-ip linked-ip
+                 parent-exit-id parent-fragment parent-snapshot
+                 loop? downrec? uprec? linking-roots?
+                 handle-interrupts? initialized?
+                 loop-locals loop-vars
+                 sp-offsets fp-offsets sp-offset fp-offset last-sp-offset
                  write-indices read-indices write-buf live-indices
                  entry-types inferred-types)
   outline?
 
+  ;; Trace ID of this compilation.
+  (id outline-id)
+
+  ;; Entry IP of this trace.
+  (entry-ip outline-entry-ip)
+
+  ;; Linked IP, if any.
+  (linked-ip outline-linked-ip)
+
+  ;; Parent exit ID of this trace.
+  (parent-exit-id outline-parent-exit-id)
+
+  ;; Parent fragment of this trace.
+  (parent-fragment outline-parent-fragment)
+
+  ;; Parent snapshot, snapshot of parent-exit-id in parent fragment.
+  (parent-snapshot outline-parent-snapshot)
+
+  ;; Flag for loop trace.
+  (loop? outline-loop?)
+
+  ;; Flag for down recursion trace.
+  (downrec? outline-downrec?)
+
+  ;; Flag for up recursion trace.
+  (uprec? outline-uprec?)
+
+  ;; Flag to tell whether the parent trace origin is different from linked
+  ;; trace.
+  (linking-roots? outline-linking-roots?)
+
+  ;; Flag to emit interrupt handler.
+  (handle-interrupts? outline-handle-interrupts? set-outline-handle-interrupts!)
+
   ;; Flag to hold whether initialized.
   (initialized? outline-initialized? set-outline-initialized!)
+
+  ;; Loop locals for root trace.
+  (loop-locals outline-loop-locals set-outline-loop-locals!)
+
+  ;; Loop vars for root trace.
+  (loop-vars outline-loop-vars set-outline-loop-vars!)
 
   ;; Vector containing SP offset per bytecode operation.
   (sp-offsets outline-sp-offsets set-outline-sp-offsets!)
@@ -79,6 +137,14 @@
 
   ;; Current FP offset.
   (fp-offset outline-fp-offset set-outline-fp-offset!)
+
+  ;; Last SP offset.
+  ;;
+  ;; Note that the last SP offset may differ from the SP offset coupled with
+  ;; last recorded bytecode operation, because some bytecode operations modify
+  ;; SP offset after saving the SP offset.
+  ;;
+  (last-sp-offset outline-last-sp-offset set-outline-last-sp-offset!)
 
   ;; Local indices for write.
   (write-indices outline-write-indices set-outline-write-indices!)
@@ -98,11 +164,17 @@
   ;; Inferred types.
   (inferred-types outline-inferred-types set-outline-inferred-types!))
 
-(define (make-outline sp-offset fp-offset write-indices live-indices
+(define (make-outline id entry-ip linked-ip
+                      parent-exit-id parent-fragment parent-snapshot
+                      loop? downrec? uprec? linking-roots?
+                      sp-offset fp-offset write-indices live-indices
                       types-from-parent)
   ;; Using hash-table to contain locals, since local index could take negative
   ;; value.
-  (%make-outline #f '() '() sp-offset fp-offset
+  (%make-outline id entry-ip linked-ip
+                 parent-exit-id parent-fragment parent-snapshot
+                 loop? downrec? uprec? linking-roots?
+                 #f #f #f #f '() '() sp-offset fp-offset 0
                  write-indices '() (list write-indices) live-indices
                  '() (copy-tree types-from-parent)))
 
@@ -133,6 +205,7 @@
          (write-buf/vec (list->vector (reverse! (outline-write-buf outline)))))
     (set-outline-sp-offsets! outline sp-offsets/vec)
     (set-outline-fp-offsets! outline fp-offsets/vec)
+    (set-outline-last-sp-offset! outline (outline-sp-offset outline))
     (set-outline-write-buf! outline write-buf/vec)
     (let ((entry (outline-entry-types outline))
           (inferred (outline-inferred-types outline)))

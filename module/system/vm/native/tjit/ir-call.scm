@@ -32,7 +32,6 @@
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:use-module (system vm program))
@@ -113,7 +112,7 @@
          (inlineable (or (and (program? proc/l)
                               (primitive-code? (program-code proc/l)))
                          (and (<= (current-fp-offset) 0)
-                              (not (tj-linking-roots? tj))))))
+                              (not (outline-linking-roots? outline))))))
     `(let ((_ ,snapshot))
        (let ((_ (%eq ,proc/v ,(pointer-address (scm->pointer proc/l)))))
          ,(if inlineable
@@ -133,7 +132,7 @@
          (fp (- stack-size proc))
          (dst-ptr (make-pointer (+ ip (* 2 4))))
          (inlineable (and (< 0 (current-fp-offset))
-                          (not (tj-linking-roots? tj)))))
+                          (not (outline-linking-roots? outline)))))
     (if inlineable
         `(let ((_ (%scall ,proc)))
            ,(next))

@@ -59,7 +59,6 @@
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
   #:export (compile-ir))
 
@@ -71,15 +70,15 @@
 (define (compile-ir tj outline trace)
   "Compiles TRACE to primops with TJ and TRACE."
   (when (tjit-dump-time? (tjit-dump-option))
-    (let ((log (get-tjit-time-log (tj-id tj))))
+    (let ((log (get-tjit-time-log (outline-id outline))))
       (set-tjit-time-log-anf! log (get-internal-run-time))))
   (let*-values (((vars snapshots anf) (compile-anf tj outline trace))
                 ((snapshot0) (hashq-ref snapshots 0)))
     (when (tjit-dump-time? (tjit-dump-option))
-      (let ((log (get-tjit-time-log (tj-id tj))))
+      (let ((log (get-tjit-time-log (outline-id outline))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
     (let* ((anf (optimize-anf anf))
-           (primops (anf->primops anf tj snapshot0 vars snapshots)))
+           (primops (anf->primops anf tj outline snapshot0 vars snapshots)))
       (values snapshots anf primops))))
 
 (define (optimize-anf anf)
@@ -154,7 +153,7 @@ Currently does nothing, returns the given argument."
                    (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
                           n initial-sp-offset (pretty-type parent-type)
                           (pretty-type snapshot-type))
-                   (and (not (tj-loop? tj))
+                   (and (not (outline-loop? outline))
                         (or (and parent-type
                                  snapshot-type
                                  (eq? parent-type snapshot-type))
@@ -190,7 +189,7 @@ Currently does nothing, returns the given argument."
          (thunk))))))
 
 (define (compile-anf tj outline trace)
-  (let* ((parent-snapshot (tj-parent-snapshot tj))
+  (let* ((parent-snapshot (outline-parent-snapshot outline))
          (root-trace? (not parent-snapshot))
          (initial-sp-offset (get-initial-sp-offset parent-snapshot))
          (initial-fp-offset (get-initial-fp-offset parent-snapshot))
@@ -205,7 +204,7 @@ Currently does nothing, returns the given argument."
          (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
                                      '()))
          (live-vars-in-parent
-          (get-live-vars-in-parent (and=> (tj-parent-fragment tj)
+          (get-live-vars-in-parent (and=> (outline-parent-fragment outline)
                                           fragment-storage)
                                    parent-snapshot))
          (vars-from-parent
@@ -218,7 +217,7 @@ Currently does nothing, returns the given argument."
                     (take-snapshot initial-ip 0 initial-locals
                                    vars-from-parent
                                    (if (and parent-snapshot
-                                            (not (tj-loop? tj)))
+                                            (not (outline-loop? outline)))
                                        (map car parent-snapshot-locals)
                                        (outline-write-indices outline))
                                    snapshot-id
@@ -262,7 +261,7 @@ Currently does nothing, returns the given argument."
                (lp srcs (assq-set! dsts n ty)))
               (()
                (if (and (pair? parent-snapshot-locals)
-                        (not (tj-loop? tj)))
+                        (not (outline-loop? outline)))
                    (let lp ((srcs parent-snapshot-locals) (dsts dsts))
                      (match srcs
                        (((n . ty) . srcs)
@@ -300,11 +299,11 @@ Currently does nothing, returns the given argument."
                                       (vars (map (lambda (l)
                                                    (make-var (car l)))
                                                  (reverse locals))))
-                                 (set-tj-loop-vars! tj vars)
-                                 (set-tj-loop-locals! tj locals)
+                                 (set-outline-loop-vars! outline vars)
+                                 (set-outline-loop-locals! outline locals)
                                  (emit)))))
                entry)))
-         ((tj-loop? tj)
+         ((outline-loop? outline)
           (let* ((args-from-vars (reverse! (map cdr vars)))
                  (thunk (lambda ()
                           `(loop ,@args-from-vars)))
@@ -341,7 +340,7 @@ Currently does nothing, returns the given argument."
 
 (define (trace->anf tj outline ir traces)
   (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
-         (last-sp-offset (tj-last-sp-offset tj))
+         (last-sp-offset (outline-last-sp-offset outline))
          (last-fp-offset (let* ((fp-offsets (outline-fp-offsets outline))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i))))
@@ -364,14 +363,14 @@ Currently does nothing, returns the given argument."
       ;; pass the register and local information to linked trace.
       ;;
       (cond
-       ((tj-downrec? tj)
+       ((outline-downrec? outline)
         (match op
           (('call proc nlocals)
            (lambda ()
              (let* ((next-sp (- last-fp-offset proc nlocals))
                     (sp-shift
                      (cond
-                      ((and=> (tj-parent-fragment tj)
+                      ((and=> (outline-parent-fragment outline)
                               (lambda (fragment)
                                 (fragment-loop-locals fragment)))
                        => (lambda (loop-locals)
@@ -395,7 +394,7 @@ Currently does nothing, returns the given argument."
            (nyi "down-recursion with last op `call-label'"))
           (_
            (nyi "Unknown op ~a" op))))
-       ((tj-uprec? tj)
+       ((outline-uprec? outline)
         (match op
           (('return-values n)
            (lambda ()
@@ -405,7 +404,7 @@ Currently does nothing, returns the given argument."
                   (loop ,@(reverse (map cdr (ir-vars ir))))))))
           (_
            (nyi "uprec with last op ~a" op))))
-       ((tj-loop? tj)
+       ((outline-loop? outline)
         (lambda ()
           `(loop ,@(reverse (map cdr (ir-vars ir))))))
        (else

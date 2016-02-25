@@ -36,9 +36,9 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit fragment)
+  #:use-module (system vm native tjit outline)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export ($primops
@@ -264,8 +264,8 @@
 ;;; IR to list of primitive operations
 ;;;
 
-(define (anf->primops term tj initial-snapshot vars snapshots)
-  (let ((parent-snapshot (tj-parent-snapshot tj))
+(define (anf->primops term tj outline initial-snapshot vars snapshots)
+  (let ((parent-snapshot (outline-parent-snapshot outline))
         (initial-free-gprs (make-initial-free-gprs))
         (initial-free-fprs (make-initial-free-fprs))
         (initial-mem-idx (make-variable 0))
@@ -295,10 +295,12 @@
     ;; Sharing registers and memory offset for side trace to share variables
     ;; with parent trace. Also sharing registers and variables for loop-less
     ;; root tracec.
-    (and=> (and=> (tj-parent-fragment tj) fragment-storage) merge-storage)
-    (when (and (not (tj-parent-fragment tj))
-               (not (tj-loop? tj)))
-      (and=> (and=> (get-root-trace (tj-linked-ip tj)) fragment-storage)
+    (and=> (and=> (outline-parent-fragment outline) fragment-storage)
+           merge-storage)
+    (when (and (not (outline-parent-fragment outline))
+               (not (outline-loop? outline)))
+      (and=> (and=> (get-root-trace (outline-linked-ip outline))
+                    fragment-storage)
              merge-storage))
 
     ;; Assign scratch registers to tmporary variables.

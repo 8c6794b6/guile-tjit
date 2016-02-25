@@ -32,7 +32,7 @@
   #:use-module (ice-9 regex)
   #:use-module (language cps)
   #:use-module (rnrs bytevectors)
-  #:use-module (srfi srfi-1)
+  #:use-module ((srfi srfi-1) #:select (last))
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
@@ -48,7 +48,6 @@
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit state)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export (tjitc init-vm-tjit)
@@ -73,15 +72,10 @@
          (entry-ip (car (last traces)))
          (dump-option (tjit-dump-option))
          (sline (addr->source-line entry-ip))
-         (outline (match parent-snapshot
-                    (($ $snapshot id sp fp nlocals locals vars code ip lives)
-                     (let ((inferred (if loop? '() locals)))
-                       (make-outline sp fp (map car locals) lives inferred)))
-                    (_
-                     (make-outline 0 0 '() '() '()))))
-         (initial-sp-offset (outline-sp-offset outline))
-         (initial-fp-offset (outline-fp-offset outline))
          (linking-roots?
+          ;; Detecting root trace linkage by chasing parent id until it reaches
+          ;; to root trace and compare it with linked trace. This loop could be
+          ;; avoided by saving the origin trace id in fragment record type.
           (let ((origin-id
                  (let lp ((fragment parent-fragment))
                    (if (not fragment)
@@ -94,7 +88,23 @@
                  (and linked-ip
                       (and=> (get-root-trace linked-ip) fragment-id))))
             (and origin-id linked-id
-                 (not (eq? origin-id linked-id))))))
+                 (not (eq? origin-id linked-id)))))
+         (outline
+          (call-with-values
+              (lambda ()
+                (match parent-snapshot
+                  (($ $snapshot id sp fp nlocals locals vars code ip lives)
+                   (let ((inferred (if loop? '() locals)))
+                     (values sp fp (map car locals) lives inferred)))
+                  (_
+                   (values 0 0 '() '() '()))))
+            (lambda args
+              (apply make-outline trace-id entry-ip linked-ip
+                     parent-exit-id parent-fragment parent-snapshot
+                     loop? downrec? uprec? linking-roots?
+                     args))))
+         (initial-sp-offset (outline-sp-offset outline))
+         (initial-fp-offset (outline-fp-offset outline)))
     (define (show-sline sline)
       (let ((exit-pair (if (< 0 parent-ip)
                            (format #f " (~a:~a)"
@@ -154,20 +164,7 @@
       (debug 2 ";;; trace ~a: ~a~%" trace-id msg)
       (tjit-increment-compilation-failure! entry-ip))
     (define (compile-traces traces)
-      ;; Saving the last SP offset after trace scan. Note that the last SP
-      ;; offset may differ from the SP offset coupled with last recorded
-      ;; bytecode operation, because some bytecode operations modify SP offset
-      ;; after saving the SP offset.
-      ;;
-      ;; Also detecting root trace linkage by chasing parent id until it reaches
-      ;; to root trace and compare it with linked trace. This loop could be
-      ;; avoided by saving the origin trace id in fragment record type.
-      ;;
-      (let* ((last-sp-offset (outline-sp-offset outline))
-             (tj (make-tj trace-id entry-ip linked-ip parent-exit-id
-                          parent-fragment parent-snapshot
-                          loop? downrec? uprec? #f last-sp-offset #f #f
-                          linking-roots?)))
+      (let ((tj #f))
         (set-outline-sp-offset! outline initial-sp-offset)
         (set-outline-fp-offset! outline initial-fp-offset)
         (let-values (((snapshots anf ops) (compile-ir tj outline traces)))
