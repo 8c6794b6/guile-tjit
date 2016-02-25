@@ -148,12 +148,7 @@ Currently does nothing, returns the given argument."
                (i (- n (snapshot-sp-offset snapshot0))))
            (cond
             ((or (< j 0)
-                 ;; For side trace, skip the indices exceeding locals at the
-                 ;; time of recording. Root trace may contain bytecode operation
-                 ;; `return' before `call', loading at the time of native code
-                 ;; entry.
-                 (and parent-snapshot
-                      (not (<= 0 i (- (vector-length initial-locals) 1))))
+                 (not (<= 0 i (- (vector-length initial-locals) 1)))
                  (let ((parent-type (type-from-parent j))
                        (snapshot-type (type-from-snapshot j)))
                    (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"

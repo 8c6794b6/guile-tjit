@@ -67,8 +67,6 @@
     (push-scan-sp-offset! outline (- (+ proc nlocals) stack-size))))
 
 (define-syntax-rule (ti-call proc nlocals label?)
-  ;; Bytecode `call' changes SP after saving for current SP offset, see
-  ;; `scan-call' above.
   (let* ((stack-size (vector-length locals))
          (sp-offset (current-sp-for-ti))
          (fp (- stack-size proc))
@@ -186,8 +184,6 @@
       (set-outline-fp-offsets! outline new-fp-offsets))))
 
 (define-ti (receive dst proc nlocals)
-  ;; Bytecode `receive' changes SP after saving for current SP offset, see
-  ;; `define-scan' for `receive' above.
   (let* ((stack-size (vector-length locals))
          (sp-offset (current-sp-for-ti))
          (proc/i (+ (- stack-size proc 2) sp-offset))
@@ -231,8 +227,6 @@
     (pop-scan-fp-offset! outline dl)))
 
 (define-ti (return-values nlocals)
-  ;; As in `call' and `receive', `return-values' shifts SP offset, see
-  ;; `define-scan' for `return-values' above.
   (let* ((stack-size (vector-length locals))
          (sp-offset (current-sp-for-ti))
          (ra-offset (+ sp-offset stack-size))

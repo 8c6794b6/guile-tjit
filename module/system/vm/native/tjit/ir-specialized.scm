@@ -36,6 +36,32 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
+(define-scan (subr-call)
+  (let* ((stack-size (vector-length locals))
+         (proc-offset (- stack-size 1))
+         (ra-offset stack-size)
+         (dl-offset (+ ra-offset 1)))
+    (set-scan-initial-fields! outline)
+    (pop-scan-sp-offset! outline (- stack-size 2))
+    (pop-scan-fp-offset! outline dl)))
+
+;;; XXX: Multiple values return not yet implemented.
+(define-ti (subr-call)
+  (let* ((stack-size (vector-length locals))
+         (sp-offset (if (outline-initialized? outline)
+                        (outline-sp-offset outline)
+                        (car (outline-sp-offsets outline))))
+         (proc-offset (+ (- stack-size 1) sp-offset))
+         (ra-offset (+ proc-offset 1))
+         (dl-offset (+ ra-offset 1)))
+    (debug 2 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
+    (set-inferred-type! outline ra-offset &false)
+    (set-inferred-type! outline dl-offset &false)
+
+    ;; Returned value from C function is stored in (- proc-offset 1). The stack
+    ;; item type of the value is always `scm'.
+    (set-inferred-type! outline (- proc-offset 1) &scm)))
+
 (define-anf (subr-call)
   (let* ((stack-size (vector-length locals))
          (dst/v (var-ref (- stack-size 2)))
@@ -74,32 +100,6 @@
                        ,(lp (+ n 1))))))
               (emit-ccall)))
         (tjitc-error 'subr-call "not a primitive ~s" subr/l))))
-
-(define-scan (subr-call)
-  (let* ((stack-size (vector-length locals))
-         (proc-offset (- stack-size 1))
-         (ra-offset stack-size)
-         (dl-offset (+ ra-offset 1)))
-    (set-scan-initial-fields! outline)
-    (pop-scan-sp-offset! outline (- stack-size 2))
-    (pop-scan-fp-offset! outline dl)))
-
-;;; XXX: Multiple values return not yet implemented.
-(define-ti (subr-call)
-  (let* ((stack-size (vector-length locals))
-         (sp-offset (if (outline-initialized? outline)
-                        (outline-sp-offset outline)
-                        (car (outline-sp-offsets outline))))
-         (proc-offset (+ (- stack-size 1) sp-offset))
-         (ra-offset (+ proc-offset 1))
-         (dl-offset (+ ra-offset 1)))
-    (debug 2 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
-    (set-inferred-type! outline ra-offset &false)
-    (set-inferred-type! outline dl-offset &false)
-
-    ;; Returned value from C function is stored in (- proc-offset 1). The stack
-    ;; item type of the value is always `scm'.
-    (set-inferred-type! outline (- proc-offset 1) &scm)))
 
 ;; XXX: foreign-call
 ;; XXX: continuation-call
