@@ -185,12 +185,12 @@
     (define-ir (name (scm! dst) (scm a) (scm b))
       (let ((a/t (type-ref a))
             (b/t (type-ref b)))
-        (nyi "~s: et=(scm scm) it=(~a ~a)" 'name dst
+        (nyi "~s: et=(scm scm) it=(~a ~a)" 'name
              (pretty-type a/t) (pretty-type b/t))))
     (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
       (let ((a/t (type-ref a))
             (b/t (type-ref b)))
-        (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name dst
+        (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name
              (pretty-type a/t) (pretty-type b/t))))
     (define-ir (name (flonum! dst) (flonum a) (fixnum b))
       (let* ((dst/v (var-ref dst))
