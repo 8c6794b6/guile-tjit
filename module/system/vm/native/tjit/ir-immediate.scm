@@ -66,8 +66,12 @@
 
 (define-ti (static-ref dst offset)
   (let* ((sp-offset (outline-sp-offset outline))
-         (val (dereference-scm (+ ip (* 4 offset))))
-         (ty (if (flonum? val) &flonum &scm)))
+         (ptr (make-pointer (+ ip (* 4 offset))))
+         (ref (dereference-pointer ptr))
+         (ty (if (and (zero? (logand (pointer-address ref) 1))
+                      (flonum? (pointer->scm ref)))
+                 &flonum
+                 &scm)))
     (set-inferred-type! outline (+ dst sp-offset) ty)))
 
 (define-anf (static-ref dst offset)
