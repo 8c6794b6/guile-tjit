@@ -43,7 +43,7 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
@@ -89,7 +89,7 @@
                       (and=> (get-root-trace linked-ip) fragment-id))))
             (and origin-id linked-id
                  (not (eq? origin-id linked-id)))))
-         (outline
+         (env
           (call-with-values
               (lambda ()
                 (match parent-snapshot
@@ -99,12 +99,12 @@
                   (_
                    (values 0 0 '() '() '()))))
             (lambda args
-              (apply make-outline trace-id entry-ip linked-ip
+              (apply make-env trace-id entry-ip linked-ip
                      parent-exit-id parent-fragment parent-snapshot
                      loop? downrec? uprec? linking-roots?
                      args))))
-         (initial-sp-offset (outline-sp-offset outline))
-         (initial-fp-offset (outline-fp-offset outline)))
+         (initial-sp-offset (env-sp-offset env))
+         (initial-fp-offset (env-fp-offset env)))
     (define (show-sline sline)
       (let ((exit-pair (if (< 0 parent-ip)
                            (format #f " (~a:~a)"
@@ -136,19 +136,19 @@
                     (((len op) (disassemble-one bytecode offset))
                      ((implemented?)
                       (if so-far-so-good?
-                          (let* ((ret (scan-trace outline op ip dl locals))
-                                 (_ (infer-type outline op ip dl locals))
-                                 (ws (map car (outline-inferred-types outline)))
-                                 (buf (outline-write-buf outline))
+                          (let* ((ret (scan-trace env op ip dl locals))
+                                 (_ (infer-type env op ip dl locals))
+                                 (ws (map car (env-inferred-types env)))
+                                 (buf (env-write-buf env))
                                  (buf (cons (sort ws <) buf)))
-                            (set-outline-write-buf! outline buf)
+                            (set-env-write-buf! env buf)
                             ret)
                           #f)))
                   (lp (cons (cons op trace) acc) (+ offset len) traces
                       implemented?)))
                (_ (error "malformed trace" trace))))
             (()
-             (arrange-outline! outline)
+             (arrange-env! env)
              (values (reverse! acc) so-far-so-good?)))))
       (catch #t go
         (lambda (x y fmt args . z)
@@ -164,13 +164,13 @@
       (debug 2 ";;; trace ~a: ~a~%" trace-id msg)
       (tjit-increment-compilation-failure! entry-ip))
     (define (compile-traces traces)
-      (set-outline-sp-offset! outline initial-sp-offset)
-      (set-outline-fp-offset! outline initial-fp-offset)
-      (let-values (((snapshots anf ops) (compile-ir outline traces)))
+      (set-env-sp-offset! env initial-sp-offset)
+      (set-env-fp-offset! env initial-fp-offset)
+      (let-values (((snapshots anf ops) (compile-ir env traces)))
         (dump tjit-dump-anf? anf (dump-anf trace-id anf))
         (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
         (let-values (((code size adjust loop-address trampoline)
-                      (compile-native outline ops snapshots sline)))
+                      (compile-native env ops snapshots sline)))
           (tjit-increment-id!)
           (when (tjit-dump-ncode? dump-option)
             (dump-ncode trace-id entry-ip code size adjust loop-address
@@ -185,12 +185,12 @@
         (dump tjit-dump-jitc? implemented? (show-sline sline))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond
-         ((not outline) (failure "error during scan"))
+         ((not env) (failure "error during scan"))
          ((not implemented?) (failure "NYI found, aborted"))
          (uprec? (failure "NYI - up recursion"))
          (downrec? (failure "NYI - down recursion"))
          ((and (not parent-snapshot) loop?
-               (not (zero? (outline-sp-offset outline))))
+               (not (zero? (env-sp-offset env))))
           (failure "NYI - looping root trace with SP shift"))
          ((and (not parent-snapshot) (not loop?))
           (failure "NYI - loop-less root trace"))

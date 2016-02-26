@@ -38,7 +38,7 @@
   #:use-module (system vm debug)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit types)
   #:export ($snapshot
             make-snapshot
@@ -52,7 +52,7 @@
             snapshot-variables set-snapshot-variables!
             snapshot-code set-snapshot-code!
             snapshot-ip
-            snapshot-outline-types
+            snapshot-env-types
             snapshot-live-indices
 
             snapshot-link?
@@ -102,18 +102,18 @@
 ;;;
 
 (define* (make-snapshot id sp-offset fp-offset nlocals write-indices
-                        outline ip #:optional (refill-ra-and-dl? #f))
+                        env ip #:optional (refill-ra-and-dl? #f))
   (begin
     (debug 2 ";;; [make-snapshot] id:~s sp:~s fp:~s nlocals:~s~%"
            id sp-offset fp-offset nlocals)
     (debug 2 ";;; write-indices:~s~%" write-indices)
     (debug 2 ";;; refill-ra-and-dl?:~a~%" refill-ra-and-dl?)
     (debug 2 "~a"
-           (and ((@ (system vm native tjit dump) dump-outline) outline) "")))
+           (and ((@ (system vm native tjit dump) dump-env) env) "")))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
-       (let ((type (assq-ref (outline-inferred-types outline) i)))
+       (let ((type (assq-ref (env-inferred-types env) i)))
          (lp is (cons `(,i . ,type) acc))))
       (()
        (call-with-values
@@ -125,7 +125,7 @@
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
            (%make-snapshot id sp-offset fp-offset nlocals (reverse! acc)
-                           #f #f ip (outline-live-indices outline))))))))
+                           #f #f ip (env-live-indices env))))))))
 
 
 ;;;

@@ -35,7 +35,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit fragment)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
@@ -51,7 +51,7 @@
             dump-ncode
             dump-tjit-stats
             dump-fragment
-            dump-outline))
+            dump-env))
 
 ;;;
 ;;; Statistics
@@ -363,16 +363,16 @@ option was set to true."
   (format #t "~19@a: ~a~%" 'loop-vars (fragment-loop-vars fragment))
   (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))
 
-(define (dump-outline outline)
+(define (dump-env env)
   (define (sort-types field)
     (sort (map (match-lambda
                  ((k . t) `(,k . ,(pretty-type t))))
-               (field outline))
+               (field env))
           car-<))
-  (format #t ";;; outline:~%")
+  (format #t ";;; env:~%")
   (format #t "~{;;;  ~a~%~}"
-          `((read-indices . ,(outline-read-indices outline))
-            (live-indices . ,(outline-live-indices outline))
-            (write-indices . ,(outline-write-indices outline))
-            (entry  . ,(sort-types outline-entry-types))
-            (inferred . ,(sort-types outline-inferred-types)))))
+          `((read-indices . ,(env-read-indices env))
+            (live-indices . ,(env-live-indices env))
+            (write-indices . ,(env-write-indices env))
+            (entry  . ,(sort-types env-entry-types))
+            (inferred . ,(sort-types env-inferred-types)))))

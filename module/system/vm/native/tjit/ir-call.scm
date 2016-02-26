@@ -30,7 +30,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
@@ -38,32 +38,32 @@
 
 (define-syntax-rule (current-sp-for-ti)
   ;; Type inference procedures are called during initialization and ANF IR
-  ;; compilation. Some bytecode operation shift SP during outline
-  ;; initialization. This macro test whether outline is initialized and get
+  ;; compilation. Some bytecode operation shift SP during env
+  ;; initialization. This macro test whether env is initialized and get
   ;; current SP offset appropriately.
-  (if (outline-initialized? outline)
-      (outline-sp-offset outline)
-      (car (outline-sp-offsets outline))))
+  (if (env-initialized? env)
+      (env-sp-offset env)
+      (car (env-sp-offsets env))))
 
 (define-syntax-rule (scan-call proc nlocals label?)
   (let* ((stack-size (vector-length locals))
-         (sp-offset (outline-sp-offset outline))
+         (sp-offset (env-sp-offset env))
          (sp-proc (- stack-size proc 1)))
     (unless label?
-      (set-entry-type! outline (+ sp-proc sp-offset) &procedure))
+      (set-entry-type! env (+ sp-proc sp-offset) &procedure))
     (do ((n 1 (+ n 1))) ((<= nlocals n))
       (let ((i (- (+ sp-proc sp-offset) n)))
-        (set-entry-type! outline i &scm)))
+        (set-entry-type! env i &scm)))
     (do ((n 0 (+ n 1))) ((<= nlocals n))
       (let ((i (- (+ sp-proc sp-offset) n)))
-        (match (assq-ref (outline-inferred-types outline) i)
+        (match (assq-ref (env-inferred-types env) i)
           (('copy . dst)
-           (set-entry-type! outline dst &scm))
+           (set-entry-type! env dst &scm))
           (_
            (values)))))
-    (set-scan-initial-fields! outline)
-    (push-scan-fp-offset! outline proc)
-    (push-scan-sp-offset! outline (- (+ proc nlocals) stack-size))))
+    (set-scan-initial-fields! env)
+    (push-scan-fp-offset! env proc)
+    (push-scan-sp-offset! env (- (+ proc nlocals) stack-size))))
 
 (define-syntax-rule (ti-call proc nlocals label?)
   (let* ((stack-size (vector-length locals))
@@ -73,12 +73,12 @@
          (ra-ty (make-return-address
                  (make-pointer (+ ip (* 4 (if label? 3 2))))))
          (dl-ty (make-dynamic-link proc)))
-    (set-inferred-type! outline (+ sp-offset fp) ra-ty)
-    (set-inferred-type! outline (+ sp-offset fp 1) dl-ty)
+    (set-inferred-type! env (+ sp-offset fp) ra-ty)
+    (set-inferred-type! env (+ sp-offset fp 1) dl-ty)
     (do ((n 0 (+ n 1))) ((<= nlocals n))
-      (match (assq-ref (outline-inferred-types outline) n)
+      (match (assq-ref (env-inferred-types env) n)
         (('copy . dst)
-         (set-inferred-type! outline n &scm))
+         (set-inferred-type! env n &scm))
         (_
          (values))))))
 
@@ -92,7 +92,7 @@
 
 (define-syntax-rule (call-inlinable?)
   (and (<= (current-fp-offset) 0)
-       (not (outline-linking-roots? outline))))
+       (not (env-linking-roots? env))))
 
 (define-anf (call proc nlocals)
   ;; When procedure get inlined, taking snapshot of previous frame.
@@ -142,8 +142,8 @@
 (define-syntax-rule (scan-tail-call nlocals)
   (let* ((stack-size (vector-length locals))
          (proc-sp (- stack-size 1)))
-    (set-scan-initial-fields! outline)
-    (push-scan-sp-offset! outline (- nlocals stack-size))))
+    (set-scan-initial-fields! env)
+    (push-scan-sp-offset! env (- nlocals stack-size))))
 
 (define-scan (tail-call nlocals)
   (scan-tail-call nlocals))
@@ -172,25 +172,25 @@
 
 (define-scan (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
-         (sp-offset (outline-sp-offset outline))
+         (sp-offset (env-sp-offset env))
          (fp (- stack-size proc)))
-    (set-entry-type! outline (+ (- stack-size proc 2) sp-offset) &scm)
-    (let ((new-offsets (cons (outline-sp-offset outline)
-                             (outline-sp-offsets outline))))
-      (set-outline-sp-offsets! outline new-offsets))
-    (pop-scan-sp-offset! outline (- stack-size nlocals))
-    (let ((new-fp-offsets (cons (outline-fp-offset outline)
-                                (outline-fp-offsets outline))))
-      (set-outline-fp-offsets! outline new-fp-offsets))))
+    (set-entry-type! env (+ (- stack-size proc 2) sp-offset) &scm)
+    (let ((new-offsets (cons (env-sp-offset env)
+                             (env-sp-offsets env))))
+      (set-env-sp-offsets! env new-offsets))
+    (pop-scan-sp-offset! env (- stack-size nlocals))
+    (let ((new-fp-offsets (cons (env-fp-offset env)
+                                (env-fp-offsets env))))
+      (set-env-fp-offsets! env new-fp-offsets))))
 
 (define-ti (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
          (sp-offset (current-sp-for-ti))
          (proc/i (+ (- stack-size proc 2) sp-offset))
          (dst/i (+ (- stack-size dst 1) sp-offset))
-         (ty (or (assq-ref (outline-inferred-types outline) proc/i)
+         (ty (or (assq-ref (env-inferred-types env) proc/i)
                  `(copy . ,proc/i))))
-    (set-inferred-type! outline dst/i ty)))
+    (set-inferred-type! env dst/i ty)))
 
 (define-anf (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
@@ -204,7 +204,7 @@
 
 (define-scan (receive-values proc allow-extra? nvalues)
   (if (= nvalues 1)
-      (set-scan-initial-fields! outline)
+      (set-scan-initial-fields! env)
       (begin
         (debug 1 "NYI: receive-values ~a ~a ~a~%" proc allow-extra? nvalues)
         #f)))
@@ -220,19 +220,19 @@
 ;; XXX: tail-call/shuffle
 
 (define-scan (return-values nlocals)
-  (let* ((sp-offset (outline-sp-offset outline))
+  (let* ((sp-offset (env-sp-offset env))
          (stack-size (vector-length locals)))
-    (set-scan-initial-fields! outline)
-    (pop-scan-sp-offset! outline (- stack-size nlocals))
-    (pop-scan-fp-offset! outline dl)))
+    (set-scan-initial-fields! env)
+    (pop-scan-sp-offset! env (- stack-size nlocals))
+    (pop-scan-fp-offset! env dl)))
 
 (define-ti (return-values nlocals)
   (let* ((stack-size (vector-length locals))
          (sp-offset (current-sp-for-ti))
          (ra-offset (+ sp-offset stack-size))
          (dl-offset (+ ra-offset 1)))
-    (set-inferred-type! outline ra-offset &false)
-    (set-inferred-type! outline dl-offset &false)))
+    (set-inferred-type! env ra-offset &false)
+    (set-inferred-type! env dl-offset &false)))
 
 (define-anf (return-values nlocals)
   ;; Two locals below callee procedure in VM frame contain dynamic link and
@@ -251,14 +251,14 @@
                    (dl/v (var-ref (+ stack-size 1)))
                    (ra/i (+ stack-size (current-sp-offset)))
                    (dl/i (+ ra/i 1))
-                   (live-indices (outline-live-indices outline))
+                   (live-indices (env-live-indices env))
                    (live-indices (if (memq ra/i live-indices)
                                      live-indices
                                      (cons ra/i live-indices)))
                    (live-indices (if (memq dl/i live-indices)
                                      live-indices
                                      (cons dl/i live-indices))))
-              (set-outline-live-indices! outline live-indices)
+              (set-env-live-indices! env live-indices)
               `(let ((_ (%return ,ra)))
                  (let ((,ra/v #f))
                    (let ((,dl/v #f))

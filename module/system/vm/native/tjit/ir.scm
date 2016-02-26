@@ -34,7 +34,7 @@
   #:use-module (system vm program)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
@@ -62,7 +62,7 @@
             with-type-guard
             current-sp-offset
             current-fp-offset
-            outline ir ip ra dl locals next
+            env ir ip ra dl locals next
 
             make-var
             make-vars
@@ -142,17 +142,17 @@
 (define-syntax-rule (define-scan (name args ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (scan-proc (lambda (%outline %ip %dl %locals args ...)
+        (scan-proc (lambda (%env %ip %dl %locals args ...)
                      (syntax-parameterize
                          ((ip (identifier-syntax %ip))
                           (dl (identifier-syntax %dl))
                           (locals (identifier-syntax %locals))
-                          (outline (identifier-syntax %outline)))
+                          (env (identifier-syntax %env)))
                        . body)
                      #t)))
     (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
 
-(define (scan-trace outline op ip dl locals)
+(define (scan-trace env op ip dl locals)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; The stack used by VM interpreter grows down. Lower frame data is saved at
@@ -173,30 +173,30 @@
        (match procs
          (((test . work) . procs)
           (if (apply test (list op locals))
-              (apply work outline ip dl locals (cdr op))
+              (apply work env ip dl locals (cdr op))
               (lp procs)))
          (_ (nyi)))))
     (_ (nyi))))
 
-(define-syntax-rule (push-scan-sp-offset! outline n)
-  (set-outline-sp-offset! outline (- (outline-sp-offset outline) n)))
+(define-syntax-rule (push-scan-sp-offset! env n)
+  (set-env-sp-offset! env (- (env-sp-offset env) n)))
 
-(define-syntax-rule (pop-scan-sp-offset! outline n)
-  (set-outline-sp-offset! outline (+ (outline-sp-offset outline) n)))
+(define-syntax-rule (pop-scan-sp-offset! env n)
+  (set-env-sp-offset! env (+ (env-sp-offset env) n)))
 
-(define-syntax-rule (push-scan-fp-offset! outline n)
-  (set-outline-fp-offset! outline (- (outline-fp-offset outline) n)))
+(define-syntax-rule (push-scan-fp-offset! env n)
+  (set-env-fp-offset! env (- (env-fp-offset env) n)))
 
-(define-syntax-rule (pop-scan-fp-offset! outline n)
-  (set-outline-fp-offset! outline (+ (outline-fp-offset outline) n)))
+(define-syntax-rule (pop-scan-fp-offset! env n)
+  (set-env-fp-offset! env (+ (env-fp-offset env) n)))
 
-(define-syntax-rule (set-scan-initial-fields! outline)
-  (let ((new-sp-offsets (cons (outline-sp-offset outline)
-                              (outline-sp-offsets outline)))
-        (new-fp-offsets (cons (outline-fp-offset outline)
-                              (outline-fp-offsets outline))))
-    (set-outline-sp-offsets! outline new-sp-offsets)
-    (set-outline-fp-offsets! outline new-fp-offsets)))
+(define-syntax-rule (set-scan-initial-fields! env)
+  (let ((new-sp-offsets (cons (env-sp-offset env)
+                              (env-sp-offsets env)))
+        (new-fp-offsets (cons (env-fp-offset env)
+                              (env-fp-offsets env))))
+    (set-env-sp-offsets! env new-sp-offsets)
+    (set-env-fp-offsets! env new-fp-offsets)))
 
 
 ;;;
@@ -206,9 +206,9 @@
 (define-syntax-rule (define-anf (name arg ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (anf-proc (lambda (%outline %ir %next %ip %ra %dl %locals arg ...)
+        (anf-proc (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
                     (syntax-parameterize
-                        ((outline (identifier-syntax %outline))
+                        ((env (identifier-syntax %env))
                          (ir (identifier-syntax %ir))
                          (next (identifier-syntax %next))
                          (ip (identifier-syntax %ip))
@@ -226,23 +226,23 @@
 (define-syntax-rule (define-ti (name args ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
-        (ti-proc (lambda (%outline %ip %dl %locals args ...)
+        (ti-proc (lambda (%env %ip %dl %locals args ...)
                    (syntax-parameterize
                        ((ip (identifier-syntax %ip))
                         (dl (identifier-syntax %dl))
                         (locals (identifier-syntax %locals))
-                        (outline (identifier-syntax %outline)))
+                        (env (identifier-syntax %env)))
                      . body))))
     (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
 
-(define (infer-type outline op ip dl locals)
+(define (infer-type env op ip dl locals)
   (match (hashq-ref *ti-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))
        (match procs
          (((test . work) . procs)
           (if (apply test (list op locals))
-              (apply work outline ip dl locals (cdr op))
+              (apply work env ip dl locals (cdr op))
               (lp procs)))
          (() (values)))))
     (_ (values))))
@@ -285,7 +285,7 @@
     (_ 0)))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
-                        min-sp-offset max-sp-offset outline
+                        min-sp-offset max-sp-offset env
                         #:optional (refill? #f))
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
@@ -304,7 +304,7 @@
                                           (make-var (+ sp-offset nlocals 1))))
                         acc)))))
          (snapshot (make-snapshot id sp-offset fp-offset nlocals indices
-                                  outline dst-ip refill?)))
+                                  env dst-ip refill?)))
     (values `(%snap ,id ,@args) snapshot)))
 
 (define-syntax gen-load-thunk
@@ -315,7 +315,7 @@
             (sp-offset (current-sp-offset))
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
             (max-local-index (+ stack-size sp-offset))
-            (live-indices (outline-live-indices outline))
+            (live-indices (env-live-indices env))
             (acc (make-hash-table))
             (load-down-frame
              (lambda ()
@@ -327,7 +327,7 @@
                           (memq n live-indices))
                       (lp vars))
                      ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
-                      (if (not (outline-parent-snapshot outline))
+                      (if (not (env-parent-snapshot env))
                           (nyi "root trace loading down frame")
                           (with-frame-ref vars var #f n lp)))
                      (else
@@ -343,7 +343,7 @@
                                   <)))
                       (debug 2 ";;; [gen-load-thunk] live-indices=~a~%"
                              live-indices)
-                      (set-outline-live-indices! outline live-indices)
+                      (set-env-live-indices! env live-indices)
                       (next)))))))
             (load-up-frame
              (lambda ()
@@ -365,7 +365,7 @@
                       (debug 2 " skipping~%")
                       (lp vars))
                      ((< min-local-index n max-local-index)
-                      (let* ((entries (outline-entry-types outline))
+                      (let* ((entries (env-entry-types env))
                              (t (assq-ref entries n)))
                         (debug 2 " t=~a~%" (pretty-type t))
                         (if (eq? t &unspecified)
@@ -379,7 +379,7 @@
                    (()
                     (load-down-frame)))))))
        (lambda ()
-         (when (and (not (outline-parent-snapshot outline))
+         (when (and (not (env-parent-snapshot env))
                     (< 0 (current-fp-offset)))
            (nyi "root trace with up-frame load"))
          (set-ir-return-subr! ir #f)
@@ -413,46 +413,46 @@
            'name "uninitialized" x))
        ...))))
 
-(define-ir-syntax-parameters outline ir ip ra dl locals next)
+(define-ir-syntax-parameters env ir ip ra dl locals next)
 
-(define-syntax-rule (gen-entry-type outline ty arg rest)
-  (let ((i (+ arg (outline-sp-offset outline))))
-    (set-entry-type! outline i ty)
-    (gen-scan-type outline . rest)))
+(define-syntax-rule (gen-entry-type env ty arg rest)
+  (let ((i (+ arg (env-sp-offset env))))
+    (set-entry-type! env i ty)
+    (gen-scan-type env . rest)))
 
 (define-syntax gen-scan-type
   (syntax-rules (scm fixnum flonum pair vector box bytevector u64 f64)
-    ((_ ol) (values))
-    ((_ ol (scm arg) . rest) (gen-entry-type ol &scm arg rest))
-    ((_ ol (fixnum arg) . rest) (gen-entry-type ol &fixnum arg rest))
-    ((_ ol (flonum arg) . rest) (gen-entry-type ol &flonum arg rest))
-    ((_ ol (pair arg) . rest) (gen-entry-type ol &pair arg rest))
-    ((_ ol (vector arg) . rest) (gen-entry-type ol &vector arg rest))
-    ((_ ol (box arg) . rest) (gen-entry-type ol &box arg rest))
-    ((_ ol (bytevector arg) . rest) (gen-entry-type ol &bytevector arg rest))
-    ((_ ol (u64 arg) . rest) (gen-entry-type ol &u64 arg rest))
-    ((_ ol (f64 arg) . rest) (gen-entry-type ol &f64 arg rest))
-    ((_ ol (other arg) . rest) (gen-scan-type ol . rest))))
+    ((_ env) (values))
+    ((_ env (scm arg) . rest) (gen-entry-type env &scm arg rest))
+    ((_ env (fixnum arg) . rest) (gen-entry-type env &fixnum arg rest))
+    ((_ env (flonum arg) . rest) (gen-entry-type env &flonum arg rest))
+    ((_ env (pair arg) . rest) (gen-entry-type env &pair arg rest))
+    ((_ env (vector arg) . rest) (gen-entry-type env &vector arg rest))
+    ((_ env (box arg) . rest) (gen-entry-type env &box arg rest))
+    ((_ env (bytevector arg) . rest) (gen-entry-type env &bytevector arg rest))
+    ((_ env (u64 arg) . rest) (gen-entry-type env &u64 arg rest))
+    ((_ env (f64 arg) . rest) (gen-entry-type env &f64 arg rest))
+    ((_ env (other arg) . rest) (gen-scan-type env . rest))))
 
 (define-syntax gen-infer-type
   (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
-    ((_ ol (scm! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &scm))
-    ((_ ol (fixnum! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &fixnum))
-    ((_ ol (flonum! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &flonum))
-    ((_ ol (pair! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &pair))
-    ((_ ol (vector! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &vector))
-    ((_ ol (box! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &box))
-    ((_ ol (u64! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &u64))
-    ((_ ol (f64! arg) . rest)
-     (set-inferred-type! ol (+ arg (outline-sp-offset ol)) &f64))
-    ((_ ol . other) (values))))
+    ((_ env (scm! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &scm))
+    ((_ env (fixnum! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &fixnum))
+    ((_ env (flonum! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &flonum))
+    ((_ env (pair! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &pair))
+    ((_ env (vector! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &vector))
+    ((_ env (box! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &box))
+    ((_ env (u64! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &u64))
+    ((_ env (f64! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &f64))
+    ((_ env . other) (values))))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -482,17 +482,17 @@ index referenced by dst, a, and b values at runtime."
                        (lp flags ns)))
                   (_ #t)))))
            (scan-proc
-            (lambda (%outline %ip %dl %locals arg ...)
-              (gen-scan-type %outline (flag arg) ...)
-              (set-scan-initial-fields! %outline)
+            (lambda (%env %ip %dl %locals arg ...)
+              (gen-scan-type %env (flag arg) ...)
+              (set-scan-initial-fields! %env)
               #t))
            (ti-proc
-            (lambda (%outline %ip %dl %locals arg ...)
-              (gen-infer-type %outline (flag arg) ...)))
+            (lambda (%env %ip %dl %locals arg ...)
+              (gen-infer-type %env (flag arg) ...)))
            (anf-proc
-            (lambda (%outline %ir %next %ip %ra %dl %locals arg ...)
+            (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
               (syntax-parameterize
-                  ((outline (identifier-syntax %outline))
+                  ((env (identifier-syntax %env))
                    (ir (identifier-syntax %ir))
                    (next (identifier-syntax %next))
                    (ip (identifier-syntax %ip))
@@ -516,17 +516,17 @@ index referenced by dst, a, and b values at runtime."
     ((_ names-and-args . body)
      (define-ir names-and-args
        (begin
-         (set-outline-handle-interrupts! outline #t)
+         (set-env-handle-interrupts! env #t)
          . body)))))
 
 (define-syntax-rule (dereference-scm addr)
   (pointer->scm (dereference-pointer (make-pointer addr))))
 
 (define-syntax-rule (current-sp-offset)
-  (vector-ref (outline-sp-offsets outline) (ir-bytecode-index ir)))
+  (vector-ref (env-sp-offsets env) (ir-bytecode-index ir)))
 
 (define-syntax-rule (current-fp-offset)
-  (vector-ref (outline-fp-offsets outline) (ir-bytecode-index ir)))
+  (vector-ref (env-fp-offsets env) (ir-bytecode-index ir)))
 
 (define-syntax-rule (scm-ref n)
   (vector-ref locals n))
@@ -538,7 +538,7 @@ index referenced by dst, a, and b values at runtime."
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
 
 (define-syntax-rule (type-ref n)
-  (assq-ref (outline-inferred-types outline) (+ n (current-sp-offset))))
+  (assq-ref (env-inferred-types env) (+ n (current-sp-offset))))
 
 (define-syntax take-snapshot!
   (syntax-rules ()
@@ -547,16 +547,16 @@ index referenced by dst, a, and b values at runtime."
     ((_ ip dst-offset refill?)
      (let-values (((ret snapshot)
                    (take-snapshot ip dst-offset locals (ir-vars ir)
-                                  (if (and (outline-parent-snapshot outline)
-                                           (not (outline-loop? outline)))
+                                  (if (and (env-parent-snapshot env)
+                                           (not (env-loop? env)))
                                       (vector-ref
-                                       (outline-write-buf outline)
+                                       (env-write-buf env)
                                        (ir-bytecode-index ir))
-                                      (outline-write-indices outline))
+                                      (env-write-indices env))
                                   (ir-snapshot-id ir)
                                   (current-sp-offset) (current-fp-offset)
                                   (ir-min-sp-offset ir) (ir-max-sp-offset ir)
-                                  outline refill?)))
+                                  env refill?)))
        (let ((old-id (ir-snapshot-id ir)))
          (hashq-set! (ir-snapshots ir) old-id snapshot)
          (set-ir-snapshot-id! ir (+ old-id 1)))
@@ -565,7 +565,7 @@ index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
    ((eq? type &flonum)
-    (set-outline-handle-interrupts! outline #t)
+    (set-env-handle-interrupts! env #t)
     `(let ((,tmp (%d2s ,var)))
        ,(proc tmp)))
    (else

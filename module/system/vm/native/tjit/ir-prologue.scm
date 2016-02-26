@@ -28,21 +28,21 @@
   #:use-module (system foreign)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
 (define-syntax-rule (expand-stack nlocals)
-  (expand-outline outline (current-sp-offset) nlocals))
+  (expand-env env (current-sp-offset) nlocals))
 
 (define-syntax-rule (scan-frame nlocals)
   (let* ((stack-size (vector-length locals))
          (diff (- nlocals stack-size)))
     (if (< stack-size nlocals)
-        (push-scan-sp-offset! outline diff)
-        (pop-scan-sp-offset! outline (- diff)))
-    (set-scan-initial-fields! outline)))
+        (push-scan-sp-offset! env diff)
+        (pop-scan-sp-offset! env (- diff)))
+    (set-scan-initial-fields! env)))
 
 ;; XXX: br-if-nargs-ne
 ;; XXX: br-if-nargs-lt
@@ -67,12 +67,12 @@
 (define-ti (alloc-frame nlocals)
   (let* ((stack-size (vector-length locals))
          (diff (- nlocals stack-size))
-         (sp-offset (if (outline-initialized? outline)
-                        (outline-sp-offset outline)
-                        (car (outline-sp-offsets outline)))))
+         (sp-offset (if (env-initialized? env)
+                        (env-sp-offset env)
+                        (car (env-sp-offsets env)))))
     (when (< stack-size nlocals)
       (do ((n 0 (+ n 1))) ((= n diff))
-        (set-inferred-type! outline (- sp-offset n) &undefined)))))
+        (set-inferred-type! env (- sp-offset n) &undefined)))))
 
 (define-anf (alloc-frame nlocals)
   (let* ((stack-size (vector-length locals))
@@ -109,15 +109,15 @@
 ;; XXX: drop
 
 (define-scan (assert-nargs-ee/locals expected nlocals)
-  (push-scan-sp-offset! outline nlocals)
-  (set-scan-initial-fields! outline))
+  (push-scan-sp-offset! env nlocals)
+  (set-scan-initial-fields! env))
 
 (define-ti (assert-nargs-ee/locals expected nlocals)
-  (let ((sp-offset (if (outline-initialized? outline)
-                       (outline-sp-offset outline)
-                       (car (outline-sp-offsets outline)))))
+  (let ((sp-offset (if (env-initialized? env)
+                       (env-sp-offset env)
+                       (car (env-sp-offsets env)))))
     (do ((n nlocals (- n 1))) ((<= n 0))
-      (set-inferred-type! outline (+ (- n 1) sp-offset) &undefined))))
+      (set-inferred-type! env (+ (- n 1) sp-offset) &undefined))))
 
 (define-anf (assert-nargs-ee/locals expected nlocals)
   (let ((undefined (pointer->scm (make-pointer #x904))))

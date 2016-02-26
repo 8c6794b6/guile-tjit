@@ -30,18 +30,18 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
 (define-scan (make-short-immediate dst low-bits)
-  (set-scan-initial-fields! outline))
+  (set-scan-initial-fields! env))
 
 (define-ti (make-short-immediate dst low-bits)
-  (let* ((sp-offset (outline-sp-offset outline))
+  (let* ((sp-offset (env-sp-offset env))
          (v (pointer->scm (make-pointer low-bits))))
-    (set-inferred-type! outline (+ dst sp-offset) (type-of v))))
+    (set-inferred-type! env (+ dst sp-offset) (type-of v))))
 
 (define-anf (make-short-immediate dst low-bits)
   `(let ((,(var-ref dst) ,low-bits))
@@ -62,17 +62,17 @@
      ,(next)))
 
 (define-scan (static-ref dst offset)
-  (set-scan-initial-fields! outline))
+  (set-scan-initial-fields! env))
 
 (define-ti (static-ref dst offset)
-  (let* ((sp-offset (outline-sp-offset outline))
+  (let* ((sp-offset (env-sp-offset env))
          (ptr (make-pointer (+ ip (* 4 offset))))
          (ref (dereference-pointer ptr))
          (ty (if (and (zero? (logand (pointer-address ref) 1))
                       (flonum? (pointer->scm ref)))
                  &flonum
                  &scm)))
-    (set-inferred-type! outline (+ dst sp-offset) ty)))
+    (set-inferred-type! env (+ dst sp-offset) ty)))
 
 (define-anf (static-ref dst offset)
   (let* ((ptr (make-pointer (+ ip (* 4 offset))))

@@ -29,7 +29,7 @@
 (define-module (system vm native tjit ir-misc)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
@@ -51,17 +51,17 @@
        ,(next))))
 
 (define-scan (u64->scm dst src)
-  (set-entry-type! outline (+ src (outline-sp-offset outline)) &u64)
-  (set-scan-initial-fields! outline))
+  (set-entry-type! env (+ src (env-sp-offset env)) &u64)
+  (set-scan-initial-fields! env))
 
 ;; XXX: Non-fixnum number conversion not yet implemented.
 (define-ti (u64->scm dst src)
   (let* ((src/l (u64-ref src))
-         (sp-offset (outline-sp-offset outline))
+         (sp-offset (env-sp-offset env))
          (type (if (< src/l most-positive-fixnum)
                             &fixnum
                             (nyi "u64->scm: src=~a" src/l))))
-    (set-inferred-type! outline (+ dst sp-offset) type)))
+    (set-inferred-type! env (+ dst sp-offset) type)))
 
 (define-anf (u64->scm dst src)
   (let ((dst/v (var-ref dst))

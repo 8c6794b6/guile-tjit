@@ -31,36 +31,36 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit outline)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
 (define-scan (mov dst src)
-  (let* ((sp-offset (outline-sp-offset outline))
+  (let* ((sp-offset (env-sp-offset env))
          (dst+sp (+ dst sp-offset))
          (src+sp (+ src sp-offset))
-         (entry (outline-entry-types outline)))
+         (entry (env-entry-types env)))
     ;; Resolving expcting and inferred type for dst and src. There are no SCM
-    ;; type clue here, use existing data stored in outline. If src could not
+    ;; type clue here, use existing data stored in env. If src could not
     ;; resolved, a tagged `copy' type with local index are stored, to be
     ;; resolved later .
-    (unless (or (assq-ref (outline-inferred-types outline) src+sp)
-                (assq-ref (outline-entry-types outline) src+sp))
-      (set-entry-type! outline src+sp `(copy . ,dst+sp)))
-    (set-scan-initial-fields! outline)))
+    (unless (or (assq-ref (env-inferred-types env) src+sp)
+                (assq-ref (env-entry-types env) src+sp))
+      (set-entry-type! env src+sp `(copy . ,dst+sp)))
+    (set-scan-initial-fields! env)))
 
 (define-ti (mov dst src)
-  (let* ((sp-offset (outline-sp-offset outline))
+  (let* ((sp-offset (env-sp-offset env))
          (dst+sp (+ dst sp-offset))
          (src+sp (+ src sp-offset)))
     (cond
-     ((or (assq-ref (outline-inferred-types outline) src+sp)
-          (assq-ref (outline-entry-types outline) src+sp))
+     ((or (assq-ref (env-inferred-types env) src+sp)
+          (assq-ref (env-entry-types env) src+sp))
       => (lambda (ty)
-           (set-inferred-type! outline dst+sp ty)))
+           (set-inferred-type! env dst+sp ty)))
      (else
-      (set-inferred-type! outline dst+sp `(copy . ,src+sp))))))
+      (set-inferred-type! env dst+sp `(copy . ,src+sp))))))
 
 (define-anf (mov dst src)
   `(let ((,(var-ref dst) ,(var-ref src)))
