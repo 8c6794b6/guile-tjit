@@ -640,14 +640,14 @@ was constant. And, uses OP-RR when both arguments were register or memory."
            (jit-movi r0 (constant a))
            (cond
             ((gpr? b)    (jump (op-rr r0 (gpr b)) (bailout)))
-            ((fpr? b)    (jump (op-rr r0 (fpr->gpr r1 b)) (bailout)))
+            ((fpr? b)    (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
             ((memory? b) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
             (else (err))))))
         ((gpr? a)
          (cond
           ((constant? b) (jump (op-ri (gpr a) (constant b)) (bailout)))
           ((gpr? b)      (jump (op-rr (gpr a) (gpr b)) (bailout)))
-          ((fpr? b)      (jump (op-rr (gpr a) (fpr->gpr r1 b)) (bailout)))
+          ((fpr? b)      (jump (op-rr (gpr a) (fpr->gpr r1 (fpr b))) (bailout)))
           ((memory? b)   (jump (op-rr (gpr a) (memory-ref r1 b)) (bailout)))
           (else (err))))
         ((fpr? a)
@@ -655,7 +655,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (cond
           ((constant? b) (jump (op-ri r0 (constant b)) (bailout)))
           ((gpr? b)      (jump (op-rr r0 (gpr b)) (bailout)))
-          ((fpr? b)      (jump (op-rr r0 (fpr->gpr r1 b)) (bailout)))
+          ((fpr? b)      (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
           ((memory? b)   (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
           (else (err))))
         ((memory? a)
@@ -663,7 +663,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (cond
           ((constant? b) (jump (op-ri r0 (constant b)) (bailout)))
           ((gpr? b)      (jump (op-rr r0 (gpr b)) (bailout)))
-          ((fpr? b)      (jump (op-rr r0 (fpr->gpr r1 b)) (bailout)))
+          ((fpr? b)      (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
           ((memory? b)   (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
           (else (err))))
         (else
@@ -695,7 +695,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (gpr->fpr f0 (gpr a))
          (cond
           ((constant? b) (jump (op-ri f0 (constant b)) (bailout)))
-          ((gpr? b)      (jump (op-rr f0 (fpr->gpr f1 (gpr b))) (bailout)))
+          ((gpr? b)      (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
           ((fpr? b)      (jump (op-rr f0 (fpr b)) (bailout)))
           ((memory? b)   (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
           (else (err))))
@@ -909,13 +909,25 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define (unbox-stack-element dst src type)
   (if (eq? type &flonum)
       (cond
-       ((gpr? dst)    (fpr->gpr (gpr dst) (scm-real-value f0 src)))
-       ((fpr? dst)    (scm-real-value (fpr dst) src))
-       ((memory? dst) (memory-set!/f dst (scm-real-value f0 src))))
+       ((gpr? dst)
+        (scm-real-value f0 src)
+        (fpr->gpr (gpr dst) f0))
+       ((fpr? dst)
+        (scm-real-value (fpr dst) src))
+       ((memory? dst)
+        (scm-real-value f0 src)
+        (memory-set!/f dst f0))
+       (else
+        (tjitc-error 'unbox-stack-element "~s ~s ~s" dst src type)))
       (cond
-       ((gpr? dst) (jit-movr (gpr dst) src))
-       ((fpr? dst) (gpr->fpr (fpr dst) src))
-       ((memory? dst) (memory-set! dst src)))))
+       ((gpr? dst)
+        (jit-movr (gpr dst) src))
+       ((fpr? dst)
+        (gpr->fpr (fpr dst) src))
+       ((memory? dst)
+        (memory-set! dst src))
+       (else
+        (tjitc-error 'unbox-stack-element "~s ~s ~s" dst src type)))))
 
 ;; Type check local N with TYPE and load to gpr or memory DST.
 (define-native (%fref (int dst) (void n) (void type))
@@ -944,9 +956,11 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        ((fpr? dst)
         (scm-real-value (fpr dst) r0))
        ((gpr? dst)
-        (fpr->gpr (gpr dst) (scm-real-value f0 r0)))
+        (scm-real-value f0 r0)
+        (fpr->gpr (gpr dst) f0))
        ((memory? dst)
-        (memory-set!/f dst (scm-real-value f0 r0)))
+        (scm-real-value f0 r0)
+        (memory-set!/f dst f0))
        (else (err))))
      ((= t &f64)
       (cond
