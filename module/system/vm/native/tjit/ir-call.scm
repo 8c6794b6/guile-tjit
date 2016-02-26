@@ -90,6 +90,10 @@
 (define-ti (call proc nlocals)
   (ti-call proc nlocals #f))
 
+(define-syntax-rule (call-inlinable?)
+  (and (<= (current-fp-offset) 0)
+       (not (outline-linking-roots? outline))))
+
 (define-anf (call proc nlocals)
   ;; When procedure get inlined, taking snapshot of previous frame.
   ;; Contents of previous frame could change in native code. Note that
@@ -108,14 +112,12 @@
          (fp (- stack-size proc))
          (proc/v (var-ref (- fp 1)))
          (proc/l (scm-ref (- fp 1)))
-         (snapshot (take-snapshot! ip 0))
-         (inlineable (or (and (program? proc/l)
-                              (primitive-code? (program-code proc/l)))
-                         (and (<= (current-fp-offset) 0)
-                              (not (outline-linking-roots? outline))))))
-    `(let ((_ ,snapshot))
+         (inlinable (or (and (program? proc/l)
+                             (primitive-code? (program-code proc/l)))
+                        (call-inlinable?))))
+    `(let ((_ ,(take-snapshot! ip 0)))
        (let ((_ (%eq ,proc/v ,(pointer-address (scm->pointer proc/l)))))
-         ,(if inlineable
+         ,(if inlinable
               (next)
               `(let ((_ (%scall ,proc)))
                  ,(next)))))))
@@ -131,9 +133,8 @@
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
          (dst-ptr (make-pointer (+ ip (* 2 4))))
-         (inlineable (and (< 0 (current-fp-offset))
-                          (not (outline-linking-roots? outline)))))
-    (if inlineable
+         (inlinable (call-inlinable?)))
+    (if inlinable
         `(let ((_ (%scall ,proc)))
            ,(next))
         (next))))
@@ -240,11 +241,11 @@
   (let* ((ra/val (make-return-address (make-pointer ra)))
          (dl/val (make-dynamic-link dl))
          (stack-size (vector-length locals))
-         (inlineable (< (current-fp-offset) 0))
-         (snapshot (take-snapshot! ip 0)))
+         (snapshot (take-snapshot! ip 0))
+         (inlinable (< (current-fp-offset) 0)))
     (set-ir-return-subr! ir #f)
     `(let ((_ ,snapshot))
-       ,(if inlineable
+       ,(if inlinable
             (next)
             (let* ((ra/v (var-ref stack-size))
                    (dl/v (var-ref (+ stack-size 1)))

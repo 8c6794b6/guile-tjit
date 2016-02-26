@@ -525,8 +525,8 @@
   ;; Arguments for function call.
   (cargs asm-cargs set-asm-cargs!))
 
-(define (make-asm env end-address)
-  (define (volatile-regs-in-use env)
+(define (make-asm storage end-address)
+  (define (volatile-regs-in-use storage)
     (hash-fold (lambda (_ reg acc)
                  (if (or (and (gpr? reg)
                               (<= *num-non-volatiles* (ref-value reg)))
@@ -536,8 +536,8 @@
                      (cons reg acc)
                      acc))
                '()
-               env))
-  (%make-asm (volatile-regs-in-use env) #f #f end-address '()))
+               storage))
+  (%make-asm (volatile-regs-in-use storage) #f #f end-address '()))
 
 (define-syntax jump
   (syntax-rules ()

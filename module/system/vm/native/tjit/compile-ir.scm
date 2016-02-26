@@ -87,8 +87,8 @@
 Currently does nothing, returns the given argument."
   anf)
 
-(define (get-live-vars-in-parent env snapshot)
-  (if (and env snapshot)
+(define (get-live-vars-in-parent storage snapshot)
+  (if (and storage snapshot)
       (let* ((parent-snapshot-vars
               (or (and=> snapshot snapshot-variables) '()))
              (parent-read-vars
@@ -98,7 +98,7 @@ Currently does nothing, returns the given argument."
                               (not (memq k acc)))
                          (cons k acc)
                          acc))
-                   parent-read-vars env))
+                   parent-read-vars storage))
       '()))
 
 (define (add-initial-loads outline snapshots
