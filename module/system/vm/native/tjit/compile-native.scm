@@ -83,12 +83,14 @@
   (sp-ref r0 local)
   (unbox-stack-element dst r0 type))
 
-(define (store-frame asm local type src)
-  (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
-         local (pretty-type type) src)
+;; Uses `guard-type', which requires syntax-parameter `asm', hence this is
+;; defined as macro.
+(define-syntax-rule (store-frame local type src)
   (let ((err (lambda ()
                (tjitc-error 'store-frame "~s ~a ~s"
                             local (pretty-type type) src))))
+    (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
+           local (pretty-type type) src)
     (cond
      ((return-address? type)
       ;; Moving value coupled with type to frame local. Return address of VM
@@ -110,18 +112,18 @@
       (cond
        ((constant? src)
         (jit-movi-d f0 (constant src))
-        (scm-from-double asm r0 f0)
+        (scm-from-double r0 f0)
         (sp-set! local r0))
        ((gpr? src)
         (gpr->fpr f0 (gpr src))
-        (scm-from-double asm r0 f0)
+        (scm-from-double r0 f0)
         (sp-set! local r0))
        ((fpr? src)
-        (scm-from-double asm r0 (fpr src))
+        (scm-from-double r0 (fpr src))
         (sp-set! local r0))
        ((memory? src)
         (memory-ref/f f0 src)
-        (scm-from-double asm r0 f0)
+        (scm-from-double r0 f0)
         (sp-set! local r0))
        (else (err))))
      ((eq? type &f64)
@@ -174,7 +176,7 @@
        (else (err))))
      (else (err)))))
 
-(define (maybe-store asm local-x-types srcs references shift)
+(define (maybe-store %asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
@@ -192,7 +194,8 @@
                  (let ((reg (hashq-ref references (- local shift))))
                    (or (not reg)
                        (not (equal? src reg)))))
-         (store-frame asm local type src))
+         (syntax-parameterize ((asm (identifier-syntax %asm)))
+           (store-frame local type src)))
        (lp local-x-types srcs))
       (_ (values)))))
 
@@ -211,92 +214,120 @@
     (op %sp %sp (imm (* (abs offset) %word-size)))
     (vm-sync-sp %sp)))
 
-(define (storage->src-table storage indices shift)
-  (debug 2 ";;; [storage->src-table] indices=~s~%" indices)
-  (let ((ret (make-hash-table)))
-    (for-each (lambda (n)
-                (let ((var (make-var n)))
-                  (and=> (hashq-ref storage var)
-                         (lambda (phy)
-                           (hashq-set! ret (- n shift) phy)))))
-              indices)
-    ret))
-
-(define (move-or-load-carefully dsts srcs types)
-  "Move SRCS to DSTS or load with TYPES without overwriting.
+(define-syntax-rule (move-or-load-carefully dsts srcs dst-types src-types)
+  "Move SRCS to DSTS or without overwriting.
 
 Avoids overwriting source in hash-table SRCS while updating destinations in
 hash-table DSTS.  If source is not found, load value from frame with using type
-from hash-table TYPES to get memory offset.  Hash-table key of SRCS, DSTS, TYPES
-are local index number."
-  (define (dst-is-full? as bs)
-    (let lp ((as as))
-      (match as
-        ((a . as) (and (member a bs) (lp as)))
-        (() #t))))
-  (define (in-srcs? var)
-    (hash-fold (lambda (k v acc)
-                 (or acc (and (equal? v var) (hashq-ref dsts k))))
-               #f
-               srcs))
-  (define (find-src-local var)
-    (hash-fold (lambda (k v ret)
-                 (or ret (and (equal? v var) k)))
-               #f
-               srcs))
-  (define (dump-move local dst src)
-    (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local
-           (physical-name dst) (physical-name src)))
-  (define (dump-load local dst type)
-    (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
-           (physical-name dst) (pretty-type type)))
-  (define (dump-regs label regs)
-    (let ((car-< (lambda (a b) (< (car a) (car b)))))
-      (debug 3 ";;; molc: ~s: ~a~%" label
+from hash-table TYPES to get memory offset.  Hash-table key of SRCS, DSTS,
+DST-TYPES, and SRC-TYPES are local index number."
+  (begin
+    (define (dst-is-full? as bs)
+      (let lp ((as as))
+        (match as
+          ((a . as) (and (member a bs) (lp as)))
+          (() #t))))
+    (define (in-srcs? var)
+      (hash-fold (lambda (k v acc)
+                   (or acc (and (equal? v var) (hashq-ref dsts k))))
+                 #f
+                 srcs))
+    (define (find-src-local var)
+      (hash-fold (lambda (k v ret)
+                   (or ret (and (equal? v var) k)))
+                 #f
+                 srcs))
+    (define (unbox dst src type local)
+      (debug 3 ";;; molc [local ~a] unbox ~a ~a ~a~%"
+             local (physical-name dst) (physical-name src) (pretty-type type))
+      (cond
+       ((gpr? src)
+        (guard-type (gpr src) type)
+        (unbox-stack-element dst (gpr src) type))
+       ((fpr? src)
+        (fpr->gpr r0 (fpr src))
+        (guard-type r0 type)
+        (unbox-stack-element dst r0 type))
+       ((memory? src)
+        (memory-ref r0 src)
+        (guard-type r0 type)
+        (unbox-stack-element dst r0 type))
+       (else
+        (tjitc-error 'move-or-load-carefully "unbox ~a ~a ~a" dst src type))))
+    (define (dump-move local dst src)
+      (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local
+             (physical-name dst) (physical-name src)))
+    (define (dump-load local dst type)
+      (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
+             (physical-name dst) (pretty-type type)))
+    (define (car-< a b)
+      (< (car a) (car b)))
+    (define (dump-regs label regs)
+      (debug 3 ";;; molc: ~s vars: ~a~%" label
              (sort (map (match-lambda ((k . v) (cons k (physical-name v))))
                         regs)
-                   car-<))))
-  (dump-regs 'dsts (hash-map->list cons dsts))
-  (dump-regs 'srcs (hash-map->list cons srcs))
-  (let lp ((dsts (hash-map->list cons dsts)))
-    (match dsts
-      (((local . dst-var) . rest)
-       (cond
-        ((in-srcs? dst-var)
-         => (lambda (src-var)
-              (cond
-               ((equal? dst-var src-var)
-                (hashq-remove! srcs local)
-                (lp rest))
-               ((dst-is-full? (map cdr dsts)
-                              (map cdr (hash-map->list cons srcs)))
-                ;; When all of the elements in dsts are in srcs, move one of the
-                ;; srcs to temporary location. `-2' is for gpr R1 or fpr F1 in
-                ;; lightning, used as scratch register in this module.
-                (let ((tmp (if (fpr? src-var)
-                               (make-fpr -2)
-                               (make-gpr -2)))
-                      (src-local (find-src-local src-var)))
-                  (dump-move local tmp src-var)
-                  (move tmp src-var)
-                  (hashq-set! srcs src-local tmp)
-                  (lp dsts)))
-               (else
-                ;; Rotate the list and try again.
-                (lp (append rest (list (cons local dst-var))))))))
-        ((hashq-ref srcs local)
-         => (lambda (src-var)
-              (when (not (equal? src-var dst-var))
-                (dump-move local dst-var src-var)
-                (move dst-var src-var))
-              (hashq-remove! srcs local)
-              (lp rest)))
-        (else
-         (dump-load local dst-var (hashq-ref types local))
-         (let ((type (hashq-ref types local)))
-           (load-frame local type dst-var))
-         (lp rest))))
-      (() (values)))))
+                   car-<)))
+    (define (dump-types label tbl)
+      (debug 3 ";;; molc: ~s types: ~a~%"
+             label
+             (sort (map (match-lambda ((n . t) (cons n (pretty-type t))))
+                        (hash-map->list cons tbl))
+                   car-<)))
+    (dump-regs 'dsts (hash-map->list cons dsts))
+    (dump-regs 'srcs (hash-map->list cons srcs))
+    (dump-types 'dsts dst-types)
+    (dump-types 'srcs src-types)
+    (let lp ((dsts (sort (hash-map->list cons dsts) car-<)))
+      (match dsts
+        (((local . dst-var) . rest)
+         (let ((dst-type (hashq-ref dst-types local))
+               (src-type (hashq-ref src-types local)))
+           (cond
+            ((in-srcs? dst-var)
+             => (lambda (src-var)
+                  (cond
+                   ((equal? dst-var src-var)
+                    (when (and (eq? &scm src-type)
+                               (eq? &flonum dst-type))
+                      (unbox dst-var src-var dst-type local))
+                    (hashq-remove! srcs local)
+                    (lp rest))
+                   ((dst-is-full? (map cdr dsts)
+                                  (map cdr (hash-map->list cons srcs)))
+                    ;; When all of the elements in dsts are in srcs, move one of
+                    ;; the srcs to temporary location. `-2' is for gpr R1 or fpr
+                    ;; F1 in lightning, used as scratch register in this module.
+                    (let ((tmp (if (fpr? src-var)
+                                   (make-fpr -2)
+                                   (make-gpr -2)))
+                          (src-local (find-src-local src-var)))
+                      (dump-move local tmp src-var)
+                      (move tmp src-var)
+                      (hashq-set! srcs src-local tmp)
+                      (lp dsts)))
+                   (else
+                    ;; Rotate the list and try again.
+                    (lp (append rest (list (cons local dst-var))))))))
+            ((hashq-ref srcs local)
+             => (lambda (src-var)
+                  (debug 3 ";;; molc: [local ~a] ~a:~a => ~a:~a~%" local
+                         (physical-name src-var) (pretty-type src-type)
+                         (physical-name dst-var) (pretty-type dst-type))
+                  (unless (equal? src-var dst-var)
+                    (if (and (eq? &scm src-type)
+                             (eq? &flonum dst-type))
+                        (unbox dst-var src-var dst-type local)
+                        (begin
+                          (dump-move local dst-var src-var)
+                          (move dst-var src-var))))
+                  (hashq-remove! srcs local)
+                  (lp rest)))
+            (else
+             (dump-load local dst-var (hashq-ref dst-types local))
+             (let ((type (hashq-ref dst-types local)))
+               (load-frame local type dst-var))
+             (lp rest)))))
+        (() (values))))))
 
 ;;; XXX: Incomplete
 
@@ -567,7 +598,7 @@ are local index number."
     (_
      (tjitc-error 'compile-body "not a $primops" primops))))
 
-(define (compile-bailout outline asm snapshot trampoline args)
+(define (compile-bailout outline %asm snapshot trampoline args)
   (lambda (end-address)
     (let ((ip (snapshot-ip snapshot))
           (id (snapshot-id snapshot)))
@@ -596,7 +627,8 @@ are local index number."
                      (args args))
               (match (list local-x-types args)
                 ((((local . type) . local-x-types) (arg . args))
-                 (store-frame asm local type arg)
+                 (syntax-parameterize ((asm (identifier-syntax %asm)))
+                   (store-frame local type arg))
                  (lp local-x-types args))
                 (_
                  (values)))))
@@ -658,7 +690,24 @@ are local index number."
            (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline id ptr)))))))
 
-(define (compile-link outline asm args snapshot storage)
+(define (compile-link outline %asm args snapshot storage)
+  (define (make-src-var-table storage indices shift)
+    (let lp ((indices indices) (ret (make-hash-table)))
+      (match indices
+        ((n . indices)
+         (let ((var (make-var n)))
+           (and=> (hashq-ref storage var)
+                  (lambda (phy)
+                    (hashq-set! ret (- n shift) phy)))
+           (lp indices ret)))
+        (() ret))))
+  (define (make-src-type-table local-x-types sp-offset)
+    (let lp ((local-x-types local-x-types) (tbl (make-hash-table)))
+      (match local-x-types
+        (((n . t) . local-x-types)
+         (hashq-set! tbl (- n sp-offset) t)
+         (lp local-x-types tbl))
+        (() tbl))))
   (let* ((linked-fragment (get-root-trace (outline-linked-ip outline)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot
@@ -666,24 +715,30 @@ are local index number."
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
-       (let* ((type-table (make-hash-table))
-              (dst-table (make-hash-table))
-              (live-indices (outline-live-indices outline))
-              (src-table (storage->src-table storage live-indices sp-offset)))
+       (let* ((dst-type-table (make-hash-table))
+              (dst-var-table (make-hash-table))
+              (lives (outline-live-indices outline))
+              (src-var-table (make-src-var-table storage lives sp-offset))
+              (src-type-table (make-src-type-table local-x-types sp-offset)))
          (let lp ((loop-locals loop-locals)
-                  (dsts (fragment-loop-vars linked-fragment)))
-           (match (list loop-locals dsts)
-             ((((n . type) . loop-locals) (dst . dsts))
-              (hashq-set! type-table n type)
-              (hashq-set! dst-table n dst)
-              (lp loop-locals dsts))
+                  (vars (fragment-loop-vars linked-fragment)))
+           (match (cons loop-locals vars)
+             ((((n . type) . loop-locals) . (var . vars))
+              (hashq-set! dst-type-table n type)
+              (hashq-set! dst-var-table n var)
+              (lp loop-locals vars))
              (_
               ;; Store locals not passed to linked trace, shift SP, then move
               ;; or load locals for linked trace.
-              (maybe-store asm local-x-types args dst-table sp-offset)
+              (maybe-store %asm local-x-types args dst-var-table sp-offset)
               (when (not (zero? sp-offset))
                 (shift-sp sp-offset))
-              (move-or-load-carefully dst-table src-table type-table)))))
+
+              ;; `move-or-load-carefully' uses type guard, which requires syntax
+              ;; parameter `asm' to be set.
+              (syntax-parameterize ((asm (identifier-syntax %asm)))
+                (move-or-load-carefully dst-var-table src-var-table
+                                        dst-type-table src-type-table))))))
 
        ;; Shift FP when loop-less root trace or linking root traces.
        (when (or (not (outline-parent-fragment outline))

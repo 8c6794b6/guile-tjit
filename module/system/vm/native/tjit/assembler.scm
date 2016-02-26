@@ -47,6 +47,7 @@
             *scm-undefined*
             *scm-unspecified*
             *scm-null*
+            asm
             make-asm
             asm-fp-offset
             asm-out-code
@@ -89,7 +90,7 @@
             vm-handle-interrupts
             vm-expand-stack
             unbox-stack-element
-            guard-stack-element))
+            guard-type))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -144,13 +145,13 @@
   (syntax-rules ()
     ((_ (name (ty arg) ...) <body>)
      (begin
-       (define (name asm-in-arg arg ...)
+       (define (name %asm arg ...)
          (let ((verbosity (lightning-verbosity)))
            (when (and verbosity (<= 5 verbosity))
              (jit-note (format #f "~a" `(name ,arg ...)) 0))
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
          (syntax-parameterize
-             ((asm (identifier-syntax asm-in-arg))
+             ((asm (identifier-syntax %asm))
               (err
                (syntax-rules ()
                  ((_)
@@ -211,7 +212,7 @@
          ((err
            (syntax-rules ()
              ((_)
-              (tjitc-error 'guard-stack-element "~a ~a ~s"
+              (tjitc-error 'guard-type "~a ~a ~s"
                            (physical-name src) (pretty-type type)))))
           (guard-constant
            (syntax-rules ()
@@ -286,10 +287,8 @@
 
 (define-syntax scm-from-double
   (syntax-rules ()
-    ((_ dst src)
-     (scm-from-double asm dst src))
-    ((_ asm-arg dst src)
-     (let ((volatiles (asm-volatiles asm-arg)))
+    ((_  dst src)
+     (let ((volatiles (asm-volatiles asm)))
        (for-each store-volatile volatiles)
        (jit-prepare)
        (jit-pushargr %thread)
@@ -599,7 +598,7 @@
    (else
     (tjitc-error 'push-as-gpr "unknown arg ~s" arg))))
 
-(define-syntax-rule (retval-to-gpr-or-mem dst)
+(define-syntax-rule (retval-to-reg-or-mem dst)
   (cond
    ((gpr? dst)
     (jit-retval (gpr dst)))
@@ -610,7 +609,7 @@
     (jit-retval r0)
     (memory-set! dst r0))
    (else
-    (tjitc-error 'retval-to-gpr-or-mem "unknown dst ~s" dst))))
+    (tjitc-error 'retval-to-reg-or-mem "unknown dst ~s" dst))))
 
 
 ;;;;
@@ -769,7 +768,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (()
          (values))))
     (jit-calli (subrf (ref-value cfunc)))
-    (retval-to-gpr-or-mem dst)
+    (retval-to-reg-or-mem dst)
     (for-each (lambda (reg)
                 (when (not (equal? reg dst))
                   (load-volatile reg)))
@@ -1111,7 +1110,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (push-as-gpr x x-overwritten?)
     (push-as-gpr y y-overwritten?)
     (jit-calli %scm-inline-cell)
-    (retval-to-gpr-or-mem dst)
+    (retval-to-reg-or-mem dst)
     (for-each (lambda (reg)
                 (when (not (equal? reg dst))
                   (load-volatile reg)))
