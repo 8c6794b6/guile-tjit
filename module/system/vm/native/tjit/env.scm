@@ -24,7 +24,6 @@
 ;;; accessible values during single JIT compilation work.  Environment stores
 ;;; various information used for compiling, such as parent snapshot, types,
 ;;; locals ... etc.
-
 ;;;
 ;;; Code:
 
