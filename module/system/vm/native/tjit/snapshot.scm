@@ -119,8 +119,8 @@
        (call-with-values
            (lambda ()
              (if refill-ra-and-dl?
-                 (let* ((acc (cons `(,(+ sp-offset nlocals) . ,&false) acc))
-                        (acc (cons `(,(+ sp-offset nlocals 1) . ,&false) acc)))
+                 (let* ((acc (assq-set! acc (+ sp-offset nlocals) &false))
+                        (acc (assq-set! acc (+ sp-offset nlocals 1) &false)))
                    (values (+ fp-offset 2) (+ nlocals 2) acc))
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
