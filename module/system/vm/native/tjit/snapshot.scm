@@ -54,6 +54,7 @@
             snapshot-ip
             snapshot-env-types
             snapshot-live-indices
+            snapshot-inline-depth
 
             snapshot-link?
             snapshot-downrec?
@@ -66,7 +67,7 @@
 ;; Record type for snapshot.
 (define-record-type $snapshot
   (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
-                  live-indices)
+                  live-indices inline-depth)
   snapshot?
 
   ;; ID number of this snapshot.
@@ -94,7 +95,10 @@
   (ip snapshot-ip)
 
   ;; Live indices.
-  (live-indices snapshot-live-indices))
+  (live-indices snapshot-live-indices)
+
+  ;; Call depth.
+  (inline-depth snapshot-inline-depth))
 
 
 ;;;
@@ -102,12 +106,13 @@
 ;;;
 
 (define* (make-snapshot id sp-offset fp-offset nlocals write-indices
-                        env ip #:optional (refill-ra-and-dl? #f))
+                        env ip inline-depth #:optional (refill-ra-dl? #f))
   (begin
     (debug 2 ";;; [make-snapshot] id:~s sp:~s fp:~s nlocals:~s~%"
            id sp-offset fp-offset nlocals)
-    (debug 2 ";;; write-indices:~s~%" write-indices)
-    (debug 2 ";;; refill-ra-and-dl?:~a~%" refill-ra-and-dl?)
+    (debug 2 ";;; write-indices: ~s~%" write-indices)
+    (debug 2 ";;; inline-depth: ~s~%" inline-depth)
+    (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?)
     (debug 2 "~a"
            (and ((@ (system vm native tjit dump) dump-env) env) "")))
   (let lp ((is write-indices) (acc '()))
@@ -118,14 +123,14 @@
       (()
        (call-with-values
            (lambda ()
-             (if refill-ra-and-dl?
+             (if refill-ra-dl?
                  (let* ((acc (assq-set! acc (+ sp-offset nlocals) &false))
                         (acc (assq-set! acc (+ sp-offset nlocals 1) &false)))
                    (values (+ fp-offset 2) (+ nlocals 2) acc))
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
            (%make-snapshot id sp-offset fp-offset nlocals (reverse! acc)
-                           #f #f ip (env-live-indices env))))))))
+                           #f #f ip (env-live-indices env) inline-depth)))))))
 
 
 ;;;

@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 ;;;
-;;; Module containing procedures used for dumping ANF, primitive operations,
-;;; source lines, ... etc.
+;;; Module containing procedures used for dumping various information, such as
+;;; ANF term, primitive operations, source lines, environment data ... etc.
 ;;;
 ;;; Code:
 
@@ -369,10 +369,22 @@ option was set to true."
                  ((k . t) `(,k . ,(pretty-type t))))
                (field env))
           car-<))
+  (define (highlight-call-return n-getter alst-getter)
+    (let ((n (n-getter env)))
+      (map (match-lambda
+             (((? (lambda (x) (= n x)) k) . v)
+              (cons (yellow (number->string k)) v))
+             (other other))
+           (alst-getter env))))
   (format #t ";;; env:~%")
   (format #t "~{;;;  ~a~%~}"
           `((read-indices . ,(env-read-indices env))
-            (live-indices . ,(env-live-indices env))
+            (live-indices . ,(sort (env-live-indices env) <))
             (write-indices . ,(env-write-indices env))
             (entry  . ,(sort-types env-entry-types))
-            (inferred . ,(sort-types env-inferred-types)))))
+            (inferred . ,(sort-types env-inferred-types))
+            (call-num ,(env-call-num env))
+            (return-num ,(env-return-num env))
+            (calls . ,(highlight-call-return env-call-num env-calls))
+            (returns . ,(highlight-call-return env-return-num env-returns))
+            (inline-depth ,(env-inline-depth env)))))

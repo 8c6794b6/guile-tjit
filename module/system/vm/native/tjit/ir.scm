@@ -62,6 +62,8 @@
             with-type-guard
             current-sp-offset
             current-fp-offset
+            inline-current-call?
+            inline-current-return?
             env ir ip ra dl locals next
 
             make-var
@@ -167,6 +169,8 @@
       (debug 1 "NYI: ~a~%" (car op))
       #f))
   (debug 2 ";;; [scan-trace] op=~a~%" op)
+  (debug 2 ";;; [parse] env-call-num=~a env-return-num=~a~%"
+         (env-call-num env) (env-return-num env))
   (match (hashq-ref *scan-procedures* (car op))
     ((? list? procs)
      (let lp ((procs procs))
@@ -191,12 +195,12 @@
   (set-env-fp-offset! env (+ (env-fp-offset env) n)))
 
 (define-syntax-rule (set-scan-initial-fields! env)
-  (let ((new-sp-offsets (cons (env-sp-offset env)
-                              (env-sp-offsets env)))
-        (new-fp-offsets (cons (env-fp-offset env)
-                              (env-fp-offsets env))))
-    (set-env-sp-offsets! env new-sp-offsets)
-    (set-env-fp-offsets! env new-fp-offsets)))
+  (let-syntax
+      ((update! (syntax-rules ()
+                  ((_ setter current olds)
+                   (setter env (cons (current env) (olds env)))))))
+    (update! set-env-sp-offsets! env-sp-offset env-sp-offsets)
+    (update! set-env-fp-offsets! env-fp-offset env-fp-offsets)))
 
 
 ;;;
@@ -285,7 +289,7 @@
     (_ 0)))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
-                        min-sp-offset max-sp-offset env
+                        min-sp-offset max-sp-offset inline-depth env
                         #:optional (refill? #f))
   (let* ((nlocals (vector-length locals))
          (dst-ip (+ ip (* dst-offset 4)))
@@ -304,7 +308,7 @@
                                           (make-var (+ sp-offset nlocals 1))))
                         acc)))))
          (snapshot (make-snapshot id sp-offset fp-offset nlocals indices
-                                  env dst-ip refill?)))
+                                  env dst-ip inline-depth refill?)))
     (values `(%snap ,id ,@args) snapshot)))
 
 (define-syntax gen-load-thunk
@@ -341,8 +345,6 @@
                                              live-indices
                                              acc)
                                   <)))
-                      (debug 2 ";;; [gen-load-thunk] live-indices=~a~%"
-                             live-indices)
                       (set-env-live-indices! env live-indices)
                       (next)))))))
             (load-up-frame
@@ -358,23 +360,19 @@
                (let lp ((vars (reverse (ir-vars ir))))
                  (match vars
                    (((n . var) . vars)
-                    (debug 2 ";;; [load-up-frame] n=~s" n)
                     (cond
                      ((or (skip-var? var)
                           (memq n live-indices))
-                      (debug 2 " skipping~%")
                       (lp vars))
                      ((< min-local-index n max-local-index)
                       (let* ((entries (env-entry-types env))
                              (t (assq-ref entries n)))
-                        (debug 2 " t=~a~%" (pretty-type t))
                         (if (eq? t &unspecified)
                             (lp vars)
                             (begin
                               (hashq-set! acc n var)
                               (with-frame-ref vars var t n lp)))))
                      (else
-                      (debug 2 " skipping~%")
                       (lp vars))))
                    (()
                     (load-down-frame)))))))
@@ -530,6 +528,12 @@ index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (current-fp-offset)
   (vector-ref (env-fp-offsets env) (ir-bytecode-index ir)))
 
+(define-syntax-rule (inline-current-call?)
+  (assq-ref (env-calls env) (env-call-num env)))
+
+(define-syntax-rule (inline-current-return?)
+  (assq-ref (env-returns env) (env-return-num env)))
+
 (define-syntax-rule (scm-ref n)
   (vector-ref locals n))
 
@@ -558,7 +562,7 @@ index referenced by dst, a, and b values at runtime."
                                   (ir-snapshot-id ir)
                                   (current-sp-offset) (current-fp-offset)
                                   (ir-min-sp-offset ir) (ir-max-sp-offset ir)
-                                  env refill?)))
+                                  (env-current-inline-depth env) env refill?)))
        (let ((old-id (ir-snapshot-id ir)))
          (hashq-set! (ir-snapshots ir) old-id snapshot)
          (set-ir-snapshot-id! ir (+ old-id 1)))

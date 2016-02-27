@@ -62,6 +62,7 @@
           (_
            (values)))))
     (set-scan-initial-fields! env)
+    (add-env-call! env)
     (push-scan-fp-offset! env proc)
     (push-scan-sp-offset! env (- (+ proc nlocals) stack-size))))
 
@@ -90,10 +91,6 @@
 (define-ti (call proc nlocals)
   (ti-call proc nlocals #f))
 
-(define-syntax-rule (call-inlinable?)
-  (and (<= (current-fp-offset) 0)
-       (not (env-linking-roots? env))))
-
 (define-anf (call proc nlocals)
   ;; When procedure get inlined, taking snapshot of previous frame.
   ;; Contents of previous frame could change in native code. Note that
@@ -111,13 +108,10 @@
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
          (proc/v (var-ref (- fp 1)))
-         (proc/l (scm-ref (- fp 1)))
-         (inlinable (or (and (program? proc/l)
-                             (primitive-code? (program-code proc/l)))
-                        (call-inlinable?))))
+         (proc/l (scm-ref (- fp 1))))
     `(let ((_ ,(take-snapshot! ip 0)))
        (let ((_ (%eq ,proc/v ,(pointer-address (scm->pointer proc/l)))))
-         ,(if inlinable
+         ,(if (inline-current-call?)
               (next)
               `(let ((_ (%scall ,proc)))
                  ,(next)))))))
@@ -132,12 +126,11 @@
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
-         (dst-ptr (make-pointer (+ ip (* 2 4))))
-         (inlinable (call-inlinable?)))
-    (if inlinable
+         (dst-ptr (make-pointer (+ ip (* 2 4)))))
+    (if (inline-current-call?)
+        (next)
         `(let ((_ (%scall ,proc)))
-           ,(next))
-        (next))))
+           ,(next)))))
 
 (define-syntax-rule (scan-tail-call nlocals)
   (let* ((stack-size (vector-length locals))
@@ -223,6 +216,7 @@
   (let* ((sp-offset (env-sp-offset env))
          (stack-size (vector-length locals)))
     (set-scan-initial-fields! env)
+    (add-env-return! env)
     (pop-scan-sp-offset! env (- stack-size nlocals))
     (pop-scan-fp-offset! env dl)))
 
@@ -241,11 +235,10 @@
   (let* ((ra/val (make-return-address (make-pointer ra)))
          (dl/val (make-dynamic-link dl))
          (stack-size (vector-length locals))
-         (snapshot (take-snapshot! ip 0))
-         (inlinable (< (current-fp-offset) 0)))
+         (snapshot (take-snapshot! ip 0)))
     (set-ir-return-subr! ir #f)
     `(let ((_ ,snapshot))
-       ,(if inlinable
+       ,(if (inline-current-return?)
             (next)
             (let* ((ra/v (var-ref stack-size))
                    (dl/v (var-ref (+ stack-size 1)))

@@ -93,11 +93,12 @@
           (call-with-values
               (lambda ()
                 (match parent-snapshot
-                  (($ $snapshot id sp fp nlocals locals vars code ip lives)
+                  (($ $snapshot id sp fp nlocals locals variables code ip lives
+                      depth)
                    (let ((inferred (if loop? '() locals)))
-                     (values sp fp (map car locals) lives inferred)))
+                     (values sp fp (map car locals) lives inferred depth)))
                   (_
-                   (values 0 0 '() '() '()))))
+                   (values 0 0 '() '() '() 0))))
             (lambda args
               (apply make-env trace-id entry-ip linked-ip
                      parent-exit-id parent-fragment parent-snapshot
@@ -141,6 +142,7 @@
                                  (ws (map car (env-inferred-types env)))
                                  (buf (env-write-buf env))
                                  (buf (cons (sort ws <) buf)))
+                            (increment-env-call-return-num! env op)
                             (set-env-write-buf! env buf)
                             ret)
                           #f)))

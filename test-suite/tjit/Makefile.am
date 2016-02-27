@@ -71,6 +71,7 @@ TESTS = \
 	t-flonum-04c.scm \
 	t-flonum-04d.scm \
 	t-flonum-04e.scm \
+	t-flonum-04f.scm \
 	t-flonum-05.scm \
 	t-free-ref-01.scm \
 	t-free-ref-02.scm \

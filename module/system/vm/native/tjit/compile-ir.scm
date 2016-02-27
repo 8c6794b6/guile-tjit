@@ -197,6 +197,7 @@ Currently does nothing, returns the given argument."
          (initial-ip (cadr initial-trace))
          (initial-locals (list-ref initial-trace 4))
          (initial-nlocals (vector-length initial-locals))
+         (initial-inline-depth (env-inline-depth env))
          (local-indices (env-local-indices env))
          (vars (make-vars local-indices))
          (snapshots (make-hash-table))
@@ -226,7 +227,7 @@ Currently does nothing, returns the given argument."
                                    (get-max-sp-offset initial-sp-offset
                                                       initial-fp-offset
                                                       initial-nlocals)
-                                   env)))
+                                   initial-inline-depth env)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
@@ -240,11 +241,12 @@ Currently does nothing, returns the given argument."
                        (vector-ref (env-sp-offsets env) 0))
                       (env-fp-offset
                        (vector-ref (env-fp-offsets env) 0))
+                      (min-sp-offset (min initial-sp-offset 0))
+                      (max-sp-offset (get-max-sp-offset initial-sp-offset
+                                                        initial-fp-offset
+                                                        initial-nlocals))
                       (ir (make-ir snapshots snapshot-id vars
-                                   (min initial-sp-offset 0)
-                                   (get-max-sp-offset initial-sp-offset
-                                                      initial-fp-offset
-                                                      initial-nlocals)
+                                   min-sp-offset max-sp-offset
                                    0 #f)))
                  (set-env-sp-offset! env env-sp-offset)
                  (set-env-fp-offset! env env-fp-offset)
@@ -279,7 +281,7 @@ Currently does nothing, returns the given argument."
                  (thunk (lambda ()
                           `(loop ,@args)))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
-                                       env initial-ip))
+                                       env initial-ip 0))
                  (_ (hashq-set! snapshots 0 snap0))
                  (loaded-vars (make-hash-table)))
             (set-env-live-indices! env (env-read-indices env))
@@ -343,13 +345,15 @@ Currently does nothing, returns the given argument."
          (last-sp-offset (env-last-sp-offset env))
          (last-fp-offset (let* ((fp-offsets (env-fp-offsets env))
                                 (i (- (vector-length fp-offsets) 1)))
-                           (vector-ref fp-offsets i))))
+                           (vector-ref fp-offsets i)))
+         (initial-inline-depth (env-inline-depth env)))
     (define (entry-snapshot! ip locals sp-offset min-sp)
       (let-values (((ret snapshot)
                     (take-snapshot ip 0 locals (ir-vars ir)
                                    (env-write-indices env)
                                    (ir-snapshot-id ir) sp-offset last-fp-offset
                                    min-sp (ir-max-sp-offset ir)
+                                   (env-inline-depth env)
                                    env)))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
@@ -437,6 +441,7 @@ Currently does nothing, returns the given argument."
             (set-ir-min-sp-offset! ir old-sp-offset))
           (when (< (ir-max-sp-offset ir) max-offset)
             (set-ir-max-sp-offset! ir max-offset))
+          (increment-env-call-return-num! env op)
           (convert ir rest))))
     (define (convert-one ir op ip ra dl locals rest)
       (debug 2 ";;; [convert-one] op=~s~%" op)

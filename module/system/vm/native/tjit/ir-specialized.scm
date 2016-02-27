@@ -41,6 +41,7 @@
          (ra-offset stack-size)
          (dl-offset (+ ra-offset 1)))
     (set-scan-initial-fields! env)
+    (add-env-return! env)
     (pop-scan-sp-offset! env (- stack-size 2))
     (pop-scan-fp-offset! env dl)))
 
@@ -58,7 +59,7 @@
     (set-inferred-type! env dl-offset &false)
 
     ;; Returned value from C function is stored in (- proc-offset 1). The stack
-    ;; item type of the value is always `scm'.
+    ;; item type of the returned value is always `scm'.
     (set-inferred-type! env (- proc-offset 1) &scm)))
 
 (define-anf (subr-call)
@@ -70,7 +71,6 @@
          (ra/v (var-ref stack-size))
          (dl/v (var-ref (+ stack-size 1)))
          (proc-addr (pointer-address (scm->pointer subr/l)))
-         (inlinable (<= (+ (current-sp-offset) dl) (ir-max-sp-offset ir)))
          (emit-next
           (lambda ()
             `(let ((,ra/v #f))
@@ -79,9 +79,7 @@
          (emit-ccall
           (lambda ()
             `(let ((,dst/v (%ccall ,proc-addr)))
-               ;; XXX: Any other way to decide emitting `%return' than SP
-               ;; offset comparison?
-               ,(if inlinable
+               ,(if (inline-current-return?)
                     (emit-next)
                     `(let ((_ ,(take-snapshot! ip 0)))
                        (let ((_ (%return ,ra)))

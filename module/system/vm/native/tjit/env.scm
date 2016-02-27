@@ -1,4 +1,4 @@
-;;;; Environment data during tracing JIT compilation
+;;;; Environment data for tracing JIT compilation
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -34,6 +34,7 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit types)
+  #:autoload (system vm native tjit snapshot) (snapshot-inline-depth)
   #:export ($env
             make-env
             env-id
@@ -61,9 +62,18 @@
             env-live-indices set-env-live-indices!
             env-entry-types set-env-entry-types!
             env-inferred-types set-env-inferred-types!
+            env-call-num set-env-call-num!
+            env-return-num set-env-return-num!
+            env-calls set-env-calls!
+            env-returns set-env-returns!
+            env-inline-depth set-env-inline-depth!
 
             arrange-env!
+            increment-env-call-return-num!
+            add-env-call!
+            add-env-return!
             env-local-indices
+            env-current-inline-depth
             expand-env
             set-entry-type!
             set-inferred-type!))
@@ -73,13 +83,14 @@
 ;;
 (define-record-type $env
   (%make-env id entry-ip linked-ip
-                 parent-exit-id parent-fragment parent-snapshot
-                 loop? downrec? uprec? linking-roots?
-                 handle-interrupts? initialized?
-                 loop-locals loop-vars
-                 sp-offsets fp-offsets sp-offset fp-offset last-sp-offset
-                 write-indices read-indices write-buf live-indices
-                 entry-types inferred-types)
+             parent-exit-id parent-fragment parent-snapshot
+             loop? downrec? uprec? linking-roots?
+             handle-interrupts? initialized?
+             loop-locals loop-vars
+             sp-offsets fp-offsets sp-offset fp-offset last-sp-offset
+             write-indices read-indices write-buf live-indices
+             entry-types inferred-types
+             call-num return-num calls returns inline-depth)
   env?
 
   ;; Trace ID of this compilation.
@@ -161,26 +172,106 @@
   (entry-types env-entry-types set-env-entry-types!)
 
   ;; Inferred types.
-  (inferred-types env-inferred-types set-env-inferred-types!))
+  (inferred-types env-inferred-types set-env-inferred-types!)
+
+  ;; Current call number.
+  (call-num env-call-num set-env-call-num!)
+
+  ;; Current return number.
+  (return-num env-return-num set-env-return-num!)
+
+  ;; Inline flags for calls.
+  (calls env-calls set-env-calls!)
+
+  ;; Inline flags for returns.
+  (returns env-returns set-env-returns!)
+
+  ;; Depth of calls and returns.
+  (inline-depth env-inline-depth set-env-inline-depth!))
 
 (define (make-env id entry-ip linked-ip
-                      parent-exit-id parent-fragment parent-snapshot
-                      loop? downrec? uprec? linking-roots?
-                      sp-offset fp-offset write-indices live-indices
-                      types-from-parent)
-  ;; Using hash-table to contain locals, since local index could take negative
-  ;; value.
+                  parent-exit-id parent-fragment parent-snapshot
+                  loop? downrec? uprec? linking-roots?
+                  sp-offset fp-offset write-indices live-indices
+                  types-from-parent inline-depth)
+  (debug 2 ";;; [make-env] inline-depth=~a~%" inline-depth)
   (%make-env id entry-ip linked-ip
-                 parent-exit-id parent-fragment parent-snapshot
-                 loop? downrec? uprec? linking-roots?
-                 #f #f #f #f '() '() sp-offset fp-offset 0
-                 write-indices '() (list write-indices) live-indices
-                 '() (copy-tree types-from-parent)))
+             parent-exit-id parent-fragment parent-snapshot
+             loop? downrec? uprec? linking-roots?
+             #f #f #f #f '() '() sp-offset fp-offset 0
+             write-indices '() (list write-indices) live-indices
+             '() (copy-tree types-from-parent)
+             0 0 '() '() inline-depth))
 
 (define (env-local-indices env)
   (sort (delete-duplicates (append (env-write-indices env)
                                    (env-read-indices env)))
         >))
+
+(define (env-current-inline-depth env)
+  "Compute current inline depth in ENV.
+
+Counts the number of inlined calls which are currently opened, by using calls,
+returns, current call-num, and current return-num."
+  (let ((call-num (env-call-num env))
+        (return-num (env-return-num env)))
+    (let lp ((calls (env-calls env)) (acc 0))
+      (match calls
+        (((_ . #f) . calls)
+         (lp calls acc))
+        (((c . r) . calls)
+         (if (and (< c call-num) (<= return-num r))
+             (lp calls (+ acc 1))
+             (lp calls acc)))
+        (() (+ acc (env-inline-depth env)))))))
+
+(define (increment-env-call-return-num! env op)
+  "Increment call/return number in ENV if OP was call or return.
+
+For return operations, if the current return had no matching call but was
+continued as inlined call in parent trace, this procedure will lower the current
+inline depth by one."
+  (case (car op)
+    ((call call-label)
+     (set-env-call-num! env (1+ (env-call-num env))))
+    ((return-values subr-call foreign-call)
+     (let ((return-num (env-return-num env)))
+       (when (and=> (assq-ref (env-returns env) return-num)
+                    (lambda (paired) (< paired 0)))
+         (set-env-inline-depth! env (- (env-inline-depth env) 1)))
+       (set-env-return-num! env (1+ return-num))))
+    (else
+     (values))))
+
+(define (add-env-call! env)
+  (let ((new (cons (env-call-num env) #f)))
+    (set-env-calls! env (cons new (env-calls env)))))
+
+(define (add-env-return! env)
+  (define (add! new)
+    (set-env-returns! env (cons new (env-returns env))))
+  (let* ((calls (env-calls env))
+         (return-num (env-return-num env))
+         (last-opened-call (let lp ((calls calls))
+                             (match calls
+                               (((call-num . #f) . calls)
+                                call-num)
+                               (((call-num . ret-num) . calls)
+                                (lp calls))
+                               (() #f))))
+         (new (cons return-num last-opened-call)))
+    (cond
+     (last-opened-call
+      (let ((calls (assq-set! calls last-opened-call return-num)))
+        (set-env-calls! env calls)
+        (add! (cons return-num last-opened-call))))
+     ((< 0 (env-inline-depth env))
+      ;; Mark as inlined return with no matching call in recorded bytecode.
+      ;; This happens when parent trace contain inlined call, and current trace
+      ;; was a side trace derived from side exit in the inlined call.
+      (add! (cons return-num -1)))
+     (else
+      (add! (cons return-num #f))))))
 
 (define (arrange-env! env)
   (define (resolve-copies dsts srcs)
@@ -198,21 +289,24 @@
            (lp copies (assq-set! dsts dst (assq-ref srcs src))))
           (_
            dsts)))))
-  (let* ((sp-offsets/vec (list->vector (reverse! (env-sp-offsets env))))
-         (fp-offsets/vec (list->vector (reverse! (env-fp-offsets env))))
-         (writes/list (sort (env-write-indices env) <))
-         (write-buf/vec (list->vector (reverse! (env-write-buf env)))))
-    (set-env-sp-offsets! env sp-offsets/vec)
-    (set-env-fp-offsets! env fp-offsets/vec)
-    (set-env-last-sp-offset! env (env-sp-offset env))
-    (set-env-write-buf! env write-buf/vec)
-    (let ((entry (env-entry-types env))
-          (inferred (env-inferred-types env)))
-      (set-env-entry-types! env (resolve-copies entry entry))
-      (set-env-inferred-types! env (resolve-copies inferred entry))
-      (set-env-read-indices! env (sort (map car entry) <))
-      (set-env-write-indices! env (sort (map car inferred) <)))
-    (set-env-initialized! env #t)))
+  (define (set-reversed-vector! setter getter)
+    (setter env (list->vector (reverse! (getter env)))))
+  (set-env-last-sp-offset! env (env-sp-offset env))
+  (set-env-call-num! env 0)
+  (set-env-return-num! env 0)
+  (let ((depth (or (and=> (env-parent-snapshot env) snapshot-inline-depth)
+                   0)))
+    (set-env-inline-depth! env depth))
+  (set-reversed-vector! set-env-sp-offsets! env-sp-offsets)
+  (set-reversed-vector! set-env-fp-offsets! env-fp-offsets)
+  (set-reversed-vector! set-env-write-buf! env-write-buf)
+  (let ((entry (env-entry-types env))
+        (inferred (env-inferred-types env)))
+    (set-env-entry-types! env (resolve-copies entry entry))
+    (set-env-inferred-types! env (resolve-copies inferred entry))
+    (set-env-read-indices! env (sort (map car entry) <))
+    (set-env-write-indices! env (sort (map car inferred) <)))
+  (set-env-initialized! env #t))
 
 (define (expand-env env offset nlocals)
   (let lp ((n 0) (acc (env-live-indices env)))
@@ -236,11 +330,9 @@
                     ((_ . current)
                      (lp current acc))
                     (() acc)))))
-    (debug 2 ";;; [set-entry-type!] ~s => ~a~%" n (pretty-type t))
     (set-env-entry-types! env entry)))
 
 (define (set-inferred-type! env n t)
   (let* ((inferred (env-inferred-types env))
          (inferred (assq-set! inferred n t)))
-    (debug 2 ";;; [set-inferred-type!] ~s => ~a~%" n (pretty-type t))
     (set-env-inferred-types! env inferred)))
