@@ -63,8 +63,12 @@
       (set-inferred-type! env dst+sp `(copy . ,src+sp))))))
 
 (define-anf (mov dst src)
-  `(let ((,(var-ref dst) ,(var-ref src)))
-     ,(next)))
+  (let ((dst/i (+ dst (current-sp-offset)))
+        (live-indices (env-live-indices env)))
+    (unless (memq dst/i live-indices)
+      (set-env-live-indices! env (cons dst/i live-indices)))
+    `(let ((,(var-ref dst) ,(var-ref src)))
+       ,(next))))
 
 
 ;; XXX: long-mov
