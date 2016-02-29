@@ -174,8 +174,8 @@ Currently does nothing, returns the given argument."
                ;; and FPR?
                (if (or (eq? type &flonum)
                        (eq? type &f64))
-                   (with-frame-ref vars var type n lp)
-                   (with-frame-ref vars var guard n lp)))))))
+                   (with-frame-ref var type n lp vars)
+                   (with-frame-ref var guard n lp vars)))))))
         (()
          (let ((live-indices
                 (sort (hash-fold (lambda (k v acc)

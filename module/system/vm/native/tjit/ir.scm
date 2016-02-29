@@ -320,62 +320,32 @@
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
             (max-local-index (+ stack-size sp-offset))
             (live-indices (env-live-indices env))
-            (acc (make-hash-table))
-            (load-down-frame
-             (lambda ()
-               (let lp ((vars (reverse (ir-vars ir))))
-                 (match vars
-                   (((n . var) . vars)
-                    (cond
-                     ((or (skip-var? var)
-                          (memq n live-indices))
-                      (lp vars))
-                     ((< (- stack-size nlocals) n (ir-min-sp-offset ir))
-                      (if (not (env-parent-snapshot env))
-                          (nyi "root trace loading down frame")
-                          (with-frame-ref vars var #f n lp)))
-                     (else
-                      (lp vars))))
-                   (()
-                    (let* ((live-indices
-                            (sort (hash-fold (lambda (k v acc)
-                                               (if (memq k acc)
-                                                   acc
-                                                   (cons k acc)))
-                                             live-indices
-                                             acc)
-                                  <)))
-                      (set-env-live-indices! env live-indices)
-                      (next)))))))
             (load-up-frame
              (lambda ()
-               ;; Ignoring `unspecified' values when loading from previous
-               ;; frame. Those values might came from dead slots in stack which
-               ;; were overwritten by gc. See `scm_i_vm_mark_stack' in
-               ;; "libguile/vm.c".
-               ;;
-               ;; XXX: Add tests to check that this strategy works with
-               ;; explicitly given `unspecified' values.
-               ;;
-               (let lp ((vars (reverse (ir-vars ir))))
+               (let lp ((vars (reverse (ir-vars ir))) (loaded '()))
                  (match vars
                    (((n . var) . vars)
                     (cond
                      ((or (skip-var? var)
                           (memq n live-indices))
-                      (lp vars))
+                      (lp vars loaded))
                      ((< min-local-index n max-local-index)
                       (let* ((entries (env-entry-types env))
                              (t (assq-ref entries n)))
-                        (if (eq? t &unspecified)
-                            (lp vars)
-                            (begin
-                              (hashq-set! acc n var)
-                              (with-frame-ref vars var t n lp)))))
+                        (with-frame-ref var t n lp vars (cons n loaded))))
                      (else
-                      (lp vars))))
+                      (lp vars loaded))))
                    (()
-                    (load-down-frame)))))))
+                    (let ((live-indices
+                           (let lp ((loaded loaded) (acc live-indices))
+                             (match loaded
+                               ((k . loaded)
+                                (if (memq k acc)
+                                    (lp loaded acc)
+                                    (lp loaded (cons k acc))))
+                               (() acc)))))
+                      (set-env-live-indices! env live-indices)
+                      (next))))))))
        (lambda ()
          (when (and (not (env-parent-snapshot env))
                     (< 0 (current-fp-offset)))
@@ -386,21 +356,21 @@
              (next)
              (load-up-frame)))))))
 
-(define-syntax-rule (with-frame-ref args var type idx next)
+(define-syntax-rule (with-frame-ref var type idx next . args)
   (cond
    ((dynamic-link? type)
     `(let ((,var ,(dynamic-link-offset type)))
-       ,(next args)))
+       ,(next . args)))
    ((return-address? type)
     `(let ((,var ,(pointer-address (return-address-ip type))))
-       ,(next args)))
+       ,(next . args)))
    ((or (eq? type &flonum)
         (eq? type &f64))
     `(let ((,var (%fref/f ,idx ,type)))
-       ,(next args)))
+       ,(next . args)))
    (else
     `(let ((,var (%fref ,idx ,type)))
-       ,(next args)))))
+       ,(next . args)))))
 
 (define-syntax define-ir-syntax-parameters
   (syntax-rules ()
