@@ -441,7 +441,6 @@
     (jump (jit-bmci r0 (imm 1)) next)
     (for-each store-volatile volatiles)
     (jit-prepare)
-    (jit-pushargr r0)
     (jit-calli %scm-async-tick)
     (load-vp r0)
     (vm-cache-sp r0)
