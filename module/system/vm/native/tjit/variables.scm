@@ -132,7 +132,7 @@
    ((register? x)
     (register-name x))
    ((memory? x)
-    (format #f "[@ 0x~x]"
+    (format #f "[0x~x]"
             (+ (- (case %word-size
                     ((4) #xffffffff)
                     ((8) #xffffffffffffffff)
