@@ -637,9 +637,8 @@ DST-TYPES, and SRC-TYPES are local index number."
           (when (not (zero? sp-offset))
             (shift-sp sp-offset))
 
-          ;; Shift FP, unless moved to up-frame explicitly with primitive
-          ;; operations which update `vp->fp'.
-          (when (<= fp-offset 0)
+          ;; Shift FP for side exit in the middle of inlined call/return.
+          (when (< 0 (snapshot-inline-depth snapshot))
             (shift-fp nlocals))
 
           ;; Sync next IP with vp->ip for VM.
