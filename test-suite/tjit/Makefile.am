@@ -115,6 +115,8 @@ TESTS = \
 	t-nest-26c.scm \
 	t-nest-26d.scm \
 	t-nest-28.scm \
+	t-nest-30.scm \
+	t-nest-30b.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \
 	t-pairs-03.scm \
@@ -130,6 +132,7 @@ TESTS = \
 	t-reset-frame-01.scm \
 	t-reset-frame-02.scm \
 	t-repl-01.scm \
+	t-repl-02.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \

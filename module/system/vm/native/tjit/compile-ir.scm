@@ -212,15 +212,18 @@ Currently does nothing, returns the given argument."
           (filter (match-lambda
                     ((_ . var) (memq var live-vars-in-parent)))
                   vars))
-         (args-from-parent (reverse (map cdr vars-from-parent))))
+         (args-from-parent (reverse (map cdr vars-from-parent)))
+         (initial-vars (if parent-snapshot
+                           vars-from-parent
+                           vars))
+         (initial-write-indices (if (and parent-snapshot
+                                         (not (env-loop? env)))
+                                    (map car parent-snapshot-locals)
+                                    (env-write-indices env))))
     (define (initial-snapshot!)
       (let-values (((ret snapshot)
                     (take-snapshot initial-ip 0 initial-locals
-                                   vars-from-parent
-                                   (if (and parent-snapshot
-                                            (not (env-loop? env)))
-                                       (map car parent-snapshot-locals)
-                                       (env-write-indices env))
+                                   initial-vars initial-write-indices
                                    snapshot-id
                                    initial-sp-offset initial-fp-offset
                                    (min initial-sp-offset 0)
@@ -279,7 +282,9 @@ Currently does nothing, returns the given argument."
                                       (reverse local-indices)))
                  (args (map make-var (reverse local-indices)))
                  (thunk (lambda ()
-                          `(loop ,@args)))
+                          (let ((snap1 (initial-snapshot!)))
+                            `(let ((_ ,snap1))
+                               (loop ,@args)))))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
                                        env initial-ip 0))
                  (_ (hashq-set! snapshots 0 snap0))

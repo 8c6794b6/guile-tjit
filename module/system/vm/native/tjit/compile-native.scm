@@ -710,7 +710,7 @@ DST-TYPES, and SRC-TYPES are local index number."
   (let* ((linked-fragment (get-root-trace (env-linked-ip env)))
          (loop-locals (fragment-loop-locals linked-fragment)))
     (match snapshot
-      (($ $snapshot _ sp-offset fp-offset nlocals local-x-types vars)
+      (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
        ;; Store unpassed variables, and move variables to linked trace.
        ;; Shift amount in `maybe-store' depending on whether the trace is
        ;; root trace or not.
@@ -718,7 +718,7 @@ DST-TYPES, and SRC-TYPES are local index number."
               (dst-var-table (make-hash-table))
               (lives (env-live-indices env))
               (src-var-table (make-src-var-table storage lives sp-offset))
-              (src-type-table (make-src-type-table local-x-types sp-offset)))
+              (src-type-table (make-src-type-table locals sp-offset)))
          (let lp ((loop-locals loop-locals)
                   (vars (fragment-loop-vars linked-fragment)))
            (match (cons loop-locals vars)
@@ -727,14 +727,24 @@ DST-TYPES, and SRC-TYPES are local index number."
               (hashq-set! dst-var-table n var)
               (lp loop-locals vars))
              (_
-              ;; Store locals not passed to linked trace, shift SP, then move
-              ;; or load locals for linked trace.
-              (maybe-store %asm local-x-types args dst-var-table sp-offset)
-              (when (not (zero? sp-offset))
-                (shift-sp sp-offset))
+              ;; Store locals not passed to linked trace. Using snapshot 1 from
+              ;; linked fragment to get write indices used for reference.
+              (let* ((ref-table (make-hash-table))
+                     (linked-snapshots (fragment-snapshots linked-fragment))
+                     (linked-snap1 (hashq-ref linked-snapshots 1)))
+                (let lp ((ref-locals (snapshot-locals linked-snap1)))
+                  (match ref-locals
+                    (((n . t) . ref-locals)
+                     (hashq-set! ref-table n t)
+                     (lp ref-locals))
+                    (()
+                     (maybe-store %asm locals args ref-table sp-offset)))))
 
+              ;; Shift SP, then move or load locals for linked trace.
               ;; `move-or-load-carefully' uses type guard, which requires syntax
               ;; parameter `asm' to be set.
+              (when (not (zero? sp-offset))
+                (shift-sp sp-offset))
               (syntax-parameterize ((asm (identifier-syntax %asm)))
                 (move-or-load-carefully dst-var-table src-var-table
                                         dst-type-table src-type-table))))))
