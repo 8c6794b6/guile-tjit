@@ -213,7 +213,8 @@ Currently does nothing, returns the given argument."
                     ((_ . var) (memq var live-vars-in-parent)))
                   vars))
          (args-from-parent (reverse (map cdr vars-from-parent)))
-         (initial-vars (if parent-snapshot
+         (initial-vars (if (and parent-snapshot
+                                (not (env-loop? env)))
                            vars-from-parent
                            vars))
          (initial-write-indices (if (and parent-snapshot
@@ -313,7 +314,9 @@ Currently does nothing, returns the given argument."
          ((env-loop? env)
           (let* ((args-from-vars (reverse! (map cdr vars)))
                  (thunk (lambda ()
-                          `(loop ,@args-from-vars)))
+                          (let ((snap1 (initial-snapshot!)))
+                            `(let ((_ ,snap1))
+                               (loop ,@args-from-vars)))))
                  (loaded-vars (make-hash-table))
                  (snap0 (initial-snapshot!)))
             (set-env-live-indices! env (env-read-indices env))
