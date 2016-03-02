@@ -53,6 +53,44 @@
   #:export (tjitc init-vm-tjit)
   #:re-export (tjit-stats))
 
+;;;
+;;; Parser
+;;;
+
+(define (parse-bytecode env bytecode traces)
+  (define disassemble-one
+    (@@ (system vm disassembler) disassemble-one))
+  (define (go)
+    (let lp ((acc '()) (offset 0) (traces (reverse! traces))
+             (so-far-so-good? #t))
+      (match traces
+        ((trace . traces)
+         (match trace
+           ((ip ra dl locals)
+            (let*-values
+                (((len op) (disassemble-one bytecode offset))
+                 ((implemented?)
+                  (if so-far-so-good?
+                      (let* ((ret (scan-trace env op ip dl locals))
+                             (_ (infer-type env op ip dl locals))
+                             (ws (map car (env-inferred-types env)))
+                             (buf (env-write-buf env))
+                             (buf (cons (sort ws <) buf)))
+                        (increment-env-call-return-num! env op)
+                        (set-env-write-buf! env buf)
+                        ret)
+                      #f)))
+              (lp (cons (cons op trace) acc) (+ offset len) traces
+                  implemented?)))
+           (_ (error "malformed trace" trace))))
+        (()
+         (arrange-env! env)
+         (values (reverse! acc) so-far-so-good?)))))
+  (catch #t go
+    (lambda (x y fmt args . z)
+      (debug 2 "XXX: ~a~%" (apply format #f fmt args))
+      (values '() #f))))
+
 
 ;;;
 ;;; Entry point
@@ -123,39 +161,6 @@
                     (else ""))))
         (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
                 trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
-    (define (parse-bytecode traces)
-      (define disassemble-one
-        (@@ (system vm disassembler) disassemble-one))
-      (define (go)
-        (let lp ((acc '()) (offset 0) (traces (reverse! traces))
-                 (so-far-so-good? #t))
-          (match traces
-            ((trace . traces)
-             (match trace
-               ((ip ra dl locals)
-                (let*-values
-                    (((len op) (disassemble-one bytecode offset))
-                     ((implemented?)
-                      (if so-far-so-good?
-                          (let* ((ret (scan-trace env op ip dl locals))
-                                 (_ (infer-type env op ip dl locals))
-                                 (ws (map car (env-inferred-types env)))
-                                 (buf (env-write-buf env))
-                                 (buf (cons (sort ws <) buf)))
-                            (increment-env-call-return-num! env op)
-                            (set-env-write-buf! env buf)
-                            ret)
-                          #f)))
-                  (lp (cons (cons op trace) acc) (+ offset len) traces
-                      implemented?)))
-               (_ (error "malformed trace" trace))))
-            (()
-             (arrange-env! env)
-             (values (reverse! acc) so-far-so-good?)))))
-      (catch #t go
-        (lambda (x y fmt args . z)
-          (debug 2 "XXX: ~a~%" (apply format #f fmt args))
-          (values '() #f))))
     (define-syntax dump
       (syntax-rules ()
         ((_ test data exp)
@@ -181,9 +186,8 @@
           (let ((log (get-tjit-time-log trace-id))
                 (t (get-internal-run-time)))
             (set-tjit-time-log-end! log t)))))
-
     (with-tjitc-error-handler entry-ip
-      (let-values (((traces implemented?) (parse-bytecode traces)))
+      (let-values (((traces implemented?) (parse-bytecode env bytecode traces)))
         (dump tjit-dump-jitc? implemented? (show-sline sline))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond
