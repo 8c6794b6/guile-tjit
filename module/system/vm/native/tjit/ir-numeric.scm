@@ -259,11 +259,21 @@
              (b/v (var-ref b))
              (a/t (type-ref a))
              (b/t (type-ref b))
+             (f1 (make-tmpvar/f 1))
              (f2 (make-tmpvar/f 2)))
         (cond
          ((and (eq? &flonum a/t) (eq? &flonum b/t))
           `(let ((,dst/v (op ,a/v ,b/v)))
              ,(next)))
+         ((and (eq? &scm a/t) (eq? &scm b/t))
+          (with-type-guard &flonum a/v
+            (lambda ()
+              (with-type-guard &flonum b/v
+                (lambda ()
+                  `(let ((,f1 (%cref/f ,a/v 2)))
+                     (let ((,f2 (%cref/f ,b/v 2)))
+                       (let ((,dst/v (%fmul ,f1 ,f2)))
+                         ,(next)))))))))
          (else
           (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                (pretty-type a/t) (pretty-type b/t))))))))
