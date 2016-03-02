@@ -55,6 +55,7 @@ TESTS = \
 	t-call-label-04.scm \
 	t-deoptimize-01.scm \
 	t-deoptimize-02.scm \
+	t-deoptimize-03.scm \
 	t-div-01.scm \
 	t-escape-01.scm \
 	t-f64-01.scm \
@@ -113,6 +114,7 @@ TESTS = \
 	t-nest-26b.scm \
 	t-nest-26c.scm \
 	t-nest-26d.scm \
+	t-nest-27.scm \
 	t-nest-28.scm \
 	t-nest-30.scm \
 	t-nest-30b.scm \

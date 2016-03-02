@@ -51,6 +51,7 @@
             fragment-end-address
             fragment-gdb-jit-entry
             fragment-storage
+            fragment-type-checker
 
             put-fragment!
             get-fragment
@@ -155,7 +156,7 @@
 ;; "libguile/vm-tjit.h" with "SCM_FRAGMENT" prefix are referring the fields.
 ;;
 (define-record-type <fragment>
-  (%make-fragment id code exit-counts downrec? uprec? entry-ip
+  (%make-fragment id code exit-counts downrec? uprec? type-checker entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
                   snapshots trampoline end-address gdb-jit-entry storage)
   fragment?
@@ -174,6 +175,9 @@
 
   ;; Flag to tell whether the trace was up-recursion or not.
   (uprec? fragment-uprec?)
+
+  ;; Procedure to check types for entering native code.
+  (type-checker fragment-type-checker)
 
   ;; Entry bytecode IP.
   (entry-ip fragment-entry-ip)
@@ -217,10 +221,23 @@
   (hashq-set! (tjit-fragment) trace-id fragment)
   (when (root-trace-fragment? fragment)
     (tjit-add-root-ip! (fragment-entry-ip fragment))
-    (hashq-set! (tjit-root-trace) (fragment-entry-ip fragment) fragment)))
+    (let* ((tbl (tjit-root-trace))
+           (ip (fragment-entry-ip fragment))
+           (fragments (cond
+                       ((hashq-ref tbl ip)
+                        => (lambda (fragments)
+                             (cons fragment fragments)))
+                       (else
+                        (list fragment)))))
+      (hashq-set! tbl ip fragments))))
 
 (define (get-fragment fragment-id)
   (hashq-ref (tjit-fragment) fragment-id #f))
 
 (define (get-root-trace ip)
-  (hashq-ref (tjit-root-trace) ip #f))
+  (let ((fragments (hashq-ref (tjit-root-trace) ip #f)))
+    (if (pair? fragments)
+        ;; XXX: Always returning CAR fragment. Add locals to argument and call
+        ;; fragment-type-checker.
+        (car fragments)
+        #f)))

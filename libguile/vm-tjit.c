@@ -79,23 +79,6 @@
    && SCM_I_MAKINUM (failed_ip_ref ((scm_t_uintptr) (ip))) <            \
    tjit_max_retries)
 
-#define SCM_TJIT_INCREMENT_HOT_IP(JUMP, END_IP, TTYPE, REF)             \
-  do {                                                                  \
-      if (SCM_I_MAKINUM (failed_ip_ref ((scm_t_uintptr) (ip + JUMP))) < \
-          tjit_max_retries)                                             \
-      {                                                                 \
-        scm_t_uint16 count = hot_ip_ref ((scm_t_uintptr) (ip + JUMP));  \
-                                                                        \
-        if (REF < SCM_I_MAKINUM (count))                                \
-          start_recording (tj, ip + JUMP, END_IP, TTYPE, 1);            \
-        else                                                            \
-          hot_ip_set ((scm_t_uintptr) (ip + JUMP), count + 1);          \
-      }                                                                 \
-                                                                        \
-      /* Next IP is jump destination specified in bytecode. */          \
-      ip += JUMP;                                                       \
-  } while (0);
-
 #define SCM_TJITC(ip, loop_p)             \
   do {                                    \
     SYNC_IP ();                           \
@@ -178,16 +161,16 @@ to_hex (SCM n)
   return scm_number_to_string (n, SCM_I_MAKINUM (16));
 }
 
-static inline SCM
+static inline void
 tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
 {
   SCM s_id, s_bytecode, s_bytecode_ptr;
   SCM s_parent_fragment_id, s_parent_exit_id;
-  SCM result, downrec_p, uprec_p;
+  SCM downrec_p, uprec_p;
   size_t bytecode_len;
 
   if (scm_is_null (tj->traces))
-    return SCM_UNSPECIFIED;
+    return;
 
   s_id = SCM_I_MAKINUM (tjit_trace_id);
   s_bytecode_ptr = scm_from_pointer (tj->bytecode, NULL);
@@ -200,12 +183,9 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
   uprec_p = tj->trace_type == SCM_TJIT_TRACE_RETURN ? SCM_BOOL_T : SCM_BOOL_F;
 
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_9 (tjitc_var, s_id, s_bytecode, tj->traces,
-                       s_parent_fragment_id, s_parent_exit_id, linked_ip,
-                       loop_p, downrec_p, uprec_p);
+  scm_call_9 (tjitc_var, s_id, s_bytecode, tj->traces, s_parent_fragment_id,
+              s_parent_exit_id, linked_ip, loop_p, downrec_p, uprec_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
-
-  return result;
 }
 
 static inline void
@@ -270,13 +250,53 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
   tj->traces = scm_inline_cons (thread, trace, tj->traces);
 }
 
+static inline SCM
+tjit_matching_fragment_inner (SCM locals, SCM fragments)
+{
+  while (scm_is_pair (fragments))
+    {
+      SCM type_checker, fragment;
+      fragment = SCM_CAR (fragments);
+      type_checker = SCM_FRAGMENT_TYPE_CHECKER (fragment);
+      if (scm_is_true (scm_call_1 (type_checker, locals)))
+        return fragment;
+      else
+        fragments = SCM_CDR (fragments);
+    }
+  return SCM_BOOL_F;
+}
+
+static inline SCM
+tjit_matching_fragment (struct scm_vm *vp, SCM s_ip)
+{
+  int i, nlocals;
+  SCM ret, locals;
+  union scm_vm_stack_element *sp;
+
+  sp = vp->sp;
+  ret = scm_hashq_ref (tjit_root_trace_table, s_ip, SCM_BOOL_F);
+
+  if (scm_is_false (ret))
+    return ret;
+
+  nlocals = FRAME_LOCALS_COUNT ();
+  locals = scm_c_make_vector (nlocals, SCM_UNDEFINED);
+
+  for (i = 0; i < nlocals; ++i)
+    scm_c_vector_set_x (locals, i, sp[i].as_scm);
+
+  scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
+  ret = tjit_matching_fragment_inner (locals, ret);
+  scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
+
+  return ret;
+}
+
 static inline void
 call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
-             scm_i_jmp_buf *registers, struct scm_tjit_state *tj,
-             scm_t_uint32 *nlocals_out)
+             scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
   scm_t_native_code f;
-  scm_t_uint32 nlocals;
   SCM code, exit_id, fragment_id, exit_counts, count;
   struct scm_tjit_retval *ret;
 
@@ -286,8 +306,6 @@ call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
 
   exit_id = SCM_PACK (ret->exit_id);
   fragment_id = SCM_PACK (ret->fragment_id);
-  nlocals = SCM_I_INUM (SCM_PACK (ret->nlocals));
-
   fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
 
   if (scm_is_true (fragment))
@@ -323,8 +341,6 @@ call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
       start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP,
                        start == end ? 0 : 1);
     }
-
-  *nlocals_out = nlocals;
 }
 
 static inline struct scm_tjit_state*
@@ -358,33 +374,40 @@ scm_make_tjit_state (void)
   by "libguile/vm.c". Following two macros share common variables
   defined in "libguile/vm-engine.h", such as thread, vp, ip, ... etc. */
 
-#define SCM_TJIT_ENTER(JUMP, END_IP, TTYPE, REF)                        \
+#define SCM_TJIT_ENTER(JUMP, END, TTYPE, REF)                           \
   do {                                                                  \
-    if (root_ip_ref ((scm_t_uintptr) (ip + JUMP)))                      \
+    scm_t_uintptr next_ip = (scm_t_uintptr) (ip + JUMP);                \
+                                                                        \
+    /* When when matching fragment was found, call the native code. */  \
+    /* Then jump to the IP set by the native code. */                   \
+    if (root_ip_ref (next_ip))                                          \
       {                                                                 \
         SCM s_ip, fragment;                                             \
-        scm_t_uint32 nlocals = 0;                                       \
-                                                                        \
         s_ip = SCM_I_MAKINUM (ip + JUMP);                               \
-        fragment = scm_hashq_ref (tjit_root_trace_table, s_ip,          \
-                                  SCM_BOOL_F);                          \
-                                                                        \
-        /* Check that the fragment exists. `root_ip_ref' uses hash   */ \
-        /* function, might return incorrect result.                  */ \
+        fragment = tjit_matching_fragment (vp, s_ip);                   \
         if (scm_is_true (fragment))                                     \
           {                                                             \
-            call_native (s_ip, fragment, thread, vp, registers, tj,     \
-                         &nlocals);                                     \
-                                                                        \
-            /* Update `sp' and `ip' in C code. */                       \
+            call_native (s_ip, fragment, thread, vp, registers, tj);    \
             CACHE_REGISTER ();                                          \
+            NEXT (0);                                                   \
+          }                                                             \
+      }                                                                 \
+                                                                        \
+    /* Increment hot ip counter if current IP is not black-listed, */   \
+    /* then jump to next IP. */                                         \
+    if (SCM_I_MAKINUM (failed_ip_ref (next_ip)) < tjit_max_retries)     \
+      {                                                                 \
+        scm_t_uint16 count = hot_ip_ref (next_ip);                      \
+        if (REF < SCM_I_MAKINUM (count))                                \
+          {                                                             \
+            scm_t_uint32 *start = (scm_t_uint32 *) next_ip;             \
+            start_recording (tj, start, END, TTYPE, 1);                 \
+            hot_ip_set (next_ip, 0);                                    \
           }                                                             \
         else                                                            \
-          SCM_TJIT_INCREMENT_HOT_IP (JUMP, END_IP, TTYPE, REF);         \
+          hot_ip_set (next_ip, count + 1);                              \
       }                                                                 \
-    else                                                                \
-      SCM_TJIT_INCREMENT_HOT_IP (JUMP, END_IP, TTYPE, REF);             \
-    NEXT (0);                                                           \
+    NEXT (JUMP);                                                        \
   } while (0)
 
 #define SCM_TJIT_MERGE()                                                \
@@ -393,14 +416,13 @@ scm_make_tjit_state (void)
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
     scm_t_uint32 *start_ip = (scm_t_uint32 *) tj->loop_start;           \
     scm_t_uint32 *end_ip = (scm_t_uint32 *) tj->loop_end;               \
-    int has_root = root_ip_ref ((scm_t_uintptr) ip);                    \
+    int has_root_trace = root_ip_ref ((scm_t_uintptr) ip);              \
                                                                         \
     /* Avoid looking up fragment of looping-side-trace itself. */       \
-    int link_found = has_root && ip != start_ip;                        \
+    int link_found = has_root_trace && ip != start_ip;                  \
                                                                         \
-    if (has_root)                                                       \
-      fragment = scm_hashq_ref (tjit_root_trace_table, s_ip,            \
-                                SCM_BOOL_F);                            \
+    if (has_root_trace)                                                 \
+      fragment = tjit_matching_fragment (vp, s_ip);                     \
     else                                                                \
       fragment = SCM_BOOL_F;                                            \
                                                                         \
@@ -408,7 +430,7 @@ scm_make_tjit_state (void)
       {                                                                 \
       case SCM_TJIT_TRACE_JUMP:                                         \
       case SCM_TJIT_TRACE_TCALL:                                        \
-        if (link_found)                                                 \
+        if (scm_is_true (fragment))                                     \
           {                                                             \
             if (SCM_DOWNREC_P (fragment))                               \
               {                                                         \
@@ -429,7 +451,6 @@ scm_make_tjit_state (void)
               {                                                         \
                 if (tj->loop_start != tj->loop_end)                     \
                   record (tj, thread, vp, ip, sp);                      \
-                                                                        \
                 SCM_TJITC (s_ip, SCM_BOOL_T);                           \
               }                                                         \
             else                                                        \

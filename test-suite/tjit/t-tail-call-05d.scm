@@ -1,6 +1,10 @@
 ;;; Same procedures as defined in `t-tail-call-05', passing same
 ;;; argument as in `t-tail-call-05b', but calling `f2' multiple times.
 
+;; XXX: See `t-tail-call-05b.scm'
+(use-modules (system vm native tjit parameters))
+(set-tjit-max-retries! 5)
+
 (define (f1 n acc)
   (if (= n 0)
       acc

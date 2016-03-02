@@ -411,7 +411,10 @@ DST-TYPES, and SRC-TYPES are local index number."
                        (reverse! acc)
                        (lp (cdr vars)
                            (cons (hashq-ref storage (car vars)) acc))))
-                 #f)))
+                 #f))
+            (type-checker (if (zero? parent-id)
+                              (gen-type-checker (env-entry-types env))
+                              #f)))
        (make-bytevector-executable! code)
 
        (when (tjit-dump-time? (tjit-dump-option))
@@ -431,6 +434,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      exit-counts
                                      (env-downrec? env)
                                      (env-uprec? env)
+                                     type-checker
                                      (env-entry-ip env)
                                      parent-id
                                      (env-parent-exit-id env)
@@ -442,7 +446,6 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      end-address
                                      gdb-jit-entry
                                      storage))
-
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
        ;; When this trace is a side trace, replace the native code

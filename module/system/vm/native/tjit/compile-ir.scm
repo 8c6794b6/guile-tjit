@@ -103,7 +103,7 @@ Currently does nothing, returns the given argument."
 
 (define (add-initial-loads env snapshots
                            initial-locals initial-sp-offset
-                           parent-snapshot vars live-vars-in-parent
+                           parent-snapshot initial-vars live-vars-in-parent
                            loaded-vars thunk)
   ;; When local was passed from parent and snapshot 0 contained the local with
   ;; same type, no need to load from frame. If type does not match, the value
@@ -140,7 +140,7 @@ Currently does nothing, returns the given argument."
            (sort (snapshot-locals snapshot0)
                  (lambda (a b) (< (car a) (car b)))))
     (debug 3 ";;;   live-vars-in-parent=~s~%" live-vars-in-parent)
-    (let lp ((vars (reverse vars)))
+    (let lp ((vars (reverse initial-vars)))
       (match vars
         (((n . var) . vars)
          (let ((j (+ n initial-sp-offset))
@@ -177,14 +177,13 @@ Currently does nothing, returns the given argument."
                    (with-frame-ref var type n lp vars)
                    (with-frame-ref var guard n lp vars)))))))
         (()
-         (let ((live-indices
-                (sort (hash-fold (lambda (k v acc)
-                                   (if (memq k acc)
-                                       acc
-                                       (cons k acc)))
-                                 (env-live-indices env)
-                                 loaded-vars)
-                      <)))
+         (let ((live-indices (sort (hash-fold (lambda (k v acc)
+                                                (if (memq k acc)
+                                                    acc
+                                                    (cons k acc)))
+                                              (env-live-indices env)
+                                              loaded-vars)
+                                   <)))
            (set-env-live-indices! env live-indices))
          (thunk))))))
 

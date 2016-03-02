@@ -28,6 +28,7 @@
 
 (define-module (system vm native tjit types)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 match)
   #:use-module (language cps types)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
@@ -84,6 +85,7 @@
             %tc7-port
             %tc16-real
 
+            gen-type-checker
             type->stack-element-type)
   #:re-export (&flonum
                &complex
@@ -208,9 +210,34 @@
 (define *unbound*
   (pointer->scm (make-pointer #xb04)))
 
+
 ;;;
 ;;; Auxiliary
 ;;;
+
+(define (gen-type-checker types)
+  "Returns a procedure for checking types.
+
+Takes assoc list TYPES, with its keys being local index and values being type
+values. Returns a procedure taking one argument LOCALS, which is a vector
+containing stack elements. The returned procedure will return true if all of the
+types in TYPES matched with LOCALS, otherwise return false."
+  (lambda (locals)
+    (let lp ((types types))
+      (match types
+        (((n . t) . types)
+         (if (memq t (list &scm &u64 &f64 &s64))
+             (lp types)
+             (let* ((v (vector-ref locals n))
+                    (rt (type-of v)))
+               (if (eq? t (type-of v))
+                   (lp types)
+                   (begin
+                     (debug 2 "[type-checker] type mismatch found~%")
+                     #f)))))
+        (()
+         (debug 2 "[type-checker] all type matched~%")
+         #t)))))
 
 (define (type->stack-element-type type)
   (cond
