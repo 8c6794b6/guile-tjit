@@ -55,7 +55,6 @@ TESTS = \
 	t-call-label-04.scm \
 	t-deoptimize-01.scm \
 	t-deoptimize-02.scm \
-	t-deoptimize-03.scm \
 	t-div-01.scm \
 	t-escape-01.scm \
 	t-f64-01.scm \
