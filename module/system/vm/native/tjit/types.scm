@@ -222,19 +222,27 @@ Takes assoc list TYPES, with its keys being local index and values being type
 values. Returns a procedure taking one argument LOCALS, which is a vector
 containing stack elements. The returned procedure will return true if all of the
 types in TYPES matched with LOCALS, otherwise return false."
-  (lambda (locals)
+  (lambda (inferred-types locals)
     (let lp ((types types))
       (match types
         (((n . t) . types)
          (if (memq t (list &scm &u64 &f64 &s64))
              (lp types)
-             (let* ((v (vector-ref locals n))
-                    (rt (type-of v)))
-               (if (eq? t (type-of v))
+             (let ((ti (and (pair? inferred-types)
+                            (assq-ref inferred-types n))))
+               (if (or (eq? t ti) (eq? ti &scm))
                    (lp types)
-                   (begin
-                     (debug 2 "[type-checker] type mismatch found~%")
-                     #f)))))
+                   (let* ((v (and (vector? locals)
+                                  (<= 0 n (- (vector-length locals) 1))
+                                  (vector-ref locals n)))
+                          (rt (type-of v)))
+                     (if (eq? t rt)
+                         (lp types)
+                         (begin
+                           (debug 2 "[tc]:local ~a expected ~a, got ~a, ~a~%"
+                                  n (pretty-type t) (pretty-type ti)
+                                  (pretty-type rt))
+                           #f)))))))
         (()
          (debug 2 "[type-checker] all type matched~%")
          #t)))))

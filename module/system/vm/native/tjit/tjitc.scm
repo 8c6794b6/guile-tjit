@@ -60,6 +60,25 @@
 (define (parse-bytecode env bytecode traces)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
+  (define last-locals
+    (and (pair? traces) (cadddr (car traces))))
+  (define (resolve-copies dsts srcs)
+    (let ((copies (let lp ((dsts dsts) (acc '()))
+                    (match dsts
+                      (((dst 'copy . src) . dsts)
+                       (lp dsts (cons (cons dst src) acc)))
+                      ((_ . dsts)
+                       (lp dsts acc))
+                      (()
+                       acc)))))
+      (let lp ((copies copies) (dsts dsts))
+        (match copies
+          (((dst . src) . copies)
+           (lp copies (assq-set! dsts dst (assq-ref srcs src))))
+          (_
+           dsts)))))
+  (define (set-reversed-vector! setter getter)
+    (setter env (list->vector (reverse! (getter env)))))
   (define (go)
     (let lp ((acc '()) (offset 0) (traces (reverse! traces))
              (so-far-so-good? #t))
@@ -84,8 +103,57 @@
                   implemented?)))
            (_ (error "malformed trace" trace))))
         (()
-         (arrange-env! env)
+         (let* ((linked-ip (env-linked-ip env))
+                (inferred (env-inferred-types env))
+                (shifted-inferred
+                 (let lp ((inferred inferred)
+                          (shift (env-last-sp-offset env))
+                          (acc '()))
+                   (match inferred
+                     (((n . t) . inferred)
+                      (lp inferred shift (cons (cons (- n shift) t) acc)))
+                     (()
+                      acc))))
+                (linked-fragment
+                 (if linked-ip
+                     (get-root-trace shifted-inferred last-locals linked-ip)
+                     #f))
+                ;; Detecting root trace linkage by chasing parent id until it
+                ;; reaches to root trace and compare it with linked trace. This
+                ;; loop could be avoided by saving the origin trace id in
+                ;; fragment record type.
+                (linking-roots?
+                 (let ((origin-id
+                        (let lp ((fragment (env-parent-fragment env)))
+                          (if (not fragment)
+                              #f
+                              (let ((parent-id (fragment-parent-id fragment)))
+                                (if (zero? parent-id)
+                                    (fragment-id fragment)
+                                    (lp (get-fragment parent-id)))))))
+                       (linked-id (and=> linked-fragment fragment-id)))
+                   (and origin-id linked-id
+                        (not (eq? origin-id linked-id))))))
+           (set-env-linked-fragment! env linked-fragment)
+           (set-env-linking-roots! env linking-roots?)
+           (set-env-last-sp-offset! env (env-sp-offset env))
+           (set-env-call-num! env 0)
+           (set-env-return-num! env 0)
+           (let ((depth (or (and=> (env-parent-snapshot env) snapshot-inline-depth)
+                            0)))
+             (set-env-inline-depth! env depth))
+           (set-reversed-vector! set-env-sp-offsets! env-sp-offsets)
+           (set-reversed-vector! set-env-fp-offsets! env-fp-offsets)
+           (set-reversed-vector! set-env-write-buf! env-write-buf)
+           (let* ((entry (env-entry-types env))
+                  (inferred (env-inferred-types env)))
+             (set-env-entry-types! env (resolve-copies entry entry))
+             (set-env-inferred-types! env (resolve-copies inferred entry))
+             (set-env-read-indices! env (sort (map car entry) <))
+             (set-env-write-indices! env (sort (map car inferred) <)))
+           (set-env-initialized! env #t))
          (values (reverse! acc) so-far-so-good?)))))
+
   (catch #t go
     (lambda (x y fmt args . z)
       (debug 2 "XXX: ~a~%" (apply format #f fmt args))
@@ -110,23 +178,6 @@
          (entry-ip (car (last traces)))
          (dump-option (tjit-dump-option))
          (sline (addr->source-line entry-ip))
-         (linking-roots?
-          ;; Detecting root trace linkage by chasing parent id until it reaches
-          ;; to root trace and compare it with linked trace. This loop could be
-          ;; avoided by saving the origin trace id in fragment record type.
-          (let ((origin-id
-                 (let lp ((fragment parent-fragment))
-                   (if (not fragment)
-                       #f
-                       (let ((parent-id (fragment-parent-id fragment)))
-                         (if (zero? parent-id)
-                             (fragment-id fragment)
-                             (lp (get-fragment parent-id)))))))
-                (linked-id
-                 (and linked-ip
-                      (and=> (get-root-trace linked-ip) fragment-id))))
-            (and origin-id linked-id
-                 (not (eq? origin-id linked-id)))))
          (env
           (call-with-values
               (lambda ()
@@ -140,8 +191,7 @@
             (lambda args
               (apply make-env trace-id entry-ip linked-ip
                      parent-exit-id parent-fragment parent-snapshot
-                     loop? downrec? uprec? linking-roots?
-                     args))))
+                     loop? downrec? uprec? args))))
          (initial-sp-offset (env-sp-offset env))
          (initial-fp-offset (env-fp-offset env)))
     (define (show-sline sline)
@@ -154,7 +204,8 @@
             (linked-id (if loop?
                            ""
                            (format #f " -> ~a"
-                                   (fragment-id (get-root-trace linked-ip)))))
+                                   (and=> (env-linked-fragment env)
+                                          fragment-id))))
             (ttype (cond
                     (downrec? " - downrec")
                     (uprec? " - uprec")
@@ -191,15 +242,21 @@
         (dump tjit-dump-jitc? implemented? (show-sline sline))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond
-         ((not env) (failure "error during scan"))
-         ((not implemented?) (failure "NYI found, aborted"))
-         (uprec? (failure "NYI - up recursion"))
-         (downrec? (failure "NYI - down recursion"))
+         ((not env)
+          (failure "error during scan"))
+         ((not implemented?)
+          (failure "NYI - unimplemented bytecode"))
+         (uprec?
+          (failure "NYI - up recursion"))
+         (downrec?
+          (failure "NYI - down recursion"))
          ((and (not parent-snapshot) loop?
                (not (zero? (env-sp-offset env))))
-          (failure "NYI - looping root trace with SP shift"))
+          (failure "NYI - looping root trace with stack pointer shift"))
          ((and (not parent-snapshot) (not loop?))
           (failure "NYI - loop-less root trace"))
+         ((and parent-snapshot (not (env-linked-fragment env)))
+          (failure "NYI - type mismatch in linked fragment"))
          (else
           (with-nyi-handler entry-ip (compile-traces traces))))))))
 

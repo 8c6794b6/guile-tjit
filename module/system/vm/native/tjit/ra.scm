@@ -299,8 +299,7 @@
            merge-storage)
     (when (and (not (env-parent-fragment env))
                (not (env-loop? env)))
-      (and=> (and=> (get-root-trace (env-linked-ip env))
-                    fragment-storage)
+      (and=> (and=> (env-linked-fragment env) fragment-storage)
              merge-storage))
 
     ;; Assign scratch registers to tmporary variables.

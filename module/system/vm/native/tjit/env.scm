@@ -34,28 +34,27 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit types)
-  #:autoload (system vm native tjit snapshot) (snapshot-inline-depth)
-  #:export ($env
-            make-env
+  #:export (make-env
             env-id
             env-entry-ip
             env-linked-ip
+            env-linked-fragment set-env-linked-fragment!
             env-parent-exit-id
             env-parent-fragment
             env-parent-snapshot
             env-loop?
             env-downrec?
             env-uprec?
-            env-linking-roots?
+            env-linking-roots? set-env-linking-roots!
             env-handle-interrupts? set-env-handle-interrupts!
             env-loop-locals set-env-loop-locals!
             env-loop-vars set-env-loop-vars!
-            env-initialized?
+            env-initialized? set-env-initialized!
             env-sp-offsets set-env-sp-offsets!
             env-fp-offsets set-env-fp-offsets!
             env-sp-offset set-env-sp-offset!
             env-fp-offset set-env-fp-offset!
-            env-last-sp-offset
+            env-last-sp-offset set-env-last-sp-offset!
             env-write-indices set-env-write-indices!
             env-read-indices set-env-read-indices!
             env-write-buf set-env-write-buf!
@@ -68,7 +67,6 @@
             env-returns set-env-returns!
             env-inline-depth set-env-inline-depth!
 
-            arrange-env!
             increment-env-call-return-num!
             add-env-call!
             add-env-return!
@@ -82,7 +80,7 @@
 ;; Data type to contain environment.
 ;;
 (define-record-type $env
-  (%make-env id entry-ip linked-ip
+  (%make-env id entry-ip linked-ip linked-fragment
              parent-exit-id parent-fragment parent-snapshot
              loop? downrec? uprec? linking-roots?
              handle-interrupts? initialized?
@@ -101,6 +99,9 @@
 
   ;; Linked IP, if any.
   (linked-ip env-linked-ip)
+
+  ;; Linked fragment.
+  (linked-fragment env-linked-fragment set-env-linked-fragment!)
 
   ;; Parent exit ID of this trace.
   (parent-exit-id env-parent-exit-id)
@@ -122,7 +123,7 @@
 
   ;; Flag to tell whether the parent trace origin is different from linked
   ;; trace.
-  (linking-roots? env-linking-roots?)
+  (linking-roots? env-linking-roots? set-env-linking-roots!)
 
   ;; Flag to emit interrupt handler.
   (handle-interrupts? env-handle-interrupts? set-env-handle-interrupts!)
@@ -191,13 +192,13 @@
 
 (define (make-env id entry-ip linked-ip
                   parent-exit-id parent-fragment parent-snapshot
-                  loop? downrec? uprec? linking-roots?
+                  loop? downrec? uprec?
                   sp-offset fp-offset write-indices live-indices
                   types-from-parent inline-depth)
   (debug 2 ";;; [make-env] inline-depth=~a~%" inline-depth)
-  (%make-env id entry-ip linked-ip
+  (%make-env id entry-ip linked-ip #f
              parent-exit-id parent-fragment parent-snapshot
-             loop? downrec? uprec? linking-roots?
+             loop? downrec? uprec? #f
              #f #f #f #f '() '() sp-offset fp-offset 0
              write-indices '() (list write-indices) live-indices
              '() (copy-tree types-from-parent)
@@ -272,41 +273,6 @@ inline depth by one."
       (add! (cons return-num -1)))
      (else
       (add! (cons return-num #f))))))
-
-(define (arrange-env! env)
-  (define (resolve-copies dsts srcs)
-    (let ((copies (let lp ((dsts dsts) (acc '()))
-                    (match dsts
-                      (((dst 'copy . src) . dsts)
-                       (lp dsts (cons (cons dst src) acc)))
-                      ((_ . dsts)
-                       (lp dsts acc))
-                      (()
-                       acc)))))
-      (let lp ((copies copies) (dsts dsts))
-        (match copies
-          (((dst . src) . copies)
-           (lp copies (assq-set! dsts dst (assq-ref srcs src))))
-          (_
-           dsts)))))
-  (define (set-reversed-vector! setter getter)
-    (setter env (list->vector (reverse! (getter env)))))
-  (set-env-last-sp-offset! env (env-sp-offset env))
-  (set-env-call-num! env 0)
-  (set-env-return-num! env 0)
-  (let ((depth (or (and=> (env-parent-snapshot env) snapshot-inline-depth)
-                   0)))
-    (set-env-inline-depth! env depth))
-  (set-reversed-vector! set-env-sp-offsets! env-sp-offsets)
-  (set-reversed-vector! set-env-fp-offsets! env-fp-offsets)
-  (set-reversed-vector! set-env-write-buf! env-write-buf)
-  (let ((entry (env-entry-types env))
-        (inferred (env-inferred-types env)))
-    (set-env-entry-types! env (resolve-copies entry entry))
-    (set-env-inferred-types! env (resolve-copies inferred entry))
-    (set-env-read-indices! env (sort (map car entry) <))
-    (set-env-write-indices! env (sort (map car inferred) <)))
-  (set-env-initialized! env #t))
 
 (define (expand-env env offset nlocals)
   (let lp ((n 0) (acc (env-live-indices env)))

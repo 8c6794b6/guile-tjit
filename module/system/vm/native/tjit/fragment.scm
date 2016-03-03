@@ -234,10 +234,11 @@
 (define (get-fragment fragment-id)
   (hashq-ref (tjit-fragment) fragment-id #f))
 
-(define (get-root-trace ip)
-  (let ((fragments (hashq-ref (tjit-root-trace) ip #f)))
-    (if (pair? fragments)
-        ;; XXX: Always returning CAR fragment. Add locals to argument and call
-        ;; fragment-type-checker.
-        (car fragments)
-        #f)))
+(define (get-root-trace types locals ip)
+  (let lp ((fragments (hashq-ref (tjit-root-trace) ip #f)))
+    (match fragments
+      ((fragment . fragments)
+       (if ((fragment-type-checker fragment) types locals)
+           fragment
+           (lp fragments)))
+      (_ #f))))

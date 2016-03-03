@@ -591,7 +591,7 @@ DST-TYPES, and SRC-TYPES are local index number."
      (let* ((fragment (env-parent-fragment env))
             (end-address (or (and=> fragment
                                     fragment-end-address)
-                             (and=> (get-root-trace (env-linked-ip env))
+                             (and=> (env-linked-fragment env)
                                     fragment-end-address)))
             (asm (make-asm storage end-address))
             (gen-bailouts (compile-ops asm entry storage '())))
@@ -710,8 +710,8 @@ DST-TYPES, and SRC-TYPES are local index number."
          (hashq-set! tbl (- n sp-offset) t)
          (lp local-x-types tbl))
         (() tbl))))
-  (let* ((linked-fragment (get-root-trace (env-linked-ip env)))
-         (loop-locals (fragment-loop-locals linked-fragment)))
+  (let* ((linked-fragment (env-linked-fragment env))
+         (loop-locals (and=> linked-fragment fragment-loop-locals)))
     (match snapshot
       (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
        ;; Store unpassed variables, and move variables to linked trace.
