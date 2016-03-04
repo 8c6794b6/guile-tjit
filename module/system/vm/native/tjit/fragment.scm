@@ -35,6 +35,7 @@
             fragment-id
             fragment-code
             fragment-exit-counts
+            fragment-type-checker
             fragment-entry-ip
             fragment-parent-id
             fragment-parent-exit-id
@@ -47,7 +48,7 @@
             fragment-end-address
             fragment-gdb-jit-entry
             fragment-storage
-            fragment-type-checker
+            fragment-bailout-code
 
             put-fragment!
             get-fragment
@@ -67,7 +68,8 @@
 (define-record-type <fragment>
   (%make-fragment id code exit-counts downrec? uprec? type-checker entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
-                  snapshots trampoline end-address gdb-jit-entry storage)
+                  snapshots trampoline end-address gdb-jit-entry storage
+                  bailout-code)
   fragment?
 
   ;; Trace id number.
@@ -119,7 +121,10 @@
   (gdb-jit-entry fragment-gdb-jit-entry)
 
   ;; Hash table of variable symbol => assigned register
-  (storage fragment-storage))
+  (storage fragment-storage)
+
+  ;; Native code for bailout.
+  (bailout-code fragment-bailout-code))
 
 (define make-fragment %make-fragment)
 

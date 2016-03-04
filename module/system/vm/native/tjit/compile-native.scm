@@ -415,17 +415,9 @@ DST-TYPES, and SRC-TYPES are local index number."
                  #f))
             (type-checker (if (zero? parent-id)
                               (gen-type-checker (env-entry-types env))
-                              #f)))
+                              #f))
+            (bcode (compile-bailouts env end-address trampoline bailouts)))
        (make-bytevector-executable! code)
-
-       (when (tjit-dump-time? (tjit-dump-option))
-         (let ((log (get-tjit-time-log (env-id env))))
-           (set-tjit-time-log-bailout! log (get-internal-run-time))))
-
-       ;; Emit bailouts with end address of this code. Side traces need to
-       ;; jump to the address of epilogue of parent root trace, to manage
-       ;; non-volatile registers.
-       (for-each (lambda (proc) (proc end-address)) bailouts)
 
        ;; Same entry-ip could be used when side exit 0 was taken for
        ;; multiple times. Using trace ID as hash table key.
@@ -446,7 +438,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      trampoline
                                      end-address
                                      gdb-jit-entry
-                                     storage))
+                                     storage
+                                     bcode))
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
        ;; When this trace is a side trace, replace the native code
@@ -610,9 +603,8 @@ DST-TYPES, and SRC-TYPES are local index number."
       (debug 3 ";;;   snapshot-id: ~a~%" id)
       (debug 3 ";;;   next-ip:     ~a~%" ip)
       (debug 3 ";;;   args:        ~a~%" args)
-      (with-jit-state
-       (jit-prolog)
-       (jit-tramp (imm (* 4 %word-size)))
+      (let ((entry (jit-label)))
+        (jit-patch entry)
        (match snapshot
          (($ $snapshot id sp-offset fp-offset nlocals local-x-types)
 
@@ -682,16 +674,33 @@ DST-TYPES, and SRC-TYPES are local index number."
           (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
 
        (jumpi end-address)
-       (jit-epilog)
-       (jit-realize)
-       (let* ((estimated-code-size (jit-code-size))
-              (code (make-bytevector estimated-code-size)))
-         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-         (let ((ptr (jit-emit)))
-           (make-bytevector-executable! code)
-           (dump-bailout ip id code)
-           (set-snapshot-code! snapshot code)
-           (trampoline-set! trampoline id ptr)))))))
+       (cons id entry)))))
+
+(define (compile-bailouts env end-address trampoline bailouts)
+  ;; Emit bailouts with end address of this code. Side traces need to
+  ;; jump to the address of epilogue of parent root trace, to manage
+  ;; non-volatile registers.
+  (when (tjit-dump-time? (tjit-dump-option))
+    (let ((log (get-tjit-time-log (env-id env))))
+      (set-tjit-time-log-bailout! log (get-internal-run-time))))
+  (with-jit-state
+   (jit-prolog)
+   (jit-tramp (imm (* 4 %word-size)))
+   (let ((entries (map (lambda (proc) (proc end-address)) bailouts)))
+     (jit-epilog)
+     (jit-realize)
+     (let* ((estimated-size (jit-code-size))
+            (code (make-bytevector estimated-size))
+            (_ (jit-set-code (bytevector->pointer code)
+                             (imm estimated-size)))
+            (ptr (jit-emit)))
+       (make-bytevector-executable! code)
+       (for-each
+        (match-lambda
+          ((id . entry)
+           (trampoline-set! trampoline id (jit-address entry))))
+        entries)
+       code))))
 
 (define (compile-link env %asm args snapshot storage)
   (define (make-src-var-table storage indices shift)

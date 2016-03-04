@@ -22,6 +22,16 @@
 ;;;
 ;;; A module defining interfaces for trampoline.
 ;;;
+;;; `Trampoline' is a chunk of native code containing jump destinations.
+;;; Initially contains bailout code returning to VM interpreter.  Later when
+;;; certain exit get hot, the bailout code will be replaced by native code of
+;;; the side exit.  Updating the contents of bytevector containing naitve code
+;;; will not work when the size of new bytevector is larget than the size of old
+;;; bytevector.  Each native code entry in trampoline is a fragment of code
+;;; containing jump to absolute address, which has same sizes. These fragments
+;;; of native code are used as a layer to cope with updating native codes with
+;;; different sizes.
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit trampoline)
@@ -33,19 +43,6 @@
             trampoline-ref
             trampoline-set!))
 
-;;;
-;;; Trampoline
-;;;
-
-;;; `Trampoline' is a chunk of native code containing jump destinations.
-;;; Initially contains bailout code returning to VM interpreter.  Later when
-;;; certain exit get hot, the bailout code will be replaced by native code of
-;;; the side exit.  Updating the contents of bytevector containing naitve code
-;;; will not work when the size of new bytevector is larget than the size of old
-;;; bytevector.  Each native code entry in trampoline is a fragment of code
-;;; containing jump to absolute address, which has same sizes. These fragments
-;;; of native code are used as a layer to cope with updating native codes with
-;;; different sizes.
 
 (define (emit-to-bytevector!)
   (let* ((size (jit-code-size))
