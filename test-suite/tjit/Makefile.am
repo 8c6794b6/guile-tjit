@@ -43,6 +43,9 @@ TESTS = \
 	t-br-if-null-01.scm \
 	t-br-if-true-01.scm \
 	t-bv-length-01.scm \
+	t-bytecompile-01.scm \
+	t-bytecompile-02.scm \
+	t-bytecompile-03.scm \
 	t-call-01.scm \
 	t-call-02.scm \
 	t-call-03.scm \
@@ -118,8 +121,11 @@ TESTS = \
 	t-nest-26d.scm \
 	t-nest-27.scm \
 	t-nest-28.scm \
+	t-nest-29.scm \
 	t-nest-30.scm \
 	t-nest-30b.scm \
+	t-nest-30c.scm \
+	t-nest-30d.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \
 	t-pairs-03.scm \
