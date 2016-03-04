@@ -54,13 +54,12 @@
   (let* ((sp-offset (env-sp-offset env))
          (dst+sp (+ dst sp-offset))
          (src+sp (+ src sp-offset)))
-    (cond
-     ((or (assq-ref (env-inferred-types env) src+sp)
-          (assq-ref (env-entry-types env) src+sp))
-      => (lambda (ty)
-           (set-inferred-type! env dst+sp ty)))
-     (else
-      (set-inferred-type! env dst+sp `(copy . ,src+sp))))))
+    (let ((type (or (assq-ref (env-inferred-types env) src+sp)
+                    (assq-ref (env-entry-types env) src+sp))))
+      (if (or (not type)
+              (and (pair? type) (eq? 'copy (car type))))
+          (set-inferred-type! env dst+sp `(copy . ,src+sp))
+          (set-inferred-type! env dst+sp type)))))
 
 (define-anf (mov dst src)
   (let ((dst/i (+ dst (current-sp-offset)))

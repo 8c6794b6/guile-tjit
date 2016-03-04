@@ -239,7 +239,7 @@ types in TYPES matched with LOCALS, otherwise return false."
                      (if (eq? t rt)
                          (lp types)
                          (begin
-                           (debug 2 ";;; [tc]: local ~a expect ~a, got ~a:~a~%"
+                           (debug 2 ";;; [tc] local ~a expect ~a, got ~a:~a~%"
                                   n (pretty-type t) (pretty-type ti)
                                   (pretty-type rt))
                            #f)))))))

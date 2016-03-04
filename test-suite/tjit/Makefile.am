@@ -46,6 +46,7 @@ TESTS = \
 	t-bytecompile-01.scm \
 	t-bytecompile-02.scm \
 	t-bytecompile-03.scm \
+	t-bytecompile-04.scm \
 	t-call-01.scm \
 	t-call-02.scm \
 	t-call-03.scm \
