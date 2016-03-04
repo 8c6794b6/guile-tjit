@@ -28,11 +28,7 @@
 (define-module (system vm native tjit fragment)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
-  #:use-module ((system base types) #:select (%word-size))
-  #:use-module (system foreign)
-  #:use-module (system vm native lightning)
   #:use-module (system vm native tjit parameters)
   #:export (<fragment>
             make-fragment
@@ -55,94 +51,7 @@
 
             put-fragment!
             get-fragment
-            get-root-trace
-
-            make-trampoline
-            trampoline-ref
-            trampoline-set!))
-
-
-;;;
-;;; Trampoline
-;;;
-
-;;; `Trampoline' is a chunk of native code containing jump destinations.
-;;; Initially contains bailout code returning to VM interpreter.  Later when
-;;; certain exit get hot, the bailout code will be replaced by native code of
-;;; the side exit.  Updating the contents of bytevector containing naitve code
-;;; will not work when the size of new bytevector is larget than the size of old
-;;; bytevector.  Each native code entry in trampoline is a fragment of code
-;;; containing jump to absolute address, which has same sizes. These fragments
-;;; of native code are used as a layer to cope with updating native codes with
-;;; different sizes.
-
-(define (emit-to-bytevector!)
-  (let* ((size (jit-code-size))
-         (bv (make-bytevector size)))
-    (jit-set-code (bytevector->pointer bv) (imm size))
-    (jit-emit)
-    (make-bytevector-executable! bv)
-    bv))
-
-(define (get-size-of-jump-to-register)
-  (with-jit-state
-   (jit-prolog)
-   (jit-tramp (imm (* 4 %word-size)))
-   (jit-jmpr r0)
-   (jit-epilog)
-   (jit-realize)
-   (jit-emit)
-   (jit-code-size)))
-
-(define (get-size-of-move-immediate)
-  (with-jit-state
-   (jit-prolog)
-   (jit-tramp (imm (* 4 %word-size)))
-   (jit-movi r0 (imm #xdeadbeaf))
-   (jit-epilog)
-   (jit-realize)
-   (jit-emit)
-   (jit-code-size)))
-
-(define size-of-jump-to-register
-  (get-size-of-jump-to-register))
-
-(define size-of-move-immediate
-  (get-size-of-move-immediate))
-
-(define size-of-trampoline-entry
-  (+ size-of-jump-to-register size-of-move-immediate))
-
-(define (make-trampoline size)
-  (with-jit-state
-   (jit-prolog)
-   (jit-tramp (imm (* 4 %word-size)))
-   (for-each (lambda _
-               ;; Dummy jump destination.
-               (jit-movi r0 (imm #xdeadbeaf))
-               (jit-jmpr r0))
-             (iota size))
-   (jit-epilog)
-   (jit-realize)
-   (emit-to-bytevector!)))
-
-(define (trampoline-ref trampoline i)
-  (let ((start (bytevector->pointer trampoline))
-        (offset (* i size-of-trampoline-entry)))
-    (make-pointer (+ (pointer-address start) offset))))
-
-(define (trampoline-set! trampoline i dest)
-  (with-jit-state
-   (jit-prolog)
-   (jit-tramp (imm (* 4 %word-size)))
-   (jit-movi r0 dest)
-   (jit-epilog)
-   (jit-realize)
-   (let ((entry (pointer->bytevector (jit-emit) size-of-move-immediate)))
-     (bytevector-copy! entry 0
-                       trampoline (* i size-of-trampoline-entry)
-                       size-of-move-immediate))))
-
+            get-root-trace))
 
 ;;;
 ;;; The fragment data

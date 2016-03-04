@@ -26,138 +26,22 @@
 ;;; Code:
 
 (define-module (system vm native tjit tjitc)
-  #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (ice-9 regex)
-  #:use-module (language cps)
-  #:use-module (rnrs bytevectors)
   #:use-module ((srfi srfi-1) #:select (last))
   #:use-module (srfi srfi-11)
-  #:use-module (system foreign)
   #:use-module (system vm native debug)
-  #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit compile-ir)
   #:use-module (system vm native tjit compile-native)
   #:use-module (system vm native tjit dump)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit fragment)
-  #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit ra)
-  #:use-module (system vm native tjit registers)
+  #:use-module (system vm native tjit parse)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit types)
-  #:use-module (system vm native tjit variables)
   #:export (tjitc init-vm-tjit)
   #:re-export (tjit-stats))
-
-;;;
-;;; Parser
-;;;
-
-(define (parse-bytecode env bytecode traces)
-  (define disassemble-one
-    (@@ (system vm disassembler) disassemble-one))
-  (define last-locals
-    (and (pair? traces) (cadddr (car traces))))
-  (define (resolve-copies dsts srcs)
-    (let ((copies (let lp ((dsts dsts) (acc '()))
-                    (match dsts
-                      (((dst 'copy . src) . dsts)
-                       (lp dsts (cons (cons dst src) acc)))
-                      ((_ . dsts)
-                       (lp dsts acc))
-                      (()
-                       acc)))))
-      (let lp ((copies copies) (dsts dsts))
-        (match copies
-          (((dst . src) . copies)
-           (lp copies (assq-set! dsts dst (assq-ref srcs src))))
-          (_
-           dsts)))))
-  (define (set-reversed-vector! setter getter)
-    (setter env (list->vector (reverse! (getter env)))))
-  (define (go)
-    (let lp ((acc '()) (offset 0) (traces (reverse! traces))
-             (so-far-so-good? #t))
-      (match traces
-        ((trace . traces)
-         (match trace
-           ((ip ra dl locals)
-            (let*-values
-                (((len op) (disassemble-one bytecode offset))
-                 ((implemented?)
-                  (if so-far-so-good?
-                      (let* ((ret (scan-trace env op ip dl locals))
-                             (_ (infer-type env op ip dl locals))
-                             (ws (map car (env-inferred-types env)))
-                             (buf (env-write-buf env))
-                             (buf (cons (sort ws <) buf)))
-                        (increment-env-call-return-num! env op)
-                        (set-env-write-buf! env buf)
-                        ret)
-                      #f)))
-              (lp (cons (cons op trace) acc) (+ offset len) traces
-                  implemented?)))
-           (_ (error "malformed trace" trace))))
-        (()
-         (let* ((linked-ip (env-linked-ip env))
-                (inferred (env-inferred-types env))
-                (shifted-inferred
-                 (let lp ((inferred inferred)
-                          (shift (env-last-sp-offset env))
-                          (acc '()))
-                   (match inferred
-                     (((n . t) . inferred)
-                      (lp inferred shift (cons (cons (- n shift) t) acc)))
-                     (()
-                      acc))))
-                (linked-fragment
-                 (if linked-ip
-                     (get-root-trace shifted-inferred last-locals linked-ip)
-                     #f))
-                ;; Detecting root trace linkage by chasing parent id until it
-                ;; reaches to root trace and compare it with linked trace. This
-                ;; loop could be avoided by saving the origin trace id in
-                ;; fragment record type.
-                (linking-roots?
-                 (let ((origin-id
-                        (let lp ((fragment (env-parent-fragment env)))
-                          (if (not fragment)
-                              #f
-                              (let ((parent-id (fragment-parent-id fragment)))
-                                (if (zero? parent-id)
-                                    (fragment-id fragment)
-                                    (lp (get-fragment parent-id)))))))
-                       (linked-id (and=> linked-fragment fragment-id)))
-                   (and origin-id linked-id
-                        (not (eq? origin-id linked-id))))))
-           (set-env-linked-fragment! env linked-fragment)
-           (set-env-linking-roots! env linking-roots?)
-           (set-env-last-sp-offset! env (env-sp-offset env))
-           (set-env-call-num! env 0)
-           (set-env-return-num! env 0)
-           (let ((depth (or (and=> (env-parent-snapshot env) snapshot-inline-depth)
-                            0)))
-             (set-env-inline-depth! env depth))
-           (set-reversed-vector! set-env-sp-offsets! env-sp-offsets)
-           (set-reversed-vector! set-env-fp-offsets! env-fp-offsets)
-           (set-reversed-vector! set-env-write-buf! env-write-buf)
-           (let* ((entry (env-entry-types env))
-                  (inferred (env-inferred-types env)))
-             (set-env-entry-types! env (resolve-copies entry entry))
-             (set-env-inferred-types! env (resolve-copies inferred entry))
-             (set-env-read-indices! env (sort (map car entry) <))
-             (set-env-write-indices! env (sort (map car inferred) <)))
-           (set-env-initialized! env #t))
-         (values (reverse! acc) so-far-so-good?)))))
-
-  (catch #t go
-    (lambda (x y fmt args . z)
-      (debug 2 "XXX: ~a~%" (apply format #f fmt args))
-      (values '() #f))))
 
 
 ;;;
@@ -191,10 +75,8 @@
             (lambda args
               (apply make-env trace-id entry-ip linked-ip
                      parent-exit-id parent-fragment parent-snapshot
-                     loop? downrec? uprec? args))))
-         (initial-sp-offset (env-sp-offset env))
-         (initial-fp-offset (env-fp-offset env)))
-    (define (show-sline sline)
+                     loop? downrec? uprec? args)))))
+    (define (show-sline)
       (let ((exit-pair (if (< 0 parent-ip)
                            (format #f " (~a:~a)"
                                    (or (and=> parent-fragment fragment-id)
@@ -222,8 +104,6 @@
       (debug 2 ";;; trace ~a: ~a~%" trace-id msg)
       (tjit-increment-compilation-failure! entry-ip))
     (define (compile-traces traces)
-      (set-env-sp-offset! env initial-sp-offset)
-      (set-env-fp-offset! env initial-fp-offset)
       (let-values (((snapshots anf ops) (compile-ir env traces)))
         (dump tjit-dump-anf? anf (dump-anf trace-id anf))
         (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
@@ -237,13 +117,14 @@
           (let ((log (get-tjit-time-log trace-id))
                 (t (get-internal-run-time)))
             (set-tjit-time-log-end! log t)))))
+
     (with-tjitc-error-handler entry-ip
       (let-values (((traces implemented?) (parse-bytecode env bytecode traces)))
-        (dump tjit-dump-jitc? implemented? (show-sline sline))
+        (dump tjit-dump-jitc? implemented? (show-sline))
         (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
         (cond
          ((not env)
-          (failure "error during scan"))
+          (failure "error during parse"))
          ((not implemented?)
           (failure "NYI - unimplemented bytecode"))
          (uprec?

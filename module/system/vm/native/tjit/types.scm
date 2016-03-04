@@ -239,12 +239,12 @@ types in TYPES matched with LOCALS, otherwise return false."
                      (if (eq? t rt)
                          (lp types)
                          (begin
-                           (debug 2 "[tc]:local ~a expected ~a, got ~a, ~a~%"
+                           (debug 2 ";;; [tc]: local ~a expect ~a, got ~a:~a~%"
                                   n (pretty-type t) (pretty-type ti)
                                   (pretty-type rt))
                            #f)))))))
         (()
-         (debug 2 "[type-checker] all type matched~%")
+         (debug 2 ";;; [tc] all type matched~%")
          #t)))))
 
 (define (type->stack-element-type type)

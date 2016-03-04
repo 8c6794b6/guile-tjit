@@ -37,6 +37,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
   #:use-module (srfi srfi-9)
+  #:use-module (system vm native tjit trampoline)
   #:export (tjit-ip-counter
             tjit-fragment
             tjit-root-trace
@@ -240,9 +241,7 @@ assumes `objdump' executable already installed."
     (let ((nexit (hash-count (const #t) snapshots)))
       (let lp ((n 0) (acc '()))
         (if (< n nexit)
-            (let* ((addr (pointer-address
-                          ((@ (system vm native tjit fragment) trampoline-ref)
-                           trampoline n)))
+            (let* ((addr (pointer-address (trampoline-ref trampoline n)))
                    (pat (format #f "j[a-z]+ +0x0*~x" addr)))
               (lp (+ n 1) (cons (cons n (make-regexp pat)) acc)))
             acc))))

@@ -253,7 +253,7 @@
 
 
 ;;;
-;;; Macros for IR
+;;; Macros for ANF
 ;;;
 
 (define (make-var index)

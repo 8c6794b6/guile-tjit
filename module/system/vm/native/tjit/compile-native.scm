@@ -51,6 +51,7 @@
   #:use-module (system vm native tjit ra)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit trampoline)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
   #:export (compile-native))

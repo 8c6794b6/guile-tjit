@@ -112,9 +112,7 @@
            id sp-offset fp-offset nlocals)
     (debug 2 ";;; write-indices: ~s~%" write-indices)
     (debug 2 ";;; inline-depth: ~s~%" inline-depth)
-    (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?)
-    (debug 2 "~a"
-           (and ((@ (system vm native tjit dump) dump-env) env) "")))
+    (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
