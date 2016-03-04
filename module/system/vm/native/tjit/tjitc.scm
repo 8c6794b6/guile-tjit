@@ -147,6 +147,7 @@
 
 (define (init-vm-tjit interactive?)
   "Dummy procedure for @code{autoload}."
+  ((@ (system vm native lightning) init-jit) "")
   #t)
 
 ;; Call `load-extension' from top-level after defining `tjitc',
