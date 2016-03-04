@@ -36,6 +36,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit error)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
@@ -55,7 +56,6 @@
             set-asm-exit!
             asm-end-address
             asm-volatiles
-            make-negative-pointer
             make-signed-pointer
             spilled-offset
             constant-word
@@ -91,10 +91,6 @@
             vm-expand-stack
             unbox-stack-element
             guard-type))
-
-(define (make-negative-pointer addr)
-  "Make negative pointer with ADDR."
-  (make-pointer (+ (ash 2 (- (* 8 %word-size) 1)) addr)))
 
 (define (make-signed-pointer addr)
   (if (<= 0 addr)

@@ -102,6 +102,7 @@ SCM_API SCM scm_tjit_max_retries (void);
 SCM_API SCM scm_set_tjit_max_retries_x (SCM count);
 SCM_API SCM scm_tjit_num_unrolls (void);
 SCM_API SCM scm_set_tjit_num_unrolls_x (SCM count);
+SCM_API SCM scm_make_negative_pointer (SCM amount);
 
 SCM_API SCM scm_tjit_increment_id_x (void);
 SCM_API SCM scm_tjit_increment_compilation_failure_x (SCM ip);

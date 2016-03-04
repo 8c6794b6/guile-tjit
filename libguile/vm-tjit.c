@@ -539,6 +539,31 @@ SCM_DEFINE (scm_tjit_add_root_ip_x, "tjit-add-root-ip!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_make_negative_pointer, "make-negative-pointer", 1, 0, 0,
+            (SCM amount),
+            "Make negative address pointer from negative AMOUNT.\n"
+            "The amount needs to be negative small integer with tc2=1.")
+#define FUNC_NAME s_scm_make_negative_pointer
+{
+  scm_t_uintptr c_address;
+
+#if SCM_SIZEOF_SCM_T_PTRDIFF == 4
+#define BASE_ADDR 0xffffffff
+#else
+#if SCM_SIZEOF_SCM_T_PTRDIFF == 8
+#define BASE_ADDR 0xffffffffffffffff
+#else
+#error sizeof(scm_t_ptrdiff) is not 4 or 8.
+#endif
+#endif
+  c_address = BASE_ADDR + SCM_I_INUM (amount) + 1;
+#undef BASE_ADDR
+
+  return scm_from_pointer ((void *) c_address, NULL);
+
+}
+#undef FUNC_NAME
+
 
 /*
  * Gluing functions

@@ -57,6 +57,7 @@
             tjit-increment-compilation-failure!
             tjit-add-root-ip!
             tjit-register-gdb-jit-entry!
+            make-negative-pointer
 
             tjit-dump-abort?
             tjit-dump-bytecode?
