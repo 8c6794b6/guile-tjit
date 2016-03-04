@@ -523,8 +523,7 @@ index referenced by dst, a, and b values at runtime."
     ((_ ip dst-offset refill?)
      (let-values (((ret snapshot)
                    (take-snapshot ip dst-offset locals (ir-vars ir)
-                                  (if (and (env-parent-snapshot env)
-                                           (not (env-loop? env)))
+                                  (if (env-parent-snapshot env)
                                       (vector-ref
                                        (env-write-buf env)
                                        (ir-bytecode-index ir))

@@ -608,26 +608,17 @@ DST-TYPES, and SRC-TYPES are local index number."
        (match snapshot
          (($ $snapshot id sp-offset fp-offset nlocals local-x-types)
 
-          ;; Store contents of args to frame. No need to recover the frame with
-          ;; snapshot when local-x-types were null OR snapshot 0 of root trace.
-          ;; Still snapshot data is used, so that the bytevector of compiled
-          ;; native code could be stored in fragment, to avoid garbage
-          ;; collection.
-          (unless (or (null? local-x-types)
-                      (and (not (env-parent-fragment env))
-                           (zero? id))
-                      (and (env-parent-fragment env)
-                           (env-loop? env)
-                           (zero? id)))
-            (let lp ((local-x-types local-x-types)
-                     (args args))
-              (match (list local-x-types args)
-                ((((local . type) . local-x-types) (arg . args))
-                 (syntax-parameterize ((asm (identifier-syntax %asm)))
-                   (store-frame local type arg))
-                 (lp local-x-types args))
-                (_
-                 (values)))))
+          ;; Store contents of args to frame. Note that args of snapshot 0 in
+          ;; root trace is null, no need to recover the frame with snapshot for
+          ;; that case.
+          (let lp ((local-x-types local-x-types)
+                   (args args))
+            (match (list local-x-types args)
+              ((((local . type) . local-x-types) (arg . args))
+               (syntax-parameterize ((asm (identifier-syntax %asm)))
+                 (store-frame local type arg))
+               (lp local-x-types args))
+              (_ (values))))
 
           ;; Shift SP.
           (when (not (zero? sp-offset))

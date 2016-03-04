@@ -68,8 +68,7 @@
                 (match parent-snapshot
                   (($ $snapshot id sp fp nlocals locals variables code ip lives
                       depth)
-                   (let ((inferred (if loop? '() locals)))
-                     (values sp fp (map car locals) lives inferred depth)))
+                   (values sp fp (map car locals) lives locals depth))
                   (_
                    (values 0 0 '() '() '() 0))))
             (lambda args
@@ -83,11 +82,11 @@
                                        (format #f "~x" parent-ip))
                                    parent-exit-id)
                            ""))
-            (linked-id (if loop?
-                           ""
+            (linked-id (if parent-snapshot
                            (format #f " -> ~a"
                                    (and=> (env-linked-fragment env)
-                                          fragment-id))))
+                                          fragment-id))
+                           ""))
             (ttype (cond
                     (downrec? " - downrec")
                     (uprec? " - uprec")

@@ -212,12 +212,10 @@ Currently does nothing, returns the given argument."
                     ((_ . var) (memq var live-vars-in-parent)))
                   vars))
          (args-from-parent (reverse (map cdr vars-from-parent)))
-         (initial-vars (if (and parent-snapshot
-                                (not (env-loop? env)))
+         (initial-vars (if parent-snapshot
                            vars-from-parent
                            vars))
-         (initial-write-indices (if (and parent-snapshot
-                                         (not (env-loop? env)))
+         (initial-write-indices (if parent-snapshot
                                     (map car parent-snapshot-locals)
                                     (env-write-indices env))))
     (define (initial-snapshot!)
@@ -265,8 +263,7 @@ Currently does nothing, returns the given argument."
               (((n . ty) . srcs)
                (lp srcs (assq-set! dsts n ty)))
               (()
-               (if (and (pair? parent-snapshot-locals)
-                        (not (env-loop? env)))
+               (if (pair? parent-snapshot-locals)
                    (let lp ((srcs parent-snapshot-locals) (dsts dsts))
                      (match srcs
                        (((n . ty) . srcs)
@@ -309,27 +306,6 @@ Currently does nothing, returns the given argument."
                                  (set-env-loop-vars! env vars)
                                  (set-env-loop-locals! env locals)
                                  (emit)))))
-               entry)))
-         ((env-loop? env)
-          (let* ((args-from-vars (reverse! (map cdr vars)))
-                 (thunk (lambda ()
-                          (let ((snap1 (initial-snapshot!)))
-                            `(let ((_ ,snap1))
-                               (loop ,@args-from-vars)))))
-                 (loaded-vars (make-hash-table))
-                 (snap0 (initial-snapshot!)))
-            (set-env-live-indices! env (env-read-indices env))
-            `(letrec ((entry (lambda ,args-from-parent
-                               (let ((_ ,snap0))
-                                 ,(add-initial-loads env snapshots
-                                                     initial-locals
-                                                     initial-sp-offset
-                                                     parent-snapshot
-                                                     vars live-vars-in-parent
-                                                     loaded-vars
-                                                     thunk))))
-                      (loop (lambda ,args-from-vars
-                              ,(emit))))
                entry)))
          (else
           (let ((snap0 (initial-snapshot!))
