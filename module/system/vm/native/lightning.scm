@@ -287,6 +287,7 @@
     (lambda ()
       (call-with-values (lambda () . expr)
         (lambda vals
+          (jit-clear-state)
           (jit-destroy-state)
           (apply values vals))))))
 
