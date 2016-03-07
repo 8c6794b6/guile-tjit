@@ -430,13 +430,11 @@ call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
       tj->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
       tj->parent_exit_id = (int) SCM_I_INUM (exit_id);
 
-      /* When start and end is the same IP, assuming the guard in entry
-         clause of the native code has failed. Recording starts when VM
+      /* When start and end is the same IP, recording starts when VM
          entered the same loop next time. To prevent the VM interpreter
          to stop recording immediately without visiting bytecode of the
          loop, setting `tj->start_seen' flag to 0. Result of record will
-         be a looping side trace starting from entry IP of parent
-         trace. */
+         be a side trace starting from entry IP of parent trace. */
       start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP,
                        start == end ? 0 : 1);
     }
