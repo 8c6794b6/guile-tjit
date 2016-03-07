@@ -108,8 +108,8 @@
 (define* (make-snapshot id sp-offset fp-offset nlocals write-indices
                         env ip inline-depth #:optional (refill-ra-dl? #f))
   (begin
-    (debug 2 ";;; [make-snapshot] id:~s sp:~s fp:~s nlocals:~s~%"
-           id sp-offset fp-offset nlocals)
+    (debug 2 ";;; [make-snapshot] id:~s ip=~x sp:~s fp:~s nlocals:~s~%"
+           id ip sp-offset fp-offset nlocals)
     (debug 2 ";;; write-indices: ~s~%" write-indices)
     (debug 2 ";;; inline-depth: ~s~%" inline-depth)
     (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?))
