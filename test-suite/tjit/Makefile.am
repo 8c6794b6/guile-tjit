@@ -57,11 +57,6 @@ TESTS = \
 	t-call-label-02.scm \
 	t-call-label-03.scm \
 	t-call-label-04.scm \
-	t-deoptimize-01.scm \
-	t-deoptimize-02.scm \
-	t-deoptimize-03.scm \
-	t-deoptimize-04.scm \
-	t-deoptimize-05.scm \
 	t-div-01.scm \
 	t-escape-01.scm \
 	t-f64-01.scm \
@@ -139,6 +134,11 @@ TESTS = \
 	t-pairs-10.scm \
 	t-pairs-11.scm \
 	t-pairs-12.scm \
+	t-pic-01.scm \
+	t-pic-02.scm \
+	t-pic-03.scm \
+	t-pic-04.scm \
+	t-pic-05.scm \
 	t-reset-frame-01.scm \
 	t-reset-frame-02.scm \
 	t-repl-01.scm \
