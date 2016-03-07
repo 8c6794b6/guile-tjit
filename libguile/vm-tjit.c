@@ -79,12 +79,12 @@
    && SCM_I_MAKINUM (failed_ip_ref ((scm_t_uintptr) (ip))) <            \
    tjit_max_retries)
 
-#define SCM_TJITC(ip, loop_p)             \
+#define SCM_TJITC(loop_p)                 \
   do {                                    \
-    SYNC_IP ();                           \
-    tjitc (tj, ip, loop_p);               \
-    CACHE_SP ();                          \
+    vp->ip = ip;                          \
+    tjitc (tj, s_ip, loop_p);             \
     stop_recording (tj);                  \
+    return vp->sp;                        \
   } while (0)
 
 #define SCM_DOWNREC_P(fragmeng)                         \
@@ -292,6 +292,105 @@ tjit_matching_fragment (struct scm_vm *vp, SCM s_ip)
   return ret;
 }
 
+static inline union scm_vm_stack_element*
+tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
+            scm_i_thread *thread, struct scm_vm *vp,
+            struct scm_tjit_state *tj)
+{
+  SCM fragment;
+  int link_found;
+
+  SCM s_ip = SCM_I_MAKINUM (ip);
+  scm_t_uint32 *start_ip = (scm_t_uint32 *) tj->loop_start;
+  scm_t_uint32 *end_ip = (scm_t_uint32 *) tj->loop_end;
+  int has_root_trace = root_ip_ref ((scm_t_uintptr) ip);
+
+  if (has_root_trace)
+    fragment = tjit_matching_fragment (vp, s_ip);
+  else
+    fragment = SCM_BOOL_F;
+
+  /* Avoid looking up fragment of looping-side-trace itself. */
+  link_found = has_root_trace && ip != start_ip;
+
+  switch (tj->trace_type)
+    {
+    case SCM_TJIT_TRACE_JUMP:
+    case SCM_TJIT_TRACE_TCALL:
+      if (scm_is_true (fragment))
+        {
+          if (SCM_DOWNREC_P (fragment))
+            {
+              tj->trace_type = SCM_TJIT_TRACE_CALL;
+              record (tj, thread, vp, ip, sp);
+            }
+          else if (SCM_UPREC_P (fragment))
+            {
+              tj->trace_type = SCM_TJIT_TRACE_RETURN;
+              record (tj, thread, vp, ip, sp);
+            }
+          else
+            SCM_TJITC (SCM_BOOL_F);
+        }
+      else if (ip == end_ip)
+        {
+          if (tj->start_seen)
+            {
+              if (tj->loop_start != tj->loop_end)
+                record (tj, thread, vp, ip, sp);
+              SCM_TJITC (SCM_BOOL_T);
+            }
+          else
+            {
+              record (tj, thread, vp, ip, sp);
+              tj->start_seen = 1;
+            }
+        }
+      else
+        record (tj, thread, vp, ip, sp);
+      break;
+
+    case SCM_TJIT_TRACE_CALL:
+      if (ip == start_ip || (link_found && SCM_DOWNREC_P (fragment)))
+        {
+          if (tj->nunrolled == SCM_I_INUM (tjit_num_unrolls))
+            SCM_TJITC (link_found ? SCM_BOOL_F : SCM_BOOL_T);
+          else
+            {
+              record (tj, thread, vp, ip, sp);
+              ++(tj->nunrolled);
+            }
+        }
+      else if (ip == end_ip)
+        /* XXX: Hot non-recursive procedure call. Worth to compile */
+        /* but currently marked as failure and ignored.            */
+        abort_recording (tj, start_ip);
+      else
+        record (tj, thread, vp, ip, sp);
+      break;
+
+    case SCM_TJIT_TRACE_RETURN:
+      if (ip == start_ip || (link_found && SCM_UPREC_P (fragment)))
+        {
+          if (tj->nunrolled == SCM_I_INUM (tjit_num_unrolls))
+            SCM_TJITC (link_found ? SCM_BOOL_F : SCM_BOOL_T);
+          else
+            {
+              record (tj, thread, vp, ip, sp);
+              ++(tj->nunrolled);
+            }
+        }
+      else
+        record (tj, thread, vp, ip, sp);
+      break;
+
+    default:
+      break;
+    }
+  return sp;
+}
+
+
 static inline void
 call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
@@ -412,95 +511,8 @@ scm_make_tjit_state (void)
 
 #define SCM_TJIT_MERGE()                                                \
   do {                                                                  \
-    SCM fragment;                                                       \
-    SCM s_ip = SCM_I_MAKINUM (ip);                                      \
     scm_t_uint32 *start_ip = (scm_t_uint32 *) tj->loop_start;           \
-    scm_t_uint32 *end_ip = (scm_t_uint32 *) tj->loop_end;               \
-    int has_root_trace = root_ip_ref ((scm_t_uintptr) ip);              \
-                                                                        \
-    /* Avoid looking up fragment of looping-side-trace itself. */       \
-    int link_found = has_root_trace && ip != start_ip;                  \
-                                                                        \
-    if (has_root_trace)                                                 \
-      fragment = tjit_matching_fragment (vp, s_ip);                     \
-    else                                                                \
-      fragment = SCM_BOOL_F;                                            \
-                                                                        \
-    switch (tj->trace_type)                                             \
-      {                                                                 \
-      case SCM_TJIT_TRACE_JUMP:                                         \
-      case SCM_TJIT_TRACE_TCALL:                                        \
-        if (scm_is_true (fragment))                                     \
-          {                                                             \
-            if (SCM_DOWNREC_P (fragment))                               \
-              {                                                         \
-                tj->trace_type = SCM_TJIT_TRACE_CALL;                   \
-                record (tj, thread, vp, ip, sp);                        \
-              }                                                         \
-            else if (SCM_UPREC_P (fragment))                            \
-              {                                                         \
-                tj->trace_type = SCM_TJIT_TRACE_RETURN;                 \
-                record (tj, thread, vp, ip, sp);                        \
-              }                                                         \
-            else                                                        \
-              SCM_TJITC (s_ip, SCM_BOOL_F);                             \
-          }                                                             \
-        else if (ip == end_ip)                                          \
-          {                                                             \
-            if (tj->start_seen)                                         \
-              {                                                         \
-                if (tj->loop_start != tj->loop_end)                     \
-                  record (tj, thread, vp, ip, sp);                      \
-                SCM_TJITC (s_ip, SCM_BOOL_T);                           \
-              }                                                         \
-            else                                                        \
-              {                                                         \
-                record (tj, thread, vp, ip, sp);                        \
-                tj->start_seen = 1;                                     \
-              }                                                         \
-          }                                                             \
-        else                                                            \
-          record (tj, thread, vp, ip, sp);                              \
-        break;                                                          \
-                                                                        \
-      case SCM_TJIT_TRACE_CALL:                                         \
-        if (ip == start_ip || (link_found && SCM_DOWNREC_P (fragment))) \
-          {                                                             \
-            if (tj->nunrolled == SCM_I_INUM (tjit_num_unrolls))         \
-              SCM_TJITC (s_ip, link_found ? SCM_BOOL_F : SCM_BOOL_T);   \
-            else                                                        \
-              {                                                         \
-                record (tj, thread, vp, ip, sp);                        \
-                ++(tj->nunrolled);                                      \
-              }                                                         \
-          }                                                             \
-        else if (ip == end_ip)                                          \
-          /* XXX: Hot non-recursive procedure call. Worth to compile */ \
-          /* but currently marked as failure and ignored.            */ \
-          abort_recording (tj, start_ip);                               \
-        else                                                            \
-          record (tj, thread, vp, ip, sp);                              \
-        break;                                                          \
-                                                                        \
-      case SCM_TJIT_TRACE_RETURN:                                       \
-        if (ip == start_ip || (link_found && SCM_UPREC_P (fragment)))   \
-          {                                                             \
-            if (tj->nunrolled == SCM_I_INUM (tjit_num_unrolls))         \
-              SCM_TJITC (s_ip, link_found ? SCM_BOOL_F : SCM_BOOL_T);   \
-            else                                                        \
-              {                                                         \
-                record (tj, thread, vp, ip, sp);                        \
-                ++(tj->nunrolled);                                      \
-              }                                                         \
-          }                                                             \
-        else                                                            \
-          record (tj, thread, vp, ip, sp);                              \
-        break;                                                          \
-                                                                        \
-      default:                                                          \
-        break;                                                          \
-      }                                                                 \
-                                                                        \
+    sp = tjit_merge (ip, sp, thread, vp, tj);                           \
     if (SCM_I_INUM (tjit_max_record) < tj->bc_idx)                      \
       abort_recording (tj, start_ip);                                   \
   } while (0)
