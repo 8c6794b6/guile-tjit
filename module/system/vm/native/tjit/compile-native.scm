@@ -142,12 +142,9 @@
         (sp-set!/f local f0))
        (else (err))))
 
-     ;; Immediates
+     ;; Refilled immediates
      ((eq? type &false)
       (jit-movi r0 *scm-false*)
-      (sp-set! local r0))
-     ((eq? type &true)
-      (jit-movi r0 *scm-true*)
       (sp-set! local r0))
      ((eq? type &undefined)
       (jit-movi r0 *scm-undefined*)
@@ -156,15 +153,11 @@
       (jit-movi r0 *scm-unspecified*)
       (sp-set! local r0))
 
-     ;; Cell values and small integers
-     ((or (memq type (list &scm &fixnum &char &null &nil
-                           &symbol &keyword &procedure &pointer
-                           &pair &fluid &vector &box &struct &string &bytevector
-                           &bitvector &array &hash-table &u64 &s64))
-          ;; XXX: Should resolve copy at this point. Storeing copied value as
-          ;; is, assuming that copy source is non-unboxed value.
-          (and (pair? type)
-               (eq? 'copy (car type))))
+     ;; XXX: `fixnum' need boxing when the value was greater than
+     ;; `most-positive-fixnum' or less than `most-negative-fixnum'.
+
+     ;; Cell values
+     (else
       (cond
        ((constant? src)
         (jit-movi r0 (constant src))
@@ -177,8 +170,7 @@
        ((memory? src)
         (memory-ref r0 src)
         (sp-set! local r0))
-       (else (err))))
-     (else (err)))))
+       (else (err)))))))
 
 (define (maybe-store %asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES."
