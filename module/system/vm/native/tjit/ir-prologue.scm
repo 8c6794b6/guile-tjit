@@ -33,8 +33,8 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-(define-syntax-rule (expand-stack nlocals)
-  (expand-env env (current-sp-offset) nlocals))
+(define-syntax-rule (expand-stack! nlocals)
+  (expand-env! env (current-sp-offset) nlocals))
 
 (define-syntax-rule (scan-frame nlocals)
   (let* ((stack-size (vector-length locals))
@@ -80,7 +80,7 @@
          (undefined (pointer->scm (make-pointer #x904))))
     (if (< stack-size nlocals)
         (begin
-          (expand-stack diff)
+          (expand-stack! diff)
           (let lp ((n 0))
             (if (< n diff)
                 `(let ((,(var-ref (- n)) ,undefined))
@@ -121,7 +121,7 @@
 
 (define-anf (assert-nargs-ee/locals expected nlocals)
   (let ((undefined (pointer->scm (make-pointer #x904))))
-    (expand-stack nlocals)
+    (expand-stack! nlocals)
     (let lp ((n nlocals))
       (if (< 0 n)
           `(let ((,(var-ref (- n 1)) ,undefined))

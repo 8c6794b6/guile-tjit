@@ -72,7 +72,7 @@
             add-env-return!
             env-local-indices
             env-current-inline-depth
-            expand-env
+            expand-env!
             set-entry-type!
             set-inferred-type!))
 
@@ -274,7 +274,7 @@ inline depth by one."
      (else
       (add! (cons return-num #f))))))
 
-(define (expand-env env offset nlocals)
+(define (expand-env! env offset nlocals)
   (let lp ((n 0) (acc (env-live-indices env)))
     (if (< n nlocals)
         (lp (+ n 1) (if (memq n acc)
