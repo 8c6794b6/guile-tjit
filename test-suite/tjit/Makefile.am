@@ -73,6 +73,7 @@ TESTS = \
 	t-flonum-04d.scm \
 	t-flonum-04e.scm \
 	t-flonum-04f.scm \
+	t-flonum-04g.scm \
 	t-flonum-05.scm \
 	t-free-ref-01.scm \
 	t-free-ref-02.scm \
@@ -143,6 +144,7 @@ TESTS = \
 	t-reset-frame-02.scm \
 	t-repl-01.scm \
 	t-repl-02.scm \
+	t-scm->f64-01.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \

@@ -1133,6 +1133,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;; Integer -> floating point
 (define-native (%i2d (double dst) (int src))
   (cond
+   ((gpr? dst)
+    (cond
+     ((gpr? src)    (jit-extr-d f0 (gpr src)))
+     ((fpr? src)    (jit-extr-d f0 (fpr->gpr r0 (fpr src))))
+     ((memory? src) (jit-extr-d f0 (memory-ref r0 src)))
+     (else (err)))
+    (fpr->gpr (gpr dst) f0))
    ((fpr? dst)
     (cond
      ((gpr? src)    (jit-extr-d (fpr dst) (gpr src)))

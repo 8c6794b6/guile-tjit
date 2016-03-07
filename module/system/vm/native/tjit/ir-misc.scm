@@ -35,10 +35,26 @@
   #:use-module (system vm native tjit variables))
 
 (define-ir (scm->f64 (f64! dst) (scm src))
-  `(let ((,(var-ref dst) ,(var-ref src)))
-     ,(next)))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((,dst/v (%cref/f ,src/v 2)))
+       ,(next))))
 
-(define-ir (f64->scm (scm! dst) (f64 src))
+(define-ir (scm->f64 (f64! dst) (fixnum src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src))
+        (r2 (make-tmpvar 2)))
+    `(let ((,r2 (%rsh ,src/v 2)))
+       (let ((,dst/v (%i2d ,r2)))
+         ,(next)))))
+
+(define-ir (scm->f64 (f64! dst) (flonum src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((,dst/v ,src/v))
+       ,(next))))
+
+(define-ir (f64->scm (flonum! dst) (f64 src))
   `(let ((,(var-ref dst) ,(var-ref src)))
      ,(next)))
 
