@@ -207,7 +207,8 @@
   (values))
 
 (define-anf (receive-values proc allow-extra? nvalues)
-  (let ((thunk (gen-load-thunk proc nvalues (const #f))))
+  (let* ((nlocals (vector-length locals))
+         (thunk (gen-load-thunk proc nlocals (const #f))))
     (thunk)))
 
 ;; XXX: tail-call/shuffle

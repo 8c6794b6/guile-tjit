@@ -322,7 +322,7 @@
             (stack-size (vector-length locals))
             (sp-offset (current-sp-offset))
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
-            (max-local-index (+ stack-size sp-offset))
+            (max-local-index (+ nlocals sp-offset))
             (live-indices (env-live-indices env))
             (load-up-frame
              (lambda ()
