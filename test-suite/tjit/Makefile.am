@@ -40,8 +40,15 @@ TESTS = \
 	t-box-02.scm \
 	t-box-03.scm \
 	t-box-04.scm \
+	t-br-if-<-01.scm \
+	t-br-if-<=-01.scm \
+	t-br-if-=-01.scm \
 	t-br-if-null-01.scm \
+	t-br-if-null-02.scm \
 	t-br-if-true-01.scm \
+	t-br-if-u64-<-scm-01.scm \
+	t-br-if-u64-<=-scm-01.scm \
+	t-br-if-u64-=-scm-01.scm \
 	t-bv-length-01.scm \
 	t-bytecompile-01.scm \
 	t-bytecompile-02.scm \
@@ -112,6 +119,7 @@ TESTS = \
 	t-nest-23b.scm \
 	t-nest-23c.scm \
 	t-nest-24.scm \
+	t-nest-25.scm \
 	t-nest-26.scm \
 	t-nest-26b.scm \
 	t-nest-26c.scm \

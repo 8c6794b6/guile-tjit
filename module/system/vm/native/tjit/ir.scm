@@ -47,6 +47,7 @@
             ir-bytecode-index set-ir-bytecode-index!
             ir-vars
             ir-return-subr? set-ir-return-subr!
+            ir-last-op? set-ir-last-op!
 
             define-ir
             define-interrupt-ir
@@ -98,7 +99,7 @@
 
 (define-record-type <ir>
   (make-ir snapshots snapshot-id vars min-sp-offset max-sp-offset
-           bytecode-index return-subr?)
+           bytecode-index return-subr? last-op?)
   ir?
 
   ;; Hash table containing snapshots.
@@ -120,7 +121,10 @@
   (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
 
   ;; Flag for subr call.
-  (return-subr? ir-return-subr? set-ir-return-subr!))
+  (return-subr? ir-return-subr? set-ir-return-subr!)
+
+  ;; Flag for last recorded operation.
+  (last-op? ir-last-op? set-ir-last-op!))
 
 
 ;;;

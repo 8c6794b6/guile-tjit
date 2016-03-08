@@ -33,6 +33,10 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
+(define-syntax-rule (end-of-root-trace?)
+  (and (ir-last-op? ir)
+       (not (env-parent-snapshot env))))
+
 (define-ir (br (const offset))
   ;; Nothing to emit for br.
   (next))
@@ -40,10 +44,14 @@
 (define-ir (br-if-true (scm test) (const invert) (const offset))
   (let* ((test/v (var-ref test))
          (test/l (scm-ref test))
-         (dest (if test/l
-                   (if invert offset 2)
-                   (if invert 2 offset)))
-         (op (if test/l '%ne '%eq)))
+         (dest (if (end-of-root-trace?)
+                   2
+                   (if test/l
+                       (if invert offset 2)
+                       (if invert 2 offset))))
+         (op (if (end-of-root-trace?)
+                 (if invert '%eq '%ne)
+                 (if test/l '%ne '%eq))))
     `(let ((_ ,(take-snapshot! ip dest)))
        (let ((_ (,op ,test/v #f)))
          ,(next)))))
@@ -51,10 +59,14 @@
 (define-ir (br-if-null (scm test) (const invert) (const offset))
   (let* ((test/l (scm-ref test))
          (test/v (var-ref test))
-         (dest (if (null? test/l)
-                   (if invert offset 2)
-                   (if invert 2 offset)))
-         (op (if (null? test/l) '%eq '%ne)))
+         (dest (if (end-of-root-trace?)
+                   2
+                   (if (null? test/l)
+                       (if invert offset 2)
+                       (if invert 2 offset))))
+         (op (if (end-of-root-trace?)
+                 (if invert '%ne '%eq)
+                 (if (null? test/l) '%eq '%ne))))
     `(let ((_ ,(take-snapshot! ip dest)))
        (let ((_ (,op ,test/v ())))
          ,(next)))))
@@ -102,32 +114,34 @@
 
 (define-syntax define-br-binary-body
   (syntax-rules ()
-    ((_ name a b invert? offset test a-ref b-ref ra rb va vb dest . body)
+    ((_ name a b invert offset test a-ref b-ref ra rb va vb dest . body)
      (let* ((ra (a-ref a))
             (rb (b-ref b))
             (va (var-ref a))
             (vb (var-ref b))
-            (dest (if (test ra rb)
-                      (if invert? offset 3)
-                      (if invert? 3 offset))))
+            (dest (if (end-of-root-trace?)
+                      3
+                      (if (test ra rb)
+                          (if invert offset 3)
+                          (if invert 3 offset)))))
        . body))))
 
 (define-syntax define-br-binary-scm-scm-body
   (syntax-rules ()
-    ((_ name a b invert? offset test ra rb va vb dest . body)
-     (define-br-binary-body name a b invert? offset test scm-ref scm-ref
+    ((_ name a b invert offset test ra rb va vb dest . body)
+     (define-br-binary-body name a b invert offset test scm-ref scm-ref
        ra rb va vb dest . body))))
 
 (define-syntax define-br-binary-u64-scm-body
   (syntax-rules ()
-    ((_ name a b invert? offset test ra rb va vb dest . body)
-     (define-br-binary-body name a b invert? offset test u64-ref scm-ref
+    ((_ name a b invert offset test ra rb va vb dest . body)
+     (define-br-binary-body name a b invert offset test u64-ref scm-ref
        ra rb va vb dest . body))))
 
 (define-syntax define-br-binary-u64-u64-body
   (syntax-rules ()
-    ((_ name a b invert? offset test ra rb va vb dest . body)
-     (define-br-binary-body name a b invert? offset test u64-ref u64-ref
+    ((_ name a b invert offset test ra rb va vb dest . body)
+     (define-br-binary-body name a b invert offset test u64-ref u64-ref
        ra rb va vb dest . body))))
 
 (define-syntax define-br-binary-scm-scm
@@ -135,12 +149,14 @@
     ((_  name op-scm op-fx-t op-fx-f op-fl-t op-fl-f)
      (begin
        ;; XXX: Delegate bignum, complex, rational to C function.
-       (define-ir (name (scm a) (scm b) (const invert?) (const offset))
-         (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
-       (define-ir (name (fixnum a) (fixnum b) (const invert?) (const offset))
-         (define-br-binary-scm-scm-body name a b invert? offset op-scm
+       (define-ir (name (scm a) (scm b) (const invert) (const offset))
+         (nyi "~s: ~a ~a ~a ~a" 'name a b invert offset))
+       (define-ir (name (fixnum a) (fixnum b) (const invert) (const offset))
+         (define-br-binary-scm-scm-body name a b invert offset op-scm
            ra rb va vb dest
-           (let* ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
+           (let* ((op (if (end-of-root-trace?)
+                          (if invert 'op-fx-f 'op-fx-t)
+                          (if (op-scm ra rb) 'op-fx-t 'op-fx-f)))
                   (a/t (type-ref a))
                   (b/t (type-ref b))
                   (next-thunk (lambda ()
@@ -161,10 +177,12 @@
               (else
                (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name (pretty-type a/t)
                     (pretty-type b/t)))))))
-       (define-ir (name (flonum a) (flonum b) (const invert?) (const offset))
-         (define-br-binary-scm-scm-body name a b invert? offset op-scm
+       (define-ir (name (flonum a) (flonum b) (const invert) (const offset))
+         (define-br-binary-scm-scm-body name a b invert offset op-scm
            ra rb va vb dest
-           (let ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
+           (let ((op (if (end-of-root-trace?)
+                         (if invert 'op-fl-f 'op-fl-t)
+                         (if (op-scm ra rb) 'op-fl-t 'op-fl-f)))
                  (a/t (type-ref a))
                  (b/t (type-ref b)))
              (cond
@@ -190,14 +208,15 @@
 (define-syntax define-br-binary-u64-u64
   (syntax-rules ()
     ((_ name op-scm op-fx-t op-fx-f)
-     (define-ir (name (u64 a) (u64 b) (const invert?) (const offset))
-       (define-br-binary-u64-u64-body name a b invert? offset op-scm
+     (define-ir (name (u64 a) (u64 b) (const invert) (const offset))
+       (define-br-binary-u64-u64-body name a b invert offset op-scm
          ra rb va vb dest
-         `(let ((_ ,(take-snapshot! ip dest)))
-            (let ((_ ,(if (op-scm ra rb)
-                          `(op-fx-t ,va ,vb)
-                          `(op-fx-f ,va ,vb))))
-              ,(next))))))))
+         (let ((op (if (end-of-root-trace?)
+                       (if invert 'op-fx-f 'op-fx-t)
+                       (if (op-scm ra rb) 'op-fx-t 'op-fx-f))))
+           `(let ((_ ,(take-snapshot! ip dest)))
+              (let ((_ (,op ,va ,vb)))
+                ,(next)))))))))
 
 (define-br-binary-u64-u64 br-if-u64-= = %eq %ne)
 (define-br-binary-u64-u64 br-if-u64-< < %lt %ge)
@@ -207,20 +226,21 @@
   (syntax-rules ()
     ((_ name op-scm op-fx-t op-fx-f)
      (begin
-       (define-ir (name (u64 a) (scm b) (const invert?) (const offset))
-         (nyi "~s: ~a ~a ~a ~a" 'name a b invert? offset))
-       (define-ir (name (u64 a) (fixnum b) (const invert?) (const offset))
-         (define-br-binary-u64-scm-body name a b invert? offset op-scm
+       (define-ir (name (u64 a) (scm b) (const invert) (const offset))
+         (nyi "~s: ~a ~a ~a ~a" 'name a b invert offset))
+       (define-ir (name (u64 a) (fixnum b) (const invert) (const offset))
+         (define-br-binary-u64-scm-body name a b invert offset op-scm
            ra rb va vb dest
            (let* ((r2 (make-tmpvar 2))
                   (b/t (type-ref b))
+                  (op (if (end-of-root-trace?)
+                          (if invert 'op-fx-f 'op-fx-t)
+                          (if (op-scm ra rb) 'op-fx-t 'op-fx-f)))
                   (next-thunk
                    (lambda ()
                      `(let ((_ ,(take-snapshot! ip dest)))
                         (let ((,r2 (%rsh ,vb 2)))
-                          (let ((_ ,(if (op-scm ra rb)
-                                        `(op-fx-t ,va ,r2)
-                                        `(op-fx-f ,va ,r2))))
+                          (let ((_ (,op ,va ,r2)))
                             ,(next)))))))
              (cond
               ((eq? &fixnum b/t)

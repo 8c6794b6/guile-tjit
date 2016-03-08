@@ -371,9 +371,8 @@ DST-TYPES, and SRC-TYPES are local index number."
 (define (compile-native env primops snapshots sline)
   (with-jit-state
    (jit-prolog)
-   (let-values
-       (((trampoline loop-label bailouts storage)
-         (compile-entry env primops snapshots)))
+   (let-values (((trampoline loop-label bailouts storage)
+                 (compile-entry env primops snapshots)))
      (let* ((epilog-label (jit-label))
             (_ (begin
                  (jit-patch epilog-label)

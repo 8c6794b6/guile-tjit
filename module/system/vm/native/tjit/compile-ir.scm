@@ -248,7 +248,7 @@ Currently does nothing, returns the given argument."
                                                         initial-nlocals))
                       (ir (make-ir snapshots snapshot-id vars
                                    min-sp-offset max-sp-offset
-                                   0 #f)))
+                                   0 #f #f)))
                  (set-env-sp-offset! env env-sp-offset)
                  (set-env-fp-offset! env env-fp-offset)
                  (trace->anf env ir trace)))))
@@ -443,6 +443,7 @@ Currently does nothing, returns the given argument."
       (match trace
         (((op ip ra dl locals) . ())
          (let ((last-op (gen-last-op op ip locals)))
+           (set-ir-last-op! ir #t)
            (convert-one ir op ip ra dl locals last-op)))
         (((op ip ra dl locals) . rest)
          (convert-one ir op ip ra dl locals rest))
