@@ -212,7 +212,7 @@
 
 #ifdef VM_TJIT
 # if BUILD_VM_LIGHTNING == 1
-#  define VM_TJIT_MERGE(n)                                      \
+#  define VM_TJIT_MERGE()                                       \
   if (tj->vm_state == SCM_TJIT_VM_STATE_RECORD)                 \
     {                                                           \
       SCM_TJIT_MERGE ();                                        \
@@ -251,7 +251,7 @@
 #endif
 
 #ifndef VM_TJIT_MERGE
-# define VM_TJIT_MERGE(n) /* */
+# define VM_TJIT_MERGE() /* */
 #endif
 #ifndef VM_TJIT_JUMP
 # define VM_TJIT_JUMP(n) NEXT (n)
@@ -274,7 +274,7 @@
   do                                            \
     {                                           \
       ip += n;                                  \
-      VM_TJIT_MERGE (n);                        \
+      VM_TJIT_MERGE ();                         \
       NEXT_HOOK ();                             \
       op = *ip;                                 \
       goto *jump_table[op & 0xff];              \
@@ -295,7 +295,7 @@
   do                                            \
     {                                           \
       ip += n;                                  \
-      VM_TJIT_MERGE (n);                        \
+      VM_TJIT_MERGE ();                         \
       goto vm_start;                            \
     }                                           \
   while (0)
