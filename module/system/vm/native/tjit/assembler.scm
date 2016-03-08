@@ -846,6 +846,41 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-int %rsh rsh jit-rshi jit-rshr)
 (define-binary-arith-int %lsh lsh jit-lshi jit-lshr)
 (define-binary-arith-int %mod modulo jit-remi jit-remr)
+(define-binary-arith-int %quo modulo jit-divi jit-divr)
+
+;;; XXX: Incomplete, need to manage overflows.
+;; (define-native (%imul (int dst) (int a) (int b))
+;;   (let ((tmp r1))
+;;     (letrec-syntax
+;;         ((op3b (syntax-rules ()
+;;                  ((_ dst a)
+;;                   (begin
+;;                     (cond
+;;                      ((constant? b) (jit-qmuli dst tmp a (constant b)))
+;;                      ((gpr? b)      (jit-qmulr dst tmp a (gpr b)))
+;;                      ((fpr? b)      (jit-qmulr dst tmp a (fpr->gpr r1 (fpr b))))
+;;                      ((memory? b)   (jit-qmulr dst tmp a (memory-ref r1 b)))
+;;                      (else (err)))))))
+;;          (op3a (syntax-rules ()
+;;                  ((_ dst)
+;;                   (begin
+;;                     (cond
+;;                      ((constant? a) (op3b dst (movi r0 a)))
+;;                      ((gpr? a)      (op3b dst (gpr a)))
+;;                      ((fpr? a)      (op3b dst (fpr->gpr r0 (fpr a))))
+;;                      ((memory? a)   (op3b dst (memory-ref r0 a)))
+;;                      (else (err)))
+;;                     dst))))
+;;          (movi (syntax-rules ()
+;;                  ((_ x y)
+;;                   (begin (jit-movi x (constant y))
+;;                          x)))))
+;;       (cond
+;;        ((gpr? dst)    (op3a (gpr dst)))
+;;        ((fpr? dst)    (gpr->fpr (fpr dst) (op3a r0)))
+;;        ((memory? dst) (memory-set! dst (op3a r0)))
+;;        (else (err)))
+;;       (jump (jit-bnei tmp (imm 0)) (bailout)))))
 
 
 ;;;

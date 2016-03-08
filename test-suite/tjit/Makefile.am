@@ -148,6 +148,7 @@ TESTS = \
 	t-pic-03.scm \
 	t-pic-04.scm \
 	t-pic-05.scm \
+	t-quo-01.scm \
 	t-reset-frame-01.scm \
 	t-reset-frame-02.scm \
 	t-repl-01.scm \

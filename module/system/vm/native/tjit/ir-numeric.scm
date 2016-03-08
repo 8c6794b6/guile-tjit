@@ -200,9 +200,24 @@
              (pretty-type a/t) (pretty-type b/t))))
     (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
       (let ((a/t (type-ref a))
-            (b/t (type-ref b)))
-        (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name
-             (pretty-type a/t) (pretty-type b/t))))
+            (b/t (type-ref b))
+            (dst/v (var-ref dst))
+            (a/v (var-ref a))
+            (b/v (var-ref b))
+            (r1 (make-tmpvar 1))
+            (r2 (make-tmpvar 2)))
+        (cond
+         ;; ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
+         ;;  `(let ((_ ,(take-snapshot! ip 0)))
+         ;;     (let ((,r1 (%rsh ,a/v 2)))
+         ;;       (let ((,r2 (%rsh ,b/v 2)))
+         ;;         (let ((,r2 (%imul ,r1 ,r2)))
+         ;;           (let ((,r2 (%lsh ,r2 2)))
+         ;;             (let ((,dst/v (%add ,r2 2)))
+         ;;               ,(next))))))))
+         (else
+          (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name
+               (pretty-type a/t) (pretty-type b/t))))))
     (define-ir (name (flonum! dst) (flonum a) (fixnum b))
       (let* ((dst/v (var-ref dst))
              (a/v (var-ref a))
@@ -311,8 +326,8 @@
                       ,(next))))))))))))
 
 (define-binary-arith-fx-fx mod %mod)
+(define-binary-arith-fx-fx quo %quo)
 
-;; XXX: quo
 ;; XXX: rem
 
 ;; XXX: ash
