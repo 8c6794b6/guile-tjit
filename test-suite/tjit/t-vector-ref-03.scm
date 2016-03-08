@@ -12,4 +12,4 @@
          (acc 0 (if (vector-ref primes i) (+ acc i) acc)))
         ((= size i) acc))))
 
-(sieve #e1e7)
+(sieve #e1e4)

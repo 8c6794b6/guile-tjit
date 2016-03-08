@@ -1188,7 +1188,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 (define (move dst src)
   (let-syntax ((err (syntax-rules ()
-                      ((_) (tjitc-error 'move "~s ~s" dst src)))))
+                      ((_) (tjitc-error 'move "~a ~a"
+                                        (physical-name dst)
+                                        (physical-name src))))))
     (cond
      ((gpr? dst)
       (cond

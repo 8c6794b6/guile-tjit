@@ -18,6 +18,7 @@
                     (lp (+ i 1)
                         (+ (- zr2 zi2) cr)
                         (+ (* 2.0 zr zi) ci))))))))
+
     (define (mandelbrot-main size)
       (let loop ((y (- (- size 1))) (acc '()))
         (if (not (= y (- size 1)))
@@ -52,4 +53,4 @@
           ((= i n) (mandelbrot-main 40))
         (mandelbrot-main 40)))
 
-    (time (main 2))))
+    (time (main 1))))
