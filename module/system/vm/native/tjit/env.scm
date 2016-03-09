@@ -276,9 +276,10 @@ inline depth by one."
 (define (expand-env! env offset nlocals)
   (let lp ((n 0) (acc (env-live-indices env)))
     (if (< n nlocals)
-        (lp (+ n 1) (if (memq n acc)
-                        acc
-                        (cons n acc)))
+        (lp (+ n 1) (let ((m (+ n offset)))
+                      (if (memq m acc)
+                          acc
+                          (cons m acc))))
         (set-env-live-indices! env (sort acc <)))))
 
 (define (set-entry-type! env n t)

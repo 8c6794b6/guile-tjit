@@ -108,7 +108,8 @@
            id ip sp-offset fp-offset nlocals)
     (debug 2 ";;; write-indices: ~s~%" write-indices)
     (debug 2 ";;; inline-depth: ~s~%" inline-depth)
-    (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?))
+    (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?)
+    (debug 2 ";;; live-indices: ~a~%" (sort (env-live-indices env) <)))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)

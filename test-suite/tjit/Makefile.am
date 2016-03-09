@@ -131,6 +131,8 @@ TESTS = \
 	t-nest-30b.scm \
 	t-nest-30c.scm \
 	t-nest-30d.scm \
+	t-nest-30e.scm \
+	t-nest-30f.scm \
 	t-pairs-01.scm \
 	t-pairs-02.scm \
 	t-pairs-03.scm \
