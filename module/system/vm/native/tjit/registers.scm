@@ -28,7 +28,6 @@
 ;;; Code:
 
 (define-module (system vm native tjit registers)
-  #:use-module (ice-9 format)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit error)
   #:export (*num-gpr*

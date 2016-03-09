@@ -360,9 +360,9 @@ SOURCES =					\
   system/vm/native/tjit/trampoline.scm		\
   system/vm/native/tjit/parameters.scm		\
   system/vm/native/tjit/error.scm		\
+  system/vm/native/tjit/types.scm		\
   system/vm/native/tjit/gdb.scm			\
   system/vm/native/tjit/fragment.scm		\
-  system/vm/native/tjit/types.scm		\
   system/vm/native/tjit/env.scm			\
   system/vm/native/tjit/snapshot.scm		\
   system/vm/native/tjit/registers.scm		\

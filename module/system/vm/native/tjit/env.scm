@@ -29,9 +29,8 @@
 
 (define-module (system vm native tjit env)
   #:use-module (ice-9 match)
-  #:use-module (srfi srfi-1)
+  #:use-module ((srfi srfi-1) #:select (delete-duplicates))
   #:use-module (srfi srfi-9)
-  #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit types)
   #:export (make-env

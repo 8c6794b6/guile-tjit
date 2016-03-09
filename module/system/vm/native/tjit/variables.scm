@@ -26,11 +26,10 @@
 
 (define-module (system vm native tjit variables)
   #:use-module (ice-9 format)
-  #:use-module (language cps)
   #:use-module (system foreign)
-  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit registers)
+  #:use-module (system vm native tjit types)
   #:export (ref? ref-value ref-type
             make-constant constant? constant
             register?

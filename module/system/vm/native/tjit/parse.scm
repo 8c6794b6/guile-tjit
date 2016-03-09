@@ -33,9 +33,16 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit fragment)
-  #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit snapshot)
-  #:export (parse-bytecode))
+  #:use-module (system vm native tjit types)
+  #:export (parse-bytecode *scan-procedures*))
+
+;;;
+;;; Exported hash tablel
+;;;
+
+(define *scan-procedures*
+  (make-hash-table 255))
 
 
 ;;;
@@ -80,6 +87,33 @@ After successufl parse, this procedure will update fields in ENV."
            dsts)))))
   (define (set-reversed-vector! setter getter)
     (setter env (list->vector (reverse! (getter env)))))
+  (define (scan-trace env op ip dl locals)
+    ;; Compute local indices and stack element types in op.
+    ;;
+    ;; The stack used by VM interpreter grows down. Lower frame data is saved at
+    ;; the time of accumulation.  If one of the guard operation appeared soon
+    ;; after bytecode sequence `return' or `receive', snapshot does not know the
+    ;; value of locals in lower frame. When recorded bytecode contains `return'
+    ;; before `call', snapshot will recover a frame higher than the one used to
+    ;; enter the native call.
+    ;;
+    (define-syntax-rule (nyi)
+      (begin
+        (debug 1 "NYI: ~a~%" (car op))
+        #f))
+    (debug 2 ";;; [scan-trace] op=~a~%" op)
+    (debug 2 ";;; [parse] env-call-num=~a env-return-num=~a~%"
+           (env-call-num env) (env-return-num env))
+    (match (hashq-ref *scan-procedures* (car op))
+      ((? list? procs)
+       (let lp ((procs procs))
+         (match procs
+           (((test . work) . procs)
+            (if (apply test (list op locals))
+                (apply work env ip dl locals (cdr op))
+                (lp procs)))
+           (_ (nyi)))))
+      (_ (nyi))))
   (define (go)
     (let lp ((acc '()) (offset 0) (traces (reverse! traces))
              (so-far-so-good? #t))

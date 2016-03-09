@@ -30,8 +30,7 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
-  #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit variables))
+  #:use-module (system vm native tjit snapshot))
 
 ;; XXX: current-module
 ;; XXX: resolve

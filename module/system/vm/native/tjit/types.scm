@@ -32,6 +32,7 @@
   #:use-module (language cps types)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
+  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
@@ -85,6 +86,8 @@
             %tc7-port
             %tc16-real
 
+            *ti-procedures*
+            infer-type
             gen-type-checker
             type->stack-element-type)
   #:re-export (&flonum
@@ -113,7 +116,8 @@
                &hash-table
                &f64
                &u64
-               &s64))
+               &s64
+               %word-size))
 
 ;;;
 ;;; Record types
@@ -168,6 +172,29 @@
   %tc7-port
   %tc16-real)
 
+;;;
+;;; Exported hash table
+;;;
+
+(define *ti-procedures*
+  (make-hash-table 255))
+
+
+;;;
+;;; Lookup procedure
+;;;
+
+(define (infer-type env op ip dl locals)
+  (match (hashq-ref *ti-procedures* (car op))
+    ((? list? procs)
+     (let lp ((procs procs))
+       (match procs
+         (((test . work) . procs)
+          (if (apply test (list op locals))
+              (apply work env ip dl locals (cdr op))
+              (lp procs)))
+         (() (values)))))
+    (_ (values))))
 
 ;;;
 ;;; Extra types

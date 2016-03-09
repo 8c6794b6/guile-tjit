@@ -30,8 +30,7 @@
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit types)
-  #:use-module (system vm native tjit variables))
+  #:use-module (system vm native tjit types))
 
 (define-syntax-rule (expand-stack! nlocals)
   (expand-env! env (current-sp-offset) nlocals))

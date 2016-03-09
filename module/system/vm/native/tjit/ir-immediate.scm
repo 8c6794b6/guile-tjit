@@ -32,8 +32,7 @@
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit types)
-  #:use-module (system vm native tjit variables))
+  #:use-module (system vm native tjit types))
 
 (define-scan (make-short-immediate dst low-bits)
   (set-scan-initial-fields! env))

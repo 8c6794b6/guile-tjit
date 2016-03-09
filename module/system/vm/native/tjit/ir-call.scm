@@ -33,7 +33,6 @@
   #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
-  #:use-module (system vm native tjit variables)
   #:use-module (system vm program))
 
 (define-syntax-rule (current-sp-for-ti)

@@ -29,7 +29,6 @@
 (define-module (system vm native tjit ra)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (language cps types)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)

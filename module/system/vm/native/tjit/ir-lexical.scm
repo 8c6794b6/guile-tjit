@@ -25,7 +25,6 @@
 ;;; Code:
 
 (define-module (system vm native tjit ir-lexical)
-  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm program)
   #:use-module (system vm native debug)

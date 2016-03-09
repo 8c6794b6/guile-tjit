@@ -21,7 +21,7 @@
 ;;; Commentary:
 ;;;
 ;;; Compile list of bytecode operations to intermediate representation in almost
-;;; A-normal form, (ANF).
+;;; A-Normal Form (ANF).
 ;;;
 ;;; One of the main reasons to convert bytecode to ANF is to do floating point
 ;;; arithmetic efficiently. VM bytecodes uses integer index to refer 'scm stack
@@ -35,10 +35,8 @@
 (define-module (system vm native tjit compile-ir)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (language scheme spec)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-11)
-  #:use-module (system base compile)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)

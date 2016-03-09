@@ -35,6 +35,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit parse)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables)
@@ -76,22 +77,17 @@
             gen-load-thunk
             with-frame-ref
 
+            define-scan
+            define-ti
             define-anf
 
-            define-scan
-            scan-trace
             push-scan-sp-offset!
             pop-scan-sp-offset!
             push-scan-fp-offset!
             pop-scan-fp-offset!
             set-scan-initial-fields!
 
-            define-ti
-            infer-type
-
-            *scan-procedures*
-            *ir-procedures*
-            *ti-procedures*))
+            *ir-procedures*))
 
 ;;;
 ;;; IR record type
@@ -128,14 +124,8 @@
 
 
 ;;;
-;;; Exported hash tablels
+;;; Exported hash tablel
 ;;;
-
-(define *scan-procedures*
-  (make-hash-table 255))
-
-(define *ti-procedures*
-  (make-hash-table 255))
 
 (define *ir-procedures*
   (make-hash-table 255))
@@ -144,47 +134,6 @@
 ;;;
 ;;; Macros for scan
 ;;;
-
-(define-syntax-rule (define-scan (name args ...) . body)
-  (let ((test-proc (lambda (op locals)
-                     #t))
-        (scan-proc (lambda (%env %ip %dl %locals args ...)
-                     (syntax-parameterize
-                         ((ip (identifier-syntax %ip))
-                          (dl (identifier-syntax %dl))
-                          (locals (identifier-syntax %locals))
-                          (env (identifier-syntax %env)))
-                       . body)
-                     #t)))
-    (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
-
-(define (scan-trace env op ip dl locals)
-  ;; Compute local indices and stack element types in op.
-  ;;
-  ;; The stack used by VM interpreter grows down. Lower frame data is saved at
-  ;; the time of accumulation.  If one of the guard operation appeared soon
-  ;; after bytecode sequence `return' or `receive', snapshot does not know the
-  ;; value of locals in lower frame. When recorded bytecode contains `return'
-  ;; before `call', snapshot will recover a frame higher than the one used to
-  ;; enter the native call.
-  ;;
-  (define-syntax-rule (nyi)
-    (begin
-      (debug 1 "NYI: ~a~%" (car op))
-      #f))
-  (debug 2 ";;; [scan-trace] op=~a~%" op)
-  (debug 2 ";;; [parse] env-call-num=~a env-return-num=~a~%"
-         (env-call-num env) (env-return-num env))
-  (match (hashq-ref *scan-procedures* (car op))
-    ((? list? procs)
-     (let lp ((procs procs))
-       (match procs
-         (((test . work) . procs)
-          (if (apply test (list op locals))
-              (apply work env ip dl locals (cdr op))
-              (lp procs)))
-         (_ (nyi)))))
-    (_ (nyi))))
 
 (define-syntax-rule (push-scan-sp-offset! env n)
   (set-env-sp-offset! env (- (env-sp-offset env) n)))
@@ -225,35 +174,6 @@
                          (locals (identifier-syntax %locals)))
                       . body))))
     (hashq-set! *ir-procedures* 'name (list (cons test-proc anf-proc)))))
-
-
-;;;
-;;; Macros for type inference
-;;;
-
-(define-syntax-rule (define-ti (name args ...) . body)
-  (let ((test-proc (lambda (op locals)
-                     #t))
-        (ti-proc (lambda (%env %ip %dl %locals args ...)
-                   (syntax-parameterize
-                       ((ip (identifier-syntax %ip))
-                        (dl (identifier-syntax %dl))
-                        (locals (identifier-syntax %locals))
-                        (env (identifier-syntax %env)))
-                     . body))))
-    (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
-
-(define (infer-type env op ip dl locals)
-  (match (hashq-ref *ti-procedures* (car op))
-    ((? list? procs)
-     (let lp ((procs procs))
-       (match procs
-         (((test . work) . procs)
-          (if (apply test (list op locals))
-              (apply work env ip dl locals (cdr op))
-              (lp procs)))
-         (() (values)))))
-    (_ (values))))
 
 
 ;;;
@@ -554,6 +474,40 @@ index referenced by dst, a, and b values at runtime."
   `(let ((_ ,(take-snapshot! ip 0)))
      (let ((_ (%typeq ,src ,type)))
        ,(thunk))))
+
+
+;;;
+;;; Macro for scan
+;;;
+
+(define-syntax-rule (define-scan (name args ...) . body)
+  (let ((test-proc (lambda (op locals)
+                     #t))
+        (scan-proc (lambda (%env %ip %dl %locals args ...)
+                     (syntax-parameterize
+                         ((ip (identifier-syntax %ip))
+                          (dl (identifier-syntax %dl))
+                          (locals (identifier-syntax %locals))
+                          (env (identifier-syntax %env)))
+                       . body)
+                     #t)))
+    (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
+
+;;;
+;;; Macro for Type Inference
+;;;
+
+(define-syntax-rule (define-ti (name args ...) . body)
+  (let ((test-proc (lambda (op locals)
+                     #t))
+        (ti-proc (lambda (%env %ip %dl %locals args ...)
+                   (syntax-parameterize
+                       ((ip (identifier-syntax %ip))
+                        (dl (identifier-syntax %dl))
+                        (locals (identifier-syntax %locals))
+                        (env (identifier-syntax %env)))
+                     . body))))
+    (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
 
 ;;; *** The dynamic environment
 
