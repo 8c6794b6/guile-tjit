@@ -35,7 +35,7 @@
               (loop (+ y 1) (cons line acc)))
             (reverse! acc))))
 
-    (define-syntax-rule (time exp)
+    (define-syntax-rule (time port exp)
       (let* ((t1 (gettimeofday))
              (ret exp)
              (t2 (gettimeofday))
@@ -43,7 +43,7 @@
              (usec-start (cdr t1))
              (sec-end (car t2))
              (usec-end (cdr t2)))
-        (format #t "Elapsed: ~s~%"
+        (format port "Elapsed: ~s~%"
                 (+ (- sec-end sec-start)
                    (/ (- usec-end usec-start) 1000000.0)))
         ret))
@@ -53,4 +53,6 @@
           ((= i n) (mandelbrot-main 40))
         (mandelbrot-main 40)))
 
-    (time (main 1))))
+    (call-with-output-file "/dev/null"
+      (lambda (port)
+        (time port (main 1))))))
