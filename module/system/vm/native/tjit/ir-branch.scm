@@ -252,7 +252,7 @@
               ((eq? &fixnum b/t)
                (next-thunk))
               ((eq? &scm b/t)
-               (with-type-guard &fixnum b/t next-thunk))
+               (with-type-guard &fixnum vb next-thunk))
               (else
                (nyi "~s: et=fixnum it=~a" 'name (pretty-type b/t)))))))))))
 
