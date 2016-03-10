@@ -20,14 +20,21 @@
 
 ;;; Commentary:
 ;;;
-;;; Module exporting @code{tjitc}, entry point of just-in-time compiler
-;;; for `vm-tjit' engine.
+;;; Module exporting @code{tjitc}, entry point of just-in-time compiler for
+;;; `vm-tjit' engine. The procedure @code{tjitc} is called from C code in
+;;; "libguile/vm-tjit.c".
 ;;;
 ;;; Code:
 
 (define-module (system vm native tjit tjitc)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+
+  ;; Workaround for avoiding segfault while fresh auto compile. Without the
+  ;; import of (language scheme spec) module, fresh auto compilation with no
+  ;; `--tjit-dump' option was showing segfault.
+  #:use-module (language scheme spec)
+
   #:use-module ((srfi srfi-1) #:select (last))
   #:use-module (srfi srfi-11)
   #:use-module (system vm native debug)
@@ -48,7 +55,6 @@
 ;;; Entry point
 ;;;
 
-;; This procedure is called from C code in "libguile/vm-tjit.c".
 (define (tjitc trace-id bytecode traces parent-ip parent-exit-id linked-ip
                loop? downrec? uprec?)
   (when (tjit-dump-time? (tjit-dump-option))
