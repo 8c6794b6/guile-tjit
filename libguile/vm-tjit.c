@@ -306,7 +306,11 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
   int has_root_trace = root_ip_ref ((scm_t_uintptr) ip);
 
   if (has_root_trace)
-    fragment = tjit_matching_fragment (vp, s_ip);
+    {
+      vp->ip = ip;
+      fragment = tjit_matching_fragment (vp, s_ip);
+      sp = vp->sp;
+    }
   else
     fragment = SCM_BOOL_F;
 
@@ -481,7 +485,9 @@ scm_make_tjit_state (void)
       {                                                                 \
         SCM s_ip, fragment;                                             \
         s_ip = SCM_I_MAKINUM (ip + JUMP);                               \
+        SYNC_IP ();                                                     \
         fragment = tjit_matching_fragment (vp, s_ip);                   \
+        CACHE_SP ();                                                    \
         if (scm_is_true (fragment))                                     \
           {                                                             \
             call_native (s_ip, fragment, thread, vp, registers, tj);    \
@@ -799,7 +805,7 @@ scm_bootstrap_vm_tjit(void)
 
   bytecode_buffer_fluid = scm_make_fluid ();
   bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
-  buffer = scm_gc_malloc_pointerless (bytes, "tjitbuffer");
+  buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
   scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
 
   init_tjit_hash ();
