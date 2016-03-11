@@ -276,6 +276,9 @@
     dst))
 
 (define %scm-from-double
+  (dynamic-pointer "scm_from_double" (dynamic-link)))
+
+(define %scm-inline-from-double
   (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
 
 (define-syntax scm-from-double
@@ -284,9 +287,12 @@
      (let ((volatiles (asm-volatiles asm)))
        (for-each store-volatile volatiles)
        (jit-prepare)
-       (jit-pushargr %thread)
+       (when (asm-gc-inline? asm)
+         (jit-pushargr %thread))
        (jit-pushargr-d src)
-       (jit-calli %scm-from-double)
+       (if (asm-gc-inline? asm)
+           (jit-calli %scm-inline-from-double)
+           (jit-calli %scm-from-double))
        (jit-retval dst)
        (for-each (lambda (reg)
                    (unless (cond
@@ -295,6 +301,9 @@
                             (else #f))
                      (load-volatile reg)))
                  volatiles)))))
+
+(define %scm-cell
+  (dynamic-pointer "scm_cell" (dynamic-link)))
 
 (define %scm-inline-cell
   (dynamic-pointer "scm_do_inline_cell" (dynamic-link)))
@@ -499,7 +508,7 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm volatiles exit out-code end-address cargs)
+  (%make-asm volatiles exit out-code end-address cargs gc-inline?)
   asm?
 
   ;; Volatile registers in use.
@@ -515,9 +524,12 @@
   (end-address asm-end-address)
 
   ;; Arguments for function call.
-  (cargs asm-cargs set-asm-cargs!))
+  (cargs asm-cargs set-asm-cargs!)
 
-(define (make-asm storage end-address)
+  ;; Flag to use C functions from "libguile/gc-inline.h".
+  (gc-inline? asm-gc-inline?))
+
+(define (make-asm storage end-address gc-inline)
   (define (volatile-regs-in-use storage)
     (hash-fold (lambda (_ reg acc)
                  (if (or (and (gpr? reg)
@@ -529,7 +541,8 @@
                      acc))
                '()
                storage))
-  (%make-asm (volatile-regs-in-use storage) #f #f end-address '()))
+  (%make-asm (volatile-regs-in-use storage) #f #f end-address '()
+             gc-inline))
 
 (define-syntax jump
   (syntax-rules ()
@@ -725,9 +738,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Call and return
 ;;;
 
-(define-native (%carg (int dst))
-  (set-asm-cargs! asm (cons dst (asm-cargs asm))))
-
 ;;; Scheme procedure call. Shifts current FP.
 (define-native (%scall (void proc))
   (let* ((vp r0)
@@ -736,6 +746,29 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (load-vp->fp vp->fp vp)
     (jit-subi vp->fp vp->fp (imm (* (ref-value proc) %word-size)))
     (store-vp->fp vp vp->fp)))
+
+;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
+;;; link. Guard with return address, checks whether it match with the IP used at
+;;; the time of compilation.
+(define-native (%return (void ra))
+  (let ((vp r0)
+        (vp->fp r1)
+        (tmp r2))
+    (when (not (constant? ra))
+      (tjitc-error '%return "got non-constant ra: ~s" ra))
+    (load-vp vp)
+    (load-vp->fp vp->fp vp)
+    (scm-frame-return-address tmp vp->fp)
+    (jump (jit-bnei tmp (constant ra)) (bailout))
+
+    (scm-frame-dynamic-link tmp vp->fp)
+    (jit-lshi tmp tmp (imm %word-size-in-bits))
+    (jit-addr vp->fp vp->fp tmp)
+    (store-vp->fp vp vp->fp)))
+
+;;; Prepare argument for calling C function.
+(define-native (%carg (int arg))
+  (set-asm-cargs! asm (cons arg (asm-cargs asm))))
 
 ;;; C function call. Appears when Scheme primitive procedure defined as `gsubr'
 ;;; in C were called.
@@ -768,25 +801,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (load-vp r0)
     (vm-cache-sp r0)
     (set-asm-cargs! asm '())))
-
-;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
-;;; link. Guard with return address, checks whether it match with the IP used at
-;;; the time of compilation.
-(define-native (%return (void ra))
-  (let ((vp r0)
-        (vp->fp r1)
-        (tmp r2))
-    (when (not (constant? ra))
-      (tjitc-error '%return "got non-constant ra: ~s" ra))
-    (load-vp vp)
-    (load-vp->fp vp->fp vp)
-    (scm-frame-return-address tmp vp->fp)
-    (jump (jit-bnei tmp (constant ra)) (bailout))
-
-    (scm-frame-dynamic-link tmp vp->fp)
-    (jit-lshi tmp tmp (imm %word-size-in-bits))
-    (jit-addr vp->fp vp->fp tmp)
-    (store-vp->fp vp vp->fp)))
 
 
 ;;;
@@ -1147,10 +1161,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                   (store-volatile reg)))
               volatiles)
     (jit-prepare)
-    (jit-pushargr %thread)
+    (when (asm-gc-inline? asm)
+      (jit-pushargr %thread))
     (push-as-gpr x x-overwritten?)
     (push-as-gpr y y-overwritten?)
-    (jit-calli %scm-inline-cell)
+    (if (asm-gc-inline? asm)
+        (jit-calli %scm-inline-cell)
+        (jit-calli %scm-cell))
     (retval-to-reg-or-mem dst)
     (for-each (lambda (reg)
                 (when (not (equal? reg dst))

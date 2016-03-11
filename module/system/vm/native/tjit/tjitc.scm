@@ -115,9 +115,10 @@
         (let-values (((code size adjust loop-address trampoline)
                       (compile-native env ops snapshots sline)))
           (tjit-increment-id!)
-          (when (tjit-dump-ncode? dump-option)
-            (dump-ncode trace-id entry-ip code size adjust loop-address
-                        snapshots trampoline (not parent-snapshot))))
+          (dump tjit-dump-ncode? code
+                (dump-ncode trace-id entry-ip code size adjust
+                            loop-address snapshots trampoline
+                            (not parent-snapshot))))
         (when (tjit-dump-time? dump-option)
           (let ((log (get-tjit-time-log trace-id))
                 (t (get-internal-run-time)))
@@ -136,11 +137,10 @@
           (failure "NYI - up recursion"))
          (downrec?
           (failure "NYI - down recursion"))
-         ((and (not parent-snapshot) loop?
-               (not (zero? (env-sp-offset env))))
-          (failure "NYI - looping root trace with stack pointer shift"))
          ((and (not parent-snapshot) (not loop?))
           (failure "NYI - loop-less root trace"))
+         ((and (not parent-snapshot) (not (zero? (env-sp-offset env))))
+          (failure "NYI - looping root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
           (failure "NYI - type mismatch in linked fragment"))
          (else
