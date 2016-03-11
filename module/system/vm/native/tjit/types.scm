@@ -205,7 +205,8 @@
 
 (define-syntax &fixnum (identifier-syntax &exact-integer))
 
-(define &scm (@@ (language cps types) &all-types))
+(define-syntax &scm
+  (identifier-syntax (@@ (language cps types) &all-types)))
 
 
 ;;;
