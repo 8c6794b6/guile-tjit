@@ -1,0 +1,276 @@
+;;;; Tests for tjit assembler -*- mode: scheme; coding: utf-8; -*-
+;;;;
+;;;;    Copyright (C) 2014, 2015, 2016 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (tests tjit-assembler)
+  #:use-module (test-suite lib)
+  #:use-module (ice-9 match)
+  #:use-module (rnrs bytevectors)
+  #:use-module (system foreign)
+  #:use-module (system vm native lightning)
+  #:use-module (system vm native tjit assembler)
+  #:use-module (system vm native tjit variables)
+  #:use-module (system vm native tjit registers)
+  #:use-module (system vm native tjit tjitc))
+
+
+;;;
+;;; Auxiliary
+;;;
+
+(define code-buffer
+  (make-bytevector 65536))
+
+(define (reify-asm-variable x)
+  (cond
+   ((number? x)   `(const . ,x))
+   ((eq? x 'ret)  `(gpr . -1))
+   ((eq? x 'arg1) `(gpr . -1))
+   ((eq? x 'arg2) `(gpr . -2))
+   (else
+    (let* ((x/str (symbol->string x))
+           (head (string-ref x/str 0))
+           (tail (string->number (substring x/str 1))))
+      (cond
+       ((eq? head #\g) `(gpr . ,tail))
+       ((eq? head #\f) `(fpr . ,tail))
+       ((eq? head #\m) `(mem . ,tail))
+       (else (error "unknown variable" x)))))))
+
+(define (assemble-ops ops)
+  (define (assemble ops)
+    (let lp ((ops ops) (t (make-hash-table)) (acc '()))
+      (match ops
+        (((op-name . args) . ops)
+         (let ((vars (map reify-asm-variable args)))
+           (let lp ((vars vars))
+             (match vars
+               ((var . vars)
+                (hashq-set! t var var)
+                (lp vars))
+               (_ (values))))
+           (lp ops t (cons (cons op-name vars) acc))))
+        (_
+         ;; Call to inlined GC functions caused segfault when running
+         ;; tests. Passing false to `gc-inline?' argument in `make-asm'.
+         (let ((asm (make-asm t #f #f)))
+           (let lp ((ops (reverse! acc)))
+             (match ops
+               (((op-name . vars) . ops)
+                (cond
+                 ((hashq-ref *native-prim-procedures* op-name)
+                  => (lambda (proc)
+                       (apply proc asm vars)
+                       (lp ops)))
+                 (else
+                  (error "unknown op" op-name))))
+               (_ (values)))))))))
+
+  (with-jit-state
+   (jit-prolog)
+   (jit-frame (imm 8192))
+   (jit-getarg %thread (jit-arg))
+   (jit-getarg r0 (jit-arg))
+   (jit-getarg r1 (jit-arg))
+   (assemble ops)
+   (jit-retr r0)
+   (jit-epilog)
+   (jit-realize)
+   (let* ((size (jit-code-size))
+          (_ (jit-set-code (bytevector->pointer code-buffer) (imm size)))
+          (ptr (jit-emit))
+          (raw-proc (pointer->procedure '* ptr '(* * *)))
+          (proc (lambda (thread a b)
+                  (pointer->scm (raw-proc (scm->pointer thread)
+                                          (scm->pointer a)
+                                          (scm->pointer b))))))
+     ;; (jit-print)
+     proc)))
+
+(define (run-asm arg1 arg2 expr)
+  ((assemble-ops expr) (current-thread) arg1 arg2))
+
+(define gprs '(g0 g4 g-3))
+(define fprs '(f0 f4 f-3))
+(define mems '(m0 m1 m2))
+
+(define all-storages
+  (append gprs fprs mems))
+
+(define-syntax with-regs
+  (syntax-rules ()
+    ((_ () body)
+     body)
+    ((_ (reg . regs) body)
+     (do ((rs all-storages (cdr rs)))
+         ((null? rs))
+       (let ((reg (car rs)))
+         (with-regs regs body))))))
+
+;;;
+;;; Initializations
+;;;
+
+(init-vm-tjit #f)
+(make-bytevector-executable! code-buffer)
+
+
+;;;
+;;; Test codes
+;;;
+
+(with-test-prefix "Guards"
+  ;; %eq
+  ;; %neq
+  ;; %le
+  ;; %lt
+  ;; %ge
+  ;; %gt
+  ;; %flt
+  ;; %fge
+  ;; %typeq
+  #f)
+
+(with-test-prefix "Call and return"
+  (with-test-prefix "ccall"
+    (with-test-prefix "integer->char"
+      (with-regs (dst src)
+        (pass-if-equal (format #f "dst=~a src=~a" dst src)
+            (integer->char 97)
+          (run-asm 97 #f `((%move ,src arg1)
+                           (%carg ,src)
+                           (%ccall ,dst ,(pointer-address
+                                          (scm->pointer integer->char)))
+                           (%move ret ,dst)))))))
+  ;; %scall
+  ;; %return
+  )
+
+(with-test-prefix "Bitwise arithmetic"
+  ;; %band
+  #f)
+
+(with-test-prefix "Integer arithmetic"
+  (with-test-prefix "add"
+    (with-regs (dst a b)
+      (when (not (eq? a b))
+        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+            (+ 15 27)
+          (run-asm 15 27 `((%move ,a arg1)
+                           (%move ,b arg2)
+                           (%add ,dst ,a ,b)
+                           (%sub ,dst ,dst 2)
+                           (%move ret ,dst))))))
+    (with-regs (dst a)
+      (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a 402)
+          (+ 15 (pointer->scm (make-pointer 402)))
+        (run-asm 15 #f `((%move ,a arg1)
+                         (%add ,dst ,a 402)
+                         (%sub ,dst ,dst 2)
+                         (%move ret ,dst)))))
+    (with-regs (dst b)
+      (pass-if-equal (format #f "dst=~a a=~a b=~a" dst 402 b)
+          (+ (pointer->scm (make-pointer 402)) 15)
+        (run-asm #f 15 `((%move ,b arg2)
+                         (%add ,dst 402 ,b)
+                         (%sub ,dst ,dst 2)
+                         (%move ret ,dst))))))
+  (with-test-prefix "sub"
+    (with-regs (dst a b)
+      (when (not (eq? a b))
+        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+            (- 15 27)
+          (run-asm 15 27 `((%move ,a arg1)
+                           (%move ,b arg2)
+                           (%sub ,dst ,a ,b)
+                           (%add ,dst ,dst 2)
+                           (%move ret ,dst)))))))
+  ;; %rsh
+  ;; %lsh
+  ;; %mod
+  ;; %quo
+  )
+
+(with-test-prefix "Floating point arithmetic"
+  (for-each
+   (lambda (args)
+     (match args
+       ((name scm-op asm-op)
+        (with-test-prefix name
+          (with-regs (dst a b)
+            (when (not (eq? a b))
+              (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+                  (scm-op 87.13 12.87)
+                (run-asm 87.13 12.87
+                         `((%cref/f ,a arg1 2)
+                           (%cref/f ,b arg2 2)
+                           (,asm-op ,dst ,a ,b)
+                           (%d2s ret ,dst))))))))))
+   (list (list "fadd" + '%fadd)
+         (list "fsub" - '%fsub)
+         (list "fmul" * '%fmul)
+         (list "fdiv" / '%fdiv))))
+
+(with-test-prefix "Load and store"
+  ;; %fref
+  ;; %fref/f
+  (with-test-prefix "cref"
+    (with-test-prefix "index 0"
+      (with-regs (dst src)
+        (pass-if-equal (format #f "dst=~a src=~a" dst src)
+            123
+          (run-asm '(123 456 789) #f
+                   `((%move ,src arg1)
+                     (%cref ,dst ,src 0)
+                     (%move ret ,dst))))))
+    (with-test-prefix "index 1"
+      (with-regs (dst src)
+        (pass-if-equal (format #f "dst=~a src=~a" dst src)
+            '(456 789)
+          (run-asm '(123 456 789) #f
+                   `((%move ,src arg1)
+                     (%cref ,dst ,src 1)
+                     (%move ret ,dst)))))))
+  ;; %cref/f
+  ;; %cset
+  )
+
+(with-test-prefix "Heap objects"
+  (with-test-prefix "cell"
+    (with-regs (dst a b)
+      (when (not (eq? a b))
+        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+            '(123 456 789)
+          (run-asm 123 '(456 789)
+                   `((%move ,a arg1)
+                     (%move ,b arg2)
+                     (%cell ,dst ,a ,b)
+                     (%move ret ,dst))))))))
+
+(with-test-prefix "Type conversion"
+  ;; %i2d
+  ;; %d2s
+  #f)
+
+(with-test-prefix "Move"
+  ;; %move
+  #f)
+
+
+;;; Local Variables:
+;;; eval: (put 'with-regs 'scheme-indent-function 1)
+;;; End:
