@@ -110,6 +110,7 @@
                 (a/t (type-ref a))
                 (b/t (type-ref b))
                 (r2 (make-tmpvar 2))
+                (f1 (make-tmpvar/f 2))
                 (f2 (make-tmpvar/f 2)))
            (cond
             ((and (eq? &flonum a/t) (eq? &fixnum b/t))
@@ -124,6 +125,15 @@
                     (let ((,f2 (%i2d ,r2)))
                       (let ((,dst/v (op-fl ,a/v ,f2)))
                         ,(next)))))))
+            ((and (eq? &scm a/t) (eq? &scm b/t))
+             (with-type-guard &flonum a/v
+               (lambda ()
+                 (with-type-guard &fixnum b/v
+                   (lambda ()
+                     `(let ((,f1 (%cref/f ,a/v 2)))
+                        (let ((,f2 (%i2d ,b/v)))
+                          (let ((,dst/v (op-fl ,f1 ,f2)))
+                            ,(next)))))))))
             (else
              (nyi "~s: et=(fixnum flonum) it=(~a ~a)"
                   'name (pretty-type a/t) (pretty-type b/t))))))
@@ -134,6 +144,7 @@
                 (a/t (type-ref a))
                 (b/t (type-ref b))
                 (r2 (make-tmpvar 2))
+                (f1 (make-tmpvar/f 1))
                 (f2 (make-tmpvar/f 2)))
            (debug 2 ";;; [IR] ~s: i=(~a ~a)~%" 'name
                   (pretty-type a/t) (pretty-type b/t))
@@ -160,8 +171,17 @@
                  `(let ((,f2 (%cref/f ,b/v 2)))
                     (let ((,dst/v (op-fl ,a/v ,f2)))
                       ,(next))))))
+            ((and (eq? &scm a/t) (eq? &scm b/t))
+             (with-type-guard &flonum a/v
+               (lambda ()
+                 (with-type-guard &flonum b/v
+                   (lambda ()
+                     `(let ((,f1 (%cref/f ,a/v 2)))
+                        (let ((,f2 (%cref/f ,b/v 2)))
+                          (let ((,dst/v (op-fl ,f1 ,f2)))
+                            ,(next)))))))))
             (else
-             (nyi "~s: et=(flonum flonum) i=(~a ~a)" 'name
+             (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                   (pretty-type a/t) (pretty-type b/t))))))))))
 
 (define-syntax define-add-sub-scm-imm
@@ -240,6 +260,15 @@
                  (let ((,f2 (%i2d ,r2)))
                    (let ((,dst/v (op ,a/v ,f2)))
                      ,(next)))))))
+         ((and (eq? &scm a/t) (eq? &scm b/t))
+          (with-type-guard &flonum a/v
+            (lambda ()
+              (with-type-guard &fixnum b/v
+                (lambda ()
+                  `(let ((,f1 (%cref/f ,a/v 2)))
+                     (let ((,f2 (%i2d ,b/v)))
+                       (let ((,dst/v (op ,f1 ,f2)))
+                         ,(next)))))))))
          (else
           (nyi "~s: et=(flonum fixnum) it=(~a ~a)" 'name
                (pretty-type a/t) (pretty-type b/t))))))
