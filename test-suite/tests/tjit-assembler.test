@@ -20,12 +20,14 @@
   #:use-module (test-suite lib)
   #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
+  #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit variables)
   #:use-module (system vm native tjit registers)
-  #:use-module (system vm native tjit tjitc))
+  #:use-module (system vm native tjit tjitc)
+  #:use-module (system vm native tjit types))
 
 
 ;;;
@@ -40,18 +42,18 @@
 
 (define (reify-asm-variable x)
   (cond
-   ((number? x)   `(const . ,x))
-   ((eq? x 'ret)  `(gpr . -1))
-   ((eq? x 'arg1) `(gpr . -1))
-   ((eq? x 'arg2) `(gpr . -2))
+   ((number? x)   (make-constant x))
+   ((eq? x 'ret)  (make-gpr -1))
+   ((eq? x 'arg1) (make-gpr -1))
+   ((eq? x 'arg2) (make-gpr -2))
    (else
     (let* ((x/str (symbol->string x))
            (head (string-ref x/str 0))
            (tail (string->number (substring x/str 1))))
       (cond
-       ((eq? head #\g) `(gpr . ,tail))
-       ((eq? head #\f) `(fpr . ,tail))
-       ((eq? head #\m) `(mem . ,tail))
+       ((eq? head #\g) (make-gpr tail))
+       ((eq? head #\f) (make-fpr tail))
+       ((eq? head #\m) (make-memory tail))
        (else (error "unknown variable" x)))))))
 
 (define (assemble-ops ops)
@@ -140,13 +142,13 @@ Example:
 
 (define-syntax with-storages
   (syntax-rules ()
-    ((_ () body)
-     body)
-    ((_ (reg . regs) body)
+    ((_ () . body)
+     (begin . body))
+    ((_ (reg . regs) . body)
      (do ((rs all-storages (cdr rs)))
          ((null? rs))
        (let ((reg (car rs)))
-         (with-storages regs body))))))
+         (with-storages regs . body))))))
 
 ;;;
 ;;; Initializations
@@ -159,6 +161,13 @@ Example:
 ;;;
 ;;; Test codes
 ;;;
+
+(define-record-type <foo>
+  (make-foo a b c)
+  foo?
+  (a foo-a set-foo-a!)
+  (b foo-b set-foo-b!)
+  (c foo-c set-foo-c!))
 
 (with-test-prefix "Guards"
   (for-each
@@ -228,8 +237,49 @@ Example:
       (1.0 456.0 ,bailout-tag)
       (456.0 456.0 100)
       (999.0 456.0 100))))
-  ;; %typeq
-  )
+
+  (with-test-prefix "typeq"
+    (let ((samples (list 123 123.456 #\a 'foo display (make-pointer 0)
+                         (make-fluid) '(1 2 3) #(1 2 3)
+                         (make-variable 12345) (make-foo 1 2 3)
+                         "foo bar" #u8(1 2 3) #*0101 (make-array 8))))
+      (for-each
+       (match-lambda
+         ((type proc)
+          (with-test-prefix (format #f "~a" (pretty-type type))
+            (with-storages (src)
+              (with-test-prefix (format #f "src=~a" src)
+                (for-each
+                 (lambda (x)
+                   (pass-if-equal (format #f "x=~a" x)
+                       (if (proc x) 100 bailout-tag)
+                     (run-asm `((%move ,src arg1)
+                                (%typeq ,src ,type)
+                                (%move ret 402))
+                              x #f)))
+                 samples))))))
+       (list (list &fixnum fixnum?)
+             (list &flonum flonum?)
+             (list &char char?)
+             (list &symbol symbol?)
+             (list &keyword keyword?)
+             (list &procedure procedure?)
+             (list &pointer pointer?)
+             (list &fluid fluid?)
+             (list &pair pair?)
+             (list &vector vector?)
+             (list &box variable?)
+             (list &struct struct?)
+             (list &string string?)
+             (list &bytevector bytevector?)
+             (list &bitvector bitvector?)
+             ;; vector, string, bytevector, and bitvector are array type.
+             (list &array (lambda (x)
+                            (and (not (vector? x))
+                                 (not (string? x))
+                                 (not (bytevector? x))
+                                 (not (bitvector? x))
+                                 (array? x)))))))))
 
 (with-test-prefix "Call and return"
   (with-test-prefix "ccall"
@@ -288,12 +338,11 @@ Example:
                              (,op ,dst ,a ,arg2)
                              (%lsh ,dst ,dst 2)
                              (%add ret ,dst 2))
-                           arg1 #f)))
-              (with-storages (dst b)
-                (pass-if-equal (format #f "dst=~a a=~a b=~a" dst arg1 b)
+                           arg1 #f))
+                (pass-if-equal (format #f "dst=~a a=~a b=~a" dst arg1 a)
                     expected
-                  (run-asm `((%rsh ,b arg2 2)
-                             (,op ,dst ,arg1 ,b)
+                  (run-asm `((%rsh ,a arg2 2)
+                             (,op ,dst ,arg1 ,a)
                              (%lsh ,dst ,dst 2)
                              (%add ret ,dst 2))
                            #f arg2))))))
@@ -326,12 +375,11 @@ Example:
               (run-asm `((%cref/f ,a arg1 2)
                          (,asm-op ,dst ,a 12.87)
                          (%d2s ret ,dst))
-                       87.13 #f)))
-          (with-storages (dst b)
-            (pass-if-equal (format #f "dst=~a a=~a b=~a" dst 87.13 b)
+                       87.13 #f))
+            (pass-if-equal (format #f "dst=~a a=~a b=~a" dst 87.13 a)
                 (scm-op 87.13 12.87)
-              (run-asm `((%cref/f ,b arg2 2)
-                         (,asm-op ,dst 87.13 ,b)
+              (run-asm `((%cref/f ,a arg2 2)
+                         (,asm-op ,dst 87.13 ,a)
                          (%d2s ret ,dst))
                        #f 12.87)))))))
    (list (list "fadd" + '%fadd)
