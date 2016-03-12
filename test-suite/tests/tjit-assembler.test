@@ -35,6 +35,9 @@
 (define code-buffer
   (make-bytevector 65536))
 
+(define bailout-tag
+  'bailout)
+
 (define (reify-asm-variable x)
   (cond
    ((number? x)   `(const . ,x))
@@ -52,7 +55,7 @@
        (else (error "unknown variable" x)))))))
 
 (define (assemble-ops ops)
-  (define (assemble ops)
+  (define (assemble ops exit)
     (let lp ((ops ops) (t (make-hash-table)) (acc '()))
       (match ops
         (((op-name . args) . ops)
@@ -68,6 +71,7 @@
          ;; Call to inlined GC functions caused segfault when running
          ;; tests. Passing false to `gc-inline?' argument in `make-asm'.
          (let ((asm (make-asm t #f #f)))
+           (set-asm-exit! asm exit)
            (let lp ((ops (reverse! acc)))
              (match ops
                (((op-name . vars) . ops)
@@ -86,8 +90,12 @@
    (jit-getarg %thread (jit-arg))
    (jit-getarg r0 (jit-arg))
    (jit-getarg r1 (jit-arg))
-   (assemble ops)
-   (jit-retr r0)
+   (let ((exit (jit-forward)))
+     (assemble ops exit)
+     (jit-retr r0)
+     (jit-link exit)
+     (jit-movi r0 (scm->pointer bailout-tag))
+     (jit-retr r0))
    (jit-epilog)
    (jit-realize)
    (let* ((size (jit-code-size))
@@ -153,16 +161,75 @@ Example:
 ;;;
 
 (with-test-prefix "Guards"
-  ;; %eq
-  ;; %neq
-  ;; %le
-  ;; %lt
-  ;; %ge
-  ;; %gt
-  ;; %flt
-  ;; %fge
+  (for-each
+   (match-lambda
+     ((name op . rest)
+      (with-test-prefix name
+        (for-each
+         (match-lambda
+           ((arg1 arg2 expect)
+            (with-test-prefix (format #f "~a ~a => ~a" arg1 arg2 expect)
+              (with-storages (a b)
+                (unless (eq? a b)
+                  (pass-if-equal (format #f "a=~a b=~a" a b)
+                      expect
+                    (run-asm `((%move ,a arg1)
+                               (%move ,b arg2)
+                               (,op ,a ,b)
+                               (%move ret 402))
+                             arg1 arg2)))))))
+         rest))))
+   `(("eq" %eq
+      (123 123 100)
+      (123 456 ,bailout-tag))
+     ("ne" %ne
+      (123 456 100)
+      (123 123 ,bailout-tag))
+     ("le" %le
+      (123 456 100)
+      (123 123 100)
+      (123 1 ,bailout-tag))
+     ("lt" %lt
+      (123 456 100)
+      (123 123 ,bailout-tag)
+      (123 1 ,bailout-tag))
+     ("ge" %ge
+      (123 456 ,bailout-tag)
+      (123 123 100)
+      (123 1 100))
+     ("gt" %gt
+      (123 456 ,bailout-tag)
+      (123 123 ,bailout-tag)
+      (123 1 100))))
+
+  (for-each
+   (match-lambda
+     ((name op . rest)
+      (with-test-prefix name
+        (for-each
+         (match-lambda
+           ((arg1 arg2 expect)
+            (with-test-prefix (format #f "~a ~a ~a" arg1 arg2 expect)
+              (with-storages (a b)
+                (unless (eq? a b)
+                  (pass-if-equal (format #f "a=~a b=~a" a b)
+                      expect
+                    (run-asm `((%cref/f ,a arg1 2)
+                               (%cref/f ,b arg2 2)
+                               (,op ,a ,b)
+                               (%move ret 402))
+                             arg1 arg2)))))))
+         rest))))
+   `(("flt" %flt
+      (1.0 456.0 100)
+      (456.0 456.0 ,bailout-tag)
+      (999.0 456.0 ,bailout-tag))
+     ("fge" %fge
+      (1.0 456.0 ,bailout-tag)
+      (456.0 456.0 100)
+      (999.0 456.0 100))))
   ;; %typeq
-  #f)
+  )
 
 (with-test-prefix "Call and return"
   (with-test-prefix "ccall"
@@ -196,192 +263,47 @@ Example:
                    123 456))))))
 
 (with-test-prefix "Integer arithmetic"
-  (with-test-prefix "add"
-    (with-storages (dst a b)
-      (unless (eq? a b)
-        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
-            (+ 15 27)
-          (run-asm `((%move ,a arg1)
-                     (%move ,b arg2)
-                     (%add ,dst ,a ,b)
-                     (%sub ,dst ,dst 2)
-                     (%move ret ,dst))
-                   15 27))))
-    (with-storages (dst a)
-      (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a 402)
-          (+ 15 (pointer->scm (make-pointer 402)))
-        (run-asm `((%move ,a arg1)
-                   (%add ,dst ,a 402)
-                   (%sub ,dst ,dst 2)
-                   (%move ret ,dst))
-                 15 #f)))
-    (with-storages (dst b)
-      (pass-if-equal (format #f "dst=~a a=~a b=~a" dst 402 b)
-          (+ (pointer->scm (make-pointer 402)) 15)
-        (run-asm `((%move ,b arg2)
-                   (%add ,dst 402 ,b)
-                   (%sub ,dst ,dst 2)
-                   (%move ret ,dst))
-                 #f 15))))
-
-  (with-test-prefix "sub"
-    (with-storages (dst a b)
-      (unless (eq? a b)
-        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
-            (- 15 27)
-          (run-asm `((%move ,a arg1)
-                     (%move ,b arg2)
-                     (%sub ,dst ,a ,b)
-                     (%add ,dst ,dst 2)
-                     (%move ret ,dst))
-                   15 27))))
-    (with-storages (dst a)
-      (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a 402)
-          (- 15 (pointer->scm (make-pointer 402)))
-        (run-asm `((%move ,a arg1)
-                   (%sub ,dst ,a 402)
-                   (%add ,dst ,dst 2)
-                   (%move ret ,dst))
-                 15 #f)))
-    (with-storages (dst b)
-      (pass-if-equal (format #f "dst=~a a=~a b=~a" dst 402 b)
-          (- (pointer->scm (make-pointer 402)) 15)
-        (run-asm `((%move ,b arg1)
-                   (%sub ,dst 402 ,b)
-                   (%add ,dst ,dst 2)
-                   (%move ret ,dst))
-                 15 #f))))
-
-  (with-test-prefix "rsh"
-    (with-storages (dst a b)
-      (unless (eq? a b)
-        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
-            246
-          (run-asm `((%move ,a arg1)
-                     (%move ,b arg2)
-                     (%rsh ,b ,b 2)
-                     (%rsh ,a ,a ,b)
-                     (%add ,dst ,a ,a)
-                     (%lsh ,dst ,dst 2)
-                     (%add ret ,dst 2))
-                   123 2))))
-    (with-storages (dst a)
-      (pass-if-equal (format #f "dst=~a a=~a" dst a)
-          246
-        (run-asm `((%move ,a arg1)
-                   (%rsh ,a ,a 2)
-                   (%add ,dst ,a ,a)
-                   (%lsh ,dst ,dst 2)
-                   (%add ret ,dst 2))
-                 123 #f)))
-    (with-storages (dst b)
-      (pass-if-equal (format #f "dst=~a b=~a" dst b)
-          246
-        (run-asm `((%move ,b arg1)
-                   (%rsh ,b ,b 2)
-                   (%rsh ,b 492 ,b)
-                   (%add ,dst ,b ,b)
-                   (%lsh ,dst ,dst 2)
-                   (%add ret ,dst 2))
-                 2 #f))))
-
-  (with-test-prefix "lsh"
-    (with-storages (dst a b)
-      (unless (eq? a b)
-        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
-            (ash 123 4)
-          (run-asm `((%move ,a arg1)
-                     (%move ,b arg2)
-                     (%rsh ,a ,a 2)
-                     (%rsh ,b ,b 2)
-                     (%lsh ,dst ,a ,b)
-                     (%lsh ,dst ,dst 2)
-                     (%add ret ,dst 2))
-                   123 4))))
-    (with-storages (dst a)
-      (pass-if-equal (format #f "dst=~a a=~a" dst a)
-          (ash 123 4)
-        (run-asm `((%move ,a arg1)
-                   (%rsh ,a ,a 2)
-                   (%lsh ,dst ,a 4)
-                   (%lsh ,dst ,dst 2)
-                   (%add ret ,dst 2))
-                 123 #f)))
-    (with-storages (dst b)
-      (pass-if-equal (format #f "dst=~a b=~a" dst b)
-          (ash 123 4)
-        (run-asm `((%move ,b arg1)
-                   (%rsh ,b ,b 2)
-                   (%lsh ,dst 123 ,b)
-                   (%lsh ,dst ,dst 2)
-                   (%add ret ,dst 2))
-                 4 #f))))
-
-  (with-test-prefix "mod"
-    (let ((ret (modulo 100 17)))
-      (with-storages (dst a b)
-        (unless (eq? a b)
-          (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
-              ret
-            (run-asm `((%move ,a arg1)
-                       (%move ,b arg2)
-                       (%rsh ,a ,a 2)
-                       (%rsh ,b ,b 2)
-                       (%mod ,dst ,a ,b)
-                       (%lsh ,dst ,dst 2)
-                       (%add ret ,dst 2))
-                     100 17))))
-      (with-storages (dst a)
-        (pass-if-equal (format #f "dst=~a a=~a" dst a)
-            ret
-          (run-asm `((%move ,a arg1)
-                     (%rsh ,a ,a 2)
-                     (%mod ,dst ,a 17)
-                     (%lsh ,dst ,dst 2)
-                     (%add ret ,dst 2))
-                   100 17)))
-      (with-storages (dst b)
-        (pass-if-equal (format #f "dst=~a b=~a" dst b)
-            ret
-          (run-asm `((%move ,b arg2)
-                     (%rsh ,b ,b 2)
-                     (%mod ,dst 100 ,b)
-                     (%lsh ,dst ,dst 2)
-                     (%add ret ,dst 2))
-                   100 17)))))
-
-  (with-test-prefix "quo"
-    (let ((ret (quotient 1000 17)))
-      (with-storages (dst a b)
-        (unless (eq? a b)
-          (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
-              ret
-            (run-asm `((%move ,a arg1)
-                       (%move ,b arg2)
-                       (%rsh ,a ,a 2)
-                       (%rsh ,b ,b 2)
-                       (%quo ,dst ,a ,b)
-                       (%lsh ,dst ,dst 2)
-                       (%add ret ,dst 2))
-                     1000 17))))
-      (with-storages (dst a)
-        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a 17)
-            ret
-          (run-asm `((%move ,a arg1)
-                     (%rsh ,a ,a 2)
-                     (%quo ,dst ,a 17)
-                     (%lsh ,dst ,dst 2)
-                     (%add ret ,dst 2))
-                   1000 #f)))
-      (with-storages (dst b)
-        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst 1000 b)
-            ret
-          (run-asm `((%move ,b arg2)
-                     (%rsh ,b ,b 2)
-                     (%quo ,dst 1000 ,b)
-                     (%lsh ,dst ,dst 2)
-                     (%add ret ,dst 2))
-                   #f 17))))))
+  (for-each
+   (match-lambda
+     ((name op . rest)
+      (with-test-prefix name
+        (for-each
+         (match-lambda
+           ((arg1 arg2 expected)
+            (with-test-prefix (format #f "~a ~a ~a" arg1 arg2 expected)
+              (with-storages (dst a b)
+                (unless (eq? a b)
+                  (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+                      expected
+                    (run-asm `((%rsh ,a arg1 2)
+                               (%rsh ,b arg2 2)
+                               (,op ,dst ,a ,b)
+                               (%lsh ,dst ,dst 2)
+                               (%add ret ,dst 2))
+                             arg1 arg2))))
+              (with-storages (dst a)
+                (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a arg2)
+                    expected
+                  (run-asm `((%rsh ,a arg1 2)
+                             (,op ,dst ,a ,arg2)
+                             (%lsh ,dst ,dst 2)
+                             (%add ret ,dst 2))
+                           arg1 #f)))
+              (with-storages (dst b)
+                (pass-if-equal (format #f "dst=~a a=~a b=~a" dst arg1 b)
+                    expected
+                  (run-asm `((%rsh ,b arg2 2)
+                             (,op ,dst ,arg1 ,b)
+                             (%lsh ,dst ,dst 2)
+                             (%add ret ,dst 2))
+                           #f arg2))))))
+         rest))))
+   `(("add" %add (15 27 ,(+ 15 27)))
+     ("sub" %sub (15 27 ,(- 15 27)))
+     ("rsh" %rsh (12345 4 ,(ash 12345 -4)))
+     ("lsh" %lsh (123 4 ,(ash 123 4)))
+     ("mod" %mod (1000 17 ,(modulo 1000 17)))
+     ("quo" %quo (1000 17 ,(quotient 1000 17))))))
 
 (with-test-prefix "Floating point arithmetic"
   (for-each
