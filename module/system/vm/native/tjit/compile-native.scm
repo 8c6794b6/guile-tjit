@@ -537,7 +537,6 @@ DST-TYPES, and SRC-TYPES are local index number."
                   (let ((out-code (trampoline-ref trampoline snapshot-id))
                         (gen-bailout (compile-bailout env asm snapshot
                                                       trampoline args)))
-                    (set-asm-out-code! asm out-code)
                     (let ((exit (jit-forward)))
                       (jit-patch-abs exit out-code)
                       (set-asm-exit! asm exit))

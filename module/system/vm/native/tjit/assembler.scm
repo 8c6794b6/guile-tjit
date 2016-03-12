@@ -47,9 +47,6 @@
             *scm-null*
             asm
             make-asm
-            asm-fp-offset
-            asm-out-code
-            set-asm-out-code!
             set-asm-exit!
             asm-end-address
             asm-volatiles
@@ -161,83 +158,6 @@
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
-
-;;;
-;;; Type guards
-;;;
-
-(define-syntax guard-tc2
-  (syntax-rules ()
-    ((_ obj tc2)
-     (jump (jit-bmci obj (imm tc2)) (bailout)))))
-
-(define-syntax guard-tc8
-  (syntax-rules ()
-    ((_ obj tc8)
-     (let ((typ8 (if (equal? obj r0) r1 r0)))
-       (jit-andi typ8 obj (imm #xff))
-       (jump (jit-bnei typ8 (imm tc8)) (bailout))))))
-
-(define-syntax define-cell-guard
-  (syntax-rules ()
-    ((_ name mask)
-     (define-syntax name
-       (syntax-rules ()
-         ((_ obj tcx)
-          (let ((typx (if (equal? obj r0) r1 r0)))
-            (name obj tcx typx)))
-         ((_ obj tcx typx)
-          (begin
-            (jump (scm-imp obj) (bailout))
-            (jit-ldr typx obj)
-            (jit-andi typx typx (imm mask))
-            (jump (jit-bnei typx (imm tcx)) (bailout)))))))))
-
-(define-cell-guard guard-tc1 #x1)
-(define-cell-guard guard-tc3 #x7)
-(define-cell-guard guard-tc7 #x7f)
-(define-cell-guard guard-tc16 #xffff)
-
-(define-syntax guard-type
-  (syntax-rules ()
-    ((_ src type)
-     (letrec-syntax
-         ((err
-           (syntax-rules ()
-             ((_)
-              (tjitc-error 'guard-type "~a ~a ~s"
-                           (physical-name src) (pretty-type type)))))
-          (guard-constant
-           (syntax-rules ()
-             ((_ constant)
-              (jump (jit-bnei src constant) (bailout))))))
-       (cond
-        ((eq? type &fixnum) (guard-tc2 src %tc2-int))
-        ((eq? type &flonum) (guard-tc16 src %tc16-real))
-        ((eq? type &char) (guard-tc8 src %tc8-char))
-        ((eq? type &unspecified) (guard-constant *scm-unspecified*))
-        ((eq? type &unbound) (guard-constant *scm-unspecified*))
-        ((eq? type &undefined) (guard-constant *scm-undefined*))
-        ((eq? type &false) (guard-constant *scm-false*))
-        ((eq? type &true) (guard-constant *scm-true*))
-        ((eq? type &nil) (guard-constant *scm-nil*))
-        ((eq? type &null) (values))
-        ((eq? type &symbol) (guard-tc7 src %tc7-symbol))
-        ((eq? type &keyword) (guard-tc7 src %tc7-keyword))
-        ((eq? type &procedure) (guard-tc7 src %tc7-program))
-        ((eq? type &pointer) (guard-tc7 src %tc7-pointer))
-        ((eq? type &fluid) (guard-tc7 src %tc7-fluid))
-        ((eq? type &pair) (guard-tc1 src %tc3-cons))
-        ((eq? type &vector) (guard-tc7 src %tc7-vector))
-        ((eq? type &box) (guard-tc7 src %tc7-variable))
-        ((eq? type &struct) (guard-tc3 src %tc3-struct))
-        ((eq? type &string) (guard-tc7 src %tc7-string))
-        ((eq? type &bytevector) (guard-tc7 src %tc7-bytevector))
-        ((eq? type &bitvector) (guard-tc7 src %tc7-bitvector))
-        ((eq? type &array) (guard-tc7 src %tc7-array))
-        ((eq? type &hash-table) (guard-tc7 src %tc7-hashtable))
-        ((memq type (list #f &scm &s64 &u64)) (values))
-        (else (err)))))))
 
 
 ;;;
@@ -508,7 +428,7 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm volatiles exit out-code end-address cargs gc-inline?)
+  (%make-asm volatiles exit end-address cargs gc-inline?)
   asm?
 
   ;; Volatile registers in use.
@@ -516,9 +436,6 @@
 
   ;; Current exit to jump.
   (exit asm-exit set-asm-exit!)
-
-  ;; Pointer of native code for current side exit.
-  (out-code asm-out-code set-asm-out-code!)
 
   ;; Pointer of native code at the end of parent trace.
   (end-address asm-end-address)
@@ -541,8 +458,7 @@
                      acc))
                '()
                storage))
-  (%make-asm (volatile-regs-in-use storage) #f #f end-address '()
-             gc-inline))
+  (%make-asm (volatile-regs-in-use storage) #f end-address '() gc-inline))
 
 (define-syntax jump
   (syntax-rules ()
@@ -615,6 +531,83 @@
     (memory-set! dst r0))
    (else
     (tjitc-error 'retval-to-reg-or-mem "unknown dst ~s" dst))))
+
+;;;
+;;; Type guards
+;;;
+
+(define-syntax guard-tc2
+  (syntax-rules ()
+    ((_ obj tc2)
+     (jump (jit-bmci obj (imm tc2)) (bailout)))))
+
+(define-syntax guard-tc8
+  (syntax-rules ()
+    ((_ obj tc8)
+     (let ((typ8 (if (equal? obj r0) r1 r0)))
+       (jit-andi typ8 obj (imm #xff))
+       (jump (jit-bnei typ8 (imm tc8)) (bailout))))))
+
+(define-syntax define-cell-guard
+  (syntax-rules ()
+    ((_ name mask)
+     (define-syntax name
+       (syntax-rules ()
+         ((_ obj tcx)
+          (let ((typx (if (equal? obj r0) r1 r0)))
+            (name obj tcx typx)))
+         ((_ obj tcx typx)
+          (begin
+            (jump (scm-imp obj) (bailout))
+            (jit-ldr typx obj)
+            (jit-andi typx typx (imm mask))
+            (jump (jit-bnei typx (imm tcx)) (bailout)))))))))
+
+(define-cell-guard guard-tc1 #x1)
+(define-cell-guard guard-tc3 #x7)
+(define-cell-guard guard-tc7 #x7f)
+(define-cell-guard guard-tc16 #xffff)
+
+(define-syntax guard-type
+  (syntax-rules ()
+    ((_ src type)
+     (letrec-syntax
+         ((err
+           (syntax-rules ()
+             ((_)
+              (tjitc-error 'guard-type "~a ~a ~s"
+                           (physical-name src) (pretty-type type)))))
+          (guard-constant
+           (syntax-rules ()
+             ((_ constant)
+              (jump (jit-bnei src constant) (bailout))))))
+       (cond
+        ((eq? type &fixnum) (guard-tc2 src %tc2-int))
+        ((eq? type &flonum) (guard-tc16 src %tc16-real))
+        ((eq? type &char) (guard-tc8 src %tc8-char))
+        ((eq? type &unspecified) (guard-constant *scm-unspecified*))
+        ((eq? type &unbound) (guard-constant *scm-unspecified*))
+        ((eq? type &undefined) (guard-constant *scm-undefined*))
+        ((eq? type &false) (guard-constant *scm-false*))
+        ((eq? type &true) (guard-constant *scm-true*))
+        ((eq? type &nil) (guard-constant *scm-nil*))
+        ((eq? type &null) (values))
+        ((eq? type &symbol) (guard-tc7 src %tc7-symbol))
+        ((eq? type &keyword) (guard-tc7 src %tc7-keyword))
+        ((eq? type &procedure) (guard-tc7 src %tc7-program))
+        ((eq? type &pointer) (guard-tc7 src %tc7-pointer))
+        ((eq? type &fluid) (guard-tc7 src %tc7-fluid))
+        ((eq? type &pair) (guard-tc1 src %tc3-cons))
+        ((eq? type &vector) (guard-tc7 src %tc7-vector))
+        ((eq? type &box) (guard-tc7 src %tc7-variable))
+        ((eq? type &struct) (guard-tc3 src %tc3-struct))
+        ((eq? type &string) (guard-tc7 src %tc7-string))
+        ((eq? type &bytevector) (guard-tc7 src %tc7-bytevector))
+        ((eq? type &bitvector) (guard-tc7 src %tc7-bitvector))
+        ((eq? type &array) (guard-tc7 src %tc7-array))
+        ((eq? type &hash-table) (guard-tc7 src %tc7-hashtable))
+        ((memq type (list #f &scm &s64 &u64)) (values))
+        (else (err)))))))
 
 
 ;;;;
