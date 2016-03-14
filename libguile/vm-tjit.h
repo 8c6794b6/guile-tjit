@@ -91,17 +91,19 @@ SCM_API SCM scm_tjit_root_trace (void);
 SCM_API SCM scm_tjit_failed_ip (void);
 
 SCM_API SCM scm_tjit_hot_loop (void);
-SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
+SCM_API SCM scm_set_tjit_hot_loop_x (SCM val);
 SCM_API SCM scm_tjit_hot_call (void);
-SCM_API SCM scm_set_tjit_hot_call_x (SCM count);
+SCM_API SCM scm_set_tjit_hot_call_x (SCM val);
 SCM_API SCM scm_tjit_hot_exit (void);
-SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
+SCM_API SCM scm_set_tjit_hot_exit_x (SCM val);
 SCM_API SCM scm_tjit_max_record (void);
-SCM_API SCM scm_set_tjit_max_record_x (SCM count);
+SCM_API SCM scm_set_tjit_max_record_x (SCM val);
 SCM_API SCM scm_tjit_max_retries (void);
-SCM_API SCM scm_set_tjit_max_retries_x (SCM count);
+SCM_API SCM scm_set_tjit_max_retries_x (SCM val);
 SCM_API SCM scm_tjit_num_unrolls (void);
-SCM_API SCM scm_set_tjit_num_unrolls_x (SCM count);
+SCM_API SCM scm_set_tjit_num_unrolls_x (SCM val);
+SCM_API SCM scm_tjit_scheme_engine (void);
+SCM_API SCM scm_set_tjit_scheme_engine_x (SCM n);
 SCM_API SCM scm_make_negative_pointer (SCM amount);
 
 SCM_API SCM scm_tjit_increment_id_x (void);

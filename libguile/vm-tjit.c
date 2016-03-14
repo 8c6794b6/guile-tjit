@@ -52,16 +52,16 @@
   }                                                                     \
                                                                         \
   SCM_DEFINE (scm_set_tjit_##name##_x, "set-tjit-"#sname"!",            \
-              1, 0, 0, (SCM count), "")                                 \
+              1, 0, 0, (SCM val), "")                                   \
   {                                                                     \
-    /* XXX: Some params does not need `65536 < count' check. */         \
-    if (SCM_I_NINUMP (count)                                            \
-        || count < 0                                                    \
-        || SCM_I_MAKINUM (65536) < count)                               \
+    /* XXX: Some params does not need `65536 < val' check. */           \
+    if (SCM_I_NINUMP (val)                                              \
+        || val < 0                                                      \
+        || SCM_I_MAKINUM (65536) < val)                                 \
       scm_misc_error ("set-tjit-"#sname"!",                             \
-                      "Invalid arg: ~s", scm_list_1 (count));           \
+                      "Invalid arg: ~s", scm_list_1 (val));             \
                                                                         \
-    tjit_##name = count;                                                \
+    tjit_##name = val;                                                  \
     return SCM_UNSPECIFIED;                                             \
   }
 
@@ -115,6 +115,9 @@ SCM_TJIT_PARAM (max_retries, max-retries, 2)
 
 /* Number of recursive procedure calls to unroll. */
 SCM_TJIT_PARAM (num_unrolls, num-unrolls, 3)
+
+/* VM engine used for Scheme procedure call. */
+SCM_TJIT_PARAM (scheme_engine, scheme-engine, SCM_VM_REGULAR_ENGINE)
 
 
 /*
@@ -182,7 +185,7 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
   downrec_p = tj->trace_type == SCM_TJIT_TRACE_CALL ? SCM_BOOL_T : SCM_BOOL_F;
   uprec_p = tj->trace_type == SCM_TJIT_TRACE_RETURN ? SCM_BOOL_T : SCM_BOOL_F;
 
-  scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
+  scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
   scm_call_9 (tjitc_var, s_id, s_bytecode, tj->traces, s_parent_fragment_id,
               s_parent_exit_id, linked_ip, loop_p, downrec_p, uprec_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
@@ -285,7 +288,7 @@ tjit_matching_fragment (struct scm_vm *vp, SCM s_ip)
   for (i = 0; i < nlocals; ++i)
     scm_c_vector_set_x (locals, i, sp[i].as_scm);
 
-  scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
+  scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
   ret = tjit_matching_fragment_inner (locals, ret);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 

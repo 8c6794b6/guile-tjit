@@ -151,9 +151,11 @@
 ;;; Initialization
 ;;;
 
-(define (init-vm-tjit interactive?)
-  "Dummy procedure for @code{autoload}."
+(define (init-vm-tjit use-debug-engine?)
+  "Initialize vm-tjit, use vm-debug if USE-DEBUG-ENGINE? is true."
   ((@ (system vm native lightning) init-jit) "")
+  (when use-debug-engine?
+    (set-tjit-scheme-engine! 1))
   #t)
 
 ;; Call `load-extension' from top-level after defining `tjitc',

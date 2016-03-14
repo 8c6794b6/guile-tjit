@@ -1,3 +1,6 @@
+#!./meta/guile \
+-e main -s
+!#
 ;;; run-tjit-tests.scm -- Run test suite for `vm-tjit' engine.
 ;;;
 ;;; Copyright 2005, 2009, 2010, 2013 Free Software Foundation, Inc.
@@ -55,7 +58,7 @@
           (list result-regular result-tjit)))))
 
 (define (main paths)
-  (init-vm-tjit #t)
+  (init-vm-tjit #f)
   (let ((results (map run-tjit-test (cdr paths)))
         (nfs (assq-ref (tjit-stats) 'num-fragments))
         (nerrors (hash-count (const #t) (tjitc-errors))))
@@ -76,5 +79,3 @@
         (format #t "vm-regular: ~s~%vm-tjit:    ~s~%"
                 (car result) (cadr result)))
       (exit 1)))))
-
-(main (command-line))

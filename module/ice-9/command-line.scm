@@ -449,7 +449,7 @@ If FILE begins with `-' the -s switch is mandatory.
 
       ;; Use vm-tjit engine
       (when tjit?
-        (init-vm-tjit interactive?)
+        (init-vm-tjit turn-on-debugging?)
         (set-default-vm-engine! 'tjit)
         (set-vm-engine! 'tjit))
 
