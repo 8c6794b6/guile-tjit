@@ -210,8 +210,10 @@ TESTS = \
 	t-vector-set-01.scm \
 	t-vector-set-02.scm \
 	t-vector-set-03.scm \
+	x-div.scm \
+	x-earley.scm \
 	x-fft.scm \
-	x-div.scm
+	x-graphs.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 

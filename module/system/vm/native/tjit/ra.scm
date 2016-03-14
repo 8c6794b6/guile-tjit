@@ -370,7 +370,7 @@
                             ,patch-body)))
             patch)
 
-         ;; Refill variables. Using the locals assigned to snapshot, which are
+         ;; Refill variables. Using the locals assigned in snapshot, which are
          ;; determined at the time of exit from parent trace.
          (match parent-snapshot
            (($ $snapshot _ _ _ _ locals variables _ _)
@@ -391,8 +391,11 @@
                     (when (<= (variable-ref mem-idx) n)
                       (variable-set! mem-idx (+ n 1))))
                    (_
-                    (tjitc-error 'ir->primops "var ~a at local ~a, type ~a"
-                                 var local type)))
+                    (if (or (return-address? type)
+                            (dynamic-link? type))
+                        (lp vars locals)
+                        (tjitc-error 'ir->primops "var ~a at local ~a, type ~a"
+                                     var local type))))
                  (lp vars locals))
                 (_
                  (values)))))

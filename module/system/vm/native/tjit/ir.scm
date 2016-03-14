@@ -275,8 +275,7 @@
                     (< 0 (current-fp-offset)))
            (nyi "root trace with up-frame load"))
          (set-ir-return-subr! ir #f)
-         (if (or (<= (current-fp-offset) 0)
-                 return-subr?)
+         (if return-subr?
              (next)
              (load-up-frame)))))))
 

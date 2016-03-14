@@ -95,10 +95,8 @@
 
 (define-anf (reset-frame nlocals)
   (let ((stack-size (vector-length locals)))
-    (if (< (ir-max-sp-offset ir) (+ (current-sp-offset) stack-size))
-        (let ((thunk (gen-load-thunk (- stack-size 2) nlocals (const #f))))
-          (thunk))
-        (next))))
+    (let ((thunk (gen-load-thunk (- stack-size 2) nlocals (const #f))))
+      (thunk))))
 
 ;; XXX: push
 ;; XXX: pop

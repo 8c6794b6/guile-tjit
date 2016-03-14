@@ -47,9 +47,10 @@
 (define-syntax-rule (scan-call proc nlocals label?)
   (let* ((stack-size (vector-length locals))
          (sp-offset (env-sp-offset env))
-         (sp-proc (- stack-size proc 1)))
+         (sp-proc (- stack-size proc 1))
+         (proc+offset (+ sp-proc sp-offset)))
     (unless label?
-      (set-entry-type! env (+ sp-proc sp-offset) &procedure))
+      (set-entry-type! env proc+offset &procedure))
     (do ((n 1 (+ n 1))) ((<= nlocals n))
       (let ((i (- (+ sp-proc sp-offset) n)))
         (set-entry-type! env i &scm)))
