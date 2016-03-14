@@ -106,7 +106,7 @@
                     (or data (tjit-dump-abort? dump-option)))
            exp))))
     (define (failure msg)
-      (debug 2 ";;; trace ~a: ~a~%" trace-id msg)
+      (debug 1 "~a~%" msg)
       (tjit-increment-compilation-failure! entry-ip))
     (define (compile-traces traces)
       (let-values (((snapshots anf ops) (compile-ir env traces)))
@@ -132,17 +132,17 @@
          ((not env)
           (failure "error during parse"))
          ((not implemented?)
-          (failure "NYI - unimplemented bytecode"))
+          (tjit-increment-compilation-failure! entry-ip))
          (uprec?
-          (failure "NYI - up recursion"))
+          (failure "NYI: up recursion"))
          (downrec?
-          (failure "NYI - down recursion"))
+          (failure "NYI: down recursion"))
          ((and (not parent-snapshot) (not loop?))
-          (failure "NYI - loop-less root trace"))
+          (failure "NYI: loop-less root trace"))
          ((and (not parent-snapshot) (not (zero? (env-sp-offset env))))
-          (failure "NYI - looping root trace with stack pointer shift"))
+          (failure "NYI: looping root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
-          (failure "NYI - type mismatch in linked fragment"))
+          (failure "NYI: type mismatch in linked fragment"))
          (else
           (with-nyi-handler entry-ip (compile-traces traces))))))))
 
