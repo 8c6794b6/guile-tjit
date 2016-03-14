@@ -41,18 +41,15 @@
          (vy (var-ref y))
          (r1 (make-tmpvar 1))
          (r2 (make-tmpvar 2))
-         (lx (scm-ref x))
-         (ly (scm-ref y))
          (emit-cons (lambda (a)
                       (lambda (b)
                         `(let ((,vdst (%cell ,a ,b)))
                            ,(next)))))
-         ;; XXX: Box with inferred types.
          (emit-y (lambda (a)
-                   (with-boxing (type-of ly) vy r1
+                   (with-boxing (type-ref y) vy r1
                      (emit-cons a))))
          (emit-x (lambda ()
-                   (with-boxing (type-of lx) vx r2
+                   (with-boxing (type-ref x) vx r2
                      emit-y))))
     (emit-x)))
 
