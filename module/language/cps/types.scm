@@ -288,8 +288,8 @@
            (b-min (type-entry-min b)))
        (cond
         ((not (< b-min a-min)) a-min)
-        ((> 0 b-min) 0)
-        ((> &range-min b-min) &range-min)
+        ((< 0 b-min) 0)
+        ((< &range-min b-min) &range-min)
         (else -inf.0)))
      (let ((a-max (type-entry-max a))
            (b-max (type-entry-max b)))
