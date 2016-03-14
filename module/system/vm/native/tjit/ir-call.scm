@@ -187,13 +187,20 @@
 
 (define-anf (receive dst proc nlocals)
   (let* ((stack-size (vector-length locals))
+         (sp-offset (current-sp-offset))
          (dst/i (- stack-size dst 1))
          (dst/v (var-ref dst/i))
          (src/i (- (- stack-size proc) 2))
          (src/v (var-ref src/i))
-         (thunk (gen-load-thunk proc nlocals (lambda (v) (eq? v dst/v)))))
+         (live-indices (env-live-indices env))
+         (dst/i+sp-offset (+ dst/i sp-offset)))
+    ;; Update live indices before generating load thunk.
+    (unless (memq dst/i+sp-offset live-indices)
+      (set-env-live-indices! env (cons dst/i+sp-offset live-indices)))
     `(let ((,dst/v ,src/v))
-       ,(thunk))))
+       ,(let ((thunk (gen-load-thunk proc nlocals
+                                     (lambda (v) (eq? v dst/v)))))
+          (thunk)))))
 
 (define-scan (receive-values proc allow-extra? nvalues)
   (if (= nvalues 1)

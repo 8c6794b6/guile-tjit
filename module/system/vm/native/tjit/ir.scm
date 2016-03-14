@@ -275,9 +275,7 @@
                     (< 0 (current-fp-offset)))
            (nyi "root trace with up-frame load"))
          (set-ir-return-subr! ir #f)
-         (if return-subr?
-             (next)
-             (load-up-frame)))))))
+         (load-up-frame))))))
 
 (define-syntax-rule (with-frame-ref var type idx next . args)
   (cond
