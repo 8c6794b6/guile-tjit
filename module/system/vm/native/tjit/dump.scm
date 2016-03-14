@@ -247,9 +247,10 @@ option was set to true."
       arg)))
   (define (dump-snapshot snapshot)
     (match snapshot
-      (($ $snapshot id sp-offset fp-offset nlocals locals variables)
-       (format #t "----     [snap~3,,,' @a] ~a:~a:~a ~a~%"
-               id sp-offset fp-offset nlocals
+      (($ $snapshot id sp-offset fp-offset nlocals locals variables
+          code ip live-indices inline-depth)
+       (format #t "----     [snap~3,,,' @a] ~a:~a:~a:~a ~a~%"
+               id sp-offset fp-offset nlocals inline-depth
                (pretty-locals locals variables)))
       (_
        (format #t "----     NOT-A-SNAPSHOT~%"))))
