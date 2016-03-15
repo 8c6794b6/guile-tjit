@@ -40,14 +40,14 @@ TESTS = \
 	t-box-02.scm \
 	t-box-03.scm \
 	t-box-04.scm \
-	t-br-if-<-01.scm \
-	t-br-if-<=-01.scm \
+	t-br-if-lt-01.scm \
+	t-br-if-le-01.scm \
 	t-br-if-=-01.scm \
 	t-br-if-null-01.scm \
 	t-br-if-null-02.scm \
 	t-br-if-true-01.scm \
-	t-br-if-u64-<-scm-01.scm \
-	t-br-if-u64-<=-scm-01.scm \
+	t-br-if-u64-lt-scm-01.scm \
+	t-br-if-u64-le-scm-01.scm \
 	t-br-if-u64-=-scm-01.scm \
 	t-br-if-u64-=-scm-02.scm \
 	t-bv-length-01.scm \
@@ -156,7 +156,7 @@ TESTS = \
 	t-reset-frame-02.scm \
 	t-repl-01.scm \
 	t-repl-02.scm \
-	t-scm->f64-01.scm \
+	t-scm-to-f64-01.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \
