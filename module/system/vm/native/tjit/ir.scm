@@ -343,6 +343,26 @@
      (set-inferred-type! env (+ arg (env-sp-offset env)) &f64))
     ((_ . other) (values))))
 
+(define-syntax maybe-update-live-indices
+  (syntax-rules ()
+    ((_ idx)
+     (let ((live-indices (env-live-indices env))
+           (idx+sp-offset (+ idx (current-sp-offset))))
+       (unless (memq idx+sp-offset live-indices)
+         (set-env-live-indices! env (cons idx+sp-offset live-indices)))))))
+
+(define-syntax gen-update-live-indices
+  (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
+    ((_ (scm! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (fixnum! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (flonum! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (pair! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (vector! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (box! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (u64! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (f64! arg) . rest) (maybe-update-live-indices arg))
+    ((_ . other) (values))))
+
 (define-syntax define-ir
   (syntax-rules ()
     "Defines procedure to compile bytecode operation to IR, and optionally
@@ -390,6 +410,10 @@ index referenced by dst, a, and b values at runtime."
                    (ra (identifier-syntax %ra))
                    (dl (identifier-syntax %dl))
                    (locals (identifier-syntax %locals)))
+                ;; Live indices in root traces are constantly same as write
+                ;; indices, loaded at the time of entry.
+                (when (env-parent-snapshot env)
+                  (gen-update-live-indices (flag arg) ...))
                 . body))))
        (let ((add-proc! (lambda (tbl proc)
                           (let* ((elem (cons test-proc proc))
