@@ -57,14 +57,17 @@
       path
       (string-append (getcwd) file-name-separator-string path)))
 
-(define (run-tjit-test path)
-  (let* ((path (ensure-absolute-path path))
-         (thunk (compile-file-to-thunk path))
-         (result-regular (thunk))
-         (result-tjit (call-with-vm-tjit thunk)))
-    (if (equal? result-regular result-tjit)
-        #f
-        (list result-regular result-tjit))))
+(define (run-tjit-test show-file-name)
+  (lambda (path)
+    (when show-file-name
+      (format #t "Running: ~a~%" path))
+    (let* ((path (ensure-absolute-path path))
+           (thunk (compile-file-to-thunk path))
+           (result-regular (thunk))
+           (result-tjit (call-with-vm-tjit thunk)))
+      (if (equal? result-regular result-tjit)
+          #f
+          (list result-regular result-tjit)))))
 
 (define (main args)
   (let* ((spec '((coverage (required? #f)
@@ -79,7 +82,7 @@
          (out (option-ref opts 'out "tjit-tests.info")))
     (init-vm-tjit coverage)
     (let* ((run (lambda ()
-                  (map run-tjit-test paths)))
+                  (map (run-tjit-test coverage) paths)))
            (results (if coverage
                         (let-values (((data results)
                                       (with-code-coverage run)))

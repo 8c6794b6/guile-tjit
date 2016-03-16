@@ -217,4 +217,9 @@ TESTS = \
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 
+TJIT_TESTS_INFO = tjit-tests.info
+
+coverage:
+	$(TESTS_ENVIRONMENT) -c -o $(TJIT_TESTS_INFO) $(TESTS)
+
 endif
