@@ -329,6 +329,7 @@ types in TYPES matched with LOCALS, otherwise return false."
    ((eq? type &keyword) (blue "keyw"))
    ((eq? type &procedure) (red "proc"))
    ((eq? type &pointer) (yellow "ptr"))
+   ((eq? type &fluid) (yellow "fld"))
    ((eq? type &pair) (yellow "pair"))
    ((eq? type &vector) (yellow "vect"))
    ((eq? type &box) (yellow "box"))
