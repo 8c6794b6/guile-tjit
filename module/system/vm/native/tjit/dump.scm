@@ -221,8 +221,8 @@ option was set to true."
             (_
              (reverse! acc))))))
   (define (pretty-constant arg)
-    (if (and (pair? arg)
-             (eq? 'const (car arg)))
+    (if (and (ref? arg)
+             (constant? arg))
         (let ((x (cdr arg)))
           (cond
            ((exact-integer? x)

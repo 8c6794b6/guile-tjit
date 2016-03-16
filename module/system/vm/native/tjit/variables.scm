@@ -49,14 +49,14 @@
 (define (ref-value x)
   (and (ref? x) (cdr x)))
 
-(define (ref-type x)
-  (and (ref? x) (car x)))
+(define-syntax-rule (ref-type x)
+  (car x))
 
 (define (make-constant x)
-  (cons 'const x))
+  (cons 'con x))
 
 (define (constant? x)
-  (eq? 'const (ref-type x)))
+  (eq? 'con (ref-type x)))
 
 (define (constant x)
   (let ((val (ref-value x)))
