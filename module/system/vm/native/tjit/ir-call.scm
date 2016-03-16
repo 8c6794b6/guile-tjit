@@ -48,9 +48,18 @@
   (let* ((stack-size (vector-length locals))
          (sp-offset (env-sp-offset env))
          (sp-proc (- stack-size proc 1))
-         (proc+offset (+ sp-proc sp-offset)))
+         (proc+offset (+ sp-proc sp-offset))
+         (ra+offset (+ proc+offset 1))
+         (dl+offset (+ ra+offset 1))
+         (ra/t (make-return-address
+                (make-pointer (+ ip (* 4 (if label? 3 2))))))
+         (dl/t (make-dynamic-link proc)))
     (unless label?
       (set-entry-type! env proc+offset &procedure))
+    ;; Using `&scm' type to fill in locals for return address and dynamic link,
+    ;; to skip the type guards.
+    (set-entry-type! env ra+offset &scm)
+    (set-entry-type! env dl+offset &scm)
     (do ((n 1 (+ n 1))) ((<= nlocals n))
       (let ((i (- (+ sp-proc sp-offset) n)))
         (set-entry-type! env i &scm)))
@@ -71,11 +80,11 @@
          (sp-offset (current-sp-for-ti))
          (fp (- stack-size proc))
          (sp-proc (- stack-size proc 1))
-         (ra-ty (make-return-address
-                 (make-pointer (+ ip (* 4 (if label? 3 2))))))
-         (dl-ty (make-dynamic-link proc)))
-    (set-inferred-type! env (+ sp-offset fp) ra-ty)
-    (set-inferred-type! env (+ sp-offset fp 1) dl-ty)
+         (ra/t (make-return-address
+                (make-pointer (+ ip (* 4 (if label? 3 2))))))
+         (dl/t (make-dynamic-link proc)))
+    (set-inferred-type! env (+ sp-offset fp) ra/t)
+    (set-inferred-type! env (+ sp-offset fp 1) dl/t)
     (do ((n 0 (+ n 1))) ((<= nlocals n))
       (match (assq-ref (env-inferred-types env) n)
         (('copy . dst)

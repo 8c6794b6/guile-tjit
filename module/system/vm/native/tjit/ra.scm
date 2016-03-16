@@ -127,13 +127,13 @@
 
 (define-syntax-rule (get-gpr! var)
   (set-storage! (or (acquire-gpr! free-gprs)
-                (gen-mem))
-            var))
+                    (gen-mem))
+                var))
 
 (define-syntax-rule (get-fpr! var)
   (set-storage! (or (acquire-fpr! free-fprs)
-                (gen-mem))
-            var))
+                    (gen-mem))
+                var))
 
 (define (assign-registers term snapshots arg-storage arg-free-gprs arg-free-fprs
                           arg-mem-idx snapshot-id)
@@ -184,28 +184,14 @@
       (let ((type (car (lookup-prim-type op)))
             (assigned (hashq-ref storage dst)))
         (cond
-         (assigned
-          ;; Doing additional check for `%fref' and `%fref/f' operations, to
-          ;; support suited register assignments in looping side trace started
-          ;; from guard failure in parent trace's entry clause,
-          (cond
-           ((and (eq? op '%fref/f)
-                 (not (fpr? assigned))
-                 (not (memory? assigned)))
-            (get-fpr! dst))
-           ((and (eq? op '%fref)
-                 (not (gpr? assigned))
-                 (not (memory? assigned)))
-            (get-gpr! dst))
-           (else
-            assigned)))
+         (assigned        assigned)
          ((= type int)    (get-gpr! dst))
          ((= type double) (get-fpr! dst))
          (else (tjitc-error 'get-dst-types! "dst ~s ~s" dst type)))))
     (define (ref k)
       (cond
-       ((constant? k) (make-constant k))
        ((symbol? k) (hashq-ref storage k))
+       ((constant? k) (make-constant k))
        (else (tjitc-error 'assign-registers "ref ~s not found" k))))
     (define (constant? x)
       (cond
@@ -291,15 +277,9 @@
            (tjitc-error 'anf->primops "unknown var ~s" v))))
        storage))
 
-    ;; Sharing registers and memory offset for side trace to share variables
-    ;; with parent trace. Also sharing registers and variables for loop-less
-    ;; root tracec.
+    ;; Share registers and memory offset for side trace with parent trace.
     (and=> (and=> (env-parent-fragment env) fragment-storage)
            merge-storage)
-    (when (and (not (env-parent-fragment env))
-               (not (env-loop? env)))
-      (and=> (and=> (env-linked-fragment env) fragment-storage)
-             merge-storage))
 
     ;; Assign scratch registers to tmporary variables.
     (hashq-set! initial-storage (make-tmpvar 0) (make-gpr -1))
