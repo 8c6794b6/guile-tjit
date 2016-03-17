@@ -214,8 +214,8 @@
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
                         min-sp-offset max-sp-offset inline-depth env
-                        #:optional (refill? #f))
-  (let* ((nlocals (vector-length locals))
+                        #:optional (refill? #f) (nlocals #f))
+  (let* ((nlocals (or nlocals (vector-length locals)))
          (dst-ip (+ ip (* dst-offset 4)))
          (indices (filter (lambda (i)
                             (<= min-sp-offset i max-sp-offset))
@@ -410,8 +410,9 @@ index referenced by dst, a, and b values at runtime."
                    (ra (identifier-syntax %ra))
                    (dl (identifier-syntax %dl))
                    (locals (identifier-syntax %locals)))
-                ;; Live indices in root traces are constantly same as write
-                ;; indices, loaded at the time of entry.
+                ;; Updating live indices, only for side traces. Live indices in
+                ;; root traces are constantly same as write indices, loaded at
+                ;; the time of entry.
                 (when (env-parent-snapshot env)
                   (gen-update-live-indices (flag arg) ...))
                 . body))))
@@ -469,14 +470,14 @@ index referenced by dst, a, and b values at runtime."
      (let-values (((ret snapshot)
                    (take-snapshot ip dst-offset locals (ir-vars ir)
                                   (if (env-parent-snapshot env)
-                                      (vector-ref
-                                       (env-write-buf env)
-                                       (ir-bytecode-index ir))
+                                      (vector-ref (env-write-buf env)
+                                                  (ir-bytecode-index ir))
                                       (env-write-indices env))
                                   (ir-snapshot-id ir)
                                   (current-sp-offset) (current-fp-offset)
                                   (ir-min-sp-offset ir) (ir-max-sp-offset ir)
-                                  (env-current-inline-depth env) env refill?)))
+                                  (env-current-inline-depth env) env
+                                  refill?)))
        (let ((old-id (ir-snapshot-id ir)))
          (hashq-set! (ir-snapshots ir) old-id snapshot)
          (set-ir-snapshot-id! ir (+ old-id 1)))

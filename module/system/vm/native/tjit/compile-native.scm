@@ -740,20 +740,19 @@ DST-TYPES, and SRC-TYPES are local index number."
                 (()
                  (maybe-store %asm locals args ref-table sp-offset)
 
-                 ;; Shift SP, then move or load locals for linked trace.
-                 ;; `move-or-load-carefully' uses type guard, which requires
-                 ;; syntax parameter `asm' to be set.
+                 ;; Shift SP.
                  (unless (zero? sp-offset)
                    (shift-sp sp-offset))
 
+                 ;; Move or load locals for linked trace.
+                 ;; `move-or-load-carefully' uses type guard, which requires
+                 ;; syntax parameter `asm' to be set.
                  (syntax-parameterize ((asm (identifier-syntax %asm)))
                    (move-or-load-carefully dst-var-table src-var-table
                                            dst-type-table src-type-table))
 
-                 ;; Shift FP when loop-less root trace or linking root traces.
-                 (when (or (not (env-parent-fragment env))
-                           (env-linking-roots? env))
-                   (shift-fp nlocals))
+                 ;; Shift FP.
+                 (shift-fp nlocals)
 
                  ;; Jump to the beginning of the loop in linked trace.
                  (jumpi (fragment-loop-address linked-fragment))))))))))

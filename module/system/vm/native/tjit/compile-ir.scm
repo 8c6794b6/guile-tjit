@@ -328,14 +328,14 @@ Currently does nothing, returns the given argument."
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i)))
          (initial-inline-depth (env-inline-depth env)))
-    (define (entry-snapshot! ip locals sp-offset min-sp)
+    (define (entry-snapshot! ip locals sp-offset min-sp nlocals)
       (let-values (((ret snapshot)
                     (take-snapshot ip 0 locals (ir-vars ir)
                                    (env-write-indices env)
                                    (ir-snapshot-id ir) sp-offset last-fp-offset
                                    min-sp (ir-max-sp-offset ir)
                                    (env-inline-depth env)
-                                   env)))
+                                   env #f nlocals)))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
@@ -372,7 +372,8 @@ Currently does nothing, returns the given argument."
                              (lp (+ n 1) end (cons e acc)))))))
                `(let ((_ ,(entry-snapshot! *ip-key-downrec*
                                            (dr-locals proc nlocals)
-                                           next-sp-offset next-sp-offset)))
+                                           next-sp-offset next-sp-offset
+                                           #f)))
                   (loop ,@(reverse (map cdr (ir-vars ir))))))))
           (('call-label . _)
            ;; XXX: TODO.
@@ -384,8 +385,10 @@ Currently does nothing, returns the given argument."
           (('return-values n)
            (lambda ()
              (let* ((next-sp-offset last-sp-offset))
-               `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals next-sp-offset
-                                           (ir-min-sp-offset ir))))
+               `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals
+                                           next-sp-offset
+                                           (ir-min-sp-offset ir)
+                                           #f)))
                   (loop ,@(reverse (map cdr (ir-vars ir))))))))
           (_
            (nyi "uprec with last op ~a" op))))
@@ -394,9 +397,13 @@ Currently does nothing, returns the given argument."
           `(loop ,@(reverse (map cdr (ir-vars ir))))))
        (else
         (lambda ()
-          `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
-                                      (ir-min-sp-offset ir))))
-             _)))))
+          (let ((nlocals (match op
+                           (('call _ nlocals) nlocals)
+                           (('call-label _ nlocals _) nlocals)
+                           (_ #f))))
+            `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
+                                        (ir-min-sp-offset ir) nlocals)))
+               _))))))
     (define (gen-next ir ip dl locals op rest)
       (lambda ()
         (let* ((old-index (ir-bytecode-index ir))

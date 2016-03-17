@@ -252,7 +252,11 @@
   (let* ((ra/val (make-return-address (make-pointer ra)))
          (dl/val (make-dynamic-link dl))
          (stack-size (vector-length locals))
-         (snapshot (take-snapshot! ip 0)))
+         (snapshot (take-snapshot! ip 0))
+         (maybe-add-indices (lambda (i indices)
+                              (if (memq i indices)
+                                  indices
+                                  (cons i indices)))))
     (set-ir-return-subr! ir #f)
     `(let ((_ ,snapshot))
        ,(if (inline-current-return?)
@@ -262,12 +266,8 @@
                    (ra/i (+ stack-size (current-sp-offset)))
                    (dl/i (+ ra/i 1))
                    (live-indices (env-live-indices env))
-                   (live-indices (if (memq ra/i live-indices)
-                                     live-indices
-                                     (cons ra/i live-indices)))
-                   (live-indices (if (memq dl/i live-indices)
-                                     live-indices
-                                     (cons dl/i live-indices))))
+                   (live-indices (maybe-add-indices ra/i live-indices))
+                   (live-indices (maybe-add-indices dl/i live-indices)))
               (set-env-live-indices! env live-indices)
               `(let ((_ (%return ,ra)))
                  (let ((,ra/v #f))

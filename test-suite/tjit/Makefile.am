@@ -214,6 +214,7 @@ TESTS = \
 	x-earley.scm \
 	x-fft.scm \
 	x-graphs.scm \
+	x-nqueens.scm \
 	x-triangle.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
