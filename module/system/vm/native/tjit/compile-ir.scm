@@ -397,9 +397,13 @@ Currently does nothing, returns the given argument."
           `(loop ,@(reverse (map cdr (ir-vars ir))))))
        (else
         (lambda ()
+          ;; Get the new `nlocals' when side trace ended with one of the call
+          ;; operations.
           (let ((nlocals (match op
                            (('call _ nlocals) nlocals)
                            (('call-label _ nlocals _) nlocals)
+                           (('tail-call nlocals) nlocals)
+                           (('tail-call-label nlocals _) nlocals)
                            (_ #f))))
             `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
                                         (ir-min-sp-offset ir) nlocals)))

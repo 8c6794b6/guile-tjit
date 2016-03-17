@@ -195,7 +195,9 @@ TESTS = \
 	t-tail-call-05b.scm \
 	t-tail-call-05c.scm \
 	t-tail-call-05d.scm \
+	t-tail-call-06.scm \
 	t-tail-call-label-01.scm \
+	t-tail-call-label-02.scm \
 	t-toplevel-box-01.scm \
 	t-toplevel-box-02.scm \
 	t-toplevel-box-03.scm \
