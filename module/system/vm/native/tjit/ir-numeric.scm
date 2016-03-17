@@ -362,8 +362,7 @@
 
 (define-binary-arith-fx-fx mod %mod)
 (define-binary-arith-fx-fx quo %quo)
-
-;; XXX: rem
+(define-binary-arith-fx-fx rem %rem)
 
 ;; XXX: ash
 ;; XXX: logand

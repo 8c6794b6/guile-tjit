@@ -88,6 +88,9 @@ TESTS = \
 	t-free-ref-03.scm \
 	t-guard-01.scm \
 	t-make-long-long-immediate-01.scm \
+	t-mod-01.scm \
+	t-mod-02.scm \
+	t-mod-03.scm \
 	t-mov-01.scm \
 	t-mov-02.scm \
 	t-mul-01.scm \
@@ -154,6 +157,8 @@ TESTS = \
 	t-pic-04.scm \
 	t-pic-05.scm \
 	t-quo-01.scm \
+	t-rem-01.scm \
+	t-rem-02.scm \
 	t-reset-frame-01.scm \
 	t-reset-frame-02.scm \
 	t-repl-01.scm \
@@ -220,6 +225,7 @@ TESTS = \
 	x-earley.scm \
 	x-fft.scm \
 	x-graphs.scm \
+	x-mazefun.scm \
 	x-nqueens.scm \
 	x-triangle.scm
 

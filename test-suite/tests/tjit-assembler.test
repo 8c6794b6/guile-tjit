@@ -352,8 +352,47 @@ Example:
      ("rsh" %rsh (12345 4 ,(ash 12345 -4)))
      ("lsh" %lsh (123 4 ,(ash 123 4)))
      ("mod" %mod (1000 17 ,(modulo 1000 17)))
+     ("rem" %rem (1000 17 ,(remainder 1000 17)))
      ("quo" %quo (1000 17 ,(quotient 1000 17)))
-     ("imul" %imul (123 456 ,(* 123 456))))))
+     ("imul" %imul (123 456 ,(* 123 456)))))
+
+  (with-test-prefix "mod"
+    (with-storages (dst a b)
+      (for-each
+       (match-lambda
+         ((arg1 arg2)
+          (unless (eq? a b)
+            (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+                (modulo arg1 arg2)
+              (run-asm `((%rsh ,a arg1 2)
+                         (%rsh ,b arg2 2)
+                         (%mod ,dst ,a ,b)
+                         (%lsh ,dst ,dst 2)
+                         (%add ret ,dst 2))
+                       arg1 arg2)))))
+       '((100 17)
+         (-100 17)
+         (100 -17)
+         (-100 -17)))))
+
+  (with-test-prefix "rem"
+    (with-storages (dst a b)
+      (for-each
+       (match-lambda
+         ((arg1 arg2)
+          (unless (eq? a b)
+            (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+                (remainder arg1 arg2)
+              (run-asm `((%rsh ,a arg1 2)
+                         (%rsh ,b arg2 2)
+                         (%rem ,dst ,a ,b)
+                         (%lsh ,dst ,dst 2)
+                         (%add ret ,dst 2))
+                       arg1 arg2)))))
+       '((100 17)
+         (-100 17)
+         (100 -17)
+         (-100 -17))))))
 
 (with-test-prefix "Floating point arithmetic"
   (for-each

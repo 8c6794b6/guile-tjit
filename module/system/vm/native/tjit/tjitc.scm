@@ -142,7 +142,7 @@
          ((and (not parent-snapshot) (not (zero? (env-sp-offset env))))
           (failure "NYI: looping root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
-          (failure "NYI: type mismatch in linked fragment"))
+          (failure "NYI: no matching linked fragment"))
          (else
           (with-nyi-handler entry-ip (compile-traces traces))))))))
 
