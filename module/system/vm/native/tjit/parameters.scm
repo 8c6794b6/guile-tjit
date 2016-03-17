@@ -88,6 +88,7 @@
             fold-tjit-time-logs
 
             tjit-max-spills
+            tjit-max-inline-depth
             tjit-dump-option
             tjit-disassembler))
 
@@ -313,6 +314,10 @@ assumes `objdump' executable already installed."
 ;; Maximum number of spilled variables.
 (define tjit-max-spills
   (make-parameter 256))
+
+;; Maximum depth for inlined procedures.
+(define tjit-max-inline-depth
+  (make-parameter 25))
 
 ;; Paramter for disassembling compiled native code.
 ;;

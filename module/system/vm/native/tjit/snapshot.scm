@@ -35,6 +35,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit types)
   #:export ($snapshot
             make-snapshot
@@ -110,6 +111,8 @@
     (debug 2 ";;; inline-depth: ~s~%" inline-depth)
     (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?)
     (debug 2 ";;; live-indices: ~a~%" (sort (env-live-indices env) <)))
+  (when (< (tjit-max-inline-depth) inline-depth)
+    (nyi "too many inlined procedures"))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
