@@ -627,7 +627,7 @@
 
 ;;; Works.
 (define (go)
-  (let ((n 6))
+  (let ((n 5))
     (fold-over-rdg n 2 cons '())))
 
 ;;; XXX: Segfault.
