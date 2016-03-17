@@ -91,6 +91,8 @@ TESTS = \
 	t-mov-01.scm \
 	t-mov-02.scm \
 	t-mul-01.scm \
+	t-mul-02.scm \
+	t-mul-03.scm \
 	t-nest-01.scm \
 	t-nest-02.scm \
 	t-nest-03.scm \

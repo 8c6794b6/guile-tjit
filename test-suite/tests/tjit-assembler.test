@@ -352,7 +352,8 @@ Example:
      ("rsh" %rsh (12345 4 ,(ash 12345 -4)))
      ("lsh" %lsh (123 4 ,(ash 123 4)))
      ("mod" %mod (1000 17 ,(modulo 1000 17)))
-     ("quo" %quo (1000 17 ,(quotient 1000 17))))))
+     ("quo" %quo (1000 17 ,(quotient 1000 17)))
+     ("imul" %imul (123 456 ,(* 123 456))))))
 
 (with-test-prefix "Floating point arithmetic"
   (for-each
