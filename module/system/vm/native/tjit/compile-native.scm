@@ -718,10 +718,6 @@ DST-TYPES, and SRC-TYPES are local index number."
             (parent-depth (snapshot-inline-depth parent-snapshot))
             (my-depth (snapshot-inline-depth snapshot)))
 
-       ;; NYI - side traces from inlined procedure with depth mismatch.
-       (when (< 0 my-depth parent-depth)
-         (nyi "inlined side trace with depth mismatch"))
-
        (let lp ((loop-locals loop-locals)
                 (vars (fragment-loop-vars linked-fragment)))
          (match (cons loop-locals vars)
