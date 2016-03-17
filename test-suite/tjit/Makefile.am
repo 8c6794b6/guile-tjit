@@ -159,6 +159,8 @@ TESTS = \
 	t-repl-01.scm \
 	t-repl-02.scm \
 	t-scm-to-f64-01.scm \
+	t-set-car-01.scm \
+	t-set-cdr-01.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \

@@ -61,5 +61,10 @@
   `(let ((,(var-ref dst) (%cref ,(var-ref src) 1)))
      ,(next)))
 
-;; XXX: set-car!
-;; XXX: set-cdr!
+(define-ir (set-car! (pair dst) (scm src))
+  `(let ((_ (%cset ,(var-ref dst) 0 ,(var-ref src))))
+     ,(next)))
+
+(define-ir (set-cdr! (pair dst) (scm src))
+  `(let ((_ (%cset ,(var-ref dst) 1 ,(var-ref src))))
+     ,(next)))
