@@ -380,8 +380,7 @@ index referenced by dst, a, and b values at runtime."
               (let lp ((flags '(flag ...)) (ns (cdr op)))
                 (match (cons flags ns)
                   (((f . flags) . (n . ns))
-                   (if (memq f '(fixnum
-                                 flonum procedure pair vector
+                   (if (memq f '(fixnum flonum procedure pair vector box
                                  struct string bytevector array))
                        (let* ((v (vector-ref locals n))
                               (t (type-of v)))
