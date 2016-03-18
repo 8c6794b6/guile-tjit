@@ -94,9 +94,8 @@
   (values))
 
 (define-anf (reset-frame nlocals)
-  (let ((stack-size (vector-length locals)))
-    (let ((thunk (gen-load-thunk (- stack-size 2) nlocals (const #f))))
-      (thunk))))
+  (let ((thunk (gen-load-thunk (- nlocals 2) nlocals (const #f))))
+    (thunk)))
 
 ;; XXX: push
 ;; XXX: pop

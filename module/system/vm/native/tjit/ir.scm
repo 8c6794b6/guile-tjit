@@ -242,7 +242,7 @@
             (stack-size (vector-length locals))
             (sp-offset (current-sp-offset))
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
-            (max-local-index (+ nlocals sp-offset))
+            (max-local-index (+ proc sp-offset 2))
             (live-indices (env-live-indices env))
             (load-up-frame
              (lambda ()
@@ -254,8 +254,10 @@
                           (memq n live-indices))
                       (lp vars loaded))
                      ((< min-local-index n max-local-index)
-                      (let* ((entries (env-entry-types env))
-                             (t (assq-ref entries n)))
+                      (let* ((t (assq-ref (env-entry-types env) n))
+                             (t (if (eq? t &flonum)
+                                    t
+                                    #f)))
                         (with-frame-ref var t n lp vars (cons n loaded))))
                      (else
                       (lp vars loaded))))
