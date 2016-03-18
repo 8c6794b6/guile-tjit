@@ -747,8 +747,10 @@ DST-TYPES, and SRC-TYPES are local index number."
                    (move-or-load-carefully dst-var-table src-var-table
                                            dst-type-table src-type-table))
 
-                 ;; Shift FP.
-                 (shift-fp nlocals)
+                 ;; Shift FP for inlined procedure and root linking side traces.
+                 (when (or (< 0 (snapshot-inline-depth snapshot))
+                           (env-linking-roots? env))
+                   (shift-fp nlocals))
 
                  ;; Jump to the beginning of the loop in linked trace.
                  (jumpi (fragment-loop-address linked-fragment))))))))))
