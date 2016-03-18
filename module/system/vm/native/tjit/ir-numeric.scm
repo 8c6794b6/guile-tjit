@@ -333,7 +333,7 @@
                 (lambda ()
                   `(let ((,f1 (%cref/f ,a/v 2)))
                      (let ((,f2 (%cref/f ,b/v 2)))
-                       (let ((,dst/v (%fmul ,f1 ,f2)))
+                       (let ((,dst/v (op ,f1 ,f2)))
                          ,(next)))))))))
          (else
           (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
