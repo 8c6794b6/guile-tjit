@@ -512,6 +512,8 @@
     (jit-pushargr r0))
    (else
     (case (ref-type arg)
+      ((con)
+       (jit-pushargi (constant arg)))
       ((gpr)
        (jit-pushargr (gpr arg)))
       ((fpr)
