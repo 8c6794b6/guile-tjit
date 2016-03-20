@@ -221,12 +221,24 @@ TESTS = \
 	t-vector-set-01.scm \
 	t-vector-set-02.scm \
 	t-vector-set-03.scm \
+	x-collatz-q.scm \
+	x-conform.scm \
+	x-destruct.scm \
 	x-div.scm \
+	x-dynamic.scm \
+	x-dynamic2.scm \
 	x-earley.scm \
 	x-fft.scm \
 	x-graphs.scm \
+	x-lattice.scm \
+	x-maze.scm \
+	x-maze2.scm \
 	x-mazefun.scm \
+	x-nucleic2.scm \
 	x-nqueens.scm \
+	x-puzzle.scm \
+	x-sort1.scm \
+	x-takl.scm \
 	x-triangle.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
