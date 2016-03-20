@@ -279,7 +279,87 @@ Example:
                                  (not (string? x))
                                  (not (bytevector? x))
                                  (not (bitvector? x))
-                                 (array? x)))))))))
+                                 (array? x))))))))
+
+  (with-test-prefix "tceq"
+    (with-storages (a)
+      (with-test-prefix (format #f "a=~a" a)
+        (pass-if-equal "arg=false"
+            bailout-tag
+          (run-asm `((%move ,a arg1)
+                     (%tceq ,a #x1 ,%tc3-cons)
+                     (%move ret 402))
+                   #f #f))
+        (pass-if-equal "arg=pair"
+            100
+          (run-asm `((%move ,a arg1)
+                     (%tceq ,a #x1 ,%tc3-cons)
+                     (%move ret 402))
+                   '(1 2 3) #f))
+        (pass-if-equal "arg=vector"
+            bailout-tag
+          (run-asm `((%move ,a arg1)
+                     (%tceq ,a #x1 ,%tc3-cons)
+                     (%move ret 402))
+                   #(1 2 3) #f)))))
+
+  (with-test-prefix "tcne"
+    (with-storages (a)
+      (with-test-prefix (format #f "a=~a" a)
+        (pass-if-equal "arg=false"
+            100
+          (run-asm `((%move ,a arg1)
+                     (%tcne ,a #x1 ,%tc3-cons)
+                     (%move ret 402))
+                   #f #f))
+        (pass-if-equal "arg=pair"
+            bailout-tag
+          (run-asm `((%move ,a arg1)
+                     (%tcne ,a #x1 ,%tc3-cons)
+                     (%move ret 402))
+                   '(1 2 3) #f))
+        (pass-if-equal "arg=vector"
+            100
+          (run-asm `((%move ,a arg1)
+                     (%tcne ,a #x1 ,%tc3-cons)
+                     (%move ret 402))
+                   #(1 2 3) #f)))))
+
+  (with-test-prefix "eqv"
+    (with-storages (a b)
+      (unless (eq? a b)
+        (pass-if-equal (format #f "a=~a b=~a" a b)
+            100
+          (run-asm `((%move ,a arg1)
+                     (%move ,b arg2)
+                     (%eqv ,a ,b)
+                     (%move ret 402))
+                   0.01 0.01))
+        (pass-if-equal (format #f "a=~a b=~a" a b)
+            bailout-tag
+          (run-asm `((%move ,a arg1)
+                     (%move ,b arg2)
+                     (%eqv ,a ,b)
+                     (%move ret 402))
+                   0.01 0.02)))))
+
+  (with-test-prefix "nev"
+    (with-storages (a b)
+      (unless (eq? a b)
+        (pass-if-equal (format #f "a=~a b=~a" a b)
+            bailout-tag
+          (run-asm `((%move ,a arg1)
+                     (%move ,b arg2)
+                     (%nev ,a ,b)
+                     (%move ret 402))
+                   0.01 0.01))
+        (pass-if-equal (format #f "a=~a b=~a" a b)
+            100
+          (run-asm `((%move ,a arg1)
+                     (%move ,b arg2)
+                     (%nev ,a ,b)
+                     (%move ret 402))
+                   0.01 0.02))))))
 
 (with-test-prefix "Call and return"
   (with-test-prefix "ccall"

@@ -228,6 +228,9 @@
 (define %scm-inline-cell
   (dynamic-pointer "scm_do_inline_cell" (dynamic-link)))
 
+(define %scm-eqv
+  (dynamic-pointer "scm_eqv_p" (dynamic-link)))
+
 (define %scm-async-tick
   (dynamic-pointer "scm_async_tick" (dynamic-link)))
 
@@ -723,6 +726,48 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-guard-double %flt >= jit-bgei-d jit-bger-d)
 (define-binary-guard-double %fge < jit-blti-d jit-bltr-d)
 
+(define-native (%eqv (int a) (int b))
+  (let ((proceed (jit-forward))
+        (a/r (case (ref-type a)
+               ((con) (jit-movi r0 (constant a)))
+               ((gpr) (gpr a))
+               ((fpr) (fpr->gpr r0 (fpr a)))
+               ((mem) (memory-ref r0 a))
+               (else (err))))
+        (b/r (case (ref-type b)
+               ((con) (jit-movi r1 (constant b)))
+               ((gpr) (gpr b))
+               ((fpr) (fpr->gpr r1 (fpr b)))
+               ((mem) (memory-ref r1 b))
+               (else (err)))))
+    (jump (jit-beqr a/r b/r) proceed)
+    (jit-prepare)
+    (jit-pushargr a/r)
+    (jit-pushargr b/r)
+    (jit-calli %scm-eqv)
+    (jit-retval r0)
+    (jump (jit-beqi r0 (scm->pointer #f)) (bailout))
+    (jit-link proceed)))
+
+(define-native (%nev (int a) (int b))
+  (let ((a/r (case (ref-type a)
+               ((con) (jit-movi r0 (constant a)))
+               ((gpr) (gpr a))
+               ((fpr) (fpr->gpr r0 (fpr a)))
+               ((mem) (memory-ref r0 a))))
+        (b/r (case (ref-type b)
+               ((con) (jit-movi r1 (constant b)))
+               ((gpr) (gpr b))
+               ((fpr) (fpr->gpr r1 (fpr b)))
+               ((mem) (memory-ref r1 b)))))
+    (jump (jit-beqr a/r b/r) (bailout))
+    (jit-prepare)
+    (jit-pushargr a/r)
+    (jit-pushargr b/r)
+    (jit-calli %scm-eqv)
+    (jit-retval r0)
+    (jump (jit-bnei r0 (scm->pointer #f)) (bailout))))
+
 ;;; Type guard.
 (define-native (%typeq (int src) (void type))
   (let ((rt (ref-type src)))
@@ -732,6 +777,34 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                    ((fpr) (fpr->gpr r0 (fpr src)))
                    ((mem) (memory-ref r0 src)))))
         (guard-type reg (ref-value type))))))
+
+;;; TC tag equal.
+(define-native (%tceq (int src) (void mask) (void tag))
+  (let ((typx r0)
+        (obj (case (ref-type src)
+               ((gpr) (gpr src))
+               ((fpr) (fpr->gpr r1 (fpr src)))
+               ((mem) (memory-ref r1 src))
+               (else (err)))))
+    (jump (scm-imp obj) (bailout))
+    (jit-ldr typx obj)
+    (jit-andi typx typx (constant mask))
+    (jump (jit-bnei typx (constant tag)) (bailout))))
+
+;;; TC tag not equal.
+(define-native (%tcne (int src) (void mask) (void tag))
+  (let ((typx r0)
+        (obj (case (ref-type src)
+               ((gpr) (gpr src))
+               ((fpr) (fpr->gpr r1 (fpr src)))
+               ((mem) (memory-ref r1 src))
+               (else (err))))
+        (proceed (jit-forward)))
+    (jump (scm-imp obj) proceed)
+    (jit-ldr typx obj)
+    (jit-andi typx typx (constant mask))
+    (jump (jit-beqi typx (constant tag)) (bailout))
+    (jit-link proceed)))
 
 
 ;;;

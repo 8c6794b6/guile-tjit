@@ -196,7 +196,8 @@ option was set to true."
 (define (dump-primops trace-id plist snapshots)
   (define (mark-op op)
     (case (car op)
-      ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fge %typeq)
+      ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fge %eqv %nev
+                %typeq %tceq %tcne)
        "  >")
       ((%fref)
        (let ((t (cdr (cadddr op))))
