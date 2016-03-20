@@ -25,6 +25,7 @@
 ;;; Code:
 
 (define-module (system vm native tjit ir-branch)
+  #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
@@ -36,6 +37,13 @@
 (define-syntax-rule (end-of-root-trace?)
   (and (ir-last-op? ir)
        (not (env-parent-snapshot env))))
+
+(define-syntax-rule (obj->tc7 obj)
+  (let ((*obj (scm->pointer obj)))
+    (if (zero? (logand (pointer-address *obj) 6))
+        (let ((*tc (dereference-pointer *obj)))
+          (logand (pointer-address *tc) #x7f))
+        #f)))
 
 (define-ir (br (const offset))
   ;; Nothing to emit for br.
@@ -82,20 +90,46 @@
 ;;                    (if (pair? test/l)
 ;;                        (if invert offset 2)
 ;;                        (if invert 2 offset))))
-;;          (tmp (make-tmpvar 2)))
+;;          (op (if (end-of-root-trace?)
+;;                  (if invert '%tcne '%tceq)
+;;                  (if (pair? test/l) '%tceq '%tcne))))
 ;;     `(let ((_ ,(take-snapshot! ip dest)))
-;;        ,(if (pair? test/l)
-;;             `(let ((,tmp (%band ,test/v 6)))
-;;                (let ((_ (%ne ,tmp 0)))
-;;                  (let ((,tmp (%cref ,test/v 0)))
-;;                    (let ((,tmp (%band ,tmp 1)))
-;;                      (let ((_ (%eq ,tmp 0)))
-;;                        ,(next))))))
-;;             (nyi "br-if-pair ~s ~s ~s" test invert offset)))))
+;;        (let ((_ (,op ,test/v 1 ,%tc3-cons)))
+;;          ,(next)))))
 
 ;; XXX: br-if-struct
+;; (define-ir (br-if-struct (scm test) (const invert) (const offset))
+;;   (let* ((test/l (scm-ref test))
+;;          (test/v (var-ref test))
+;;          (dest (if (end-of-root-trace?)
+;;                    2
+;;                    (if (struct? test/l)
+;;                        (if invert offset 2)
+;;                        (if invert 2 offset))))
+;;          (op (if (end-of-root-trace?)
+;;                  (if invert '%tcne '%tceq)
+;;                  (if (struct? test/l) '%tceq '%tcne))))
+;;     `(let ((_ ,(take-snapshot! ip dest)))
+;;        (let ((_ (,op ,test/v #x7 ,%tc3-struct)))
+;;          ,(next)))))
+
 ;; XXX: br-if-char
+
 ;; XXX: br-if-tc7
+;; (define-ir (br-if-tc7 (scm test) (const invert) (const tc7) (const offset))
+;;   (let* ((test/l (scm-ref test))
+;;          (test/v (var-ref test))
+;;          (dest (if (end-of-root-trace?)
+;;                    2
+;;                    (if (eq? tc7 (obj->tc7 test/l))
+;;                        (if invert offset 2)
+;;                        (if invert 2 offset))))
+;;          (op (if (end-of-root-trace?)
+;;                  (if invert '%tcne '%tceq)
+;;                  (if (eq? tc7 (obj->tc7 test/l)) '%tceq '%tcne))))
+;;     `(let ((_ ,(take-snapshot! ip dest)))
+;;        (let ((_ (,op ,test/v #x7f ,tc7)))
+;;          ,(next)))))
 
 ;; XXX: br-if-eq
 ;; (define-ir (br-if-eq (scm a) (scm b) (const invert) (const offset))
@@ -116,6 +150,29 @@
 ;;          ,(next)))))
 
 ;; XXX: br-if-eqv
+;; (define-ir (br-if-eqv (scm a) (scm b) (const invert) (const offset))
+;;   (let* ((a/l (scm-ref a))
+;;          (b/l (scm-ref b))
+;;          (a/v (var-ref a))
+;;          (b/v (var-ref b))
+;;          (r1 (make-tmpvar 1))
+;;          (r2 (make-tmpvar 2))
+;;          (dest (if (end-of-root-trace?)
+;;                    3
+;;                    (if (eq? a/l b/l)
+;;                        (if invert offset 3)
+;;                        (if invert 3 offset))))
+;;          (op (if (end-of-root-trace?)
+;;                  (if invert '%nev '%eqv)
+;;                  (if (eq? a/l b/l) '%eqv '%nev))))
+;;     `(let ((_ ,(take-snapshot! ip dest)))
+;;        ,(with-boxing (type-ref a) a/v r2
+;;           (lambda (boxed1)
+;;             (with-boxing (type-ref b) b/v r1
+;;               (lambda (boxed2)
+;;                 `(let ((_ (,op ,boxed1 ,boxed2)))
+;;                    ,(next)))))))))
+
 ;; XXX: br-if-logtest
 
 (define-syntax define-br-binary-body
