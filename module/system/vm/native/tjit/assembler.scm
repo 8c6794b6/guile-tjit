@@ -1065,7 +1065,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
               (not (constant? type)))
       (err))
     (sp-ref r0 (ref-value n))
-    (guard-type r0 tref)
     (unbox-stack-element dst r0 tref)))
 
 ;; Load frame local to fpr or memory, with type check. This primitive
