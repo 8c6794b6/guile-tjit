@@ -199,11 +199,6 @@ option was set to true."
       ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fge %eqv %nev
                 %typeq %tceq %tcne)
        "  >")
-      ((%fref)
-       (let ((t (cdr (cadddr op))))
-         (if (and t (not (memq t (list &scm &u64 &f64))))
-             "  >"
-             "   ")))
       (else
        "   ")))
   (define (pretty-locals locals variables)
