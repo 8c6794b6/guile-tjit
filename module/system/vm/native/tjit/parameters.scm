@@ -124,7 +124,7 @@
 
 Flags are:
 
-- 'a': Dump abort, without this flag true, aborted traces are not shown.
+- 'a': Dump abort, aborted traces are not shown without this flag.
 
 - 'b': Dump recorded bytecode.
 
@@ -134,13 +134,13 @@ Flags are:
 
 - 'n': Dump native code.
 
-- 'o': Dump list of primitive operations.
+- 'o': Dump primitive operations.
 
-- 's': Dump Scheme IR.
+- 's': Dump ANF IR.
 
 - 't': Take elapsed time spent in native compilation.
 
-- 'v': Dump verbosly, affects 'b', 'o', and 'x'.
+- 'v': Dump verbosely, affects 'b', 'o', and 'x'.
 
 - 'x': Dump exit.
 
@@ -282,7 +282,7 @@ assumes `objdump' executable already installed."
         (let ((done? (or (eof-object? line)
                          (done-line? line))))
           (when (not done?)
-            (when (<= (if root? 17 2) n)
+            (when (<= (if root? 16 2) n)
               (when (and (pointer? loop-address)
                          (regexp-exec loop-start/rx line))
                 (display "loop:\n"))
