@@ -243,7 +243,7 @@
 ;;; Auxiliary
 ;;;
 
-(define (gen-type-checker types)
+(define (gen-type-checker types id)
   "Returns a procedure for checking types.
 
 Takes assoc list TYPES, with its keys being local index and values being type
@@ -267,12 +267,12 @@ types in TYPES matched with LOCALS, otherwise return false."
                      (if (eq? t rt)
                          (lp types)
                          (begin
-                           (debug 2 ";;; [tc] local ~a expect ~a, got ~a:~a~%"
-                                  n (pretty-type t) (pretty-type ti)
+                           (debug 2 ";;; trace ~a: local ~a expect ~a, got ~a:~a~%"
+                                  id n (pretty-type t) (pretty-type ti)
                                   (pretty-type rt))
                            #f)))))))
         (()
-         (debug 2 ";;; [tc] all type matched~%")
+         (debug 2 ";;; trace ~a: all type matched~%" id)
          #t)))))
 
 (define (type->stack-element-type type)

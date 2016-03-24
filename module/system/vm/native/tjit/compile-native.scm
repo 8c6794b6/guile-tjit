@@ -402,7 +402,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                            (cons (hashq-ref storage (car vars)) acc))))
                  #f))
             (type-checker (if (zero? parent-id)
-                              (gen-type-checker (env-entry-types env))
+                              (gen-type-checker (env-entry-types env)
+                                                (env-id env))
                               #f))
             (bcode (compile-bailouts env end-address trampoline bailouts)))
        (make-bytevector-executable! code)
@@ -594,7 +595,6 @@ DST-TYPES, and SRC-TYPES are local index number."
         (jit-patch entry)
        (match snapshot
          (($ $snapshot id sp-offset fp-offset nlocals local-x-types)
-
           ;; Store contents of args to frame. Note that args of snapshot 0 in
           ;; root trace is null, no need to recover the frame with snapshot for
           ;; that case.
@@ -699,7 +699,7 @@ DST-TYPES, and SRC-TYPES are local index number."
          (lp local-x-types tbl))
         (() tbl))))
   (match snapshot
-    (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
+    (($ $snapshot id sp-offset fp-offset nlocals locals vars)
      ;; Store unpassed variables, and move variables to linked trace.  Shift
      ;; amount in `maybe-store' depends on whether the trace is root trace or
      ;; not.
