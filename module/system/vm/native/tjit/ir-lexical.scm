@@ -106,28 +106,29 @@
 (define-ir (box-set! (box dst) (scm src))
   (let* ((src/t (type-ref src))
          (vdst (var-ref dst))
-         (vsrc (var-ref src)))
-    (debug 2 ";;; [IR] box-set! src/t=~a~%" (pretty-type src/t))
-    (if (eq? &flonum src/t)
-        (let ((r2 (make-tmpvar 2)))
-          (with-boxing src/t vsrc r2
-            (lambda (tmp)
-              `(let ((_ (%cset ,vdst 1 ,tmp)))
-                 ,(next)))))
-        `(let ((_ (%cset ,vdst 1 ,vsrc)))
-           ,(next)))))
-
-;; XXX: make-closure
-
-(define-ir (free-ref (scm! dst) (scm src) (const idx))
-  (let* ((dst/v (var-ref dst))
-         (src/v (var-ref src))
-         (src/l (scm-ref src))
-         (ref/l (and (program? src/l)
-                     (program-free-variable-ref src/l idx)))
+         (vsrc (var-ref src))
          (r2 (make-tmpvar 2)))
-    `(let ((,r2 (%add ,src/v ,(* 2 %word-size))))
-       (let ((,dst/v (%cref ,r2 ,idx)))
+    (with-boxing src/t vsrc r2
+      (lambda (tmp)
+        `(let ((_ (%cset ,vdst 1 ,tmp)))
+           ,(next))))))
+
+(define-interrupt-ir (make-closure (scm! dst) (const offset) (const nfree))
+  (let* ((dst/v (var-ref dst))
+         (tag (logior %tc7-program (ash nfree 16)))
+         (nwords (+ nfree 2)))
+    `(let ((,dst/v (%words ,tag ,nwords)))
+       (let ((_ (%cset ,dst/v 1 ,(+ ip (* offset 4)))))
          ,(next)))))
 
-;; XXX: free-set!
+(define-ir (free-ref (scm! dst) (procedure src) (const idx))
+  (let* ((dst/v (var-ref dst))
+         (src/v (var-ref src)))
+    `(let ((,dst/v (%cref ,src/v ,(+ idx 2))))
+       ,(next))))
+
+(define-ir (free-set! (procedure dst) (scm src) (const idx))
+  (let* ((dst/v (var-ref dst))
+         (src/v (var-ref src)))
+    `(let ((_ (%cset ,dst/v ,(+ 2 idx) ,src/v)))
+       ,(next))))

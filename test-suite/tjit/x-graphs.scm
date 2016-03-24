@@ -630,7 +630,7 @@
   (let ((n 5))
     (fold-over-rdg n 2 cons '())))
 
-;;; XXX: Segfault.
+;;; XXX: Unstable result, sometimes segfault, sometime Scheme error.
 ;; (define (go)
 ;;   (let lp ((n 10) (v 0))
 ;;     (if (zero? n)

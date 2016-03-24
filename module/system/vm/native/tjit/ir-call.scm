@@ -29,10 +29,12 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
-  #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit fragment)
+  #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
+  #:use-module (system vm native tjit variables)
   #:use-module (system vm program))
 
 (define-syntax-rule (current-sp-for-ti)
@@ -92,6 +94,16 @@
         (_
          (values))))))
 
+(define-syntax-rule (check-entry-ip next-ip message)
+  (when (ir-last-op? ir)
+    (let ((entry-ip (cond
+                     ((env-linked-fragment env)
+                      => fragment-entry-ip)
+                     (else
+                      (env-entry-ip env)))))
+      (when (not (= entry-ip next-ip))
+        (nyi "last ~s to non-entry IP" message)))))
+
 ;;; XXX: halt is not defined, might not necessary.
 
 (define-scan (call proc nlocals)
@@ -116,14 +128,19 @@
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
+         (r2 (make-tmpvar 2))
          (proc/v (var-ref (- fp 1)))
-         (proc/l (scm-ref (- fp 1))))
+         (proc/l (scm-ref (- fp 1)))
+         (next-ip (program-code proc/l)))
+    (check-entry-ip next-ip 'call)
+    ;; XXX: Add guard for proc when proc type was not inferred.
     `(let ((_ ,(take-snapshot! ip 0)))
-       (let ((_ (%eq ,proc/v ,(pointer-address (scm->pointer proc/l)))))
-         ,(if (inline-current-call?)
-              (next)
-              `(let ((_ (%scall ,proc)))
-                 ,(next)))))))
+       (let ((,r2 (%cref ,proc/v 1)))
+         (let ((_ (%eq ,r2 ,(program-code proc/l))))
+           ,(if (inline-current-call?)
+                (next)
+                `(let ((_ (%scall ,proc)))
+                   ,(next))))))))
 
 (define-scan (call-label proc nlocals label)
   (scan-call proc nlocals #t))
@@ -158,10 +175,15 @@
          (proc-index (- stack-size 1))
          (proc/v (var-ref proc-index))
          (proc/l (scm-ref proc-index))
-         (proc-addr (pointer-address (scm->pointer proc/l))))
+         (proc-addr (pointer-address (scm->pointer proc/l)))
+         (next-ip (program-code proc/l))
+         (r2 (make-tmpvar 2)))
+    (check-entry-ip next-ip 'tail-call)
     `(let ((_ ,(take-snapshot! ip 0)))
-       (let ((_ (%eq ,proc/v ,proc-addr)))
-         ,(next)))))
+       (let ((_ (%tceq ,proc/v #x7f ,%tc7-program)))
+         (let ((,r2 (%cref ,proc/v 1)))
+           (let ((_ (%eq ,r2 ,next-ip)))
+             ,(next)))))))
 
 (define-scan (tail-call-label nlocals label)
   (scan-tail-call nlocals))

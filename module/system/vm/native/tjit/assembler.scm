@@ -228,6 +228,9 @@
 (define %scm-inline-cell
   (dynamic-pointer "scm_do_inline_cell" (dynamic-link)))
 
+(define %scm-do-inline-words
+  (dynamic-pointer "scm_do_inline_words" (dynamic-link)))
+
 (define %scm-eqv
   (dynamic-pointer "scm_eqv_p" (dynamic-link)))
 
@@ -1185,9 +1188,18 @@ was constant. And, uses OP-RR when both arguments were register or memory."
            (let ((nw (* (ref-value n) %word-size)))
              (case (ref-type src)
                ((con) (jit-ldi dst (imm (+ (ref-value src) nw))))
-               ((gpr) (jit-ldxi dst (gpr src) (imm nw)))
-               ((fpr) (jit-ldxi dst (fpr->gpr r0 (fpr src)) (imm nw)))
-               ((mem) (jit-ldxi dst (memory-ref r0 src) (imm nw)))
+               ((gpr)
+                (if (zero? nw)
+                    (jit-ldr dst (gpr src))
+                    (jit-ldxi dst (gpr src) (imm nw))))
+               ((fpr)
+                (if (zero? nw)
+                    (jit-ldr dst (fpr->gpr r0 (fpr src)))
+                    (jit-ldxi dst (fpr->gpr r0 (fpr src)) (imm nw))))
+               ((mem)
+                (if (zero? nw)
+                    (jit-ldr dst (memory-ref r0 src))
+                    (jit-ldxi dst (memory-ref r0 src) (imm nw))))
                (else (err)))
              dst))))
        (op3reg
@@ -1329,6 +1341,20 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (retval-to-reg-or-mem dst)
     (for-each (lambda (reg)
                 (when (not (equal? reg dst))
+                  (load-volatile reg)))
+              volatiles)))
+
+(define-native (%words (int dst) (const a) (const n))
+  (let ((volatiles (asm-volatiles asm)))
+    (for-each store-volatile volatiles)
+    (jit-prepare)
+    (jit-pushargr %thread)
+    (jit-pushargi (constant a))
+    (jit-pushargi (constant n))
+    (jit-calli %scm-do-inline-words)
+    (retval-to-reg-or-mem dst)
+    (for-each (lambda (reg)
+                (unless (equal? reg dst)
                   (load-volatile reg)))
               volatiles)))
 

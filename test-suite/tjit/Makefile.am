@@ -86,7 +86,10 @@ TESTS = \
 	t-free-ref-01.scm \
 	t-free-ref-02.scm \
 	t-free-ref-03.scm \
+	t-free-ref-04.scm \
+	t-free-ref-05.scm \
 	t-guard-01.scm \
+	t-make-closure-01.scm \
 	t-make-long-long-immediate-01.scm \
 	t-mod-01.scm \
 	t-mod-02.scm \

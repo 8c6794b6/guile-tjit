@@ -312,12 +312,14 @@
     (gen-scan-type . rest)))
 
 (define-syntax gen-scan-type
-  (syntax-rules (scm fixnum flonum pair vector box bytevector u64 f64)
+  (syntax-rules (scm fixnum flonum procedure pair vector box bytevector
+                     u64 f64)
     ((_) (values))
     ((_ (scm arg) . rest) (gen-entry-type &scm arg rest))
     ((_ (fixnum arg) . rest) (gen-entry-type &fixnum arg rest))
     ((_ (flonum arg) . rest) (gen-entry-type &flonum arg rest))
     ((_ (pair arg) . rest) (gen-entry-type &pair arg rest))
+    ((_ (procedure arg) . rest) (gen-entry-type &procedure arg rest))
     ((_ (vector arg) . rest) (gen-entry-type &vector arg rest))
     ((_ (box arg) . rest) (gen-entry-type &box arg rest))
     ((_ (bytevector arg) . rest) (gen-entry-type &bytevector arg rest))

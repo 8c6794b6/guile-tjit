@@ -487,6 +487,7 @@ scm_make_tjit_state (void)
     if (root_ip_ref (next_ip))                                          \
       {                                                                 \
         SCM s_ip, fragment;                                             \
+                                                                        \
         s_ip = SCM_I_MAKINUM (ip + JUMP);                               \
         SYNC_IP ();                                                     \
         fragment = tjit_matching_fragment (vp, s_ip);                   \
@@ -667,6 +668,17 @@ SCM
 scm_do_inline_cell (scm_i_thread *thread, scm_t_bits x, scm_t_bits y)
 {
   return scm_inline_cell (thread, x, y);
+}
+
+SCM
+scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
+                     scm_t_uint32 n_words)
+{
+  SCM obj = SCM_PACK_POINTER (scm_inline_gc_malloc_words (thread, n_words));
+
+  SCM_GC_SET_CELL_WORD (obj, 0, car);
+
+  return obj;
 }
 
 void
