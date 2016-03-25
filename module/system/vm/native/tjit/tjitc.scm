@@ -143,12 +143,6 @@
           (failure "NYI: looping root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
           (failure "NYI: no matching linked fragment"))
-
-         ;; XXX: Work around for fresh-auto-compile, to avoid `bad src' error
-         ;; while compiling tree-il to cps.
-         ((equal? sline '("ice-9/boot-9.scm" . 339))
-          (failure "NYI: temporay disabled"))
-
          (else
           (with-nyi-handler entry-ip (compile-traces traces))))))))
 

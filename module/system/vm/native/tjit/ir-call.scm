@@ -37,6 +37,37 @@
   #:use-module (system vm native tjit variables)
   #:use-module (system vm program))
 
+
+(define-syntax scm-f-program-is-boot
+  (identifier-syntax #x100))
+
+(define-syntax scm-f-program-is-primitive
+  (identifier-syntax #x200))
+
+(define-syntax scm-f-program-is-primitive-generic
+  (identifier-syntax #x400))
+
+(define-syntax scm-f-program-is-continuation
+  (identifier-syntax #x800))
+
+(define-syntax scm-f-program-is-partial-continuation
+  (identifier-syntax #x1000))
+
+(define-syntax scm-f-program-is-foreign
+  (identifier-syntax #x2000))
+
+(define-syntax scm-f-program-is-bytecode-mask
+  (identifier-syntax #xff00))
+
+(define (program-flag p)
+  (pointer-address (dereference-pointer (scm->pointer p))))
+
+(define (bytecode-program? pflag)
+  (zero? (logand pflag scm-f-program-is-bytecode-mask)))
+
+(define (primitive-program? pflag)
+  (not (zero? (logand pflag #x200))))
+
 (define-syntax-rule (current-sp-for-ti)
   ;; Type inference procedures are called during initialization and ANF IR
   ;; compilation. Some bytecode operation shift SP during env
@@ -104,6 +135,35 @@
       (when (not (= entry-ip next-ip))
         (nyi "last ~s to non-entry IP" message)))))
 
+(define-syntax-rule (with-callee-guard proc flag var thunk)
+  ;; Guard to test the procedure value is added, bailout when callee has
+  ;; changed. Bytecode programs, primitive programs, foreign programs, ... etc
+  ;; uses different constant reference value recorded at compile time. The guard
+  ;; first check the type of callee program, and then fetch the runtime value
+  ;; according to the type, and compare with the value used at compile time.
+  ;;
+  (let ((r2 (make-tmpvar 2)))
+    `(let ((_ ,(take-snapshot! ip 0)))
+       ,(cond
+         ((bytecode-program? flag)
+          `(let ((,r2 (%cref ,var 0)))
+             (let ((,r2 (%band ,r2 ,scm-f-program-is-bytecode-mask)))
+               (let ((_ (%eq ,r2 0)))
+                 (let ((,r2 (%cref ,var 1)))
+                   (let ((_ (%eq ,r2 ,(program-code proc))))
+                     ,(thunk)))))))
+         ((primitive-program? flag)
+          (let ((free-ref0 (program-free-variable-ref proc 0)))
+            `(let ((,r2 (%cref ,var 0)))
+               (let ((,r2 (%band ,r2 ,scm-f-program-is-primitive)))
+                 (let ((_ (%ne ,r2 0)))
+                   (let ((,r2 (%cref ,var ,(+ 2 0))))
+                     (let ((,r2 (%cref ,r2 1)))
+                       (let ((_ (%eq ,r2 ,(pointer-address free-ref0))))
+                         ,(thunk)))))))))
+         (else
+          (nyi "with-callee-guard: ~a" proc))))))
+
 ;;; XXX: halt is not defined, might not necessary.
 
 (define-scan (call proc nlocals)
@@ -113,34 +173,22 @@
   (ti-call proc nlocals #f))
 
 (define-anf (call proc nlocals)
-  ;; When procedure get inlined, taking snapshot of previous frame.
-  ;; Contents of previous frame could change in native code. Note that
-  ;; frame return address will get checked at the time of `%return'.
-  ;;
-  ;; Refilling dynamic link and return address.  These two locals would be
-  ;; restored with values in snapshot when taiking side exit. An `%eq' guard
-  ;; is added to test the procedure value, to bailout when procedure has been
-  ;; redefined.
-  ;;
-  ;; Call to C subroutines (a.k.a: primitive-code) are inlined, will not emit
-  ;; primitive operation.
-  ;;
   (let* ((sp-offset (current-sp-offset))
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
          (r2 (make-tmpvar 2))
          (proc/v (var-ref (- fp 1)))
          (proc/l (scm-ref (- fp 1)))
-         (next-ip (program-code proc/l)))
-    (check-entry-ip next-ip 'call)
+         (proc/f (program-flag proc/l))
+         (emit-next (lambda ()
+                      (if (inline-current-call?)
+                          (next)
+                          `(let ((_ (%scall ,proc)))
+                             ,(next))))))
     ;; XXX: Add guard for proc when proc type was not inferred.
-    `(let ((_ ,(take-snapshot! ip 0)))
-       (let ((,r2 (%cref ,proc/v 1)))
-         (let ((_ (%eq ,r2 ,(program-code proc/l))))
-           ,(if (inline-current-call?)
-                (next)
-                `(let ((_ (%scall ,proc)))
-                   ,(next))))))))
+    ;;
+    (check-entry-ip (program-code proc/l) 'call)
+    (with-callee-guard proc/l proc/f proc/v emit-next)))
 
 (define-scan (call-label proc nlocals label)
   (scan-call proc nlocals #t))
@@ -160,7 +208,9 @@
 
 (define-syntax-rule (scan-tail-call nlocals)
   (let* ((stack-size (vector-length locals))
-         (proc-sp (- stack-size 1)))
+         (proc-sp (- stack-size 1))
+         (proc-sp+offset (+ proc-sp (env-sp-offset env))))
+    (set-entry-type! env proc-sp+offset &procedure)
     (set-scan-initial-fields! env)
     (push-scan-sp-offset! env (- nlocals stack-size))))
 
@@ -176,14 +226,10 @@
          (proc/v (var-ref proc-index))
          (proc/l (scm-ref proc-index))
          (proc-addr (pointer-address (scm->pointer proc/l)))
-         (next-ip (program-code proc/l))
+         (proc/f (program-flag proc/l))
          (r2 (make-tmpvar 2)))
-    (check-entry-ip next-ip 'tail-call)
-    `(let ((_ ,(take-snapshot! ip 0)))
-       (let ((_ (%tceq ,proc/v #x7f ,%tc7-program)))
-         (let ((,r2 (%cref ,proc/v 1)))
-           (let ((_ (%eq ,r2 ,next-ip)))
-             ,(next)))))))
+    (check-entry-ip (program-code proc/l) 'tail-call)
+    (with-callee-guard proc/l proc/f proc/v next)))
 
 (define-scan (tail-call-label nlocals label)
   (scan-tail-call nlocals))
@@ -268,6 +314,8 @@
     (set-inferred-type! env dl-offset &false)))
 
 (define-anf (return-values nlocals)
+  ;; Add guard to test return address.
+  ;;
   ;; Two locals below callee procedure in VM frame contain dynamic link and
   ;; return address. VM interpreter refills these two with #f, doing the same
   ;; thing in `emit-next'.
