@@ -151,7 +151,7 @@
                                     (if (null? args)
                                         (string-join acc " ")
                                         (lp (cdr args)
-                                            (cons "~a" (physical-name acc))))))
+                                            (cons "~a" acc)))))
                                 'arg ...)
                                arg ...)))))
            <body>))
