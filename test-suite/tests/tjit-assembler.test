@@ -601,7 +601,19 @@ Example:
                      (%move ,b arg2)
                      (%cell ,dst ,a ,b)
                      (%move ret ,dst))
-                   123 '(456 789)))))))
+                   123 '(456 789))))))
+
+  (with-test-prefix "words"
+    (let ((tc-length-1-vector (logior (ash 3 8) %tc7-vector)))
+      (with-storages (dst)
+        (pass-if-equal (format #f "dst=~a" dst)
+            #(0 1 2)
+          (run-asm `((%words ,dst ,tc-length-1-vector 4)
+                     (%cset ,dst 1 2)
+                     (%cset ,dst 2 6)
+                     (%cset ,dst 3 10)
+                     (%move ret ,dst))
+                   #f #f))))))
 
 (with-test-prefix "Type conversion"
   (with-test-prefix "i2d"

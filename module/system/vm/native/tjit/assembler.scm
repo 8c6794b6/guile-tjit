@@ -228,7 +228,10 @@
 (define %scm-inline-cell
   (dynamic-pointer "scm_do_inline_cell" (dynamic-link)))
 
-(define %scm-do-inline-words
+(define %scm-words
+  (dynamic-pointer "scm_words" (dynamic-link)))
+
+(define %scm-inline-words
   (dynamic-pointer "scm_do_inline_words" (dynamic-link)))
 
 (define %scm-eqv
@@ -1344,14 +1347,21 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                   (load-volatile reg)))
               volatiles)))
 
+;; Allocate words for n bytes, store to dst, fill head with a.
 (define-native (%words (int dst) (const a) (const n))
   (let ((volatiles (asm-volatiles asm)))
+    (when (or (not (constant? a))
+              (not (constant? n)))
+      (nyi "%words ~a ~a ~a" dst a n))
     (for-each store-volatile volatiles)
     (jit-prepare)
-    (jit-pushargr %thread)
+    (when (asm-gc-inline? asm)
+      (jit-pushargr %thread))
     (jit-pushargi (constant a))
     (jit-pushargi (constant n))
-    (jit-calli %scm-do-inline-words)
+    (if (asm-gc-inline? asm)
+        (jit-calli %scm-inline-words)
+        (jit-calli %scm-words))
     (retval-to-reg-or-mem dst)
     (for-each (lambda (reg)
                 (unless (equal? reg dst)
