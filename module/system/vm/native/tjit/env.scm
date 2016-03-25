@@ -70,7 +70,6 @@
             add-env-call!
             add-env-return!
             env-local-indices
-            env-current-inline-depth
             expand-env!
             set-entry-type!
             set-inferred-type!))
@@ -207,23 +206,6 @@
   (sort (delete-duplicates (append (env-write-indices env)
                                    (env-read-indices env)))
         >))
-
-(define (env-current-inline-depth env)
-  "Compute current inline depth in ENV.
-
-Counts the number of inlined calls which are currently opened, by using calls,
-returns, current call-num, and current return-num."
-  (let ((call-num (env-call-num env))
-        (return-num (env-return-num env)))
-    (let lp ((calls (env-calls env)) (acc 0))
-      (match calls
-        (((_ . #f) . calls)
-         (lp calls acc))
-        (((c . r) . calls)
-         (if (and (< c call-num) (<= return-num r))
-             (lp calls (+ acc 1))
-             (lp calls acc)))
-        (() (+ acc (env-inline-depth env)))))))
 
 (define (increment-env-call-return-num! env op)
   "Increment call/return number in ENV if OP was call or return.

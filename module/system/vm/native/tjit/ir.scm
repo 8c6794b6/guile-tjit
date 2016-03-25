@@ -35,6 +35,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit parse)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
@@ -211,6 +212,26 @@
   (match parent-snapshot
     (($ $snapshot _ _ fp-offset) fp-offset)
     (_ 0)))
+
+(define (current-inline-depth env)
+  "Compute current inline depth in ENV.
+
+Counts the number of inlined calls which are currently opened, by using calls,
+returns, current call-num, and current return-num."
+  (let ((call-num (env-call-num env))
+        (return-num (env-return-num env)))
+    (let lp ((calls (env-calls env)) (acc 0))
+      (match calls
+        (((_ . #f) . calls)
+         (lp calls acc))
+        (((c . r) . calls)
+         (if (and (< c call-num) (<= return-num r))
+             (lp calls (+ acc 1))
+             (lp calls acc)))
+        (()
+         (when (< (tjit-max-inline-depth) acc)
+           (nyi "too many inlined procedures"))
+         (+ acc (env-inline-depth env)))))))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
                         min-sp-offset max-sp-offset inline-depth env
@@ -479,7 +500,7 @@ index referenced by dst, a, and b values at runtime."
                                   (ir-snapshot-id ir)
                                   (current-sp-offset) (current-fp-offset)
                                   (ir-min-sp-offset ir) (ir-max-sp-offset ir)
-                                  (env-current-inline-depth env) env
+                                  (current-inline-depth env) env
                                   refill?)))
        (let ((old-id (ir-snapshot-id ir)))
          (hashq-set! (ir-snapshots ir) old-id snapshot)

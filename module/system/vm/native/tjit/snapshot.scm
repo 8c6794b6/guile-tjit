@@ -111,8 +111,6 @@
     (debug 2 ";;; inline-depth: ~s~%" inline-depth)
     (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?)
     (debug 2 ";;; live-indices: ~a~%" (sort (env-live-indices env) <)))
-  (when (< (tjit-max-inline-depth) inline-depth)
-    (nyi "too many inlined procedures"))
   (let lp ((is write-indices) (acc '()))
     (match is
       ((i . is)
