@@ -338,6 +338,10 @@
 ;; XXX: Refer C code.
 (define-syntax-rule (struct-procedure-index) 0)
 
+(define (primitive? proc)
+  (and (program? proc)
+       (primitive-code? (program-code proc))))
+
 (define (ensure-program-addr program-or-addr)
   (or (and (primitive? program-or-addr)
            (pointer-address (program-free-variable-ref program-or-addr 0)))
