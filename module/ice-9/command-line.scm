@@ -448,10 +448,11 @@ If FILE begins with `-' the -s switch is mandatory.
             (set-vm-engine! 'debug)))
 
       ;; Use vm-tjit engine
-      (when tjit?
-        (init-vm-tjit turn-on-debugging?)
-        (set-default-vm-engine! 'tjit)
-        (set-vm-engine! 'tjit))
+      (if tjit?
+          (begin
+            (init-vm-tjit turn-on-debugging?)
+            (set-default-vm-engine! 'tjit)
+            (set-vm-engine! 'tjit)))
 
       ;; Return this value.
       `(;; It would be nice not to load up (ice-9 control), but the
