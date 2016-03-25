@@ -254,23 +254,25 @@ types in TYPES matched with LOCALS, otherwise return false."
     (let lp ((types types))
       (match types
         (((n . t) . types)
-         (if (memq t (list &scm &u64 &f64 &s64))
+         (if (or (memq t (list &scm &u64 &f64 &s64))
+                 (let ((ti (and (pair? inferred-types)
+                                (assq-ref inferred-types n))))
+                   (or (eq? t ti) (eq? ti &scm)))
+                 (let ((tr (and (vector? locals)
+                                (<= 0 n (- (vector-length locals) 1))
+                                (type-of (vector-ref locals n)))))
+                   (eq? t tr)))
              (lp types)
-             (let ((ti (and (pair? inferred-types)
-                            (assq-ref inferred-types n))))
-               (if (or (eq? t ti) (eq? ti &scm))
-                   (lp types)
-                   (let* ((v (and (vector? locals)
-                                  (<= 0 n (- (vector-length locals) 1))
-                                  (vector-ref locals n)))
-                          (rt (type-of v)))
-                     (if (eq? t rt)
-                         (lp types)
-                         (begin
-                           (debug 2 ";;; trace ~a: local ~a expect ~a, got ~a:~a~%"
-                                  id n (pretty-type t) (pretty-type ti)
-                                  (pretty-type rt))
-                           #f)))))))
+             (begin
+               (debug 2 ";;; trace ~a: local ~a expect ~a, got ~a:~a~%"
+                      id n
+                      (pretty-type t)
+                      (pretty-type (assq-ref inferred-types n))
+                      (pretty-type
+                       (and (vector? locals)
+                            (<= 0 n (- (vector-length locals) 1))
+                            (type-of (vector-ref locals n)))))
+               #f)))
         (()
          (debug 2 ";;; trace ~a: all type matched~%" id)
          #t)))))

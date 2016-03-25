@@ -140,15 +140,13 @@ After successufl parse, this procedure will update fields in ENV."
         (()
          (let* ((linked-ip (env-linked-ip env))
                 (inferred (env-inferred-types env))
+                (shift (env-sp-offset env))
                 (shifted-inferred
-                 (let lp ((inferred inferred)
-                          (shift (env-last-sp-offset env))
-                          (acc '()))
+                 (let lp ((inferred inferred) (acc '()))
                    (match inferred
                      (((n . t) . inferred)
-                      (lp inferred shift (cons (cons (- n shift) t) acc)))
-                     (()
-                      acc))))
+                      (lp inferred (cons (cons (- n shift) t) acc)))
+                     (() acc))))
                 (linked-fragment
                  (if linked-ip
                      (get-root-trace shifted-inferred last-locals linked-ip)
