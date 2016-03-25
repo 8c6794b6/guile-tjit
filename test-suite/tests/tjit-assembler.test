@@ -434,7 +434,8 @@ Example:
      ("mod" %mod (1000 17 ,(modulo 1000 17)))
      ("rem" %rem (1000 17 ,(remainder 1000 17)))
      ("quo" %quo (1000 17 ,(quotient 1000 17)))
-     ("imul" %imul (123 456 ,(* 123 456)))))
+     ("imul" %imul (123 456 ,(* 123 456)))
+     ("idiv" %idiv (123 41 ,(/ 123 41)))))
 
   (with-test-prefix "mod"
     (with-storages (dst a b)

@@ -1027,6 +1027,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-int %rem remainder jit-remi jit-remr)
 (define-binary-arith-int %quo modulo jit-divi jit-divr)
 
+;; Integer multiplication, with overflow check.
 (define-native (%imul (int dst) (int a) (int b))
   (let ((tmp r1)
         (proceed (jit-forward)))
@@ -1062,6 +1063,36 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (jump (jit-beqi tmp (make-negative-pointer -1)) proceed)
       (jump (jit-bnei tmp (imm 0)) (bailout))
       (jit-link proceed))))
+
+(define-native (%idiv (int dst) (int a) (int b))
+  (letrec-syntax
+      ((movi (syntax-rules ()
+               ((_ x y)
+                (begin (jit-movi x (constant y))
+                       x)))))
+    (let ((tmp r1))
+      (let ((a/r (case (ref-type a)
+                   ((con) (movi r0 a))
+                   ((gpr) (gpr a))
+                   ((fpr) (fpr->gpr r0 (fpr a)))
+                   ((mem) (memory-ref r0 a))
+                   (else (err))))
+            (b/r (case (ref-type b)
+                   ((con) (movi r1 b))
+                   ((gpr) (gpr b))
+                   ((fpr) (fpr->gpr r1 (fpr b)))
+                   ((mem) (memory-ref r1 b))
+                   (else (err))))
+            (dst/r (case (ref-type dst)
+                     ((gpr) (gpr dst))
+                     (else r0))))
+        (jit-qdivr dst/r tmp a/r b/r)
+        (jump (jit-bnei tmp (imm 0)) (bailout))
+        (case (ref-type dst)
+          ((gpr) (values))
+          ((fpr) (gpr->fpr (fpr dst) dst/r))
+          ((mem) (memory-set! dst dst/r))
+          (else (err)))))))
 
 
 ;;;

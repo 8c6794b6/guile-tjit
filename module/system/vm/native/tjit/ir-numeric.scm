@@ -211,7 +211,7 @@
 (define-add-sub-scm-scm sub %sub %add %fsub)
 (define-add-sub-scm-imm sub/immediate %sub)
 
-(define-syntax-rule (define-mul-div-scm-scm name op)
+(define-syntax-rule (define-mul-div-scm-scm name fx-op fl-op)
   (begin
     (define-ir (name (scm! dst) (scm a) (scm b))
       (let ((a/t (type-ref a))
@@ -229,7 +229,7 @@
              (next-thunk (lambda ()
                            `(let ((,r1 (%rsh ,a/v 2)))
                               (let ((,r2 (%rsh ,b/v 2)))
-                                (let ((,r2 (%imul ,r1 ,r2)))
+                                (let ((,r2 (fx-op ,r1 ,r2)))
                                   (let ((,r2 (%lsh ,r2 2)))
                                     (let ((,dst/v (%add ,r2 2)))
                                       ,(next)))))))))
@@ -241,6 +241,11 @@
           (with-type-guard &fixnum a/v next-thunk))
          ((and (eq? &fixnum a/t) (eq? &scm b/t))
           (with-type-guard &fixnum b/v next-thunk))
+         ((and (eq? &scm a/t) (eq? &scm b/t))
+          (with-type-guard &fixnum a/v
+            (lambda ()
+              (with-type-guard &fixnum b/v
+                next-thunk))))
          (else
           (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name
                (pretty-type a/t) (pretty-type b/t))))))
@@ -257,14 +262,14 @@
          ((and (eq? &flonum a/t) (eq? &fixnum b/t))
           `(let ((,r2 (%rsh ,b/v 2)))
              (let ((,f2 (%i2d ,r2)))
-               (let ((,dst/v (op ,a/v ,f2)))
+               (let ((,dst/v (fl-op ,a/v ,f2)))
                  ,(next)))))
          ((and (eq? &flonum a/t) (eq? &scm b/t))
           (with-type-guard &fixnum b/v
             (lambda ()
               `(let ((,r2 (%rsh ,b/v 2)))
                  (let ((,f2 (%i2d ,r2)))
-                   (let ((,dst/v (op ,a/v ,f2)))
+                   (let ((,dst/v (fl-op ,a/v ,f2)))
                      ,(next)))))))
          ((and (eq? &scm a/t) (eq? &scm b/t))
           (with-type-guard &flonum a/v
@@ -273,7 +278,7 @@
                 (lambda ()
                   `(let ((,f1 (%cref/f ,a/v 2)))
                      (let ((,f2 (%i2d ,b/v)))
-                       (let ((,dst/v (op ,f1 ,f2)))
+                       (let ((,dst/v (fl-op ,f1 ,f2)))
                          ,(next)))))))))
          (else
           (nyi "~s: et=(flonum fixnum) it=(~a ~a)" 'name
@@ -291,7 +296,7 @@
          ((and (eq? &fixnum a/t) (eq? &flonum b/t))
           `(let ((,r2 (%rsh ,a/v 2)))
              (let ((,f2 (%i2d ,r2)))
-               (let ((,dst/v (op ,f2 ,b/v)))
+               (let ((,dst/v (fl-op ,f2 ,b/v)))
                  ,(next)))))
          ((and (eq? &fixnum a/t) (eq? &scm b/t))
           (with-type-guard &flonum b/v
@@ -299,7 +304,7 @@
               `(let ((,f1 (%cref/f ,b/v 2)))
                  (let ((,r2 (%rsh ,a/v 2)))
                    (let ((,f2 (%i2d ,r2)))
-                     (let ((,dst/v (op ,f2 ,f1)))
+                     (let ((,dst/v (fl-op ,f2 ,f1)))
                        ,(next))))))))
          ((and (eq? &scm a/t) (eq? &scm b/t))
           (with-type-guard &fixnum a/v
@@ -309,7 +314,7 @@
                   `(let ((,f2 (%cref/f ,b/v 2)))
                      (let ((,r2 (%rsh ,a/v 2)))
                        (let ((,f1 (%i2d ,r2)))
-                         (let ((,dst/v (op ,f1 ,f2)))
+                         (let ((,dst/v (fl-op ,f1 ,f2)))
                            ,(next))))))))))
          (else
           (nyi "~s: et=(fixnum flonum) it=(~a ~a)"
@@ -324,7 +329,7 @@
              (f2 (make-tmpvar/f 2)))
         (cond
          ((and (eq? &flonum a/t) (eq? &flonum b/t))
-          `(let ((,dst/v (op ,a/v ,b/v)))
+          `(let ((,dst/v (fl-op ,a/v ,b/v)))
              ,(next)))
          ((and (eq? &scm a/t) (eq? &scm b/t))
           (with-type-guard &flonum a/v
@@ -333,14 +338,14 @@
                 (lambda ()
                   `(let ((,f1 (%cref/f ,a/v 2)))
                      (let ((,f2 (%cref/f ,b/v 2)))
-                       (let ((,dst/v (op ,f1 ,f2)))
+                       (let ((,dst/v (fl-op ,f1 ,f2)))
                          ,(next)))))))))
          (else
           (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                (pretty-type a/t) (pretty-type b/t))))))))
 
-(define-mul-div-scm-scm mul %fmul)
-(define-mul-div-scm-scm div %fdiv)
+(define-mul-div-scm-scm mul %imul %fmul)
+(define-mul-div-scm-scm div %idiv %fdiv)
 
 (define-syntax define-binary-arith-fx-fx
   (syntax-rules ()
