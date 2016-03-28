@@ -102,8 +102,7 @@
     (define-syntax dump
       (syntax-rules ()
         ((_ test data exp)
-         (when (and (test dump-option)
-                    (or data (tjit-dump-abort? dump-option)))
+         (when (and (test dump-option) data)
            exp))))
     (define (failure msg)
       (debug 1 "~a~%" msg)
@@ -126,8 +125,10 @@
 
     (with-tjitc-error-handler entry-ip
       (let-values (((traces implemented?) (parse-bytecode env bytecode traces)))
-        (dump tjit-dump-jitc? implemented? (show-sline))
-        (dump tjit-dump-bytecode? implemented? (dump-bytecode trace-id traces))
+        (when (tjit-dump-abort? dump-option)
+          (dump tjit-dump-jitc? implemented? (show-sline))
+          (dump tjit-dump-bytecode? implemented?
+                (dump-bytecode trace-id traces)))
         (cond
          ((not env)
           (failure "error during parse"))
@@ -139,11 +140,15 @@
           (failure "NYI: down recursion"))
          ((and (not parent-snapshot) (not loop?))
           (failure "NYI: loop-less root trace"))
-         ((and (not parent-snapshot) (not (zero? (env-sp-offset env))))
+         ((and (not parent-snapshot) (not (zero? (env-last-sp-offset env))))
           (failure "NYI: looping root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
           (failure "NYI: no matching linked fragment"))
          (else
+          (unless (tjit-dump-abort? dump-option)
+            (dump tjit-dump-jitc? implemented? (show-sline))
+            (dump tjit-dump-bytecode? implemented?
+                  (dump-bytecode trace-id traces)))
           (with-nyi-handler entry-ip (compile-traces traces))))))))
 
 
