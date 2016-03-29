@@ -126,9 +126,8 @@
     (with-tjitc-error-handler entry-ip
       (let-values (((traces implemented?) (parse-bytecode env bytecode traces)))
         (when (tjit-dump-abort? dump-option)
-          (dump tjit-dump-jitc? implemented? (show-sline))
-          (dump tjit-dump-bytecode? implemented?
-                (dump-bytecode trace-id traces)))
+          (dump tjit-dump-jitc? #t (show-sline))
+          (dump tjit-dump-bytecode? #t (dump-bytecode trace-id traces)))
         (cond
          ((not env)
           (failure "error during parse"))
