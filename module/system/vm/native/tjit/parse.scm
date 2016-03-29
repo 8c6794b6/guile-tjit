@@ -139,17 +139,16 @@ After successufl parse, this procedure will update fields in ENV."
            (_ (error "malformed trace" trace))))
         (()
          (let* ((linked-ip (env-linked-ip env))
-                (inferred (env-inferred-types env))
-                (shift (env-sp-offset env))
-                (shifted-inferred
-                 (let lp ((inferred inferred) (acc '()))
+                (last-sp-offset (env-sp-offset env))
+                (inferred
+                 (let lp ((inferred (env-inferred-types env)) (acc '()))
                    (match inferred
                      (((n . t) . inferred)
-                      (lp inferred (cons (cons (- n shift) t) acc)))
+                      (lp inferred (cons (cons (- n last-sp-offset) t) acc)))
                      (() acc))))
                 (linked-fragment
                  (if linked-ip
-                     (get-root-trace shifted-inferred last-locals linked-ip)
+                     (get-root-trace inferred last-locals linked-ip)
                      #f))
                 (linking-roots?
                  ;; Detecting root trace linkage by chasing parent id until it
@@ -172,7 +171,7 @@ After successufl parse, this procedure will update fields in ENV."
                            0)))
            (set-env-linked-fragment! env linked-fragment)
            (set-env-linking-roots! env linking-roots?)
-           (set-env-last-sp-offset! env (env-sp-offset env))
+           (set-env-last-sp-offset! env last-sp-offset)
            (set-env-call-num! env 0)
            (set-env-return-num! env 0)
            (set-env-inline-depth! env depth)

@@ -45,7 +45,7 @@
 
 ;; XXX: br-if-nargs-ne
 ;; XXX: br-if-nargs-lt
-;; XXX; br-if-nargs-gt
+;; XXX: br-if-nargs-gt
 
 (define-ir (assert-nargs-ee (const expected))
   ;; XXX: Unless this op was found at entry of down recursion, nothing to do.
