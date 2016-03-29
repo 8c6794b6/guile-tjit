@@ -197,12 +197,11 @@
     (jit-addi vp->fp %sp (imm (* nlocals %word-size)))
     (store-vp->fp vp vp->fp)))
 
-(define (shift-sp offset)
-  (let ((op (if (< 0 offset)
-                jit-addi
-                jit-subi)))
-    (op %sp %sp (imm (* (abs offset) %word-size)))
-    (vm-sync-sp %sp)))
+(define (shift-sp %asm offset)
+  (if (< 0 offset)
+      (jit-addi %sp %sp (imm (* offset %word-size)))
+      (vm-expand-stack %asm offset))
+  (vm-sync-sp %sp))
 
 (define-syntax-rule (move-or-load-carefully dsts srcs dst-types src-types)
   "Move SRCS to DSTS or without overwriting.
@@ -570,11 +569,8 @@ DST-TYPES, and SRC-TYPES are local index number."
             (values loop-label gen-bailouts)))))
   (match primops
     (($ $primops entry loop mem-idx storage)
-     (let* ((fragment (env-parent-fragment env))
-            (end-address (or (and=> fragment
-                                    fragment-end-address)
-                             (and=> (env-linked-fragment env)
-                                    fragment-end-address)))
+     (let* ((linked-fragment (env-linked-fragment env))
+            (end-address (and=> linked-fragment fragment-end-address))
             (asm (make-asm storage end-address #t))
             (gen-bailouts (compile-ops asm entry storage '())))
        (let-values (((loop-label gen-bailouts)
@@ -609,7 +605,7 @@ DST-TYPES, and SRC-TYPES are local index number."
 
           ;; Shift SP.
           (when (not (zero? sp-offset))
-            (shift-sp sp-offset))
+            (shift-sp %asm sp-offset))
 
           ;; Shift FP for side exit in the middle of inlined call/return.
           (when (< 0 (snapshot-inline-depth snapshot))
@@ -727,7 +723,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (lp loop-locals vars))
            (_
             ;; Store locals not passed to linked trace. Using snapshot 1 from
-            ;; linked fragment to get write indices used for reference.
+            ;; linked fragment to get the write indices used in reference.
             (let lp ((ref-locals (snapshot-locals linked-snap1)))
               (match ref-locals
                 (((n . t) . ref-locals)
@@ -738,7 +734,7 @@ DST-TYPES, and SRC-TYPES are local index number."
 
                  ;; Shift SP.
                  (unless (zero? sp-offset)
-                   (shift-sp sp-offset))
+                   (shift-sp %asm sp-offset))
 
                  ;; Move or load locals for linked trace.
                  ;; `move-or-load-carefully' uses type guard, which requires
@@ -747,9 +743,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                    (move-or-load-carefully dst-var-table src-var-table
                                            dst-type-table src-type-table))
 
-                 ;; Shift FP for inlined procedure and root linking side traces.
-                 (when (or (< 0 (snapshot-inline-depth snapshot))
-                           (env-linking-roots? env))
+                 ;; Shift FP for inlined procedure.
+                 (when (< 0 (snapshot-inline-depth snapshot))
                    (shift-fp nlocals))
 
                  ;; Jump to the beginning of the loop in linked trace.

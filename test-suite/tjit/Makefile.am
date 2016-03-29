@@ -208,6 +208,7 @@ TESTS = \
 	t-tail-call-05c.scm \
 	t-tail-call-05d.scm \
 	t-tail-call-06.scm \
+	t-tail-call-07.scm \
 	t-tail-call-08.scm \
 	t-tail-call-09.scm \
 	t-tail-call-label-01.scm \

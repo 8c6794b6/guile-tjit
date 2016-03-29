@@ -626,20 +626,21 @@
 ;      '())))
 
 ;;; Works.
-(define (go)
-  (let ((n 5))
-    (fold-over-rdg n 2 cons '())))
 
-;;; XXX: Unstable result, sometimes segfault, sometime Scheme error.
 ;; (define (go)
-;;   (let lp ((n 10) (v 0))
+;;   (fold-over-rdg 5 2 cons '()))
+
+(define (go)
+  (fold-over-rdg 6 2 cons '()))
+
+;; (define (go)
+;;   (fold-over-rdg 7 2 cons '()))
+
+;;; XXX: Unstable.
+;; (define (go)
+;;   (let lp ((n 45) (v 0))
 ;;     (if (zero? n)
 ;;         v
 ;;         (lp (- n 1) (fold-over-rdg 6 2 cons '())))))
-
-;;; XXX: Segfault.
-;; (define (go)
-;;   (let ((n 7))
-;;     (fold-over-rdg n 2 cons '())))
 
 (go)
