@@ -238,7 +238,6 @@
 (define *unbound*
   (pointer->scm (make-pointer #xb04)))
 
-
 ;;;
 ;;; Auxiliary
 ;;;
@@ -251,13 +250,29 @@ values. Returns a procedure taking one argument LOCALS, which is a vector
 containing stack elements. The returned procedure will return true if all of the
 types in TYPES matched with LOCALS, otherwise return false."
   (lambda (inferred-types locals)
+    (define (f nt)
+      (cons (car nt) (pretty-type (cdr nt))))
+    (define (g ts)
+      (map f (sort ts (lambda (a b) (< (car a) (car b))))))
+    (debug 2 ";;; trace ~a: types=~a~%" id (g types))
+    (debug 2 ";;; trace ~a: inferred=~a~%" id (g inferred-types))
+    (debug 2 ";;; trace ~a: locals=~a~%" id
+           (let lp ((v (make-vector (vector-length locals)))
+                    (i (- (vector-length locals) 1)))
+             (if (< i 0)
+                 v
+                 (begin
+                   (vector-set! v i (scm->pointer (vector-ref locals i)))
+                   (lp v (- i 1))))))
     (let lp ((types types))
       (match types
         (((n . t) . types)
          (if (or (memq t (list &scm &u64 &f64 &s64))
                  (let ((ti (and (pair? inferred-types)
                                 (assq-ref inferred-types n))))
-                   (or (eq? t ti) (eq? ti &scm)))
+                   (or (eq? t ti)
+                       (eq? ti &scm)
+                       (and (pair? ti) (eq? 'copy (car ti)))))
                  (let ((tr (and (vector? locals)
                                 (<= 0 n (- (vector-length locals) 1))
                                 (type-of (vector-ref locals n)))))
