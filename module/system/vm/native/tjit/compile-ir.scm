@@ -398,8 +398,12 @@ Currently does nothing, returns the given argument."
        (else
         (lambda ()
           ;; Get the new `nlocals' when side trace ended with one of the call
-          ;; operations.
+          ;; or operations containing `ALLOC_FRAME'.
           (let ((nlocals (match op
+                           (('assert-nargs-ee/locals _ nlocals)
+                            (+ nlocals (vector-length locals)))
+                           (('alloc-frame nlocals)
+                            (max nlocals (vector-length locals)))
                            (('call _ nlocals) nlocals)
                            (('call-label _ nlocals _) nlocals)
                            (('tail-call nlocals) nlocals)
