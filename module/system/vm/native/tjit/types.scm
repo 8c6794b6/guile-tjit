@@ -50,7 +50,6 @@
             &undefined
             &scm
 
-            fixnum?
             flonum?
             unbound?
             true?
@@ -213,9 +212,8 @@
 ;;; Type checker based on runtime values
 ;;;
 
-(define (fixnum? val)
-  (and (exact-integer? val)
-       (<= most-negative-fixnum val most-positive-fixnum)))
+(define-syntax-rule (inline-fixnum? val)
+  (not (= 0 (logand 2 (object-address val)))))
 
 (define (flonum? val)
   (and (real? val) (inexact? val)))
@@ -302,7 +300,7 @@ types in TYPES matched with LOCALS, otherwise return false."
 (define (type-of obj)
   (cond
    ;; From (@ language cps types)
-   ((fixnum? obj) &fixnum)
+   ((inline-fixnum? obj) &fixnum)
    ((flonum? obj) &flonum)
    ((number? obj) &number)
    ((char? obj) &char)

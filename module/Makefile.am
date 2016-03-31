@@ -368,6 +368,7 @@ SOURCES =					\
   system/vm/native/tjit/registers.scm		\
   system/vm/native/tjit/variables.scm		\
   system/vm/native/tjit/assembler.scm		\
+  system/vm/native/tjit/parse.scm               \
   system/vm/native/tjit/ir.scm			\
   system/vm/native/tjit/ir-call.scm		\
   system/vm/native/tjit/ir-specialized.scm	\
@@ -384,7 +385,6 @@ SOURCES =					\
   system/vm/native/tjit/compile-ir.scm		\
   system/vm/native/tjit/compile-native.scm	\
   system/vm/native/tjit/dump.scm		\
-  system/vm/native/tjit/parse.scm               \
   system/vm/native/tjit/tjitc.scm		\
 						\
   system/xref.scm				\

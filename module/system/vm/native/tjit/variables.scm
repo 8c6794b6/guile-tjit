@@ -28,6 +28,7 @@
   #:use-module (ice-9 format)
   #:use-module (system foreign)
   #:use-module (system vm native tjit error)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit types)
   #:export (ref? ref-value ref-type
@@ -123,8 +124,7 @@
 
 (define-syntax-rule (moffs mem)
   (let ((n (- (+ 2 1 (ref-value mem) *num-volatiles* *num-fpr*))))
-    (make-pointer (+ (ash 2 (- (* 8 %word-size) 1))
-                     (* n %word-size)))))
+    (make-negative-pointer (* n %word-size))))
 
 (define (physical-name x)
   (cond

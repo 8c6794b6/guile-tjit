@@ -20,6 +20,7 @@
   #:use-module (test-suite lib)
   #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
+  #:use-module ((rnrs arithmetic fixnums) #:select (fixnum?))
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module (system vm native lightning)

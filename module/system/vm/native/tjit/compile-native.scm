@@ -85,7 +85,7 @@
                (tjitc-error 'store-frame "~s ~a ~s"
                             local (pretty-type type) src))))
     (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
-           local (pretty-type type) src)
+           local (pretty-type type) (physical-name src))
     (cond
      ((return-address? type)
       ;; Moving value coupled with type to frame local. Return address of VM
@@ -174,8 +174,7 @@
          (map (match-lambda ((n . t) `(,n . ,(pretty-type t))))
               local-x-types))
   (debug 3 ";;;   references:    ~a~%" (hash-map->list cons references))
-  (let lp ((local-x-types local-x-types)
-           (srcs srcs))
+  (let lp ((local-x-types local-x-types) (srcs srcs))
     (match (list local-x-types srcs)
       ((((local . type) . local-x-types) (src . srcs))
        (when (or (dynamic-link? type)
@@ -198,13 +197,15 @@
     (store-vp->fp vp vp->fp)))
 
 (define (shift-sp %asm offset)
+  "Shift SP for OFFSET, may expand stack with %ASM when offset is negative."
   (if (< 0 offset)
-      (jit-addi %sp %sp (imm (* offset %word-size)))
-      (vm-expand-stack %asm offset))
-  (vm-sync-sp %sp))
+      (begin
+        (jit-addi %sp %sp (imm (* offset %word-size)))
+        (vm-sync-sp %sp))
+      (vm-expand-stack %asm offset)))
 
 (define-syntax-rule (move-or-load-carefully dsts srcs dst-types src-types)
-  "Move SRCS to DSTS or without overwriting.
+  "Move SRCS to DSTS or load without overwriting.
 
 Avoids overwriting source in hash-table SRCS while updating destinations in
 hash-table DSTS.  If source is not found, load value from frame with using type
@@ -447,6 +448,7 @@ DST-TYPES, and SRC-TYPES are local index number."
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
   (let* ((trampoline (make-trampoline (hash-count (const #t) snapshots)))
          (fragment (env-parent-fragment env)))
+
     (cond
      ;; Root trace.
      ((not fragment)
@@ -485,20 +487,19 @@ DST-TYPES, and SRC-TYPES are local index number."
       ;; Store values passed from parent trace when it's not used by this
       ;; side trace.
       (match (env-parent-snapshot env)
-        (($ $snapshot _ _ _ _ local-x-types exit-variables)
+        (($ $snapshot _ _ _ _ locals exit-variables)
          (let* ((snap0 (hashq-ref snapshots 0))
-                (locals (snapshot-locals snap0))
-                (vars (snapshot-variables snap0))
+                (locals0 (snapshot-locals snap0))
+                (vars0 (snapshot-variables snap0))
                 (references (make-hash-table))
                 (asm (make-asm (make-hash-table) #f #t)))
-           (let lp ((locals locals) (vars vars))
-             (match (list locals vars)
-               ((((local . _) . locals) (var . vars))
+           (let lp ((locals0 locals0) (vars0 vars0))
+             (match (cons locals0 vars0)
+               ((((local . _) . locals0) . (var . vars0))
                 (hashq-set! references local var)
-                (lp locals vars))
+                (lp locals0 vars0))
                (_
-                (values))))
-           (maybe-store asm local-x-types exit-variables references 0)))
+                (maybe-store asm locals exit-variables references 0))))))
         (_
          (tjitc-error 'compile-entry "snapshot not found"
                       (env-parent-exit-id env))))))
@@ -591,66 +592,66 @@ DST-TYPES, and SRC-TYPES are local index number."
       (debug 3 ";;;   args:        ~a~%" args)
       (let ((entry (jit-label)))
         (jit-patch entry)
-       (match snapshot
-         (($ $snapshot id sp-offset fp-offset nlocals local-x-types)
-          ;; Store contents of args to frame. Note that args of snapshot 0 in
-          ;; root trace is null, no need to recover the frame with snapshot for
-          ;; that case.
-          (let lp ((local-x-types local-x-types)
-                   (args args))
-            (match (list local-x-types args)
-              ((((local . type) . local-x-types) (arg . args))
-               (syntax-parameterize ((asm (identifier-syntax %asm)))
-                 (store-frame local type arg))
-               (lp local-x-types args))
-              (_ (values))))
+        (match snapshot
+          (($ $snapshot id sp-offset fp-offset nlocals local-x-types)
+           ;; Store contents of args to frame. Note that args of snapshot 0 in
+           ;; root trace is null, no need to recover the frame with snapshot for
+           ;; that case.
+           (let lp ((local-x-types local-x-types)
+                    (args args))
+             (match (list local-x-types args)
+               ((((local . type) . local-x-types) (arg . args))
+                (syntax-parameterize ((asm (identifier-syntax %asm)))
+                  (store-frame local type arg))
+                (lp local-x-types args))
+               (_ (values))))
 
-          ;; Shift SP.
-          (when (not (zero? sp-offset))
-            (shift-sp %asm sp-offset))
+           ;; Shift SP.
+           (unless (zero? sp-offset)
+             (shift-sp %asm sp-offset))
 
-          ;; Shift FP for side exit in the middle of inlined call/return.
-          (when (< 0 (snapshot-inline-depth snapshot))
-            (shift-fp nlocals))
+           ;; Shift FP for side exit in the middle of inlined call/return.
+           (when (< 0 (snapshot-inline-depth snapshot))
+             (shift-fp nlocals))
 
-          ;; Sync next IP with vp->ip for VM.
-          (jit-movi r0 (imm ip))
-          (vm-sync-ip r0)
+           ;; Sync next IP with vp->ip for VM.
+           (jit-movi r0 (imm ip))
+           (vm-sync-ip r0)
 
-          ;; Make tjit-retval for VM interpreter.
-          (jit-prepare)
-          (jit-pushargr %thread)
-          (jit-pushargi (scm-i-makinumi id))
-          (jit-pushargi (scm-i-makinumi (env-id env)))
-          (jit-pushargi (scm-i-makinumi nlocals))
-          (jit-calli %scm-make-tjit-retval)
-          (jit-retval %retval)
+           ;; Make tjit-retval for VM interpreter.
+           (jit-prepare)
+           (jit-pushargr %thread)
+           (jit-pushargi (scm-i-makinumi id))
+           (jit-pushargi (scm-i-makinumi (env-id env)))
+           (jit-pushargi (scm-i-makinumi nlocals))
+           (jit-calli %scm-make-tjit-retval)
+           (jit-retval %retval)
 
-          ;; Debug code to dump tjit-retval and locals.
-          (let ((dump-option (tjit-dump-option)))
-            (when (tjit-dump-exit? dump-option)
-              (jit-movr %thread %retval)
-              (jit-prepare)
-              (jit-pushargr %retval)
-              (load-vp %retval)
-              (jit-pushargr %retval)
-              (jit-calli %scm-tjit-dump-retval)
-              (jit-movr %retval %thread)
-              (when (tjit-dump-verbose? dump-option)
-                (jit-movr %thread %retval)
-                (jit-prepare)
-                (jit-pushargi (scm-i-makinumi (env-id env)))
-                (jit-pushargi (imm nlocals))
-                (jit-pushargr %sp)
-                (load-vp %retval)
-                (jit-pushargr %retval)
-                (jit-calli %scm-tjit-dump-locals)
-                (jit-movr %retval %thread)))))
-         (_
-          (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
+           ;; Debug code to dump tjit-retval and locals.
+           (let ((dump-option (tjit-dump-option)))
+             (when (tjit-dump-exit? dump-option)
+               (jit-movr %thread %retval)
+               (jit-prepare)
+               (jit-pushargr %retval)
+               (load-vp %retval)
+               (jit-pushargr %retval)
+               (jit-calli %scm-tjit-dump-retval)
+               (jit-movr %retval %thread)
+               (when (tjit-dump-verbose? dump-option)
+                 (jit-movr %thread %retval)
+                 (jit-prepare)
+                 (jit-pushargi (scm-i-makinumi (env-id env)))
+                 (jit-pushargi (imm nlocals))
+                 (jit-pushargr %sp)
+                 (load-vp %retval)
+                 (jit-pushargr %retval)
+                 (jit-calli %scm-tjit-dump-locals)
+                 (jit-movr %retval %thread)))))
+          (_
+           (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
 
-       (jumpi end-address)
-       (cons id entry)))))
+        (jumpi end-address)
+        (cons id entry)))))
 
 (define (compile-bailouts env end-address trampoline bailouts)
   ;; Emit bailouts with end address of this code. Side traces need to

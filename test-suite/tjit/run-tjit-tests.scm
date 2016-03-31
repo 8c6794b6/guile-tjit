@@ -106,7 +106,9 @@
         (format #t "tjitc error~%")
         (exit 1))
        (else
-        (let ((result (car results)))
-          (format #t "vm-regular: ~s~%vm-tjit:    ~s~%"
-                  (car result) (cadr result)))
+        (if (and (pair? results) (pair? (car results)))
+            (let ((result (car results)))
+              (format #t "vm-regular: ~s~%vm-tjit:    ~s~%"
+                      (car result) (cadr result)))
+            (format #t "results: ~s~%" results))
         (exit 1))))))
