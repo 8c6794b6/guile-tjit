@@ -82,20 +82,20 @@
 ;; XXX: br-if-nil
 
 ;; XXX: br-if-pair
-;; (define-ir (br-if-pair (scm test) (const invert) (const offset))
-;;   (let* ((test/l (scm-ref test))
-;;          (test/v (var-ref test))
-;;          (dest (if (end-of-root-trace?)
-;;                    2
-;;                    (if (pair? test/l)
-;;                        (if invert offset 2)
-;;                        (if invert 2 offset))))
-;;          (op (if (end-of-root-trace?)
-;;                  (if invert '%tcne '%tceq)
-;;                  (if (pair? test/l) '%tceq '%tcne))))
-;;     `(let ((_ ,(take-snapshot! ip dest)))
-;;        (let ((_ (,op ,test/v 1 ,%tc3-cons)))
-;;          ,(next)))))
+(define-ir (br-if-pair (scm test) (const invert) (const offset))
+  (let* ((test/l (scm-ref test))
+         (test/v (var-ref test))
+         (dest (if (end-of-root-trace?)
+                   2
+                   (if (pair? test/l)
+                       (if invert offset 2)
+                       (if invert 2 offset))))
+         (op (if (end-of-root-trace?)
+                 (if invert '%tcne '%tceq)
+                 (if (pair? test/l) '%tceq '%tcne))))
+    `(let ((_ ,(take-snapshot! ip dest)))
+       (let ((_ (,op ,test/v 1 ,%tc3-cons)))
+         ,(next)))))
 
 ;; XXX: br-if-struct
 ;; (define-ir (br-if-struct (scm test) (const invert) (const offset))
