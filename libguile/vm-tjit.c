@@ -173,7 +173,11 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
   size_t bytecode_len;
 
   if (scm_is_null (tj->traces))
-    return;
+    {
+      scm_t_uint16 retries = failed_ip_ref (tj->loop_start);
+      failed_ip_set (tj->loop_start, retries + 1);
+      return;
+    }
 
   s_id = SCM_I_MAKINUM (tjit_trace_id);
   s_bytecode_ptr = scm_from_pointer (tj->bytecode, NULL);
