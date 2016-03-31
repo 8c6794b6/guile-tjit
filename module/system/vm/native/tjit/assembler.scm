@@ -303,10 +303,14 @@
     (load-vp vp)
     (jit-str vp src)))
 
-(define-syntax-rule (vm-sync-sp src)
-  (let ((vp (if (eq? src r0) r1 r0)))
-    (load-vp vp)
-    (jit-stxi (imm %word-size) vp src)))
+(define-syntax vm-sync-sp
+  (syntax-rules ()
+    ((_ src)
+     (let ((vp (if (eq? src r0) r1 r0)))
+       (load-vp vp)
+       (vm-sync-sp src vp)))
+    ((_ src vp)
+     (jit-stxi (imm %word-size) vp src))))
 
 (define-syntax-rule (vm-sync-fp src)
   (let ((vp (if (eq? src r0) r1 r0)))
@@ -365,9 +369,9 @@
 (define-syntax-rule (vm-sp-stack-size dst vp)
   (jit-ldxi dst vp (imm #x30)))
 
-(define-syntax-rule (vm-handle-interrupts asm-arg)
+(define-syntax-rule (vm-handle-interrupts)
   (let ((next (jit-forward))
-        (volatiles (asm-volatiles asm-arg)))
+        (volatiles (asm-volatiles asm)))
     (vm-thread-pending-asyncs r0)
     (jump (jit-bmci r0 (imm 1)) next)
     (for-each store-volatile volatiles)
@@ -407,7 +411,7 @@
     (vm-set-sp-min-since-gc! vp %sp)
 
     (jit-link sync-sp)
-    (vm-sync-sp %sp)
+    (vm-sync-sp %sp vp)
 
     (jit-link next)))
 

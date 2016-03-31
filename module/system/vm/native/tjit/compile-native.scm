@@ -427,7 +427,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      end-address
                                      gdb-jit-entry
                                      storage
-                                     bcode))
+                                     bcode
+                                     (env-handle-interrupts? env)))
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
        ;; When this trace is a side trace, replace the native code
@@ -556,15 +557,16 @@ DST-TYPES, and SRC-TYPES are local index number."
            (tjitc-error 'compile-ops "op not found ~s" op-name))))
         (()
          acc))))
-  (define (compile-loop asm loop storage gen-bailouts)
+  (define (compile-loop %asm loop storage gen-bailouts)
     (if (null? loop)
         (values #f gen-bailouts)
         (let ((loop-label (jit-label)))
           (jit-note "loop" 0)
           (jit-patch loop-label)
           (when (env-handle-interrupts? env)
-            (vm-handle-interrupts asm))
-          (let ((gen-bailouts (compile-ops asm loop storage gen-bailouts)))
+            (syntax-parameterize ((asm (identifier-syntax %asm)))
+              (vm-handle-interrupts)))
+          (let ((gen-bailouts (compile-ops %asm loop storage gen-bailouts)))
             (jump loop-label)
             (values loop-label gen-bailouts)))))
   (match primops
@@ -737,15 +739,19 @@ DST-TYPES, and SRC-TYPES are local index number."
                    (shift-sp %asm sp-offset))
 
                  ;; Move or load locals for linked trace.
-                 ;; `move-or-load-carefully' uses type guard, which requires
-                 ;; syntax parameter `asm' to be set.
                  (syntax-parameterize ((asm (identifier-syntax %asm)))
                    (move-or-load-carefully dst-var-table src-var-table
-                                           dst-type-table src-type-table))
+                                           dst-type-table src-type-table)
 
-                 ;; Shift FP for inlined procedure.
-                 (when (< 0 (snapshot-inline-depth snapshot))
-                   (shift-fp nlocals))
+                   ;; Shift FP for inlined procedure.
+                   (when (< 0 (snapshot-inline-depth snapshot))
+                     (shift-fp nlocals))
+
+                   ;; Handle interrupts if linked fragment didn't.
+                   (when (and (env-handle-interrupts? env)
+                              (not (fragment-handle-interrupts?
+                                    linked-fragment)))
+                     (vm-handle-interrupts)))
 
                  ;; Jump to the beginning of the loop in linked trace.
                  (jumpi (fragment-loop-address linked-fragment))))))))))

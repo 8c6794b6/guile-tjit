@@ -49,6 +49,7 @@
             fragment-gdb-jit-entry
             fragment-storage
             fragment-bailout-code
+            fragment-handle-interrupts?
 
             put-fragment!
             get-fragment
@@ -69,7 +70,7 @@
   (%make-fragment id code exit-counts downrec? uprec? type-checker entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
                   snapshots trampoline end-address gdb-jit-entry storage
-                  bailout-code)
+                  bailout-code handle-interrupts?)
   fragment?
 
   ;; Trace id number.
@@ -124,7 +125,10 @@
   (storage fragment-storage)
 
   ;; Native code for bailout.
-  (bailout-code fragment-bailout-code))
+  (bailout-code fragment-bailout-code)
+
+  ;; Flag for handling interrupts
+  (handle-interrupts? fragment-handle-interrupts?))
 
 (define make-fragment %make-fragment)
 
