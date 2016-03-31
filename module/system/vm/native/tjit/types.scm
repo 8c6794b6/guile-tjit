@@ -219,13 +219,13 @@
   (and (real? val) (inexact? val)))
 
 (define (undefined? x)
-  (= (pointer-address (scm->pointer x)) #x904))
+  (= (object-address x) #x904))
 
 (define (eof? x)
-  (= (pointer-address (scm->pointer x)) #xa04))
+  (= (object-address x) #xa04))
 
 (define (unbound? x)
-  (= (pointer-address (scm->pointer x)) #xb04))
+  (= (object-address x) #xb04))
 
 (define (false? x)
   (not x))

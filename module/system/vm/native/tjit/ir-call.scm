@@ -225,7 +225,7 @@
          (proc-index (- stack-size 1))
          (proc/v (var-ref proc-index))
          (proc/l (scm-ref proc-index))
-         (proc-addr (pointer-address (scm->pointer proc/l)))
+         (proc-addr (object-address proc/l))
          (proc/f (program-flag proc/l))
          (r2 (make-tmpvar 2)))
     (check-entry-ip (program-code proc/l) 'tail-call)

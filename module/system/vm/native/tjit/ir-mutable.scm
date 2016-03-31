@@ -43,7 +43,7 @@
         (dst/i+sp-offset (+ dst (current-sp-offset)))
         (live-indices (env-live-indices env)))
     (if (variable? var)
-        `(let ((,vdst ,(pointer-address (scm->pointer var))))
+        `(let ((,vdst ,(object-address var)))
            ,(next))
         (nyi "toplevel-box: not a variable ~s" var))))
 
@@ -54,6 +54,6 @@
         (dst/i+sp-offset (+ dst (current-sp-offset)))
         (live-indices (env-live-indices env)))
     (if (variable? var)
-        `(let ((,vdst ,(pointer-address (scm->pointer var))))
+        `(let ((,vdst ,(object-address var)))
            ,(next))
         (nyi "module-box: not a variable ~s" var))))

@@ -70,7 +70,7 @@
                      (program-code subr/l)))
          (ra/v (var-ref stack-size))
          (dl/v (var-ref (+ stack-size 1)))
-         (proc-addr (pointer-address (scm->pointer subr/l)))
+         (proc-addr (object-address subr/l))
          (emit-next
           (lambda ()
             `(let ((,ra/v #f))

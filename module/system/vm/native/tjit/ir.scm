@@ -478,7 +478,7 @@ index referenced by dst, a, and b values at runtime."
   (vector-ref locals n))
 
 (define-syntax-rule (u64-ref n)
-  (pointer-address (scm->pointer (vector-ref locals n))))
+  (object-address (vector-ref locals n)))
 
 (define-syntax-rule (var-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
