@@ -129,6 +129,10 @@
 
 (define-ir (free-set! (procedure dst) (scm src) (const idx))
   (let* ((dst/v (var-ref dst))
-         (src/v (var-ref src)))
-    `(let ((_ (%cset ,dst/v ,(+ 2 idx) ,src/v)))
-       ,(next))))
+         (src/v (var-ref src))
+         (src/t (type-ref src))
+         (r2 (make-tmpvar 2)))
+    (with-boxing src/t src/v r2
+      (lambda (tmp)
+        `(let ((_ (%cset ,dst/v ,(+ 2 idx) ,tmp)))
+           ,(next))))))
