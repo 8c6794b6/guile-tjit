@@ -36,9 +36,6 @@ SCM_API SCM scm_display_backtrace (SCM stack, SCM port, SCM first, SCM depth);
 SCM_API SCM scm_display_backtrace_with_highlights (SCM stack, SCM port, SCM first, SCM depth, SCM highlights);
 SCM_API SCM scm_backtrace (void);
 SCM_API SCM scm_backtrace_with_highlights (SCM highlights);
-#ifdef GUILE_DEBUG
-SCM_API SCM scm_set_print_params_x (SCM params);
-#endif
 
 SCM_INTERNAL void scm_init_backtrace (void);
 

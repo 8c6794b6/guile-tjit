@@ -67,6 +67,10 @@ boot_print_exception (SCM port, SCM frame, SCM key, SCM args)
 #undef FUNC_NAME
 
 static SCM print_exception_var;
+static SCM print_frame_var;
+static SCM kw_count;
+static SCM print_frames_var;
+static SCM frame_to_stack_vector_var;
 
 static void
 init_print_exception_var (void)
@@ -74,6 +78,23 @@ init_print_exception_var (void)
   print_exception_var
     = scm_module_variable (scm_the_root_module (),
                            scm_from_latin1_symbol ("print-exception"));
+}
+
+static void
+init_print_frame_var (void)
+{
+  print_frame_var =
+    scm_c_public_variable ("system repl debug", "print-frame");
+}
+
+static void
+init_print_frames_var_and_frame_to_stack_vector_var (void)
+{
+  kw_count = scm_from_latin1_keyword ("count");
+  print_frames_var =
+    scm_c_public_variable ("system repl debug", "print-frames");
+  frame_to_stack_vector_var =
+    scm_c_public_variable ("system repl debug", "frame->stack-vector");
 }
 
 SCM
@@ -168,106 +189,6 @@ SCM_DEFINE (scm_display_error, "display-error", 6, 0, 0,
 }
 #undef FUNC_NAME
 
-
-typedef struct {
-  int level;
-  int length;
-} print_params_t;
-
-static int n_print_params = 9;
-static print_params_t default_print_params[] = {
-  { 4, 9 }, { 4, 3 },
-  { 3, 4 }, { 3, 3 },
-  { 2, 4 }, { 2, 3 },
-  { 1, 4 }, { 1, 3 }, { 1, 2 }
-};
-static print_params_t *print_params = default_print_params;
-
-#ifdef GUILE_DEBUG
-SCM_DEFINE (scm_set_print_params_x, "set-print-params!", 1, 0, 0,
-           (SCM params),
-	    "Set the print parameters to the values from @var{params}.\n"
-	    "@var{params} must be a list of two-element lists which must\n"
-	    "hold two integer values.")
-#define FUNC_NAME s_scm_set_print_params_x
-{
-  int i;
-  int n;
-  SCM ls;
-  print_params_t *new_params;
-
-  SCM_VALIDATE_NONEMPTYLIST_COPYLEN (2, params, n);
-  for (ls = params; !SCM_NULL_OR_NIL_P (ls); ls = SCM_CDR (ls))
-    SCM_ASSERT (scm_ilength (SCM_CAR (params)) == 2
-		&& scm_is_unsigned_integer (SCM_CAAR (ls), 0, INT_MAX)
-		&& scm_is_unsigned_integer (SCM_CADAR (ls), 0, INT_MAX),
-		params,
-		SCM_ARG2,
-		s_scm_set_print_params_x);
-  new_params = scm_malloc (n * sizeof (print_params_t));
-  if (print_params != default_print_params)
-    free (print_params);
-  print_params = new_params;
-  for (i = 0; i < n; ++i)
-    {
-      print_params[i].level = scm_to_int (SCM_CAAR (params));
-      print_params[i].length = scm_to_int (SCM_CADAR (params));
-      params = SCM_CDR (params);
-    }
-  n_print_params = n;
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-#endif
-
-static void
-indent (int n, SCM port)
-{
-  int i;
-  for (i = 0; i < n; ++i)
-    scm_putc_unlocked (' ', port);
-}
-
-static void
-display_frame_expr (char *hdr, SCM exp, char *tlr, int indentation, SCM sport, SCM port, scm_print_state *pstate)
-{
-  int i = 0, n;
-  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (sport);
-  do
-    {
-      pstate->length = print_params[i].length;
-      ptob->seek (sport, 0, SEEK_SET);
-      if (scm_is_pair (exp))
-	{
-	  pstate->level = print_params[i].level - 1;
-	  scm_iprlist (hdr, exp, tlr[0], sport, pstate);
-	  scm_puts_unlocked (&tlr[1], sport);
-	}
-      else
-	{
-	  pstate->level = print_params[i].level;
-	  scm_iprin1 (exp, sport, pstate);
-	}
-      ptob->flush (sport);
-      n = ptob->seek (sport, 0, SEEK_CUR);
-      ++i;
-    }
-  while (indentation + n > SCM_BACKTRACE_WIDTH && i < n_print_params);
-  ptob->truncate (sport, n);
-      
-  scm_display (scm_strport_to_string (sport), port);
-}
-
-static void
-display_application (SCM frame, int indentation, SCM sport, SCM port, scm_print_state *pstate)
-{
-  display_frame_expr ("[", scm_frame_call_representation (frame), "]",
-		      indentation,
-		      sport,
-		      port,
-		      pstate);
-}
-
 SCM_DEFINE (scm_display_application, "display-application", 1, 2, 0, 
            (SCM frame, SCM port, SCM indent),
 	    "Display a procedure application @var{frame} to the output port\n"
@@ -275,157 +196,14 @@ SCM_DEFINE (scm_display_application, "display-application", 1, 2, 0,
 	    "output.")
 #define FUNC_NAME s_scm_display_application
 {
-  SCM_VALIDATE_FRAME (1, frame);
-  if (SCM_UNBNDP (port))
-    port = scm_current_output_port ();
-  else
-    SCM_VALIDATE_OPOUTPORT (2, port);
-  if (SCM_UNBNDP (indent))
-    indent = SCM_INUM0;
-  
-  /* Display an application. */
-  {
-    SCM sport, print_state;
-    scm_print_state *pstate;
-      
-    /* Create a string port used for adaptation of printing parameters. */
-    sport = scm_mkstrport (SCM_INUM0, SCM_BOOL_F,
-                           SCM_OPN | SCM_WRTNG,
-                           FUNC_NAME);
+  static scm_i_pthread_once_t once = SCM_I_PTHREAD_ONCE_INIT;
+  scm_i_pthread_once (&once, init_print_frame_var);
 
-    /* Create a print state for printing of frames. */
-    print_state = scm_make_print_state ();
-    pstate = SCM_PRINT_STATE (print_state);
-    pstate->writingp = 1;
-    pstate->fancyp = 1;
-      
-    display_application (frame, scm_to_int (indent), sport, port, pstate);
-    return SCM_BOOL_T;
-  }
+  /* FIXME perhaps: ignoring indent.  But really we should deprecate
+     this procedure in favor of print-frame.  */
+  return scm_call_2 (scm_variable_ref (print_frame_var), frame, port);
 }
 #undef FUNC_NAME
-
-SCM_SYMBOL (sym_base, "base");
-
-static void
-display_backtrace_get_file_line (SCM frame, SCM *file, SCM *line)
-{
-  SCM source = scm_frame_source (frame);
-  *file = *line = SCM_BOOL_F;
-  if (scm_is_pair (source)
-      && scm_is_pair (scm_cdr (source))
-      && scm_is_pair (scm_cddr (source))
-      && !scm_is_pair (scm_cdddr (source)))
-    {
-      /* (addr . (filename . (line . column))), from vm compilation */
-      *file = scm_cadr (source);
-      *line = scm_caddr (source);
-    }
-}
-
-static void
-display_backtrace_file (frame, last_file, port, pstate)
-     SCM frame;
-     SCM *last_file;
-     SCM port;
-     scm_print_state *pstate;
-{
-  SCM file, line;
-
-  display_backtrace_get_file_line (frame, &file, &line);
-
-  if (scm_is_true (scm_equal_p (file, *last_file)))
-    return;
-
-  *last_file = file;
-
-  scm_puts_unlocked ("In ", port);
-  if (scm_is_false (file))
-    if (scm_is_false (line))
-      scm_puts_unlocked ("unknown file", port);
-    else
-      scm_puts_unlocked ("current input", port);
-  else
-    {
-      pstate->writingp = 0;
-      scm_iprin1 (file, port, pstate);
-      pstate->writingp = 1;
-    }
-  scm_puts_unlocked (":\n", port);
-}
-
-static void
-display_backtrace_file_and_line (SCM frame, SCM port, scm_print_state *pstate)
-{
-  SCM file, line;
-
-  display_backtrace_get_file_line (frame, &file, &line);
-
-  if (scm_is_eq (SCM_PACK (SCM_SHOW_FILE_NAME), sym_base))
-    {
-      if (scm_is_false (file))
-	{
-	  if (scm_is_false (line))
-	    scm_putc_unlocked ('?', port);
-	  else
-	    scm_puts_unlocked ("<stdin>", port);
-	}
-      else
-	{
-	  pstate -> writingp = 0;
-#ifdef HAVE_POSIX
-	  scm_iprin1 ((scm_is_string (file)?
-		       scm_basename (file, SCM_UNDEFINED) : file),
-		      port, pstate);
-#else
-	  scm_iprin1 (file, port, pstate);
-#endif
-	  pstate -> writingp = 1;
-	}
-
-      scm_putc_unlocked (':', port);
-    }
-  else if (scm_is_true (line))
-    {
-      int i, j=0;
-      for (i = scm_to_int (line)+1; i > 0; i = i/10, j++)
-	;
-      indent (4-j, port);
-    }
-
-  if (scm_is_false (line))
-    scm_puts_unlocked ("   ?", port);
-  else
-    scm_intprint (scm_to_int (line) + 1, 10, port);
-  scm_puts_unlocked (": ", port);
-}
-
-static void
-display_frame (SCM frame, int n, int nfield, int indentation,
-               SCM sport, SCM port, scm_print_state *pstate)
-{
-  int i, j;
-
-  /* display file name and line number */
-  if (scm_is_true (SCM_PACK (SCM_SHOW_FILE_NAME)))
-    display_backtrace_file_and_line (frame, port, pstate);
-
-  /* Check size of frame number. */
-  for (i = 0, j = n; j > 0; ++i) j /= 10;
-
-  /* Number indentation. */
-  indent (nfield - (i ? i : 1), port);
-
-  /* Frame number. */
-  scm_iprin1 (scm_from_int (n), port, pstate);
-
-  /* Indentation. */
-  indent (indentation, port);
-
-  /* Display an application. */
-  display_application (frame, nfield + 1 + indentation, sport, port, pstate);
-  scm_putc_unlocked ('\n', port);
-}
 
 struct display_backtrace_args {
   SCM stack;
@@ -437,83 +215,34 @@ struct display_backtrace_args {
 
 static SCM
 display_backtrace_body (struct display_backtrace_args *a)
-#define FUNC_NAME "display_backtrace_body"
+#define FUNC_NAME "display-backtrace"
 {
-  int n_frames, beg, end, n, i, j;
-  int nfield, indentation;
-  SCM frame, sport, print_state;
-  SCM last_file;
-  scm_print_state *pstate;
+  static scm_i_pthread_once_t once = SCM_I_PTHREAD_ONCE_INIT;
+  SCM frames;
+
+  scm_i_pthread_once (&once,
+                      init_print_frames_var_and_frame_to_stack_vector_var);
 
   a->port = SCM_COERCE_OUTPORT (a->port);
 
   /* Argument checking and extraction. */
   SCM_VALIDATE_STACK (1, a->stack);
   SCM_VALIDATE_OPOUTPORT (2, a->port);
-  n_frames = scm_to_int (scm_stack_length (a->stack));
-  n = scm_is_integer (a->depth) ? scm_to_int (a->depth) : SCM_BACKTRACE_DEPTH;
-  if (SCM_BACKWARDS_P)
-    {
-      beg = scm_is_integer (a->first) ? scm_to_int (a->first) : 0;
-      end = beg + n - 1;
-      if (end >= n_frames)
-	end = n_frames - 1;
-      n = end - beg + 1;
-    }
-  else
-    {
-      if (scm_is_integer (a->first))
-	{
-	  beg = scm_to_int (a->first);
-	  end = beg - n + 1;
-	  if (end < 0)
-	    end = 0;
-	}
-      else
-	{
-	  beg = n - 1;
-	  end = 0;
-	  if (beg >= n_frames)
-	    beg = n_frames - 1;
-	}
-      n = beg - end + 1;
-    }
-  SCM_ASSERT (beg >= 0 && beg < n_frames, a->first, SCM_ARG3, s_display_backtrace);
-  SCM_ASSERT (n > 0, a->depth, SCM_ARG4, s_display_backtrace);
 
-  /* Create a string port used for adaptation of printing parameters. */
-  sport = scm_mkstrport (SCM_INUM0, SCM_BOOL_F,
-			 SCM_OPN | SCM_WRTNG,
-			 FUNC_NAME);
+  if (scm_is_false (a->first))
+    a->first = SCM_INUM0;
+  if (scm_is_false (a->depth))
+    a->depth = scm_from_int (SCM_BACKTRACE_DEPTH);
 
-  /* Create a print state for printing of frames. */
-  print_state = scm_make_print_state ();
-  pstate = SCM_PRINT_STATE (print_state);
-  pstate->writingp = 1;
-  pstate->fancyp = 1;
-  pstate->highlight_objects = a->highlight_objects;
+  if (scm_is_false (scm_less_p (a->first, scm_stack_length (a->stack))))
+    return SCM_UNSPECIFIED;
 
-  /* Determine size of frame number field. */
-  j = end;
-  for (i = 0; j > 0; ++i) j /= 10;
-  nfield = i ? i : 1;
-  
-  /* Print frames. */
-  indentation = 1;
-  last_file = SCM_UNDEFINED;
-  if (SCM_BACKWARDS_P)
-    end++;
-  else
-    end--;
-  for (i = beg; i != end; SCM_BACKWARDS_P ? ++i : --i)
-    {
-      frame = scm_stack_ref (a->stack, scm_from_int (i));
-      if (!scm_is_eq (SCM_PACK (SCM_SHOW_FILE_NAME), sym_base))
-	display_backtrace_file (frame, &last_file, a->port, pstate);
-      display_frame (frame, i, nfield, indentation, sport, a->port, pstate);
-    }
+  frames = scm_call_1 (scm_variable_ref (frame_to_stack_vector_var),
+                       scm_stack_ref (a->stack, a->first));
 
-  scm_remember_upto_here_1 (print_state);
+  /* FIXME: highlight_objects */
+  scm_call_4 (scm_variable_ref (print_frames_var), frames, a->port,
+              kw_count, a->depth);
   
   return SCM_UNSPECIFIED;
 }
@@ -546,12 +275,9 @@ SCM_DEFINE (scm_display_backtrace_with_highlights, "display-backtrace", 2, 3, 0,
   struct display_backtrace_args a;
   a.stack = stack;
   a.port  = port;
-  a.first = first;
-  a.depth = depth;
-  if (SCM_UNBNDP (highlights))
-    a.highlight_objects = SCM_EOL;
-  else
-    a.highlight_objects = highlights;
+  a.first = SCM_UNBNDP (first) ? SCM_BOOL_F : first;
+  a.depth = SCM_UNBNDP (depth) ? SCM_BOOL_F : depth;
+  a.highlight_objects = SCM_UNBNDP (highlights) ? SCM_EOL : highlights;
 
   scm_internal_catch (SCM_BOOL_T,
 		      (scm_t_catch_body) display_backtrace_body, &a,
