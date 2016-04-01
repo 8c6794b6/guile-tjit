@@ -25,9 +25,10 @@
   #:use-module (system vm vm)
   #:use-module (system vm frame)
   #:use-module (system vm debug)
+  #:use-module (ice-9 format)
+  #:use-module (ice-9 match)
   #:use-module (ice-9 rdelim)
   #:use-module (ice-9 pretty-print)
-  #:use-module (ice-9 format)
   #:use-module ((system vm inspect) #:select ((inspect . %inspect)))
   #:use-module (system vm program)
   #:export (<debug>
@@ -181,20 +182,21 @@
         #()))) ; ? Can be the case for a tail-call to `throw' tho
 
 (define (frame->stack-vector frame)
-  (let ((tag (and (pair? (fluid-ref %stacks))
-                  (cdar (fluid-ref %stacks)))))
-    (narrow-stack->vector
-     (make-stack frame)
-     ;; Take the stack from the given frame, cutting 0
-     ;; frames.
-     0
-     ;; Narrow the end of the stack to the most recent
-     ;; start-stack.
-     tag
-     ;; And one more frame, because %start-stack
-     ;; invoking the start-stack thunk has its own frame
-     ;; too.
-     0 (and tag 1))))
+  (let ((stack (make-stack frame)))
+    (match (fluid-ref %stacks)
+      (((stack-tag . prompt-tag) . _)
+       (narrow-stack->vector
+        stack
+        ;; Take the stack from the given frame, cutting 0 frames.
+        0
+        ;; Narrow the end of the stack to the most recent start-stack.
+        prompt-tag
+        ;; And one more frame, because %start-stack invoking the
+        ;; start-stack thunk has its own frame too.
+        0 (and prompt-tag 1)))
+      (_
+       ;; Otherwise take the whole stack.
+       (stack->vector stack)))))
 
 ;; (define (debug)
 ;;   (run-debugger
