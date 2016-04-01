@@ -34,31 +34,36 @@
   #:use-module (system vm native tjit variables))
 
 (define-syntax-rule (expand-stack! nlocals)
-  (expand-env! env (current-sp-offset) nlocals))
+  (let ((offset (current-sp-offset)))
+    (let lp ((n 0) (acc (env-live-indices env)))
+      (if (< n nlocals)
+          (lp (+ n 1) (let ((m (- offset n)))
+                        (if (memq m acc)
+                            acc
+                            (cons m acc))))
+          (set-env-live-indices! env (sort acc <))))))
 
 (define-syntax-rule (scan-frame nlocals)
   (let* ((stack-size (vector-length locals))
          (diff (- nlocals stack-size)))
-    (if (< stack-size nlocals)
-        (push-scan-sp-offset! env diff)
-        (pop-scan-sp-offset! env (- diff)))
-    (set-scan-initial-fields! env)))
+    (set-scan-initial-fields! env)
+    (push-scan-sp-offset! env diff)))
 
 ;; XXX: br-if-nargs-ne
 ;; XXX: br-if-nargs-lt
 ;; XXX: br-if-nargs-gt
 
+;;; XXX: Unless this op was found at entry of down recursion, nothing to do.
+;;; Detect entry of down recursion, emit assertion in native code.
 (define-ir (assert-nargs-ee (const expected))
-  ;; XXX: Unless this op was found at entry of down recursion, nothing to do.
-  ;; Detect entry of down recursion, emit assertion in native code.
   (next))
 
+;;; XXX: Same as assert-nargs-ee
 (define-ir (assert-nargs-ge (const expected))
-  ;; XXX: Same as assert-nargs-ee
   (next))
 
+;;; XXX: Same as assert-nargs-ee
 (define-ir (assert-nargs-le (const expected))
-  ;; XXX: Same as assert-nargs-ee
   (next))
 
 (define-scan (alloc-frame nlocals)
@@ -70,20 +75,20 @@
          (sp-offset (if (env-initialized? env)
                         (env-sp-offset env)
                         (car (env-sp-offsets env)))))
-    (when (< stack-size nlocals)
-      (do ((n 0 (+ n 1)))
-          ((= n diff))
+    (when (< 0 diff)
+      (do ((n 1 (+ n 1)))
+          ((< diff n))
         (set-inferred-type! env (- sp-offset n) &undefined)))))
 
 (define-anf (alloc-frame nlocals)
   (let* ((stack-size (vector-length locals))
          (diff (- nlocals stack-size))
          (undefined (pointer->scm (make-pointer #x904))))
-    (if (< stack-size nlocals)
+    (if (< 0 diff)
         (begin
           (expand-stack! diff)
-          (let lp ((n 0))
-            (if (< n diff)
+          (let lp ((n 1))
+            (if (<= n diff)
                 `(let ((,(var-ref (- n)) ,undefined))
                    ,(lp (+ n 1)))
                 (next))))
@@ -104,22 +109,22 @@
 ;; XXX: drop
 
 (define-scan (assert-nargs-ee/locals expected nlocals)
-  (push-scan-sp-offset! env nlocals)
-  (set-scan-initial-fields! env))
+  (set-scan-initial-fields! env)
+  (push-scan-sp-offset! env nlocals))
 
 (define-ti (assert-nargs-ee/locals expected nlocals)
   (let ((sp-offset (current-sp-for-ti)))
-    (do ((n nlocals (- n 1)))
-        ((<= n 0))
-      (set-inferred-type! env (+ (- n 1) sp-offset) &undefined))))
+    (do ((n 1 (+ n 1)))
+        ((< nlocals n))
+      (set-inferred-type! env (- sp-offset n) &undefined))))
 
 (define-anf (assert-nargs-ee/locals expected nlocals)
   (let ((undefined (pointer->scm (make-pointer #x904))))
     (expand-stack! nlocals)
-    (let lp ((n nlocals))
-      (if (< 0 n)
-          `(let ((,(var-ref (- n 1)) ,undefined))
-             ,(lp (- n 1)))
+    (let lp ((n 1))
+      (if (<= n nlocals)
+          `(let ((,(var-ref (- n)) ,undefined))
+             ,(lp (+ n 1)))
           (next)))))
 
 ;; XXX: br-if-npos-gt
