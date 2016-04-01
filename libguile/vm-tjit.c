@@ -144,8 +144,8 @@ SCM_TJIT_TABLE (fragment, fragment);
    value is fragment data. */
 SCM_TJIT_TABLE (root_trace, root-trace);
 
-/* Fluid to hold recorded bytecode. */
-static SCM bytecode_buffer_fluid;
+/* Fluid to hold tjit state. */
+static SCM tjit_state_fluid;
 
 /* Variable to hold Scheme procedure tjitc. */
 static SCM tjitc_var;
@@ -454,16 +454,19 @@ call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
 static inline struct scm_tjit_state*
 scm_make_tjit_state (void)
 {
-  struct scm_tjit_state *t =
-    scm_gc_malloc (sizeof (struct scm_tjit_state), "tjitstate");
+  size_t bytes;
+  struct scm_tjit_state *t;
 
+  bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
+
+  t = scm_gc_malloc (sizeof (struct scm_tjit_state), "tjitstate");
   t->vm_state = SCM_TJIT_VM_STATE_INTERPRET;
   t->trace_type = SCM_TJIT_TRACE_JUMP;
   t->loop_start = 0;
   t->loop_end = 0;
   t->bc_idx = 0;
   t->bytecode =
-    (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
+    scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
   t->traces = SCM_EOL;
   t->parent_fragment_id = 0;
   t->parent_exit_id = 0;
@@ -471,6 +474,23 @@ scm_make_tjit_state (void)
   t->start_seen = 0;
 
   return t;
+}
+
+static inline struct scm_tjit_state*
+scm_acquire_tjit_state (void)
+{
+  SCM tj = scm_fluid_ref (tjit_state_fluid);
+
+  if (scm_is_false (tj))
+    {
+      struct scm_tjit_state *new_tj = scm_make_tjit_state ();
+
+      scm_fluid_set_x (tjit_state_fluid, SCM_PACK (new_tj));
+
+      return new_tj;
+    }
+  else
+    return (struct scm_tjit_state *) SCM_UNPACK (tj);
 }
 
 /* C macros for vm-tjit engine
@@ -813,17 +833,10 @@ init_tjit_hash (void)
 void
 scm_bootstrap_vm_tjit(void)
 {
-  void *buffer;
-  size_t bytes;
-
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
 
-  bytecode_buffer_fluid = scm_make_fluid ();
-  bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
-  buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
-  scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
-
   init_tjit_hash ();
+  tjit_state_fluid = scm_make_fluid ();
   tjit_fragment_table = scm_c_make_hash_table (31);
   tjit_root_trace_table = scm_c_make_hash_table (31);
   tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));

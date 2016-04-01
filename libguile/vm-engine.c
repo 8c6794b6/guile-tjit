@@ -540,7 +540,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   register scm_t_uint32 op;
 
 #ifdef VM_TJIT
-  struct scm_tjit_state *tj = scm_make_tjit_state ();
+  struct scm_tjit_state *tj = scm_acquire_tjit_state ();
 #endif
 
 #ifdef HAVE_LABELS_AS_VALUES
