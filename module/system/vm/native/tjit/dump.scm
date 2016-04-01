@@ -210,7 +210,7 @@ option was set to true."
             ((((n . t) . locals) (v . vars))
              (let* ((elem
                      (if (tjit-dump-verbose? (tjit-dump-option))
-                         (list n (pretty-type t) (pretty-register v))
+                         (list n (pretty-type t) (pretty-storage v))
                          (list n (pretty-type t)))))
                (lp locals vars (cons elem acc))))
             (_
@@ -232,8 +232,10 @@ option was set to true."
            ((unspecified? x) (green "#<unspecified>"))
            (else arg)))
         arg))
-  (define (pretty-register arg)
+  (define (pretty-storage arg)
     (cond
+     ((not (pair? arg))
+      arg)
      ((or (gpr? arg) (fpr? arg) (memory? arg))
       (physical-name arg))
      ((constant? arg)
@@ -259,19 +261,19 @@ option was set to true."
            (('%fref dst n type)
             (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
                     '%fref
-                    (pretty-register dst)
+                    (pretty-storage dst)
                     (pretty-constant n)
                     (if (cdr type) (pretty-type (cdr type)) "---")))
            (('%fref/f dst n type)
             (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
                     '%fref/f
-                    (pretty-register dst)
+                    (pretty-storage dst)
                     (pretty-constant n)
                     (pretty-type (cdr type))))
            (('%typeq src type)
             (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
                     '%typeq
-                    (pretty-register src)
+                    (pretty-storage src)
                     (pretty-type (cdr type))))
            (('%return (const . ra))
             (let ((sinfo (addr->source-line ra)))
@@ -283,7 +285,7 @@ option was set to true."
            (('%ccall dst (const . addr))
             (format #t "~4,,,'0@a ~a (~7a ~a ~a:0x~x)~%" idx mark
                     '%ccall
-                    (pretty-register dst)
+                    (pretty-storage dst)
                     (let ((proc (pointer->scm (make-pointer addr))))
                       (and (procedure? proc)
                            (cyan (symbol->string (procedure-name proc)))))
@@ -294,7 +296,7 @@ option was set to true."
            (_
             (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
                     (car op)
-                    (map pretty-register (cdr op)))))))))
+                    (map pretty-storage (cdr op)))))))))
   (define (dump-list idx ops)
     (let lp ((ops ops) (idx idx))
       (match ops

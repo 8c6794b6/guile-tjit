@@ -105,12 +105,12 @@
 
 (define-ir (box-set! (box dst) (scm src))
   (let* ((src/t (type-ref src))
-         (vdst (var-ref dst))
-         (vsrc (var-ref src))
+         (dst/v (var-ref dst))
+         (src/v (var-ref src))
          (r2 (make-tmpvar 2)))
-    (with-boxing src/t vsrc r2
+    (with-boxing src/t src/v r2
       (lambda (tmp)
-        `(let ((_ (%cset ,vdst 1 ,tmp)))
+        `(let ((_ (%cset ,dst/v 1 ,tmp)))
            ,(next))))))
 
 (define-interrupt-ir (make-closure (scm! dst) (const offset) (const nfree))
