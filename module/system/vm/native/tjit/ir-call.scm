@@ -68,15 +68,6 @@
 (define (primitive-program? pflag)
   (not (zero? (logand pflag #x200))))
 
-(define-syntax-rule (current-sp-for-ti)
-  ;; Type inference procedures are called during initialization and ANF IR
-  ;; compilation. Some bytecode operation shift SP during env
-  ;; initialization. This macro test whether env is initialized and get
-  ;; current SP offset appropriately.
-  (if (env-initialized? env)
-      (env-sp-offset env)
-      (car (env-sp-offsets env))))
-
 (define-syntax-rule (scan-call proc nlocals label?)
   (let* ((stack-size (vector-length locals))
          (sp-offset (env-sp-offset env))
@@ -186,7 +177,6 @@
                           `(let ((_ (%scall ,proc)))
                              ,(next))))))
     ;; XXX: Add guard for proc when proc type was not inferred.
-    ;;
     (check-entry-ip (program-code proc/l) 'call)
     (with-callee-guard proc/l proc/f proc/v emit-next)))
 
@@ -214,11 +204,16 @@
     (set-scan-initial-fields! env)
     (push-scan-sp-offset! env (- nlocals stack-size))))
 
+(define-syntax-rule (ti-tail-call)
+  (let* ((stack-size (vector-length locals))
+         (proc/i (+ (- stack-size 1) (current-sp-for-ti))))
+    (set-inferred-type! env proc/i &procedure)))
+
 (define-scan (tail-call nlocals)
   (scan-tail-call nlocals))
 
 (define-ti (tail-call nlocals)
-  (values))
+  (ti-tail-call))
 
 (define-anf (tail-call nlocals)
   (let* ((stack-size (vector-length locals))
@@ -235,7 +230,7 @@
   (scan-tail-call nlocals))
 
 (define-ti (tail-call-label nlocals label)
-  (values))
+  (ti-tail-call))
 
 (define-anf (tail-call-label nlocals label)
   (next))

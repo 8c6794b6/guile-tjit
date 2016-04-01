@@ -64,6 +64,7 @@
             with-boxing
             with-type-guard
             current-sp-offset
+            current-sp-for-ti
             current-fp-offset
             inline-current-call?
             inline-current-return?
@@ -464,6 +465,15 @@ index referenced by dst, a, and b values at runtime."
 
 (define-syntax-rule (current-sp-offset)
   (vector-ref (env-sp-offsets env) (ir-bytecode-index ir)))
+
+(define-syntax-rule (current-sp-for-ti)
+  ;; Type inference procedures are called during initialization and ANF IR
+  ;; compilation. Some bytecode operation shift SP during env
+  ;; initialization. This macro test whether env is initialized and get
+  ;; current SP offset appropriately.
+  (if (env-initialized? env)
+      (env-sp-offset env)
+      (car (env-sp-offsets env))))
 
 (define-syntax-rule (current-fp-offset)
   (vector-ref (env-fp-offsets env) (ir-bytecode-index ir)))

@@ -30,7 +30,8 @@
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit types))
+  #:use-module (system vm native tjit types)
+  #:use-module (system vm native tjit variables))
 
 (define-syntax-rule (expand-stack! nlocals)
   (expand-env! env (current-sp-offset) nlocals))
@@ -70,7 +71,8 @@
                         (env-sp-offset env)
                         (car (env-sp-offsets env)))))
     (when (< stack-size nlocals)
-      (do ((n 0 (+ n 1))) ((= n diff))
+      (do ((n 0 (+ n 1)))
+          ((= n diff))
         (set-inferred-type! env (- sp-offset n) &undefined)))))
 
 (define-anf (alloc-frame nlocals)
@@ -106,10 +108,9 @@
   (set-scan-initial-fields! env))
 
 (define-ti (assert-nargs-ee/locals expected nlocals)
-  (let ((sp-offset (if (env-initialized? env)
-                       (env-sp-offset env)
-                       (car (env-sp-offsets env)))))
-    (do ((n nlocals (- n 1))) ((<= n 0))
+  (let ((sp-offset (current-sp-for-ti)))
+    (do ((n nlocals (- n 1)))
+        ((<= n 0))
       (set-inferred-type! env (+ (- n 1) sp-offset) &undefined))))
 
 (define-anf (assert-nargs-ee/locals expected nlocals)
@@ -123,4 +124,35 @@
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args
-;; XXX: bind-rest
+
+(define-scan (bind-rest dst)
+  (let* ((stack-size (vector-length locals))
+         (diff (- stack-size (+ dst 1))))
+    (set-scan-initial-fields! env)
+    (unless (zero? diff)
+      (pop-scan-sp-offset! env diff))))
+
+(define-ti (bind-rest dst)
+  (let* ((sp-offset (current-sp-for-ti))
+         (stack-size (vector-length locals))
+         (dst/i (+ (- stack-size dst 1) sp-offset)))
+    (set-inferred-type! env dst/i &pair)))
+
+(define-anf (bind-rest dst)
+  (let* ((r2 (make-tmpvar 2))
+         (stack-size (vector-length locals))
+         (dst/i (- stack-size dst 1)))
+    (if (< dst/i 0)
+        `(let ((,(var-ref dst/i) ()))
+           ,(next))
+        (let lp ((n 0))
+          (if (< dst/i n)
+              (next)
+              (let ((rest (if (< dst/i (+ n 1))
+                              (var-ref dst/i)
+                              r2))
+                    (tail (if (zero? n)
+                              '()
+                              r2)))
+                `(let ((,rest (%cell ,(var-ref n) ,tail)))
+                   ,(lp (+ n 1)))))))))
