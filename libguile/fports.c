@@ -136,105 +136,6 @@ scm_fport_buffer_add (SCM port, long read_size, long write_size)
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0, 
-            (SCM port, SCM mode, SCM size),
-	    "Set the buffering mode for @var{port}.  @var{mode} can be:\n"
-	    "@table @code\n"
-	    "@item _IONBF\n"
-	    "non-buffered\n"
-	    "@item _IOLBF\n"
-	    "line buffered\n"
-	    "@item _IOFBF\n"
-	    "block buffered, using a newly allocated buffer of @var{size} bytes.\n"
-	    "If @var{size} is omitted, a default size will be used.\n"
-	    "@end table\n\n"
-	    "Only certain types of ports are supported, most importantly\n"
-	    "file ports.")
-#define FUNC_NAME s_scm_setvbuf
-{
-  int cmode;
-  long csize;
-  size_t ndrained;
-  char *drained = NULL;
-  scm_t_port *pt;
-  scm_t_ptob_descriptor *ptob;
-
-  port = SCM_COERCE_OUTPORT (port);
-
-  SCM_VALIDATE_OPENPORT (1, port);
-  ptob = SCM_PORT_DESCRIPTOR (port);
-
-  if (ptob->setvbuf == NULL)
-    scm_wrong_type_arg_msg (FUNC_NAME, 1, port,
-			    "port that supports 'setvbuf'");
-
-  cmode = scm_to_int (mode);
-  if (cmode != _IONBF && cmode != _IOFBF && cmode != _IOLBF)
-    scm_out_of_range (FUNC_NAME, mode);
-
-  if (cmode == _IOLBF)
-    {
-      SCM_SET_CELL_WORD_0 (port, SCM_CELL_WORD_0 (port) | SCM_BUFLINE);
-      cmode = _IOFBF;
-    }
-  else
-    SCM_SET_CELL_WORD_0 (port,
-			 SCM_CELL_WORD_0 (port) & ~(scm_t_bits) SCM_BUFLINE);
-
-  if (SCM_UNBNDP (size))
-    {
-      if (cmode == _IOFBF)
-	csize = -1;
-      else
-	csize = 0;
-    }
-  else
-    {
-      csize = scm_to_int (size);
-      if (csize < 0 || (cmode == _IONBF && csize > 0))
-	scm_out_of_range (FUNC_NAME, size);
-    }
-
-  pt = SCM_PTAB_ENTRY (port);
-
-  if (SCM_INPUT_PORT_P (port))
-    {
-      /* Drain pending input from PORT.  Don't use `scm_drain_input' since
-	 it returns a string, whereas we want binary input here.  */
-      ndrained = pt->read_end - pt->read_pos;
-      if (pt->read_buf == pt->putback_buf)
-	ndrained += pt->saved_read_end - pt->saved_read_pos;
-
-      if (ndrained > 0)
-	{
-	  drained = scm_gc_malloc_pointerless (ndrained, "file port");
-	  scm_take_from_input_buffers (port, drained, ndrained);
-	}
-    }
-  else
-    ndrained = 0;
-
-  if (SCM_OUTPUT_PORT_P (port))
-    scm_flush_unlocked (port);
-
-  if (pt->read_buf == pt->putback_buf)
-    {
-      pt->read_buf = pt->saved_read_buf;
-      pt->read_pos = pt->saved_read_pos;
-      pt->read_end = pt->saved_read_end;
-      pt->read_buf_size = pt->saved_read_buf_size;
-    }
-
-  ptob->setvbuf (port, csize, csize);
-
-  if (ndrained > 0)
-    /* Put DRAINED back to PORT.  */
-    scm_unget_bytes ((unsigned char *) drained, ndrained, port);
-
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
 /* Move ports with the specified file descriptor to new descriptors,
  * resetting the revealed count to 0.
  */
@@ -999,10 +900,6 @@ void
 scm_init_fports ()
 {
   scm_tc16_fport = scm_make_fptob ();
-
-  scm_c_define ("_IOFBF", scm_from_int (_IOFBF));
-  scm_c_define ("_IOLBF", scm_from_int (_IOLBF));
-  scm_c_define ("_IONBF", scm_from_int (_IONBF));
 
   sys_file_port_name_canonicalization = scm_make_fluid ();
   scm_c_define ("%file-port-name-canonicalization",

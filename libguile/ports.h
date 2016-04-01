@@ -338,6 +338,7 @@ SCM_API SCM scm_unread_string (SCM str, SCM port);
 
 /* Manipulating the buffers.  */
 SCM_API void scm_port_non_buffer (scm_t_port *pt);
+SCM_API SCM scm_setvbuf (SCM port, SCM mode, SCM size);
 SCM_API int scm_fill_input (SCM port);
 SCM_API int scm_fill_input_unlocked (SCM port);
 SCM_INTERNAL size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);

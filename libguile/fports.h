@@ -51,8 +51,6 @@ SCM_API scm_t_bits scm_tc16_fport;
 #define SCM_FDES_RANDOM_P(fdes) ((lseek (fdes, 0, SEEK_CUR) == -1) ? 0 : 1)
 
 
-SCM_API SCM scm_setbuf0 (SCM port);
-SCM_API SCM scm_setvbuf (SCM port, SCM mode, SCM size);
 SCM_API void scm_evict_ports (int fd);
 SCM_API SCM scm_open_file_with_encoding (SCM filename, SCM modes,
                                          SCM guess_encoding, SCM encoding);
