@@ -215,6 +215,7 @@ TESTS = \
 	t-tail-call-07.scm \
 	t-tail-call-08.scm \
 	t-tail-call-09.scm \
+	t-tail-call-10.scm \
 	t-tail-call-label-01.scm \
 	t-tail-call-label-02.scm \
 	t-toplevel-box-01.scm \
@@ -248,9 +249,12 @@ TESTS = \
 	x-maze.scm \
 	x-maze2.scm \
 	x-mazefun.scm \
+	x-nboyer.scm \
 	x-nucleic2.scm \
 	x-nqueens.scm \
+	x-peval.scm \
 	x-puzzle.scm \
+	x-sboyer.scm \
 	x-sort1.scm \
 	x-takl.scm \
 	x-triangle.scm
