@@ -132,22 +132,22 @@
 ;;          ,(next)))))
 
 ;; XXX: br-if-eq
-;; (define-ir (br-if-eq (scm a) (scm b) (const invert) (const offset))
-;;   (let* ((a/l (scm-ref a))
-;;          (b/l (scm-ref b))
-;;          (a/v (var-ref a))
-;;          (b/v (var-ref b))
-;;          (dest (if (end-of-root-trace?)
-;;                    3
-;;                    (if (eq? a/l b/l)
-;;                        (if invert offset 3)
-;;                        (if invert 3 offset))))
-;;          (op (if (end-of-root-trace?)
-;;                  (if invert '%ne '%eq)
-;;                  (if (eq? a/l b/l) '%eq '%ne))))
-;;     `(let ((_ ,(take-snapshot! ip dest)))
-;;        (let ((_ (,op ,a/v ,b/v)))
-;;          ,(next)))))
+(define-ir (br-if-eq (scm a) (scm b) (const invert) (const offset))
+  (let* ((a/l (scm-ref a))
+         (b/l (scm-ref b))
+         (a/v (var-ref a))
+         (b/v (var-ref b))
+         (dest (if (end-of-root-trace?)
+                   3
+                   (if (eq? a/l b/l)
+                       (if invert offset 3)
+                       (if invert 3 offset))))
+         (op (if (end-of-root-trace?)
+                 (if invert '%ne '%eq)
+                 (if (eq? a/l b/l) '%eq '%ne))))
+    `(let ((_ ,(take-snapshot! ip dest)))
+       (let ((_ (,op ,a/v ,b/v)))
+         ,(next)))))
 
 ;; XXX: br-if-eqv
 ;; (define-ir (br-if-eqv (scm a) (scm b) (const invert) (const offset))
