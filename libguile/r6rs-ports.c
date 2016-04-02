@@ -387,7 +387,7 @@ cbip_fill_input (SCM port)
       if (buffered)
 	{
 	  /* Make sure the buffer isn't corrupt.  Its size can be 1 when
-	     someone called 'setvbuf' with _IONBF.  BV can be passed
+	     someone called 'setvbuf' with 'none.  BV can be passed
 	     directly to READ_PROC.  */
 	  assert (c_port->read_buf_size == SCM_BYTEVECTOR_LENGTH (bv)
 		  || c_port->read_buf_size == 1);

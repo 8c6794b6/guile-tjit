@@ -458,18 +458,18 @@ cookie.
 @deffn {Scheme Procedure} setvbuf port mode [size]
 @deffnx {C Function} scm_setvbuf (port, mode, size)
 @cindex port buffering
-Set the buffering mode for @var{port}.  @var{mode} can be:
+Set the buffering mode for @var{port}.  @var{mode} can be one of the
+following symbols:
 
-@defvar _IONBF
+@table @code
+@item none
 non-buffered
-@end defvar
-@defvar _IOLBF
+@item line
 line buffered
-@end defvar
-@defvar _IOFBF
+@item block
 block buffered, using a newly allocated buffer of @var{size} bytes.
 If @var{size} is omitted, a default size will be used.
-@end defvar
+@end table
 
 Only certain types of ports are supported, most importantly
 file ports.

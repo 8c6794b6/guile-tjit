@@ -97,7 +97,7 @@
             ;; FIXME: preserve meta-info.
             (let ((client (accept (poll-set-port poll-set idx))))
               ;; Buffer input and output on this port.
-              (setvbuf (car client) _IOFBF)
+              (setvbuf (car client) 'block)
               ;; From "HOP, A Fast Server for the Diffuse Web", Serrano.
               (setsockopt (car client) SOL_SOCKET SO_SNDBUF (* 12 1024))
               (poll-set-add! poll-set (car client) *events*)

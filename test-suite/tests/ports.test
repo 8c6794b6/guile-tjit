@@ -637,7 +637,7 @@
              (equal? in-string "Mommy, why does everybody have a bomb?\n")))
   (delete-file filename))
 
-(pass-if-equal "pipe, fdopen, and _IOLBF"
+(pass-if-equal "pipe, fdopen, and line buffering"
     "foo\nbar\n"
   (let ((in+out (pipe))
         (pid    (primitive-fork)))
@@ -647,7 +647,7 @@
           (lambda ()
             (close-port (car in+out))
             (let ((port (cdr in+out)))
-              (setvbuf port _IOLBF )
+              (setvbuf port 'line )
               ;; Strings containing '\n' or should be flushed; others
               ;; should be kept in PORT's buffer.
               (display "foo\n" port)
@@ -1519,13 +1519,13 @@
       exception:wrong-type-arg
     (let ((port (open-input-file "/dev/null")))
       (close-port port)
-      (setvbuf port _IOFBF)))
+      (setvbuf port 'block)))
 
   (pass-if-exception "string port"
       exception:wrong-type-arg
     (let ((port (open-input-string "Hey!")))
       (close-port port)
-      (setvbuf port _IOFBF)))
+      (setvbuf port 'block)))
 
   (pass-if "line/column number preserved"
     ;; In Guile 2.0.5, `setvbuf' would erroneously decrease the port's
@@ -1540,7 +1540,7 @@
                    (col  (port-column p)))
                (and (= line 0) (= col 1)
                     (begin
-                      (setvbuf p _IOFBF 777)
+                      (setvbuf p 'block 777)
                       (let ((line* (port-line p))
                             (col*  (port-column p)))
                         (and (= line line*)

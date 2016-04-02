@@ -2337,65 +2337,67 @@ scm_port_non_buffer (scm_t_port *pt)
   pt->write_end = pt->write_buf + pt->write_buf_size;
 }
 
+SCM_SYMBOL (sym_none, "none");
+SCM_SYMBOL (sym_line, "line");
+SCM_SYMBOL (sym_block, "block");
+
 SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
             (SCM port, SCM mode, SCM size),
-	    "Set the buffering mode for @var{port}.  @var{mode} can be:\n"
+	    "Set the buffering mode for @var{port}.  @var{mode} can be one\n"
+            "of the following symbols:\n"
 	    "@table @code\n"
-	    "@item _IONBF\n"
-	    "non-buffered\n"
-	    "@item _IOLBF\n"
-	    "line buffered\n"
-	    "@item _IOFBF\n"
-	    "block buffered, using a newly allocated buffer of @var{size} bytes.\n"
+	    "@item none\n"
+	    "no buffering\n"
+	    "@item line\n"
+	    "line buffering\n"
+	    "@item block\n"
+	    "block buffering, using a newly allocated buffer of @var{size} bytes.\n"
 	    "If @var{size} is omitted, a default size will be used.\n"
 	    "@end table\n\n"
 	    "Only certain types of ports are supported, most importantly\n"
 	    "file ports.")
 #define FUNC_NAME s_scm_setvbuf
 {
-  int cmode;
   long csize;
   size_t ndrained;
   char *drained = NULL;
   scm_t_port *pt;
   scm_t_ptob_descriptor *ptob;
+  scm_t_bits tag_word;
 
   port = SCM_COERCE_OUTPORT (port);
 
   SCM_VALIDATE_OPENPORT (1, port);
   ptob = SCM_PORT_DESCRIPTOR (port);
+  tag_word = SCM_CELL_WORD_0 (port) & ~(SCM_BUF0 | SCM_BUFLINE);
 
   if (ptob->setvbuf == NULL)
     scm_wrong_type_arg_msg (FUNC_NAME, 1, port,
 			    "port that supports 'setvbuf'");
 
-  cmode = scm_to_int (mode);
-  if (cmode != _IONBF && cmode != _IOFBF && cmode != _IOLBF)
+  if (scm_is_eq (mode, sym_none))
+    {
+      tag_word |= SCM_BUF0;
+      if (!SCM_UNBNDP (size) && !scm_is_eq (size, SCM_INUM0))
+	scm_out_of_range (FUNC_NAME, size);
+      csize = 0;
+    }
+  else if (scm_is_eq (mode, sym_line))
+    {
+      csize = SCM_UNBNDP (size) ? -1 : scm_to_int (size);
+      tag_word |= SCM_BUFLINE;
+    }
+  else if (scm_is_eq (mode, sym_block))
+    {
+      csize = SCM_UNBNDP (size) ? -1 : scm_to_int (size);
+    }
+  else
     scm_out_of_range (FUNC_NAME, mode);
 
-  if (cmode == _IOLBF)
-    {
-      SCM_SET_CELL_WORD_0 (port, SCM_CELL_WORD_0 (port) | SCM_BUFLINE);
-      cmode = _IOFBF;
-    }
-  else
-    SCM_SET_CELL_WORD_0 (port,
-			 SCM_CELL_WORD_0 (port) & ~(scm_t_bits) SCM_BUFLINE);
+  if (!SCM_UNBNDP (size) && csize < 0)
+    scm_out_of_range (FUNC_NAME, size);
 
-  if (SCM_UNBNDP (size))
-    {
-      if (cmode == _IOFBF)
-	csize = -1;
-      else
-	csize = 0;
-    }
-  else
-    {
-      csize = scm_to_int (size);
-      if (csize < 0 || (cmode == _IONBF && csize > 0))
-	scm_out_of_range (FUNC_NAME, size);
-    }
-
+  SCM_SET_CELL_WORD_0 (port, tag_word);
   pt = SCM_PTAB_ENTRY (port);
 
   if (SCM_INPUT_PORT_P (port))
@@ -3281,10 +3283,6 @@ scm_init_ports ()
   scm_c_define ("SEEK_SET", scm_from_int (SEEK_SET));
   scm_c_define ("SEEK_CUR", scm_from_int (SEEK_CUR));
   scm_c_define ("SEEK_END", scm_from_int (SEEK_END));
-
-  scm_c_define ("_IOFBF", scm_from_int (_IOFBF));
-  scm_c_define ("_IOLBF", scm_from_int (_IOLBF));
-  scm_c_define ("_IONBF", scm_from_int (_IONBF));
 
   scm_tc16_void_port = scm_make_port_type ("void", fill_input_void_port, 
 					   write_void_port);

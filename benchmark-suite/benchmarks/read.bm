@@ -51,20 +51,20 @@
 
 (with-benchmark-prefix "read"
 
-  (benchmark "_IONBF" 5  ;; this one is very slow
-    (exercise-read (list _IONBF)))
+  (benchmark "'none" 5  ;; this one is very slow
+    (exercise-read (list 'none)))
 
-  (benchmark "_IOLBF" 10
-    (exercise-read (list _IOLBF)))
+  (benchmark "'line" 10
+    (exercise-read (list 'line)))
 
-  (benchmark "_IOFBF 4096" 10
-    (exercise-read (list _IOFBF 4096)))
+  (benchmark "'block 4096" 10
+    (exercise-read (list 'block 4096)))
 
-  (benchmark "_IOFBF 8192" 10
-    (exercise-read (list _IOFBF 8192)))
+  (benchmark "'block 8192" 10
+    (exercise-read (list 'block 8192)))
 
-  (benchmark "_IOFBF 16384" 10
-    (exercise-read (list _IOFBF 16384)))
+  (benchmark "'block 16384" 10
+    (exercise-read (list 'block 16384)))
 
   (benchmark "small strings" 100000
     (call-with-input-string small read))

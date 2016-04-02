@@ -43,7 +43,7 @@
 
   (benchmark "uniform-vector-read!" 20000
     (let ((input (open-input-file file-name)))
-      (setvbuf input _IONBF)
+      (setvbuf input 'none)
       (uniform-vector-read! buf input)
       (close input)))
 

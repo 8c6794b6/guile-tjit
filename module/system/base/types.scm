@@ -99,7 +99,7 @@
           (let ((port (make-custom-binary-input-port "ffi-memory"
                                                      read-memory!
                                                      #f #f #f)))
-            (setvbuf port _IONBF)
+            (setvbuf port 'none)
             port)))
 
     (memory-backend dereference-word open #f)))

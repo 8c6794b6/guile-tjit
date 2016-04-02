@@ -516,7 +516,7 @@ not `set-port-position!'"
                         p)))
            (port    (make-custom-binary-input-port "the port" read!
                                                    get-pos #f #f)))
-      (setvbuf port _IONBF)
+      (setvbuf port 'none)
       (and (= 0 (port-position port))
            (begin
              (get-bytevector-n! port output 0 2)
@@ -545,7 +545,7 @@ not `set-port-position!'"
            (port   (make-custom-binary-input-port "the port" read!
                                                   #f #f #f)))
 
-      (setvbuf port _IONBF)
+      (setvbuf port 'none)
       (let ((ret (list (get-bytevector-n port 2)
                        (get-bytevector-n port 3)
                        (get-bytevector-n port 42))))
@@ -568,7 +568,7 @@ not `set-port-position!'"
                       (if (eof-object? n) 0 n))))
            (port  (make-custom-binary-input-port "foo" read!
                                                  #f #f #f)))
-      (setvbuf port _IONBF)
+      (setvbuf port 'none)
       (get-string-all port)))
 
   (pass-if-equal "custom binary input port unbuffered UTF-8 & 'get-string-all'"
@@ -583,7 +583,7 @@ not `set-port-position!'"
                       (if (eof-object? n) 0 n))))
            (port  (make-custom-binary-input-port "foo" read!
                                                  #f #f #f)))
-      (setvbuf port _IONBF)
+      (setvbuf port 'none)
       (set-port-encoding! port "UTF-8")
       (get-string-all port)))
 
@@ -603,11 +603,11 @@ not `set-port-position!'"
            (port   (make-custom-binary-input-port "the port" read!
                                                   #f #f #f)))
 
-      (setvbuf port _IONBF)
+      (setvbuf port 'none)
       (let ((ret (list (get-bytevector-n port 6)
                        (get-bytevector-n port 12)
                        (begin
-                         (setvbuf port _IOFBF 777)
+                         (setvbuf port 'block 777)
                          (get-bytevector-n port 42))
                        (get-bytevector-n port 42))))
         (zip (reverse reads)
@@ -635,11 +635,11 @@ not `set-port-position!'"
            (port   (make-custom-binary-input-port "the port" read!
                                                   #f #f #f)))
 
-      (setvbuf port _IOFBF 18)
+      (setvbuf port 'block 18)
       (let ((ret (list (get-bytevector-n port 6)
                        (get-bytevector-n port 12)
                        (begin
-                         (setvbuf port _IONBF)
+                         (setvbuf port 'none)
                          (get-bytevector-n port 42))
                        (get-bytevector-n port 42))))
         (list (reverse reads)

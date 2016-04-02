@@ -16,4 +16,21 @@
 ;;;;
 
 (define-module (ice-9 deprecated)
-  #:export ())
+  #:export (_IONBF _IOLBF _IOFBF))
+
+(define-syntax-rule (define-deprecated var msg exp)
+  (define-syntax var
+    (lambda (x)
+      (issue-deprecation-warning msg)
+      (syntax-case x ()
+        (id (identifier? #'id) #'exp)))))
+
+(define-deprecated _IONBF
+  "`_IONBF' is deprecated.  Use the symbol 'none instead."
+  'none)
+(define-deprecated _IOLBF
+  "`_IOLBF' is deprecated.  Use the symbol 'line instead."
+  'line)
+(define-deprecated _IOFBF
+  "`_IOFBF' is deprecated.  Use the symbol 'block instead."
+  'block)

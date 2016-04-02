@@ -92,7 +92,7 @@
           (connect s (addrinfo:addr ai))
 
           ;; Buffer input and output on this port.
-          (setvbuf s _IOFBF)
+          (setvbuf s 'block)
           ;; If we're using a proxy, make a note of that.
           (when http-proxy (set-http-proxy-port?! s #t))
           s)
