@@ -406,13 +406,27 @@ static inline void
 call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
-  scm_t_native_code f;
+  scm_t_native_code native_code;
   SCM code, exit_id, fragment_id, exit_counts, count;
   struct scm_tjit_retval *ret;
 
   code = SCM_FRAGMENT_CODE (fragment);
-  f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-  ret = f (thread, vp, registers);
+  native_code = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
+
+  /* XXX: Workaround to keep stack contents during native code
+     execution.
+
+     Without the calls to `GC_add_roots' and `GC_remove_roots', VM may
+     not work when garbage collector was triggered during execution of
+     `native_code'.
+
+     Note that `GC_remove_roots' is unimplemented under Windows, GC
+     roots are added and never collected. Perhaps, there would be a
+     better way to tell garbage collector to keep the stack contents.
+   */
+  GC_add_roots (vp->stack_bottom, vp->stack_top);
+  ret = native_code (thread, vp, registers);
+  GC_remove_roots (vp->stack_bottom, vp->stack_top);
 
   exit_id = SCM_PACK (ret->exit_id);
   fragment_id = SCM_PACK (ret->fragment_id);
