@@ -2313,12 +2313,6 @@ The first argument @var{port} is the object being printed, the second
 argument @var{dest_port} is where its description should go.
 @end deftypefun
 
-@item equalp
-Not used at present.  Set using
-
-@deftypefun void scm_set_port_equalp (scm_t_bits tc, SCM (*equalp) (SCM, SCM))
-@end deftypefun
-
 @item close
 Called when the port is closed.  It should free any resources used by
 the port.  Set using

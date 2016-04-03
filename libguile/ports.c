@@ -275,12 +275,6 @@ scm_set_port_print (scm_t_bits tc, int (*print) (SCM exp, SCM port,
 }
 
 void
-scm_set_port_equalp (scm_t_bits tc, SCM (*equalp) (SCM, SCM))
-{
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->equalp = equalp;
-}
-
-void
 scm_set_port_close (scm_t_bits tc, int (*close) (SCM))
 {
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->close = close;

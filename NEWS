@@ -24,6 +24,12 @@ as arguments to the `setvbuf' function.
 Port mark functions have not been called since the switch to the BDW
 garbage collector.
 
+** Remove `scm_set_port_equalp'
+
+Likewise port equal functions weren't being called.  Given that ports
+have their own internal buffers, it doesn't make sense to hook them into
+equal? anyway.
+
 ** Remove `scm_set_port_free'
 
 It used to be that if an open port became unreachable, a special "free"
