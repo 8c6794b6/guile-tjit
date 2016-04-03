@@ -268,12 +268,6 @@ scm_make_port_type (char *name,
 }
 
 void
-scm_set_port_mark (scm_t_bits tc, SCM (*mark) (SCM))
-{
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->mark = mark;
-}
-
-void
 scm_set_port_free (scm_t_bits tc, size_t (*free) (SCM))
 {
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->free = free;

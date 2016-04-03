@@ -19,7 +19,10 @@ Instead, use the symbol values `none', `line', or `block', respectively,
 as arguments to the `setvbuf' function.
 
 * Incompatible changes
+** Remove `scm_set_port_mark'
 
+Port mark functions have not been called since the switch to the BDW
+garbage collector.
 
 
 Changes in 2.1.2 (changes since the 2.1.1 alpha release):

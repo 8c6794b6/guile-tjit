@@ -184,7 +184,6 @@ typedef enum scm_t_port_type_flags {
 typedef struct scm_t_ptob_descriptor
 {
   char *name;
-  SCM (*mark) (SCM);
   size_t (*free) (SCM);
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
   SCM (*equalp) (SCM, SCM);
@@ -224,7 +223,6 @@ SCM_API scm_t_bits scm_make_port_type (char *name,
 				       void (*write) (SCM port, 
 						      const void *data,
 						      size_t size));
-SCM_API void scm_set_port_mark (scm_t_bits tc, SCM (*mark) (SCM));
 SCM_API void scm_set_port_free (scm_t_bits tc, size_t (*free) (SCM));
 SCM_API void scm_set_port_print (scm_t_bits tc,
 				 int (*print) (SCM exp,
