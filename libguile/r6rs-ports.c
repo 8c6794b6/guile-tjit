@@ -1249,6 +1249,7 @@ initialize_transcoded_ports (void)
   
   scm_set_port_flush (transcoded_port_type, tp_flush);
   scm_set_port_close (transcoded_port_type, tp_close);
+  scm_set_port_needs_close_on_gc (transcoded_port_type, 1);
 }
 
 SCM_INTERNAL SCM scm_i_make_transcoded_port (SCM);

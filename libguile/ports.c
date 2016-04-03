@@ -268,12 +268,6 @@ scm_make_port_type (char *name,
 }
 
 void
-scm_set_port_free (scm_t_bits tc, size_t (*free) (SCM))
-{
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->free = free;
-}
-
-void
 scm_set_port_print (scm_t_bits tc, int (*print) (SCM exp, SCM port,
                                                  scm_print_state *pstate))
 {
@@ -293,11 +287,20 @@ scm_set_port_close (scm_t_bits tc, int (*close) (SCM))
 }
 
 void
-scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port))
+scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p)
 {
   scm_t_ptob_descriptor *ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
-  ptob->flush = flush;
-  ptob->flags |= SCM_PORT_TYPE_HAS_FLUSH;
+
+  if (needs_close_p)
+    ptob->flags |= SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC;
+  else
+    ptob->flags &= ~SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC;
+}
+
+void
+scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port))
+{
+  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->flush = flush;
 }
 
 void
@@ -633,22 +636,10 @@ SCM scm_i_port_weak_set;
 
 /* Port finalization.  */
 
-struct do_free_data
-{
-  scm_t_ptob_descriptor *ptob;
-  SCM port;
-};
-
 static SCM
-do_free (void *body_data)
+do_close (void *data)
 {
-  struct do_free_data *data = body_data;
-
-  /* `close' is for explicit `close-port' by user.  `free' is for this
-     purpose: ports collected by the GC.  */
-  data->ptob->free (data->port);
-
-  return SCM_BOOL_T;
+  return scm_close_port (SCM_PACK_POINTER (data));
 }
 
 /* Finalize the object (a port) pointed to by PTR.  */
@@ -662,16 +653,8 @@ finalize_port (void *ptr, void *data)
 
   if (SCM_OPENP (port))
     {
-      struct do_free_data data;
-
-      SCM_CLR_PORT_OPEN_FLAG (port);
-
-      data.ptob = SCM_PORT_DESCRIPTOR (port);
-      data.port = port;
-
-      scm_internal_catch (SCM_BOOL_T, do_free, &data,
+      scm_internal_catch (SCM_BOOL_T, do_close, ptr,
                           scm_handle_by_message_noexit, NULL);
-
       scm_gc_ports_collected++;
     }
 }
@@ -732,11 +715,11 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   pti->pending_eof = 0;
   pti->alist = SCM_EOL;
 
-  if (SCM_PORT_DESCRIPTOR (ret)->free)
-    scm_i_set_finalizer (SCM2PTR (ret), finalize_port, NULL);
-
-  if (SCM_PORT_DESCRIPTOR (ret)->flags & SCM_PORT_TYPE_HAS_FLUSH)
-    scm_weak_set_add_x (scm_i_port_weak_set, ret);
+  if (SCM_PORT_DESCRIPTOR (ret)->flags & SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC)
+    {
+      scm_i_set_finalizer (SCM2PTR (ret), finalize_port, NULL);
+      scm_weak_set_add_x (scm_i_port_weak_set, ret);
+    }
 
   return ret;
 }
@@ -848,7 +831,7 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
   pti = SCM_PORT_GET_INTERNAL (port);
   SCM_CLR_PORT_OPEN_FLAG (port);
 
-  if (SCM_PORT_DESCRIPTOR (port)->flags & SCM_PORT_TYPE_HAS_FLUSH)
+  if (SCM_PORT_DESCRIPTOR (port)->flags & SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC)
     scm_weak_set_remove_x (scm_i_port_weak_set, port);
 
   if (SCM_PORT_DESCRIPTOR (port)->close)

@@ -225,6 +225,7 @@ scm_make_sfptob ()
 
   scm_set_port_flush (tc, sf_flush);
   scm_set_port_close (tc, sf_close);
+  scm_set_port_needs_close_on_gc (tc, 1);
   scm_set_port_input_waiting (tc, sf_input_waiting);
 
   return tc;

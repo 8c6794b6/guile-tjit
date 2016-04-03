@@ -177,14 +177,15 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 
 
 typedef enum scm_t_port_type_flags {
-  SCM_PORT_TYPE_HAS_FLUSH = 1 << 0
+  /* Indicates that the port should be closed if it is garbage collected
+     while it is open.  */
+  SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC = 1 << 0
 } scm_t_port_type_flags;
 
 /* port-type description.  */
 typedef struct scm_t_ptob_descriptor
 {
   char *name;
-  size_t (*free) (SCM);
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
   SCM (*equalp) (SCM, SCM);
   int (*close) (SCM port);
@@ -223,13 +224,13 @@ SCM_API scm_t_bits scm_make_port_type (char *name,
 				       void (*write) (SCM port, 
 						      const void *data,
 						      size_t size));
-SCM_API void scm_set_port_free (scm_t_bits tc, size_t (*free) (SCM));
 SCM_API void scm_set_port_print (scm_t_bits tc,
 				 int (*print) (SCM exp,
 					       SCM port,
 					       scm_print_state *pstate));
 SCM_API void scm_set_port_equalp (scm_t_bits tc, SCM (*equalp) (SCM, SCM));
 SCM_API void scm_set_port_close (scm_t_bits tc, int (*close) (SCM));
+SCM_API void scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p);
 
 SCM_API void scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port));
 SCM_API void scm_set_port_end_input (scm_t_bits tc,

@@ -2303,14 +2303,6 @@ A pointer to a NUL terminated string: the name of the port type.  This
 is the only element of @code{scm_ptob_descriptor} which is not
 a procedure.  Set via the first argument to @code{scm_make_port_type}.
 
-@item free
-Called when the port is collected during gc.  It
-should free any resources used by the port.
-Set using
-
-@deftypefun void scm_set_port_free (scm_t_bits tc, size_t (*free) (SCM port))
-@end deftypefun
-
 @item print
 Called when @code{write} is called on the port object, to print a
 port description.  E.g., for an fport it may produce something like:
@@ -2328,11 +2320,19 @@ Not used at present.  Set using
 @end deftypefun
 
 @item close
-Called when the port is closed, unless it was collected during gc.  It
-should free any resources used by the port.
-Set using
+Called when the port is closed.  It should free any resources used by
+the port.  Set using
 
 @deftypefun void scm_set_port_close (scm_t_bits tc, int (*close) (SCM port))
+@end deftypefun
+
+By default, ports that are garbage collected just go away without
+closing.  If your port type needs to release some external resource like
+a file descriptor, or needs to make sure that its internal buffers are
+flushed even if the port is collected while it was open, then mark the
+port type as needing a close on GC.
+
+@deftypefun void scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p)
 @end deftypefun
 
 @item write
