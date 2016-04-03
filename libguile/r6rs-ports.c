@@ -59,7 +59,7 @@ SCM_DEFINE (scm_eof_object, "eof-object", 0, 0, 0,
 	    "Return the end-of-file object.")
 #define FUNC_NAME s_scm_eof_object
 {
-  return (SCM_EOF_VAL);
+  return SCM_EOF_VAL;
 }
 #undef FUNC_NAME
 
@@ -70,11 +70,11 @@ SCM_DEFINE (scm_eof_object, "eof-object", 0, 0, 0,
 # define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif
 
-/* Bytevector input ports or "bip" for short.  */
+/* Bytevector input ports.  */
 static scm_t_bits bytevector_input_port_type = 0;
 
 static inline SCM
-make_bip (SCM bv)
+make_bytevector_input_port (SCM bv)
 {
   SCM port;
   char *c_bv;
@@ -102,7 +102,7 @@ make_bip (SCM bv)
 }
 
 static int
-bip_fill_input (SCM port)
+bytevector_input_port_fill_input (SCM port)
 {
   int result;
   scm_t_port *c_port = SCM_PTAB_ENTRY (port);
@@ -116,8 +116,8 @@ bip_fill_input (SCM port)
 }
 
 static scm_t_off
-bip_seek (SCM port, scm_t_off offset, int whence)
-#define FUNC_NAME "bip_seek"
+bytevector_input_port_seek (SCM port, scm_t_off offset, int whence)
+#define FUNC_NAME "bytevector_input_port_seek"
 {
   scm_t_off c_result = 0;
   scm_t_port *c_port = SCM_PTAB_ENTRY (port);
@@ -163,10 +163,11 @@ static inline void
 initialize_bytevector_input_ports (void)
 {
   bytevector_input_port_type =
-    scm_make_port_type ("r6rs-bytevector-input-port", bip_fill_input,
+    scm_make_port_type ("r6rs-bytevector-input-port",
+                        bytevector_input_port_fill_input,
 			NULL);
 
-  scm_set_port_seek (bytevector_input_port_type, bip_seek);
+  scm_set_port_seek (bytevector_input_port_type, bytevector_input_port_seek);
 }
 
 
@@ -181,7 +182,7 @@ SCM_DEFINE (scm_open_bytevector_input_port,
   if (!SCM_UNBNDP (transcoder) && !scm_is_false (transcoder))
     transcoders_not_implemented ();
 
-  return (make_bip (bv));
+  return make_bytevector_input_port (bv);
 }
 #undef FUNC_NAME
 
@@ -189,16 +190,16 @@ SCM_DEFINE (scm_open_bytevector_input_port,
 /* Custom binary ports.  The following routines are shared by input and
    output custom binary ports.  */
 
-#define SCM_CBP_GET_POSITION_PROC(_port)			\
+#define SCM_CUSTOM_BINARY_PORT_GET_POSITION_PROC(_port) \
   SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 1)
-#define SCM_CBP_SET_POSITION_PROC(_port)			\
+#define SCM_CUSTOM_BINARY_PORT_SET_POSITION_PROC(_port) \
   SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 2)
-#define SCM_CBP_CLOSE_PROC(_port)				\
+#define SCM_CUSTOM_BINARY_PORT_CLOSE_PROC(_port) \
   SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 3)
 
 static scm_t_off
-cbp_seek (SCM port, scm_t_off offset, int whence)
-#define FUNC_NAME "cbp_seek"
+custom_binary_port_seek (SCM port, scm_t_off offset, int whence)
+#define FUNC_NAME "custom_binary_port_seek"
 {
   SCM result;
   scm_t_off c_result = 0;
@@ -209,7 +210,7 @@ cbp_seek (SCM port, scm_t_off offset, int whence)
       {
 	SCM get_position_proc;
 
-	get_position_proc = SCM_CBP_GET_POSITION_PROC (port);
+	get_position_proc = SCM_CUSTOM_BINARY_PORT_GET_POSITION_PROC (port);
 	if (SCM_LIKELY (scm_is_true (get_position_proc)))
 	  result = scm_call_0 (get_position_proc);
 	else
@@ -229,7 +230,7 @@ cbp_seek (SCM port, scm_t_off offset, int whence)
       {
 	SCM set_position_proc;
 
-	set_position_proc = SCM_CBP_SET_POSITION_PROC (port);
+	set_position_proc = SCM_CUSTOM_BINARY_PORT_SET_POSITION_PROC (port);
 	if (SCM_LIKELY (scm_is_true (set_position_proc)))
 	  result = scm_call_1 (set_position_proc, scm_from_int (offset));
 	else
@@ -253,11 +254,11 @@ cbp_seek (SCM port, scm_t_off offset, int whence)
 #undef FUNC_NAME
 
 static int
-cbp_close (SCM port)
+custom_binary_port_close (SCM port)
 {
   SCM close_proc;
 
-  close_proc = SCM_CBP_CLOSE_PROC (port);
+  close_proc = SCM_CUSTOM_BINARY_PORT_CLOSE_PROC (port);
   if (scm_is_true (close_proc))
     /* Invoke the `close' thunk.  */
     scm_call_0 (close_proc);
@@ -266,35 +267,35 @@ cbp_close (SCM port)
 }
 
 
-/* Custom binary input port ("cbip" for short).  */
+/* Custom binary input port.  */
 
 static scm_t_bits custom_binary_input_port_type = 0;
 
 /* Initial size of the buffer embedded in custom binary input ports.  */
-#define CBIP_BUFFER_SIZE  8192
+#define CUSTOM_BINARY_INPUT_PORT_BUFFER_SIZE  8192
 
 /* Return the bytevector associated with PORT.  */
-#define SCM_CBIP_BYTEVECTOR(_port)				\
+#define SCM_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR(_port) \
   SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 4)
 
 /* Set BV as the bytevector associated with PORT.  */
-#define SCM_SET_CBIP_BYTEVECTOR(_port, _bv)				\
+#define SCM_SET_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR(_port, _bv) \
   SCM_SIMPLE_VECTOR_SET (SCM_PACK (SCM_STREAM (_port)), 4, (_bv))
 
 /* Return the various procedures of PORT.  */
-#define SCM_CBIP_READ_PROC(_port)				\
+#define SCM_CUSTOM_BINARY_INPUT_PORT_READ_PROC(_port) \
   SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 0)
 
 
 /* Set PORT's internal buffer according to READ_SIZE.  */
 static void
-cbip_setvbuf (SCM port, long read_size, long write_size)
+custom_binary_input_port_setvbuf (SCM port, long read_size, long write_size)
 {
   SCM bv;
   scm_t_port *pt;
 
   pt = SCM_PTAB_ENTRY (port);
-  bv = SCM_CBIP_BYTEVECTOR (port);
+  bv = SCM_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port);
 
   switch (read_size)
     {
@@ -316,7 +317,7 @@ cbip_setvbuf (SCM port, long read_size, long write_size)
     default:
       /* Fully buffered: allocate a buffer of READ_SIZE bytes.  */
       bv = scm_c_make_bytevector (read_size);
-      SCM_SET_CBIP_BYTEVECTOR (port, bv);
+      SCM_SET_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port, bv);
       pt->read_buf = (unsigned char *) SCM_BYTEVECTOR_CONTENTS (bv);
       pt->read_buf_size = read_size;
     }
@@ -325,8 +326,8 @@ cbip_setvbuf (SCM port, long read_size, long write_size)
 }
 
 static inline SCM
-make_cbip (SCM read_proc, SCM get_position_proc,
-	   SCM set_position_proc, SCM close_proc)
+make_custom_binary_input_port (SCM read_proc, SCM get_position_proc,
+                               SCM set_position_proc, SCM close_proc)
 {
   SCM port, bv, method_vector;
   char *c_bv;
@@ -335,7 +336,7 @@ make_cbip (SCM read_proc, SCM get_position_proc,
   const unsigned long mode_bits = SCM_OPN | SCM_RDNG;
 
   /* Use a bytevector as the underlying buffer.  */
-  c_len = CBIP_BUFFER_SIZE;
+  c_len = CUSTOM_BINARY_INPUT_PORT_BUFFER_SIZE;
   bv = scm_c_make_bytevector (c_len);
   c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
 
@@ -364,8 +365,8 @@ make_cbip (SCM read_proc, SCM get_position_proc,
 }
 
 static int
-cbip_fill_input (SCM port)
-#define FUNC_NAME "cbip_fill_input"
+custom_binary_input_port_fill_input (SCM port)
+#define FUNC_NAME "custom_binary_input_port_fill_input"
 {
   int result;
   scm_t_port *c_port = SCM_PTAB_ENTRY (port);
@@ -378,9 +379,9 @@ cbip_fill_input (SCM port)
       SCM bv, read_proc, octets;
 
       c_requested = c_port->read_buf_size;
-      read_proc = SCM_CBIP_READ_PROC (port);
+      read_proc = SCM_CUSTOM_BINARY_INPUT_PORT_READ_PROC (port);
 
-      bv = SCM_CBIP_BYTEVECTOR (port);
+      bv = SCM_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port);
       buffered =
 	(c_port->read_buf == (unsigned char *) SCM_BYTEVECTOR_CONTENTS (bv));
 
@@ -405,7 +406,7 @@ cbip_fill_input (SCM port)
 		 bytevector for later reuse, in the hope that the application
 		 has regular access patterns.  */
 	      bv = scm_c_make_bytevector (c_requested);
-	      SCM_SET_CBIP_BYTEVECTOR (port, bv);
+	      SCM_SET_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port, bv);
 	    }
 	}
 
@@ -456,8 +457,8 @@ SCM_DEFINE (scm_make_custom_binary_input_port,
   if (!scm_is_false (close_proc))
     SCM_VALIDATE_PROC (5, close_proc);
 
-  return (make_cbip (read_proc, get_position_proc, set_position_proc,
-		     close_proc));
+  return make_custom_binary_input_port (read_proc, get_position_proc,
+                                        set_position_proc, close_proc);
 }
 #undef FUNC_NAME
 
@@ -468,11 +469,12 @@ initialize_custom_binary_input_ports (void)
 {
   custom_binary_input_port_type =
     scm_make_port_type ("r6rs-custom-binary-input-port",
-			cbip_fill_input, NULL);
+			custom_binary_input_port_fill_input, NULL);
 
-  scm_set_port_seek (custom_binary_input_port_type, cbp_seek);
-  scm_set_port_close (custom_binary_input_port_type, cbp_close);
-  scm_set_port_setvbuf (custom_binary_input_port_type, cbip_setvbuf);
+  scm_set_port_seek (custom_binary_input_port_type, custom_binary_port_seek);
+  scm_set_port_close (custom_binary_input_port_type, custom_binary_port_close);
+  scm_set_port_setvbuf (custom_binary_input_port_type,
+                        custom_binary_input_port_setvbuf);
 }
 
 
@@ -814,17 +816,19 @@ SCM_DEFINE (scm_unget_bytevector, "unget-bytevector", 2, 2, 0,
 
 
 
-/* Bytevector output port ("bop" for short).  */
+/* Bytevector output port.  */
 
-/* Implementation of "bops".
+/* Implementation of "bytevector output ports".
 
-   Each bop has an internal buffer, of type `scm_t_bop_buffer', attached to
-   it.  The procedure returned along with the output port is actually an
-   applicable SMOB.  The SMOB holds a reference to the port.  When applied,
-   the SMOB swallows the port's internal buffer, turning it into a
-   bytevector, and resets it.
+   Each bytevector output port has an internal buffer, of type
+   `scm_t_bytevector_output_port_buffer', attached to it.  The procedure
+   returned along with the output port is actually an applicable SMOB.
+   The SMOB holds a reference to the port.  When applied, the SMOB
+   swallows the port's internal buffer, turning it into a bytevector,
+   and resets it.
 
-   XXX: Access to a bop's internal buffer is not thread-safe.  */
+   XXX: Access to a bytevector output port's internal buffer is not
+   thread-safe.  */
 
 static scm_t_bits bytevector_output_port_type = 0;
 
@@ -832,64 +836,67 @@ SCM_SMOB (bytevector_output_port_procedure,
 	  "r6rs-bytevector-output-port-procedure",
 	  0);
 
-#define SCM_GC_BOP "r6rs-bytevector-output-port"
-#define SCM_BOP_BUFFER_INITIAL_SIZE 4096
+#define SCM_GC_BYTEVECTOR_OUTPUT_PORT "r6rs-bytevector-output-port"
+#define SCM_BYTEVECTOR_OUTPUT_PORT_BUFFER_INITIAL_SIZE 4096
 
-/* Representation of a bop's internal buffer.  */
+/* Representation of a bytevector output port's internal buffer.  */
 typedef struct
 {
   size_t total_len;
   size_t len;
   size_t pos;
   char  *buffer;
-} scm_t_bop_buffer;
+} scm_t_bytevector_output_port_buffer;
 
 
-/* Accessing a bop's buffer.  */
-#define SCM_BOP_BUFFER(_port)		\
-  ((scm_t_bop_buffer *) SCM_STREAM (_port))
-#define SCM_SET_BOP_BUFFER(_port, _buf)		\
+/* Accessing a bytevector output port's buffer.  */
+#define SCM_BYTEVECTOR_OUTPUT_PORT_BUFFER(_port) \
+  ((scm_t_bytevector_output_port_buffer *) SCM_STREAM (_port))
+#define SCM_SET_BYTEVECTOR_OUTPUT_PORT_BUFFER(_port, _buf) \
   (SCM_SETSTREAM ((_port), (scm_t_bits) (_buf)))
 
 
 static inline void
-bop_buffer_init (scm_t_bop_buffer *buf)
+bytevector_output_port_buffer_init (scm_t_bytevector_output_port_buffer *buf)
 {
   buf->total_len = buf->len = buf->pos = 0;
   buf->buffer = NULL;
 }
 
 static inline void
-bop_buffer_grow (scm_t_bop_buffer *buf, size_t min_size)
+bytevector_output_port_buffer_grow (scm_t_bytevector_output_port_buffer *buf,
+                                    size_t min_size)
 {
   char *new_buf;
   size_t new_size;
 
   for (new_size = buf->total_len
-	 ? buf->total_len : SCM_BOP_BUFFER_INITIAL_SIZE;
+	 ? buf->total_len : SCM_BYTEVECTOR_OUTPUT_PORT_BUFFER_INITIAL_SIZE;
        new_size < min_size;
        new_size *= 2);
 
   if (buf->buffer)
     new_buf = scm_gc_realloc ((void *) buf->buffer, buf->total_len,
-			      new_size, SCM_GC_BOP);
+			      new_size, SCM_GC_BYTEVECTOR_OUTPUT_PORT);
   else
-    new_buf = scm_gc_malloc_pointerless (new_size, SCM_GC_BOP);
+    new_buf = scm_gc_malloc_pointerless (new_size,
+                                         SCM_GC_BYTEVECTOR_OUTPUT_PORT);
 
   buf->buffer = new_buf;
   buf->total_len = new_size;
 }
 
 static inline SCM
-make_bop (void)
+make_bytevector_output_port (void)
 {
-  SCM port, bop_proc;
+  SCM port, proc;
   scm_t_port *c_port;
-  scm_t_bop_buffer *buf;
+  scm_t_bytevector_output_port_buffer *buf;
   const unsigned long mode_bits = SCM_OPN | SCM_WRTNG;
 
-  buf = (scm_t_bop_buffer *) scm_gc_malloc (sizeof (* buf), SCM_GC_BOP);
-  bop_buffer_init (buf);
+  buf = (scm_t_bytevector_output_port_buffer *)
+    scm_gc_malloc (sizeof (* buf), SCM_GC_BYTEVECTOR_OUTPUT_PORT);
+  bytevector_output_port_buffer_init (buf);
 
   port = scm_c_make_port_with_encoding (bytevector_output_port_type,
                                         mode_bits,
@@ -902,22 +909,22 @@ make_bop (void)
   c_port->write_buf = c_port->write_pos = c_port->write_end = NULL;
   c_port->write_buf_size = 0;
 
-  /* Make the bop procedure.  */
-  SCM_NEWSMOB (bop_proc, bytevector_output_port_procedure, buf);
+  /* Make the bytevector output port procedure.  */
+  SCM_NEWSMOB (proc, bytevector_output_port_procedure, buf);
 
-  return (scm_values (scm_list_2 (port, bop_proc)));
+  return (scm_values (scm_list_2 (port, proc)));
 }
 
 /* Write SIZE octets from DATA to PORT.  */
 static void
-bop_write (SCM port, const void *data, size_t size)
+bytevector_output_port_write (SCM port, const void *data, size_t size)
 {
-  scm_t_bop_buffer *buf;
+  scm_t_bytevector_output_port_buffer *buf;
 
-  buf = SCM_BOP_BUFFER (port);
+  buf = SCM_BYTEVECTOR_OUTPUT_PORT_BUFFER (port);
 
   if (buf->pos + size > buf->total_len)
-    bop_buffer_grow (buf, buf->pos + size);
+    bytevector_output_port_buffer_grow (buf, buf->pos + size);
 
   memcpy (buf->buffer + buf->pos, data, size);
   buf->pos += size;
@@ -925,12 +932,12 @@ bop_write (SCM port, const void *data, size_t size)
 }
 
 static scm_t_off
-bop_seek (SCM port, scm_t_off offset, int whence)
-#define FUNC_NAME "bop_seek"
+bytevector_output_port_seek (SCM port, scm_t_off offset, int whence)
+#define FUNC_NAME "bytevector_output_port_seek"
 {
-  scm_t_bop_buffer *buf;
+  scm_t_bytevector_output_port_buffer *buf;
 
-  buf = SCM_BOP_BUFFER (port);
+  buf = SCM_BYTEVECTOR_OUTPUT_PORT_BUFFER (port);
   switch (whence)
     {
     case SEEK_CUR:
@@ -960,17 +967,17 @@ bop_seek (SCM port, scm_t_off offset, int whence)
 }
 #undef FUNC_NAME
 
-/* Fetch data from a bop.  */
+/* Fetch data from a bytevector output port.  */
 SCM_SMOB_APPLY (bytevector_output_port_procedure,
-		bop_proc_apply, 0, 0, 0, (SCM bop_proc))
+		bytevector_output_port_proc_apply, 0, 0, 0, (SCM proc))
 {
   SCM bv;
-  scm_t_bop_buffer *buf, result_buf;
+  scm_t_bytevector_output_port_buffer *buf, result_buf;
 
-  buf = (scm_t_bop_buffer *) SCM_SMOB_DATA (bop_proc);
+  buf = (scm_t_bytevector_output_port_buffer *) SCM_SMOB_DATA (proc);
 
   result_buf = *buf;
-  bop_buffer_init (buf);
+  bytevector_output_port_buffer_init (buf);
 
   if (result_buf.len == 0)
     bv = scm_c_take_gc_bytevector (NULL, 0, SCM_BOOL_F);
@@ -981,7 +988,7 @@ SCM_SMOB_APPLY (bytevector_output_port_procedure,
 	result_buf.buffer = scm_gc_realloc ((void *) result_buf.buffer,
 					    result_buf.total_len,
 					    result_buf.len,
-					    SCM_GC_BOP);
+					    SCM_GC_BYTEVECTOR_OUTPUT_PORT);
 
       bv = scm_c_take_gc_bytevector ((signed char *) result_buf.buffer,
                                      result_buf.len, SCM_BOOL_F);
@@ -1001,7 +1008,7 @@ SCM_DEFINE (scm_open_bytevector_output_port,
   if (!SCM_UNBNDP (transcoder) && !scm_is_false (transcoder))
     transcoders_not_implemented ();
 
-  return (make_bop ());
+  return make_bytevector_output_port ();
 }
 #undef FUNC_NAME
 
@@ -1010,24 +1017,24 @@ initialize_bytevector_output_ports (void)
 {
   bytevector_output_port_type =
     scm_make_port_type ("r6rs-bytevector-output-port",
-			NULL, bop_write);
+			NULL, bytevector_output_port_write);
 
-  scm_set_port_seek (bytevector_output_port_type, bop_seek);
+  scm_set_port_seek (bytevector_output_port_type, bytevector_output_port_seek);
 }
 
 
-/* Custom binary output port ("cbop" for short).  */
+/* Custom binary output port.  */
 
 static scm_t_bits custom_binary_output_port_type;
 
 /* Return the various procedures of PORT.  */
-#define SCM_CBOP_WRITE_PROC(_port)				\
+#define SCM_CUSTOM_BINARY_OUTPUT_PORT_WRITE_PROC(_port) \
   SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 0)
 
 
 static inline SCM
-make_cbop (SCM write_proc, SCM get_position_proc,
-	   SCM set_position_proc, SCM close_proc)
+make_custom_binary_output_port (SCM write_proc, SCM get_position_proc,
+                                SCM set_position_proc, SCM close_proc)
 {
   SCM port, method_vector;
   scm_t_port *c_port;
@@ -1057,8 +1064,8 @@ make_cbop (SCM write_proc, SCM get_position_proc,
 
 /* Write SIZE octets from DATA to PORT.  */
 static void
-cbop_write (SCM port, const void *data, size_t size)
-#define FUNC_NAME "cbop_write"
+custom_binary_output_port_write (SCM port, const void *data, size_t size)
+#define FUNC_NAME "custom_binary_output_port_write"
 {
   long int c_result;
   size_t c_written;
@@ -1071,7 +1078,7 @@ cbop_write (SCM port, const void *data, size_t size)
   bv = scm_c_make_bytevector (size);
   memcpy (SCM_BYTEVECTOR_CONTENTS (bv), data, size);
 
-  write_proc = SCM_CBOP_WRITE_PROC (port);
+  write_proc = SCM_CUSTOM_BINARY_OUTPUT_PORT_WRITE_PROC (port);
 
   /* Since the `write' procedure of Guile's ports has type `void', it must
      try hard to write exactly SIZE bytes, regardless of how many bytes the
@@ -1116,8 +1123,8 @@ SCM_DEFINE (scm_make_custom_binary_output_port,
   if (!scm_is_false (close_proc))
     SCM_VALIDATE_PROC (5, close_proc);
 
-  return (make_cbop (write_proc, get_position_proc, set_position_proc,
-		     close_proc));
+  return make_custom_binary_output_port (write_proc, get_position_proc,
+                                         set_position_proc, close_proc);
 }
 #undef FUNC_NAME
 
@@ -1128,22 +1135,22 @@ initialize_custom_binary_output_ports (void)
 {
   custom_binary_output_port_type =
     scm_make_port_type ("r6rs-custom-binary-output-port",
-			NULL, cbop_write);
+			NULL, custom_binary_output_port_write);
 
-  scm_set_port_seek (custom_binary_output_port_type, cbp_seek);
-  scm_set_port_close (custom_binary_output_port_type, cbp_close);
+  scm_set_port_seek (custom_binary_output_port_type, custom_binary_port_seek);
+  scm_set_port_close (custom_binary_output_port_type, custom_binary_port_close);
 }
 
 
-/* Transcoded ports ("tp" for short).  */
+/* Transcoded ports.  */
 static scm_t_bits transcoded_port_type = 0;
 
-#define TP_INPUT_BUFFER_SIZE 4096
+#define TRANSCODED_PORT_INPUT_BUFFER_SIZE 4096
 
-#define SCM_TP_BINARY_PORT(_port) SCM_PACK (SCM_STREAM (_port))
+#define SCM_TRANSCODED_PORT_BINARY_PORT(_port) SCM_PACK (SCM_STREAM (_port))
 
 static inline SCM
-make_tp (SCM binary_port, unsigned long mode)
+make_transcoded_port (SCM binary_port, unsigned long mode)
 {
   SCM port;
   scm_t_port *c_port;
@@ -1155,10 +1162,11 @@ make_tp (SCM binary_port, unsigned long mode)
   if (SCM_INPUT_PORT_P (port))
     {
       c_port = SCM_PTAB_ENTRY (port);
-      c_port->read_buf = scm_gc_malloc_pointerless (TP_INPUT_BUFFER_SIZE,
-                                                    "port buffer");
+      c_port->read_buf =
+        scm_gc_malloc_pointerless (TRANSCODED_PORT_INPUT_BUFFER_SIZE,
+                                   "port buffer");
       c_port->read_pos = c_port->read_end = c_port->read_buf;
-      c_port->read_buf_size = TP_INPUT_BUFFER_SIZE;
+      c_port->read_buf_size = TRANSCODED_PORT_INPUT_BUFFER_SIZE;
       
       SCM_SET_CELL_WORD_0 (port, SCM_CELL_WORD_0 (port) & ~SCM_BUF0);
     }
@@ -1167,17 +1175,17 @@ make_tp (SCM binary_port, unsigned long mode)
 }
 
 static void
-tp_write (SCM port, const void *data, size_t size)
+transcoded_port_write (SCM port, const void *data, size_t size)
 {
-  scm_c_write_unlocked (SCM_TP_BINARY_PORT (port), data, size);
+  scm_c_write_unlocked (SCM_TRANSCODED_PORT_BINARY_PORT (port), data, size);
 }
 
 static int
-tp_fill_input (SCM port)
+transcoded_port_fill_input (SCM port)
 {
   size_t count;
   scm_t_port *c_port = SCM_PTAB_ENTRY (port);
-  SCM bport = SCM_TP_BINARY_PORT (port);
+  SCM bport = SCM_TRANSCODED_PORT_BINARY_PORT (port);
   scm_t_port *c_bport = SCM_PTAB_ENTRY (bport);
 
   /* We can't use `scm_c_read' here, since it blocks until the whole
@@ -1210,9 +1218,9 @@ tp_fill_input (SCM port)
 }
 
 static void
-tp_flush (SCM port)
+transcoded_port_flush (SCM port)
 {
-  SCM binary_port = SCM_TP_BINARY_PORT (port);
+  SCM binary_port = SCM_TRANSCODED_PORT_BINARY_PORT (port);
   scm_t_port *c_port = SCM_PTAB_ENTRY (port);
   size_t count = c_port->write_pos - c_port->write_buf;
 
@@ -1234,21 +1242,23 @@ tp_flush (SCM port)
 }
 
 static int
-tp_close (SCM port)
+transcoded_port_close (SCM port)
 {
+  SCM bport = SCM_TRANSCODED_PORT_BINARY_PORT (port);
   if (SCM_OUTPUT_PORT_P (port))
-    tp_flush (port);
-  return scm_is_true (scm_close_port (SCM_TP_BINARY_PORT (port))) ? 0 : -1;
+    transcoded_port_flush (port);
+  return scm_is_true (scm_close_port (bport)) ? 0 : -1;
 }
 
 static inline void
 initialize_transcoded_ports (void)
 {
   transcoded_port_type =
-    scm_make_port_type ("r6rs-transcoded-port", tp_fill_input, tp_write);
+    scm_make_port_type ("r6rs-transcoded-port", transcoded_port_fill_input,
+                        transcoded_port_write);
   
-  scm_set_port_flush (transcoded_port_type, tp_flush);
-  scm_set_port_close (transcoded_port_type, tp_close);
+  scm_set_port_flush (transcoded_port_type, transcoded_port_flush);
+  scm_set_port_close (transcoded_port_type, transcoded_port_close);
   scm_set_port_needs_close_on_gc (transcoded_port_type, 1);
 }
 
@@ -1270,7 +1280,7 @@ SCM_DEFINE (scm_i_make_transcoded_port,
   else if (scm_is_true (scm_input_port_p (port)))
     mode |=  SCM_RDNG;
   
-  result = make_tp (port, mode);
+  result = make_transcoded_port (port, mode);
 
   /* FIXME: We should actually close `port' "in a special way" here,
      according to R6RS.  As there is no way to do that in Guile without
