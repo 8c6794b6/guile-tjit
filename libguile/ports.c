@@ -2753,23 +2753,21 @@ scm_c_write (SCM port, const void *ptr, size_t size)
 /* scm_lfwrite
  *
  * This function differs from scm_c_write; it updates port line and
- * column. */
+ * column, flushing line-buffered ports when appropriate. */
 void
 scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+  int saved_line;
 
-  if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input_unlocked (port);
+  scm_c_write_unlocked (port, ptr, size);
 
-  ptob->write (port, ptr, size);
-
+  saved_line = SCM_LINUM (port);
   for (; size; ptr++, size--)
     update_port_lf ((scm_t_wchar) (unsigned char) *ptr, port);
 
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_WRITE;
+  /* Handle line buffering.  */
+  if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) && saved_line != SCM_LINUM (port))
+    scm_flush_unlocked (port);
 }
 
 void

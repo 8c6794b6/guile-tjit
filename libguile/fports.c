@@ -784,10 +784,6 @@ fport_write (SCM port, const void *data, size_t size)
 	    }
 	}
       }
-
-    /* handle line buffering.  */     
-    if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) && memchr (data, '\n', size))
-      fport_flush (port);
   }
 }
 #undef FUNC_NAME
