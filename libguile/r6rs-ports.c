@@ -38,6 +38,7 @@
 
 
 
+
 /* Unimplemented features.  */
 
 
@@ -51,7 +52,9 @@ transcoders_not_implemented (void)
 	   PACKAGE_NAME);
 }
 
+
 
+
 /* End-of-file object.  */
 
 SCM_DEFINE (scm_eof_object, "eof-object", 0, 0, 0,
@@ -63,7 +66,9 @@ SCM_DEFINE (scm_eof_object, "eof-object", 0, 0, 0,
 }
 #undef FUNC_NAME
 
+
 
+
 /* Input ports.  */
 
 #ifndef MIN
@@ -186,33 +191,35 @@ SCM_DEFINE (scm_open_bytevector_input_port,
 }
 #undef FUNC_NAME
 
+
 
+
 /* Custom binary ports.  The following routines are shared by input and
    output custom binary ports.  */
 
-#define SCM_CUSTOM_BINARY_PORT_GET_POSITION_PROC(_port) \
-  SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 1)
-#define SCM_CUSTOM_BINARY_PORT_SET_POSITION_PROC(_port) \
-  SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 2)
-#define SCM_CUSTOM_BINARY_PORT_CLOSE_PROC(_port) \
-  SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 3)
+struct custom_binary_port {
+  SCM read_buffer;
+  SCM read;
+  SCM write;
+  SCM get_position;
+  SCM set_position_x;
+  SCM close;
+};
 
 static scm_t_off
 custom_binary_port_seek (SCM port, scm_t_off offset, int whence)
 #define FUNC_NAME "custom_binary_port_seek"
 {
   SCM result;
+  struct custom_binary_port *stream = (void *) SCM_STREAM (port);
   scm_t_off c_result = 0;
 
   switch (whence)
     {
     case SEEK_CUR:
       {
-	SCM get_position_proc;
-
-	get_position_proc = SCM_CUSTOM_BINARY_PORT_GET_POSITION_PROC (port);
-	if (SCM_LIKELY (scm_is_true (get_position_proc)))
-	  result = scm_call_0 (get_position_proc);
+	if (SCM_LIKELY (scm_is_true (stream->get_position)))
+	  result = scm_call_0 (stream->get_position);
 	else
 	  scm_wrong_type_arg_msg (FUNC_NAME, 0, port,
 				  "R6RS custom binary port with "
@@ -228,11 +235,8 @@ custom_binary_port_seek (SCM port, scm_t_off offset, int whence)
 
     case SEEK_SET:
       {
-	SCM set_position_proc;
-
-	set_position_proc = SCM_CUSTOM_BINARY_PORT_SET_POSITION_PROC (port);
-	if (SCM_LIKELY (scm_is_true (set_position_proc)))
-	  result = scm_call_1 (set_position_proc, scm_from_int (offset));
+	if (SCM_LIKELY (scm_is_true (stream->set_position_x)))
+	  result = scm_call_1 (stream->set_position_x, scm_from_int (offset));
 	else
 	  scm_wrong_type_arg_msg (FUNC_NAME, 0, port,
 				  "seekable R6RS custom binary port");
@@ -256,35 +260,24 @@ custom_binary_port_seek (SCM port, scm_t_off offset, int whence)
 static int
 custom_binary_port_close (SCM port)
 {
-  SCM close_proc;
+  struct custom_binary_port *stream = (void *) SCM_STREAM (port);
 
-  close_proc = SCM_CUSTOM_BINARY_PORT_CLOSE_PROC (port);
-  if (scm_is_true (close_proc))
+  if (scm_is_true (stream->close))
     /* Invoke the `close' thunk.  */
-    scm_call_0 (close_proc);
+    scm_call_0 (stream->close);
 
   return 1;
 }
 
+
 
-/* Custom binary input port.  */
+
+/* Custom binary input ports.  */
 
 static scm_t_bits custom_binary_input_port_type = 0;
 
 /* Initial size of the buffer embedded in custom binary input ports.  */
 #define CUSTOM_BINARY_INPUT_PORT_BUFFER_SIZE  8192
-
-/* Return the bytevector associated with PORT.  */
-#define SCM_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR(_port) \
-  SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 4)
-
-/* Set BV as the bytevector associated with PORT.  */
-#define SCM_SET_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR(_port, _bv) \
-  SCM_SIMPLE_VECTOR_SET (SCM_PACK (SCM_STREAM (_port)), 4, (_bv))
-
-/* Return the various procedures of PORT.  */
-#define SCM_CUSTOM_BINARY_INPUT_PORT_READ_PROC(_port) \
-  SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 0)
 
 
 /* Set PORT's internal buffer according to READ_SIZE.  */
@@ -293,9 +286,10 @@ custom_binary_input_port_setvbuf (SCM port, long read_size, long write_size)
 {
   SCM bv;
   scm_t_port *pt;
+  struct custom_binary_port *stream = (void *) SCM_STREAM (port);
 
   pt = SCM_PTAB_ENTRY (port);
-  bv = SCM_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port);
+  bv = stream->read_buffer;
 
   switch (read_size)
     {
@@ -317,7 +311,7 @@ custom_binary_input_port_setvbuf (SCM port, long read_size, long write_size)
     default:
       /* Fully buffered: allocate a buffer of READ_SIZE bytes.  */
       bv = scm_c_make_bytevector (read_size);
-      SCM_SET_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port, bv);
+      stream->read_buffer = bv;
       pt->read_buf = (unsigned char *) SCM_BYTEVECTOR_CONTENTS (bv);
       pt->read_buf_size = read_size;
     }
@@ -329,10 +323,11 @@ static inline SCM
 make_custom_binary_input_port (SCM read_proc, SCM get_position_proc,
                                SCM set_position_proc, SCM close_proc)
 {
-  SCM port, bv, method_vector;
+  SCM port, bv;
   char *c_bv;
   unsigned c_len;
   scm_t_port *c_port;
+  struct custom_binary_port *stream;
   const unsigned long mode_bits = SCM_OPN | SCM_RDNG;
 
   /* Use a bytevector as the underlying buffer.  */
@@ -340,19 +335,19 @@ make_custom_binary_input_port (SCM read_proc, SCM get_position_proc,
   bv = scm_c_make_bytevector (c_len);
   c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
 
-  /* Store the various methods and bytevector in a vector.  */
-  method_vector = scm_c_make_vector (5, SCM_BOOL_F);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 4, bv);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 0, read_proc);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 1, get_position_proc);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 2, set_position_proc);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 3, close_proc);
+  stream = scm_gc_typed_calloc (struct custom_binary_port);
+  stream->read_buffer = bv;
+  stream->read = read_proc;
+  stream->write = SCM_BOOL_F;
+  stream->get_position = get_position_proc;
+  stream->set_position_x = set_position_proc;
+  stream->close = close_proc;
 
   port = scm_c_make_port_with_encoding (custom_binary_input_port_type,
                                         mode_bits,
                                         NULL, /* encoding */
                                         SCM_FAILED_CONVERSION_ERROR,
-                                        SCM_UNPACK (method_vector));
+                                        (scm_t_bits) stream);
 
   c_port = SCM_PTAB_ENTRY (port);
 
@@ -370,18 +365,18 @@ custom_binary_input_port_fill_input (SCM port)
 {
   int result;
   scm_t_port *c_port = SCM_PTAB_ENTRY (port);
+  struct custom_binary_port *stream = (void *) SCM_STREAM (port);
 
   if (c_port->read_pos >= c_port->read_end)
     {
       /* Invoke the user's `read!' procedure.  */
       int buffered;
       size_t c_octets, c_requested;
-      SCM bv, read_proc, octets;
+      SCM bv, octets;
 
       c_requested = c_port->read_buf_size;
-      read_proc = SCM_CUSTOM_BINARY_INPUT_PORT_READ_PROC (port);
 
-      bv = SCM_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port);
+      bv = stream->read_buffer;
       buffered =
 	(c_port->read_buf == (unsigned char *) SCM_BYTEVECTOR_CONTENTS (bv));
 
@@ -401,16 +396,13 @@ custom_binary_input_port_fill_input (SCM port)
 	     are passed the caller-provided buffer, so we need to check its
 	     size.  */
 	  if (SCM_BYTEVECTOR_LENGTH (bv) < c_requested)
-	    {
-	      /* Bad luck: we have to make another allocation.  Save that
-		 bytevector for later reuse, in the hope that the application
-		 has regular access patterns.  */
-	      bv = scm_c_make_bytevector (c_requested);
-	      SCM_SET_CUSTOM_BINARY_INPUT_PORT_BYTEVECTOR (port, bv);
-	    }
+            /* Bad luck: we have to make another allocation.  Save that
+               nbytevector for later reuse, in the hope that the application
+               has regular access patterns.  */
+            stream->read_buffer = bv = scm_c_make_bytevector (c_requested);
 	}
 
-      octets = scm_call_3 (read_proc, bv, SCM_INUM0,
+      octets = scm_call_3 (stream->read, bv, SCM_INUM0,
 			   scm_from_size_t (c_requested));
       c_octets = scm_to_size_t (octets);
       if (SCM_UNLIKELY (c_octets > c_requested))
@@ -479,6 +471,7 @@ initialize_custom_binary_input_ports (void)
 
 
 
+
 /* Binary input.  */
 
 /* We currently don't support specific binary input ports.  */
@@ -603,7 +596,6 @@ SCM_DEFINE (scm_get_bytevector_n_x, "get-bytevector-n!", 4, 0, 0,
 }
 #undef FUNC_NAME
 
-
 SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
 	    (SCM port),
             "Read from @var{port}, blocking as necessary, until bytes "
@@ -706,6 +698,7 @@ SCM_DEFINE (scm_get_bytevector_all, "get-bytevector-all", 1, 0, 0,
 
 
 
+
 /* Binary output.  */
 
 /* We currently don't support specific binary input ports.  */
@@ -816,6 +809,7 @@ SCM_DEFINE (scm_unget_bytevector, "unget-bytevector", 2, 2, 0,
 
 
 
+
 /* Bytevector output port.  */
 
 /* Implementation of "bytevector output ports".
@@ -1022,36 +1016,38 @@ initialize_bytevector_output_ports (void)
   scm_set_port_seek (bytevector_output_port_type, bytevector_output_port_seek);
 }
 
+
 
-/* Custom binary output port.  */
+
+/* Custom binary output ports.  */
 
 static scm_t_bits custom_binary_output_port_type;
-
-/* Return the various procedures of PORT.  */
-#define SCM_CUSTOM_BINARY_OUTPUT_PORT_WRITE_PROC(_port) \
-  SCM_SIMPLE_VECTOR_REF (SCM_PACK (SCM_STREAM (_port)), 0)
 
 
 static inline SCM
 make_custom_binary_output_port (SCM write_proc, SCM get_position_proc,
                                 SCM set_position_proc, SCM close_proc)
 {
-  SCM port, method_vector;
+  SCM port;
   scm_t_port *c_port;
+  struct custom_binary_port *stream;
   const unsigned long mode_bits = SCM_OPN | SCM_WRTNG;
 
   /* Store the various methods and bytevector in a vector.  */
-  method_vector = scm_c_make_vector (4, SCM_BOOL_F);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 0, write_proc);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 1, get_position_proc);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 2, set_position_proc);
-  SCM_SIMPLE_VECTOR_SET (method_vector, 3, close_proc);
+  stream = scm_gc_typed_calloc (struct custom_binary_port);
+
+  stream->read_buffer = SCM_BOOL_F;
+  stream->read = SCM_BOOL_F;
+  stream->write = write_proc;
+  stream->get_position = get_position_proc;
+  stream->set_position_x = set_position_proc;
+  stream->close = close_proc;
 
   port = scm_c_make_port_with_encoding (custom_binary_output_port_type,
                                         mode_bits,
                                         NULL, /* encoding */
                                         SCM_FAILED_CONVERSION_ERROR,
-                                        SCM_UNPACK (method_vector));
+                                        (scm_t_bits) stream);
 
   c_port = SCM_PTAB_ENTRY (port);
 
@@ -1069,7 +1065,8 @@ custom_binary_output_port_write (SCM port, const void *data, size_t size)
 {
   long int c_result;
   size_t c_written;
-  SCM bv, write_proc, result;
+  struct custom_binary_port *stream = (void *) SCM_STREAM (port);
+  SCM bv, result;
 
   /* XXX: Allocating a new bytevector at each `write' call is inefficient,
      but necessary since (1) we don't control the lifetime of the buffer
@@ -1078,8 +1075,6 @@ custom_binary_output_port_write (SCM port, const void *data, size_t size)
   bv = scm_c_make_bytevector (size);
   memcpy (SCM_BYTEVECTOR_CONTENTS (bv), data, size);
 
-  write_proc = SCM_CUSTOM_BINARY_OUTPUT_PORT_WRITE_PROC (port);
-
   /* Since the `write' procedure of Guile's ports has type `void', it must
      try hard to write exactly SIZE bytes, regardless of how many bytes the
      sink can handle.  */
@@ -1087,7 +1082,7 @@ custom_binary_output_port_write (SCM port, const void *data, size_t size)
        c_written < size;
        c_written += c_result)
     {
-      result = scm_call_3 (write_proc, bv,
+      result = scm_call_3 (stream->write, bv,
 			   scm_from_size_t (c_written),
 			   scm_from_size_t (size - c_written));
 
@@ -1141,8 +1136,11 @@ initialize_custom_binary_output_ports (void)
   scm_set_port_close (custom_binary_output_port_type, custom_binary_port_close);
 }
 
+
 
+
 /* Transcoded ports.  */
+
 static scm_t_bits transcoded_port_type = 0;
 
 #define TRANSCODED_PORT_INPUT_BUFFER_SIZE 4096
