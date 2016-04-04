@@ -1563,7 +1563,6 @@ scm_c_read (SCM port, void *buffer, size_t size)
   ret = scm_c_read_unlocked (port, buffer, size);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 
   return ret;
 }
@@ -1948,7 +1947,6 @@ scm_getc (SCM port)
   ret = scm_getc_unlocked (port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 
   return ret;
 }
@@ -2162,7 +2160,6 @@ scm_ungetc (scm_t_wchar c, SCM port)
   scm_ungetc_unlocked (c, port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
 
 void 
@@ -2186,7 +2183,6 @@ scm_ungets (const char *s, int n, SCM port)
   scm_ungets_unlocked (s, n, port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
 
 SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
@@ -2455,7 +2451,6 @@ scm_fill_input (SCM port)
   ret = scm_fill_input_unlocked (port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 
   return ret;
 }
@@ -2613,7 +2608,6 @@ scm_end_input (SCM port)
   scm_end_input_unlocked (port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
 
 SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
@@ -2653,7 +2647,6 @@ scm_flush (SCM port)
   scm_flush_unlocked (port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
 
 int
@@ -2675,7 +2668,6 @@ scm_putc (char c, SCM port)
   scm_putc_unlocked (c, port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
 
 void
@@ -2686,7 +2678,6 @@ scm_puts (const char *s, SCM port)
   scm_puts_unlocked (s, port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
   
 /* scm_c_write
