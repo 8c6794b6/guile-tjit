@@ -391,6 +391,19 @@ Example:
                      (%band ,dst ,a ,b)
                      (%lsh ,dst ,dst 2)
                      (%add ret ,dst 2))
+                   123 456)))))
+  (with-test-prefix "bor"
+    (with-storages (dst a b)
+      (unless (eq? a b)
+        (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+            (logior 123 456)
+          (run-asm `((%move ,a arg1)
+                     (%move ,b arg2)
+                     (%rsh ,a ,a 2)
+                     (%rsh ,b ,b 2)
+                     (%bor ,dst ,a ,b)
+                     (%lsh ,dst ,dst 2)
+                     (%add ret ,dst 2))
                    123 456))))))
 
 (with-test-prefix "Integer arithmetic"

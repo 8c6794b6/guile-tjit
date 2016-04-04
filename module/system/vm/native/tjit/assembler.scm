@@ -940,6 +940,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
            (else (err))))))))
 
 (define-binary-arith-int %band logand jit-andi jit-andr)
+(define-binary-arith-int %bor logior jit-ori jit-orr)
 
 
 ;;;
