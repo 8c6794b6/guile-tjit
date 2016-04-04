@@ -49,11 +49,11 @@
  */
 
 
-static scm_t_bits scm_tc16_sfport;
+static scm_t_bits scm_tc16_soft_port;
 
 
 static void
-sf_flush (SCM port)
+soft_port_flush (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   SCM stream = SCM_PACK (pt->stream);
@@ -62,11 +62,10 @@ sf_flush (SCM port)
 
   if (scm_is_true (f))
     scm_call_0 (f);
-
 }
 
 static void
-sf_write (SCM port, const void *data, size_t size)
+soft_port_write (SCM port, const void *data, size_t size)
 {
   SCM p = SCM_PACK (SCM_STREAM (port));
 
@@ -84,7 +83,7 @@ sf_write (SCM port, const void *data, size_t size)
 
 /* places a single char in the input buffer.  */
 static int 
-sf_fill_input (SCM port)
+soft_port_fill_input (SCM port)
 {
   SCM p = SCM_PACK (SCM_STREAM (port));
   SCM ans;
@@ -94,7 +93,7 @@ sf_fill_input (SCM port)
   ans = scm_call_0 (SCM_SIMPLE_VECTOR_REF (p, 3)); /* get char.  */
   if (scm_is_false (ans) || SCM_EOF_OBJECT_P (ans))
     return EOF;
-  SCM_ASSERT (SCM_CHARP (ans), ans, SCM_ARG1, "sf_fill_input");
+  SCM_ASSERT (SCM_CHARP (ans), ans, SCM_ARG1, "soft_port_fill_input");
   pti = SCM_PORT_GET_INTERNAL (port);
 
   c = SCM_CHAR (ans);
@@ -124,7 +123,7 @@ sf_fill_input (SCM port)
 
 
 static int 
-sf_close (SCM port)
+soft_port_close (SCM port)
 {
   SCM p = SCM_PACK (SCM_STREAM (port));
   SCM f = SCM_SIMPLE_VECTOR_REF (p, 4);
@@ -137,7 +136,7 @@ sf_close (SCM port)
 
 
 static int 
-sf_input_waiting (SCM port)
+soft_port_input_waiting (SCM port)
 {
   SCM p = SCM_PACK (SCM_STREAM (port));
   if (SCM_SIMPLE_VECTOR_LENGTH (p) >= 6)
@@ -209,7 +208,7 @@ SCM_DEFINE (scm_make_soft_port, "make-soft-port", 2, 0, 0,
   SCM_ASSERT ((vlen == 5) || (vlen == 6), pv, 1, FUNC_NAME);
   SCM_VALIDATE_STRING (2, modes);
   
-  z = scm_c_make_port (scm_tc16_sfport, scm_i_mode_bits (modes),
+  z = scm_c_make_port (scm_tc16_soft_port, scm_i_mode_bits (modes),
                        SCM_UNPACK (pv));
   scm_port_non_buffer (SCM_PTAB_ENTRY (z));
 
@@ -221,12 +220,13 @@ SCM_DEFINE (scm_make_soft_port, "make-soft-port", 2, 0, 0,
 static scm_t_bits
 scm_make_sfptob ()
 {
-  scm_t_bits tc = scm_make_port_type ("soft", sf_fill_input, sf_write);
+  scm_t_bits tc = scm_make_port_type ("soft", soft_port_fill_input,
+                                      soft_port_write);
 
-  scm_set_port_flush (tc, sf_flush);
-  scm_set_port_close (tc, sf_close);
+  scm_set_port_flush (tc, soft_port_flush);
+  scm_set_port_close (tc, soft_port_close);
   scm_set_port_needs_close_on_gc (tc, 1);
-  scm_set_port_input_waiting (tc, sf_input_waiting);
+  scm_set_port_input_waiting (tc, soft_port_input_waiting);
 
   return tc;
 }
@@ -234,7 +234,7 @@ scm_make_sfptob ()
 void
 scm_init_vports ()
 {
-  scm_tc16_sfport = scm_make_sfptob ();
+  scm_tc16_soft_port = scm_make_sfptob ();
 
 #include "libguile/vports.x"
 }
