@@ -2065,11 +2065,12 @@ scm_i_scan_for_encoding (SCM port)
 
   pt = SCM_PTAB_ENTRY (port);
 
-  if (pt->rw_active == SCM_PORT_WRITE)
-    scm_flush_unlocked (port);
-
   if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
+    {
+      if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush_unlocked (port);
+      pt->rw_active = SCM_PORT_READ;
+    }
 
   if (pt->read_pos == pt->read_end)
     {

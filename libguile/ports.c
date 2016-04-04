@@ -680,6 +680,9 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
 
   entry->internal = pti;
   entry->file_name = SCM_BOOL_F;
+  /* By default, any port type with a seek function has random-access
+     ports.  */
+  entry->rw_random = ptob->seek != NULL;
   entry->rw_active = SCM_PORT_NEITHER;
   entry->port = ret;
   entry->stream = stream;
@@ -1455,11 +1458,13 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
 
   pt = SCM_PTAB_ENTRY (port);
   pti = SCM_PORT_GET_INTERNAL (port);
-  if (pt->rw_active == SCM_PORT_WRITE)
-    SCM_PORT_DESCRIPTOR (port)->flush (port);
 
   if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
+    {
+      if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush_unlocked (port);
+      pt->rw_active = SCM_PORT_READ;
+    }
 
   /* Take bytes first from the port's read buffer. */
   if (pt->read_pos < pt->read_end)
@@ -1984,6 +1989,13 @@ scm_i_unget_bytes_unlocked (const unsigned char *buf, size_t len, SCM port)
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   size_t old_len, new_len;
 
+  if (pt->rw_random)
+    {
+      if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush (port);
+      pt->rw_active = SCM_PORT_READ;
+    }
+
   scm_i_clear_pending_eof (port);
 
   if (pt->read_buf != pt->putback_buf)
@@ -2053,12 +2065,6 @@ scm_i_unget_bytes_unlocked (const unsigned char *buf, size_t len, SCM port)
   /* Move read_pos back and copy the bytes there.  */
   pt->read_pos -= len;
   memcpy (pt->read_buf + (pt->read_pos - pt->read_buf), buf, len);
-
-  if (pt->rw_active == SCM_PORT_WRITE)
-    scm_flush (port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
 }
 #undef FUNC_NAME
 
@@ -2460,11 +2466,12 @@ scm_slow_get_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-  if (pt->rw_active == SCM_PORT_WRITE)
-    scm_flush_unlocked (port);
-
   if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
+    {
+      if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush_unlocked (port);
+      pt->rw_active = SCM_PORT_READ;
+    }
 
   if (pt->read_pos >= pt->read_end)
     {
@@ -2481,11 +2488,12 @@ scm_slow_peek_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-  if (pt->rw_active == SCM_PORT_WRITE)
-    scm_flush_unlocked (port);
-
   if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
+    {
+      if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush_unlocked (port);
+      pt->rw_active = SCM_PORT_READ;
+    }
 
   if (pt->read_pos >= pt->read_end)
     {
@@ -2594,6 +2602,7 @@ scm_end_input_unlocked (SCM port)
     offset = 0;
 
   SCM_PORT_DESCRIPTOR (port)->end_input (port, offset);
+  pt->rw_active = SCM_PORT_NEITHER;
 }
 
 void
@@ -2633,6 +2642,7 @@ void
 scm_flush_unlocked (SCM port)
 {
   SCM_PORT_DESCRIPTOR (port)->flush (port);
+  SCM_PTAB_ENTRY (port)->rw_active = SCM_PORT_NEITHER;
 }
 
 void
@@ -2700,13 +2710,14 @@ scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
   pt = SCM_PTAB_ENTRY (port);
   ptob = SCM_PORT_DESCRIPTOR (port);
 
-  if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input_unlocked (port);
+  if (pt->rw_random)
+    {
+      if (pt->rw_active == SCM_PORT_READ)
+        scm_end_input_unlocked (port);
+      pt->rw_active = SCM_PORT_WRITE;
+    }
 
   ptob->write (port, ptr, size);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_WRITE;
 }
 #undef FUNC_NAME
 
@@ -2718,7 +2729,6 @@ scm_c_write (SCM port, const void *ptr, size_t size)
   scm_c_write_unlocked (port, ptr, size);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
 
 /* scm_lfwrite
@@ -2749,25 +2759,16 @@ scm_lfwrite (const char *ptr, size_t size, SCM port)
   scm_lfwrite_unlocked (ptr, size, port);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
-  
 }
 
 /* Write STR to PORT from START inclusive to END exclusive.  */
 void
 scm_lfwrite_substr (SCM str, size_t start, size_t end, SCM port)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input_unlocked (port);
-
   if (end == (size_t) -1)
     end = scm_i_string_length (str);
 
   scm_i_display_substring (str, start, end, port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_WRITE;
 }
 
 
@@ -2972,7 +2973,7 @@ SCM_DEFINE (scm_truncate_file, "truncate-file", 1, 1, 0,
       if (pt->rw_active == SCM_PORT_READ)
 	scm_end_input_unlocked (object);
       else if (pt->rw_active == SCM_PORT_WRITE)
-	ptob->flush (object);
+	scm_flush_unlocked (object);
 
       ptob->truncate (object, c_length);
       rv = 0;

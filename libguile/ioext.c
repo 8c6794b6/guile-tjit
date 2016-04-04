@@ -88,11 +88,10 @@ SCM_DEFINE (scm_redirect_port, "redirect-port", 2, 0, 0,
     {
       scm_t_port *pt = SCM_PTAB_ENTRY (new);
       scm_t_port *old_pt = SCM_PTAB_ENTRY (old);
-      scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (new);
 
       /* must flush to old fdes.  */
       if (pt->rw_active == SCM_PORT_WRITE)
-	ptob->flush (new);
+	scm_flush_unlocked (new);
       else if (pt->rw_active == SCM_PORT_READ)
 	scm_end_input_unlocked (new);
       ans = dup2 (oldfd, newfd);

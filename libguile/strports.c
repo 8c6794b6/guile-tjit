@@ -154,7 +154,6 @@ st_end_input (SCM port, int offset)
     scm_misc_error ("st_end_input", "negative position", SCM_EOL);
 
   pt->write_pos = (unsigned char *) (pt->read_pos = pt->read_pos - offset);
-  pt->rw_active = SCM_PORT_NEITHER;
 }
 
 static scm_t_off
@@ -304,7 +303,6 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
   pt->read_buf_size = read_buf_size;
   pt->write_buf_size = num_bytes;
   pt->write_end = pt->read_end = pt->read_buf + pt->read_buf_size;
-  pt->rw_random = 1;
 
   return z;
 }

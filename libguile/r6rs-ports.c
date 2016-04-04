@@ -1233,7 +1233,6 @@ transcoded_port_flush (SCM port)
       scm_c_write_unlocked (binary_port, c_port->write_buf, count);
 
   c_port->write_pos = c_port->write_buf;
-  c_port->rw_active = SCM_PORT_NEITHER;
 
   if (SCM_OPOUTPORTP (binary_port))
     scm_force_output (binary_port);
