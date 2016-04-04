@@ -50,15 +50,15 @@
     (push-scan-sp-offset! env diff)))
 
 ;; XXX: br-if-nargs-ne
-;; (define-ir (br-if-nargs-ne (const expected))
+;; (define-ir (br-if-nargs-ne (const expected) (const offset))
 ;;   (next))
 
 ;; XXX: br-if-nargs-lt
-;; (define-ir (br-if-nargs-lt (const expected))
+;; (define-ir (br-if-nargs-lt (const expected) (const offset))
 ;;   (next))
 
 ;; XXX: br-if-nargs-gt
-;; (define-ir (br-if-nargs-gt (const expected))
+;; (define-ir (br-if-nargs-gt (const expected) (const offset))
 ;;   (next))
 
 ;;; XXX: Unless this op was found at entry of down recursion, nothing to do.

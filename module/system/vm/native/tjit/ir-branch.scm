@@ -81,7 +81,6 @@
 
 ;; XXX: br-if-nil
 
-;; XXX: br-if-pair
 (define-ir (br-if-pair (scm test) (const invert) (const offset))
   (let* ((test/l (scm-ref test))
          (test/v (var-ref test))
@@ -131,7 +130,6 @@
 ;;        (let ((_ (,op ,test/v #x7f ,tc7)))
 ;;          ,(next)))))
 
-;; XXX: br-if-eq
 (define-ir (br-if-eq (scm a) (scm b) (const invert) (const offset))
   (let* ((a/l (scm-ref a))
          (b/l (scm-ref b))
