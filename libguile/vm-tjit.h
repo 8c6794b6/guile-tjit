@@ -67,9 +67,7 @@ scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits exit_id,
 
 SCM_API void scm_tjit_dump_retval (struct scm_tjit_retval *retval,
                                    struct scm_vm *vp);
-SCM_API void scm_tjit_dump_locals (SCM trace_id, int n,
-                                   union scm_vm_stack_element *sp,
-                                   struct scm_vm *vp);
+SCM_API void scm_tjit_dump_locals (SCM trace_id, int n, struct scm_vm *vp);
 
 SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
 SCM_API SCM scm_do_inline_cell (scm_i_thread *thread,
@@ -116,33 +114,6 @@ SCM_API SCM scm_tjit_register_gdb_jit_entry_x (SCM elf);
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);
-
-
-/*
- * Constants
- */
-
-#define OP1(a) 1
-#define OP2(a, b) 2
-#define OP3(a, b, c) 3
-#define OP4(a, b, c, d) 4
-#define OP5(a, b, c, d, e) 5
-#define OP_DST 0
-#define NOP 0
-
-static const int op_sizes[256] = {
-#define OP_SIZE(opcode, tag, name, meta) meta,
-  FOR_EACH_VM_OPERATION (OP_SIZE)
-#undef OP_SIZE
-};
-
-#undef OP1
-#undef OP2
-#undef OP3
-#undef OP4
-#undef OP5
-#undef OP_DST
-#undef NOP
 
 #endif /* _SCM_VM_MJIT_H_ */
 

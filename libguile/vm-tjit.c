@@ -22,6 +22,29 @@
 
 /* Internal C macros */
 
+#define OP1(a) 1
+#define OP2(a, b) 2
+#define OP3(a, b, c) 3
+#define OP4(a, b, c, d) 4
+#define OP5(a, b, c, d, e) 5
+#define OP_DST 0
+#define NOP 0
+
+/* Bytecode operation sizes */
+static const int op_sizes[256] = {
+#define OP_SIZE(opcode, tag, name, meta) meta,
+  FOR_EACH_VM_OPERATION (OP_SIZE)
+#undef OP_SIZE
+};
+
+#undef OP1
+#undef OP2
+#undef OP3
+#undef OP4
+#undef OP5
+#undef OP_DST
+#undef NOP
+
 /* For bytecode IP hash, used to count hot IP, etc. */
 #define TJIT_HASH_MASK 0xffffff
 #define TJIT_HASH_SIZE ((TJIT_HASH_MASK + 1) / 4)
@@ -152,7 +175,6 @@ static SCM tjitc_var;
 
 /* Initial trace id, increment after native compilation. */
 static int tjit_trace_id = 1;
-
 
 /*
  * Internal functions
@@ -642,8 +664,7 @@ scm_tjit_dump_retval (struct scm_tjit_retval *retval, struct scm_vm *vp)
 }
 
 void
-scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp,
-                      struct scm_vm *vp)
+scm_tjit_dump_locals (SCM trace_id, int n, struct scm_vm *vp)
 {
   int i;
   SCM port = scm_current_output_port ();
@@ -651,13 +672,13 @@ scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp,
   scm_puts (";;; trace ", port);
   scm_display (trace_id, port);
   scm_puts (": sp=", port);
-  scm_display (to_hex (SCM_I_MAKINUM (sp)), port);
+  scm_display (to_hex (SCM_I_MAKINUM (vp->sp)), port);
   scm_puts (" fp=", port);
   scm_display (to_hex (SCM_I_MAKINUM (vp->fp)), port);
   scm_puts (" ra=", port);
-  scm_display (to_hex (SCM_I_MAKINUM (sp[n].as_ptr)), port);
+  scm_display (to_hex (SCM_I_MAKINUM (vp->fp[0].as_ptr)), port);
   scm_puts (" dl=", port);
-  scm_display (to_hex (SCM_I_MAKINUM (sp[n + 1].as_ptr)), port);
+  scm_display (to_hex (SCM_I_MAKINUM (vp->fp[1].as_ptr)), port);
   scm_newline (port);
 
   scm_puts (";;; trace ", port);
@@ -668,7 +689,7 @@ scm_tjit_dump_locals (SCM trace_id, int n, union scm_vm_stack_element *sp,
       scm_puts(" [", port);
       scm_display (SCM_I_MAKINUM (i), port);
       scm_puts ("]: 0x", port);
-      scm_display (to_hex (SCM_I_MAKINUM (sp[i].as_uint)), port);
+      scm_display (to_hex (SCM_I_MAKINUM (vp->sp[i].as_uint)), port);
     }
 
   scm_newline (port);

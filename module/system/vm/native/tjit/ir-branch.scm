@@ -164,7 +164,7 @@
 ;;                        (if invert 3 offset))))
 ;;          (op (if (end-of-root-trace?)
 ;;                  (if invert '%nev '%eqv)
-;;                  (if (eq? a/l b/l) '%eqv '%nev))))
+;;                  (if (eqv? a/l b/l) '%eqv '%nev))))
 ;;     `(let ((_ ,(take-snapshot! ip dest)))
 ;;        ,(with-boxing (type-ref a) a/v r2
 ;;           (lambda (boxed1)

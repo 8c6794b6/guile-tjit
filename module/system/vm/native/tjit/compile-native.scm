@@ -198,11 +198,14 @@
 
 (define (shift-sp %asm offset)
   "Shift SP for OFFSET, may expand stack with %ASM when offset is negative."
-  (if (< 0 offset)
-      (begin
-        (jit-addi %sp %sp (imm (* offset %word-size)))
-        (vm-sync-sp %sp))
-      (vm-expand-stack %asm offset)))
+  (cond
+   ((= 0 offset)
+    (values))
+   ((< 0 offset)
+    (jit-addi %sp %sp (imm (* offset %word-size)))
+    (vm-sync-sp %sp))
+   (else
+    (vm-expand-stack %asm offset))))
 
 (define-syntax-rule (move-or-load-carefully dsts srcs dst-types src-types)
   "Move SRCS to DSTS or load without overwriting.
@@ -642,7 +645,6 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (jit-prepare)
                  (jit-pushargi (scm-i-makinumi (env-id env)))
                  (jit-pushargi (imm nlocals))
-                 (jit-pushargr %sp)
                  (load-vp %retval)
                  (jit-pushargr %retval)
                  (jit-calli %scm-tjit-dump-locals)
@@ -736,8 +738,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (maybe-store %asm locals args ref-table sp-offset)
 
                  ;; Shift SP.
-                 (unless (zero? sp-offset)
-                   (shift-sp %asm sp-offset))
+                 (shift-sp %asm sp-offset)
 
                  ;; Move or load locals for linked trace.
                  (syntax-parameterize ((asm (identifier-syntax %asm)))

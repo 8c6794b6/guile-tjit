@@ -50,8 +50,16 @@
     (push-scan-sp-offset! env diff)))
 
 ;; XXX: br-if-nargs-ne
+;; (define-ir (br-if-nargs-ne (const expected))
+;;   (next))
+
 ;; XXX: br-if-nargs-lt
+;; (define-ir (br-if-nargs-lt (const expected))
+;;   (next))
+
 ;; XXX: br-if-nargs-gt
+;; (define-ir (br-if-nargs-gt (const expected))
+;;   (next))
 
 ;;; XXX: Unless this op was found at entry of down recursion, nothing to do.
 ;;; Detect entry of down recursion, emit assertion in native code.
