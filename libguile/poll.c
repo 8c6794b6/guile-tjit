@@ -111,8 +111,10 @@ scm_primitive_poll (SCM pollfds, SCM nfds, SCM ports, SCM timeout)
               if (pt->read_pos < pt->read_end)
                 /* Buffered input waiting to be read. */
                 revents |= POLLIN;
-              if (pt->write_pos < pt->write_end)
-                /* Buffered output possible. */
+              if (SCM_OUTPUT_PORT_P (port)
+                  && pt->write_end - pt->write_pos > 1)
+                /* Buffered output possible.  The "> 1" is because
+                   writing the last byte would flush the port.  */
                 revents |= POLLOUT;
             }
         }
@@ -147,8 +149,10 @@ scm_primitive_poll (SCM pollfds, SCM nfds, SCM ports, SCM timeout)
                 if (pt->read_pos < pt->read_end)
                   /* Buffered input waiting to be read. */
                   revents |= POLLIN;
-                if (SCM_OUTPUT_PORT_P (port) && pt->write_pos < pt->write_end)
-                  /* Buffered output possible. */
+                if (SCM_OUTPUT_PORT_P (port)
+                    && pt->write_end - pt->write_pos > 1)
+                  /* Buffered output possible.  The "> 1" is because
+                     writing the last byte would flush the port.  */
                   revents |= POLLOUT;
               }
           }
