@@ -832,12 +832,20 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;;
 
 ;;; Scheme procedure call. Shifts current FP.
+;;;
+;;; Fill in the dynamic link, so that libguile/vm.c:scm_i_vm_mark_stack can keep
+;;; on traversing the stack with SCM_FRAME_DYNAMIC_LINK, garbage collector may
+;;; run while native code is running. Return address is not filled in at this
+;;; momement, later filled in by bailout code with snapshot value.
 (define-native (%scall (void proc))
   (let* ((vp r0)
-         (vp->fp r1))
+         (vp->fp r1)
+         (dl r2))
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (jit-subi vp->fp vp->fp (imm (* (ref-value proc) %word-size)))
+    (jit-movi dl (constant proc))
+    (scm-frame-set-dynamic-link! vp->fp dl)
     (store-vp->fp vp vp->fp)))
 
 ;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
