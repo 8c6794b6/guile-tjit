@@ -1343,6 +1343,41 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (else (err))))
       (else (err)))))
 
+;; Fill memory from DST for N words with SRC. The address of DST itself is not
+;; filled, use %cset for such case.
+;;
+;; XXX: Cannot use `r2' for `n' and 'src', since r2 is hard coded to `dst'.
+;;
+(define-native (%fill (int dst) (int n) (int src))
+  (let ((l0 (jit-forward))
+        (dst/r (case (ref-type dst)
+                 ((gpr) (gpr dst))
+                 ((fpr) (fpr->gpr r2 (fpr dst)))
+                 ((mem) (memory-ref r2 dst))
+                 (else (err))))
+        (n/r (case (ref-type n)
+               ((con) (movi r0 n))
+               ((gpr) (gpr n))
+               ((fpr) (fpr->gpr r0 (fpr n)))
+               ((mem) (memory-ref r0 n))
+               (else (err))))
+        (src/r (case (ref-type src)
+                 ((con) (movi r1 src))
+                 ((gpr) (gpr src))
+                 ((fpr) (fpr->gpr r1 (fpr src)))
+                 ((mem) (memory-ref r1 src))
+                 (else (err)))))
+    (jit-lshi n/r n/r (imm %word-size-in-bits))
+    (jit-link l0)
+    (jit-stxr n/r dst/r src/r)
+    (jit-subi n/r n/r (imm %word-size))
+    (jump (jit-bgti n/r (imm 0)) l0)
+    (case (ref-type dst)
+      ((gpr) (values))
+      ((fpr) (gpr->fpr (fpr dst) dst/r))
+      ((mem) (memory-set! dst dst/r))
+      (else (err)))))
+
 
 ;;;
 ;;; Heap objects
@@ -1376,17 +1411,21 @@ was constant. And, uses OP-RR when both arguments were register or memory."
               volatiles)))
 
 ;; Allocate words for n bytes, store to dst, fill head with a.
-(define-native (%words (int dst) (const a) (const n))
-  (let ((volatiles (asm-volatiles asm)))
-    (when (or (not (constant? a))
-              (not (constant? n)))
-      (nyi "%words ~a ~a ~a" dst a n))
+(define-native (%words (int dst) (int a) (int n))
+  (let ((volatiles (asm-volatiles asm))
+        (a-overwritten? (equal? a (argr 1)))
+        (n-overwritten? (or (equal? n (argr 1))
+                            (equal? n (argr 2)))))
     (for-each store-volatile volatiles)
     (jit-prepare)
     (when (asm-gc-inline? asm)
       (jit-pushargr %thread))
-    (jit-pushargi (constant a))
-    (jit-pushargi (constant n))
+    (case (ref-type a)
+      ((con) (jit-pushargi (constant a)))
+      (else (push-as-gpr a a-overwritten?)))
+    (case (ref-type n)
+      ((con) (jit-pushargi (constant n)))
+      (else (push-as-gpr n n-overwritten?)))
     (if (asm-gc-inline? asm)
         (jit-calli %scm-inline-words)
         (jit-calli %scm-words))

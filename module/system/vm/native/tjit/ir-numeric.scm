@@ -374,7 +374,24 @@
 ;; XXX: logior
 ;; XXX: logxor
 ;; XXX: make-vector
-;; XXX: make-vector/immediate
+
+(define-interrupt-ir (make-vector/immediate (scm! dst) (const len) (scm ini))
+  (let* ((dst/v (var-ref dst))
+         (ini/v (var-ref ini))
+         (r1 (make-tmpvar 1))
+         (r2 (make-tmpvar 2))
+         (nwords (+ len 1))
+         (head (logior %tc7-vector (ash len 8))))
+    `(let ((,r2 (%words ,head ,nwords)))
+       ,(with-boxing (type-ref ini) ini/v r1
+          (lambda (boxed)
+            (if (= len 1)
+                `(let ((_ (%cset ,r2 1 ,boxed)))
+                   (let ((,dst/v ,r2))
+                     ,(next)))
+                `(let ((_ (%fill ,r2 ,len ,boxed)))
+                   (let ((,dst/v ,r2))
+                     ,(next)))))))))
 
 ;;; XXX: No bound checks done in vector operations.
 
