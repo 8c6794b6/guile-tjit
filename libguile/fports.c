@@ -670,50 +670,12 @@ fport_fill_input (SCM port)
 static scm_t_off
 fport_seek (SCM port, scm_t_off offset, int whence)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
   scm_t_fport *fp = SCM_FSTREAM (port);
-  off_t_or_off64_t rv;
   off_t_or_off64_t result;
 
-  if (pt->rw_active == SCM_PORT_WRITE)
-    {
-      if (offset != 0 || whence != SEEK_CUR)
-	{
-	  fport_flush (port);
-	  result = rv = lseek_or_lseek64 (fp->fdes, offset, whence);
-	}
-      else
-	{
-	  /* read current position without disturbing the buffer.  */
-	  rv = lseek_or_lseek64 (fp->fdes, offset, whence);
-	  result = rv + (pt->write_pos - pt->write_buf);
-	}
-    }
-  else if (pt->rw_active == SCM_PORT_READ)
-    {
-      if (offset != 0 || whence != SEEK_CUR)
-	{
-	  /* could expand to avoid a second seek.  */
-	  scm_end_input_unlocked (port);
-	  result = rv = lseek_or_lseek64 (fp->fdes, offset, whence);
-	}
-      else
-	{
-	  /* read current position without disturbing the buffer
-	     (particularly the unread-char buffer).  */
-	  rv = lseek_or_lseek64 (fp->fdes, offset, whence);
-	  result = rv - (pt->read_end - pt->read_pos);
+  result = lseek_or_lseek64 (fp->fdes, offset, whence);
 
-	  if (pt->read_buf == pt->putback_buf)
-	    result -= pt->saved_read_end - pt->saved_read_pos;
-	}
-    }
-  else /* SCM_PORT_NEITHER */
-    {
-      result = rv = lseek_or_lseek64 (fp->fdes, offset, whence);
-    }
-
-  if (rv == -1)
+  if (result == -1)
     scm_syserror ("fport_seek");
 
   return result;

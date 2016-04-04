@@ -2851,16 +2851,26 @@ SCM_DEFINE (scm_seek, "seek", 3, 0, 0,
 
   if (SCM_OPPORTP (fd_port))
     {
+      scm_t_port *pt = SCM_PTAB_ENTRY (fd_port);
       scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (fd_port);
       scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (fd_port);
       off_t_or_off64_t off = scm_to_off_t_or_off64_t (offset);
       off_t_or_off64_t rv;
 
-      if (!ptob->seek)
+      if (!ptob->seek || !pt->rw_random)
 	SCM_MISC_ERROR ("port is not seekable", 
                         scm_cons (fd_port, SCM_EOL));
-      else
-        rv = ptob->seek (fd_port, off, how);
+
+      /* FIXME: Avoid flushing buffers for SEEK_CUR with an offset of
+         0.  */
+
+      if (pt->rw_active == SCM_PORT_READ)
+        scm_end_input_unlocked (pt->port);
+      else if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush_unlocked (pt->port);
+      pt->rw_active = SCM_PORT_NEITHER;
+
+      rv = ptob->seek (fd_port, off, how);
 
       /* Set stream-start flags according to new position. */
       pti->at_stream_start_for_bom_read  = (rv == 0);
