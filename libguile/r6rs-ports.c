@@ -257,7 +257,7 @@ custom_binary_port_seek (SCM port, scm_t_off offset, int whence)
 }
 #undef FUNC_NAME
 
-static int
+static void
 custom_binary_port_close (SCM port)
 {
   struct custom_binary_port *stream = (void *) SCM_STREAM (port);
@@ -265,8 +265,6 @@ custom_binary_port_close (SCM port)
   if (scm_is_true (stream->close))
     /* Invoke the `close' thunk.  */
     scm_call_0 (stream->close);
-
-  return 1;
 }
 
 
@@ -1238,13 +1236,13 @@ transcoded_port_flush (SCM port)
     scm_force_output (binary_port);
 }
 
-static int
+static void
 transcoded_port_close (SCM port)
 {
   SCM bport = SCM_TRANSCODED_PORT_BINARY_PORT (port);
   if (SCM_OUTPUT_PORT_P (port))
     transcoded_port_flush (port);
-  return scm_is_true (scm_close_port (bport)) ? 0 : -1;
+  scm_close_port (bport);
 }
 
 static inline void

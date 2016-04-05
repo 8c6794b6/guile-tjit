@@ -128,13 +128,12 @@ soft_port_fill_input (SCM port)
 }
 
 
-static int 
+static void
 soft_port_close (SCM port)
 {
   struct soft_port *stream = (void *) SCM_STREAM (port);
-  if (scm_is_false (stream->close))
-    return 0;
-  return scm_is_false (scm_call_0 (stream->close)) ? EOF : 0;
+  if (scm_is_true (stream->close))
+    scm_call_0 (stream->close);
 }
 
 

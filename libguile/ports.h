@@ -187,7 +187,7 @@ typedef struct scm_t_ptob_descriptor
 {
   char *name;
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
-  int (*close) (SCM port);
+  void (*close) (SCM port);
 
   void (*write) (SCM port, const void *data, size_t size);
   void (*flush) (SCM port);
@@ -227,7 +227,7 @@ SCM_API void scm_set_port_print (scm_t_bits tc,
 				 int (*print) (SCM exp,
 					       SCM port,
 					       scm_print_state *pstate));
-SCM_API void scm_set_port_close (scm_t_bits tc, int (*close) (SCM));
+SCM_API void scm_set_port_close (scm_t_bits tc, void (*close) (SCM));
 SCM_API void scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p);
 
 SCM_API void scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port));

@@ -2317,7 +2317,7 @@ argument @var{dest_port} is where its description should go.
 Called when the port is closed.  It should free any resources used by
 the port.  Set using
 
-@deftypefun void scm_set_port_close (scm_t_bits tc, int (*close) (SCM port))
+@deftypefun void scm_set_port_close (scm_t_bits tc, void (*close) (SCM port))
 @end deftypefun
 
 By default, ports that are garbage collected just go away without

@@ -275,7 +275,7 @@ scm_set_port_print (scm_t_bits tc, int (*print) (SCM exp, SCM port,
 }
 
 void
-scm_set_port_close (scm_t_bits tc, int (*close) (SCM))
+scm_set_port_close (scm_t_bits tc, void (*close) (SCM))
 {
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->close = close;
 }
@@ -834,9 +834,7 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
   if (SCM_PORT_DESCRIPTOR (port)->close)
     /* Note!  This may throw an exception.  Anything after this point
        should be resilient to non-local exits.  */
-    rv = SCM_PORT_DESCRIPTOR (port)->close (port);
-  else
-    rv = 0;
+    SCM_PORT_DESCRIPTOR (port)->close (port);
 
   if (pti->iconv_descriptors)
     {
@@ -846,7 +844,7 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
       pti->iconv_descriptors = NULL;
     }
 
-  return scm_from_bool (rv >= 0);
+  return SCM_BOOL_T;
 }
 #undef FUNC_NAME
 

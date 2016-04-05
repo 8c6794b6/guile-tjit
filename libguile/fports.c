@@ -794,11 +794,10 @@ close_the_fd (void *data)
   errno = 0;
 }
 
-static int
+static void
 fport_close (SCM port)
 {
   scm_t_fport *fp = SCM_FSTREAM (port);
-  int rv;
 
   scm_dynwind_begin (0);
   scm_dynwind_unwind_handler (close_the_fd, fp, 0);
@@ -807,15 +806,12 @@ fport_close (SCM port)
 
   scm_port_non_buffer (SCM_PTAB_ENTRY (port));
 
-  rv = close (fp->fdes);
-  if (rv)
+  if (close (fp->fdes) != 0)
     /* It's not useful to retry after EINTR, as the file descriptor is
        in an undefined state.  See http://lwn.net/Articles/365294/.
        Instead just throw an error if close fails, trusting that the fd
        was cleaned up.  */
     scm_syserror ("fport_close");
-
-  return 0;
 }
 
 static scm_t_bits
