@@ -51,29 +51,35 @@
 
 static scm_t_bits scm_tc16_soft_port;
 
+struct soft_port {
+  SCM write_char;
+  SCM write_string;
+  SCM flush;
+  SCM read_char;
+  SCM close;
+  SCM input_waiting;
+};
+
 
 static void
 soft_port_flush (SCM port)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  SCM stream = SCM_PACK (pt->stream);
+  struct soft_port *stream = (void *) SCM_STREAM (port);
 
-  SCM f = SCM_SIMPLE_VECTOR_REF (stream, 2);
-
-  if (scm_is_true (f))
-    scm_call_0 (f);
+  if (scm_is_true (stream->flush))
+    scm_call_0 (stream->flush);
 }
 
 static void
 soft_port_write (SCM port, const void *data, size_t size)
 {
-  SCM p = SCM_PACK (SCM_STREAM (port));
+  struct soft_port *stream = (void *) SCM_STREAM (port);
 
   /* DATA is assumed to be a locale-encoded C string, which makes it
      hard to reliably pass binary data to a soft port.  It can be
      achieved by choosing a Latin-1 locale, though, but the recommended
      approach is to use an R6RS "custom binary output port" instead.  */
-  scm_call_1 (SCM_SIMPLE_VECTOR_REF (p, 1),
+  scm_call_1 (stream->write_string,
 	      scm_from_locale_stringn ((char *) data, size));
 }
 
@@ -85,12 +91,12 @@ soft_port_write (SCM port, const void *data, size_t size)
 static int 
 soft_port_fill_input (SCM port)
 {
-  SCM p = SCM_PACK (SCM_STREAM (port));
+  struct soft_port *stream = (void *) SCM_STREAM (port);
   SCM ans;
   scm_t_wchar c;
   scm_t_port_internal *pti;
 
-  ans = scm_call_0 (SCM_SIMPLE_VECTOR_REF (p, 3)); /* get char.  */
+  ans = scm_call_0 (stream->read_char);
   if (scm_is_false (ans) || SCM_EOF_OBJECT_P (ans))
     return EOF;
   SCM_ASSERT (SCM_CHARP (ans), ans, SCM_ARG1, "soft_port_fill_input");
@@ -125,26 +131,19 @@ soft_port_fill_input (SCM port)
 static int 
 soft_port_close (SCM port)
 {
-  SCM p = SCM_PACK (SCM_STREAM (port));
-  SCM f = SCM_SIMPLE_VECTOR_REF (p, 4);
-  if (scm_is_false (f))
+  struct soft_port *stream = (void *) SCM_STREAM (port);
+  if (scm_is_false (stream->close))
     return 0;
-  f = scm_call_0 (f);
-  errno = 0;
-  return scm_is_false (f) ? EOF : 0;
+  return scm_is_false (scm_call_0 (stream->close)) ? EOF : 0;
 }
 
 
 static int 
 soft_port_input_waiting (SCM port)
 {
-  SCM p = SCM_PACK (SCM_STREAM (port));
-  if (SCM_SIMPLE_VECTOR_LENGTH (p) >= 6)
-    {
-      SCM f = SCM_SIMPLE_VECTOR_REF (p, 5);
-      if (scm_is_true (f))
-	return scm_to_int (scm_call_0 (f));
-    }
+  struct soft_port *stream = (void *) SCM_STREAM (port);
+  if (scm_is_true (stream->input_waiting))
+    return scm_to_int (scm_call_0 (stream->input_waiting));
   /* Default is such that char-ready? for soft ports returns #t, as it
      did before this extension was implemented. */
   return 1;
@@ -202,14 +201,24 @@ SCM_DEFINE (scm_make_soft_port, "make-soft-port", 2, 0, 0,
 {
   int vlen;
   SCM z;
+  struct soft_port *stream;
 
   SCM_VALIDATE_VECTOR (1, pv);
   vlen = SCM_SIMPLE_VECTOR_LENGTH (pv);
   SCM_ASSERT ((vlen == 5) || (vlen == 6), pv, 1, FUNC_NAME);
   SCM_VALIDATE_STRING (2, modes);
-  
+
+  stream = scm_gc_typed_calloc (struct soft_port);
+  stream->write_char = SCM_SIMPLE_VECTOR_REF (pv, 0);
+  stream->write_string = SCM_SIMPLE_VECTOR_REF (pv, 1);
+  stream->flush = SCM_SIMPLE_VECTOR_REF (pv, 2);
+  stream->read_char = SCM_SIMPLE_VECTOR_REF (pv, 3);
+  stream->close = SCM_SIMPLE_VECTOR_REF (pv, 4);
+  stream->input_waiting =
+    vlen == 6 ? SCM_SIMPLE_VECTOR_REF (pv, 5) : SCM_BOOL_F;
+
   z = scm_c_make_port (scm_tc16_soft_port, scm_i_mode_bits (modes),
-                       SCM_UNPACK (pv));
+                       (scm_t_bits) stream);
   scm_port_non_buffer (SCM_PTAB_ENTRY (z));
 
   return z;
