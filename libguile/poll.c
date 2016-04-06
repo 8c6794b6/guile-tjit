@@ -108,11 +108,11 @@ scm_primitive_poll (SCM pollfds, SCM nfds, SCM ports, SCM timeout)
             {
               scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-              if (pt->read_pos < pt->read_end)
+              if (pt->read_buf->cur < pt->read_buf->end)
                 /* Buffered input waiting to be read. */
                 revents |= POLLIN;
               if (SCM_OUTPUT_PORT_P (port)
-                  && pt->write_end - pt->write_pos > 1)
+                  && pt->write_buf->size - pt->write_buf->end > 1)
                 /* Buffered output possible.  The "> 1" is because
                    writing the last byte would flush the port.  */
                 revents |= POLLOUT;
@@ -146,11 +146,11 @@ scm_primitive_poll (SCM pollfds, SCM nfds, SCM ports, SCM timeout)
               {
                 scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-                if (pt->read_pos < pt->read_end)
+                if (pt->read_buf->cur < pt->read_buf->end)
                   /* Buffered input waiting to be read. */
                   revents |= POLLIN;
                 if (SCM_OUTPUT_PORT_P (port)
-                    && pt->write_end - pt->write_pos > 1)
+                    && pt->write_buf->size - pt->write_buf->end > 1)
                   /* Buffered output possible.  The "> 1" is because
                      writing the last byte would flush the port.  */
                   revents |= POLLOUT;

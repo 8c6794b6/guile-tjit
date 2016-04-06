@@ -789,6 +789,7 @@ not `set-port-position!'"
            (port     (make-custom-binary-output-port "cbop" write!
                                                      #f #f #f)))
       (put-bytevector port source)
+      (force-output port)
       (and (= sink-pos (bytevector-length source))
            (not eof?)
            (bytevector=? sink source))))
@@ -813,6 +814,7 @@ not `set-port-position!'"
            (port     (make-custom-binary-output-port "cbop" write!
                                                      #f #f #f)))
       (put-bytevector port source)
+      (force-output port)
       (and (= sink-pos (bytevector-length source))
            (not eof?)
            (bytevector=? sink source))))
@@ -873,6 +875,7 @@ not `set-port-position!'"
       (let* ((t  (make-transcoder (latin-1-codec) (native-eol-style)
                                   (error-handling-mode raise)))
              (tp (transcoded-port p t)))
+        (setvbuf tp 'none)
         (guard (c ((i/o-encoding-error? c)
                    (and (eq? (i/o-error-port c) tp)
                         (char=? (i/o-encoding-error-char c) #\λ)

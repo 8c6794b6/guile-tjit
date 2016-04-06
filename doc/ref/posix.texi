@@ -133,18 +133,6 @@ then the return is @code{#f}.  For example,
 
 Conventions generally follow those of scsh, @ref{The Scheme shell (scsh)}.
 
-File ports are implemented using low-level operating system I/O
-facilities, with optional buffering to improve efficiency; see
-@ref{File Ports}.
-
-Note that some procedures (e.g., @code{recv!}) will accept ports as
-arguments, but will actually operate directly on the file descriptor
-underlying the port.  Any port buffering is ignored, including the
-buffer which implements @code{peek-char} and @code{unread-char}.
-
-The @code{force-output} and @code{drain-input} procedures can be used
-to clear the buffers.
-
 Each open file port has an associated operating system file descriptor.
 File descriptors are generally not useful in Scheme programs; however
 they may be needed when interfacing with foreign code and the Unix
@@ -180,6 +168,22 @@ and error ports, respectively.  The revealed count for each is
 initially set to one, so that dropping references to one of these
 ports will not result in its garbage collection: it could be retrieved
 with @code{fdopen} or @code{fdes->ports}.
+
+Guile's ports can be buffered.  This means that writing a byte to a file
+port goes to the internal buffer first, and only when the buffer is full
+(or the user invokes @code{force-output} on the port) is the data
+actually written to the file descriptor.  Likewise on input, bytes are
+read in from the file descriptor in blocks and placed in a buffer.
+Reading a character via @code{read-char} first goes to the buffer,
+filling it as needed.  Usually read buffering is more or less
+transparent, but write buffering can sometimes cause writes to be
+delayed unexpectedly, if you forget to call @code{force-output}.
+@xref{Buffering}, for more on how to control port buffers.
+
+Note however that some procedures (e.g., @code{recv!}) will accept ports
+as arguments, but will actually operate directly on the file descriptor
+underlying the port.  Any port buffering is ignored, including the
+buffer which implements @code{peek-char} and @code{unread-char}.
 
 @deffn {Scheme Procedure} port-revealed port
 @deffnx {C Function} scm_port_revealed (port)
@@ -314,32 +318,16 @@ the file descriptor will be closed even if a port is using it.  The
 return value is unspecified.
 @end deffn
 
-@deffn {Scheme Procedure} unread-char char [port]
-@deffnx {C Function} scm_unread_char (char, port)
-Place @var{char} in @var{port} so that it will be read by the next
-read operation on that port.  If called multiple times, the unread
-characters will be read again in ``last-in, first-out'' order (i.e.@:
-a stack).  If @var{port} is not supplied, the current input port is
-used.
-@end deffn
-
-@deffn {Scheme Procedure} unread-string str port
-Place the string @var{str} in @var{port} so that its characters will be
-read in subsequent read operations.  If called multiple times, the
-unread characters will be read again in last-in first-out order.  If
-@var{port} is not supplied, the current-input-port is used.
-@end deffn
-
 @deffn {Scheme Procedure} pipe
 @deffnx {C Function} scm_pipe ()
 @cindex pipe
-Return a newly created pipe: a pair of ports which are linked
-together on the local machine.  The @acronym{CAR} is the input
-port and the @acronym{CDR} is the output port.  Data written (and
-flushed) to the output port can be read from the input port.
-Pipes are commonly used for communication with a newly forked
-child process.  The need to flush the output port can be
-avoided by making it unbuffered using @code{setvbuf}.
+Return a newly created pipe: a pair of ports which are linked together
+on the local machine.  The @acronym{CAR} is the input port and the
+@acronym{CDR} is the output port.  Data written (and flushed) to the
+output port can be read from the input port.  Pipes are commonly used
+for communication with a newly forked child process.  The need to flush
+the output port can be avoided by making it unbuffered using
+@code{setvbuf} (@pxref{Buffering}).
 
 @defvar PIPE_BUF
 A write of up to @code{PIPE_BUF} many bytes to a pipe is atomic,
@@ -2286,11 +2274,10 @@ don't have file descriptors for the child, then @file{/dev/null} is
 used instead.
 
 Care should be taken with @code{OPEN_BOTH}, a deadlock will occur if
-both parent and child are writing, and waiting until the write
-completes before doing any reading.  Each direction has
-@code{PIPE_BUF} bytes of buffering (@pxref{Ports and File
-Descriptors}), which will be enough for small writes, but not for say
-putting a big file through a filter.
+both parent and child are writing, and waiting until the write completes
+before doing any reading.  Each direction has @code{PIPE_BUF} bytes of
+buffering (@pxref{Buffering}), which will be enough for small writes,
+but not for say putting a big file through a filter.
 @end deffn
 
 @deffn {Scheme Procedure} open-input-pipe command
@@ -3057,7 +3044,7 @@ release the returned structure when no longer required.
 Socket ports can be created using @code{socket} and @code{socketpair}.
 The ports are initially unbuffered, to make reading and writing to the
 same port more reliable.  A buffer can be added to the port using
-@code{setvbuf}; see @ref{Ports and File Descriptors}.
+@code{setvbuf} (@pxref{Buffering}).
 
 Most systems have limits on how many files and sockets can be open, so
 it's strongly recommended that socket ports be closed explicitly when

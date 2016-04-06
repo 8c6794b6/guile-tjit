@@ -86,19 +86,23 @@ SCM_DEFINE (scm_redirect_port, "redirect-port", 2, 0, 0,
   newfd = fp->fdes;
   if (oldfd != newfd)
     {
-      scm_t_port *pt = SCM_PTAB_ENTRY (new);
-      scm_t_port *old_pt = SCM_PTAB_ENTRY (old);
+      /* Ensure there is nothing in either port's input or output
+         buffers.  */
+      if (SCM_OUTPUT_PORT_P (old))
+        scm_flush_unlocked (old);
+      if (SCM_INPUT_PORT_P (old))
+        scm_end_input_unlocked (old);
 
-      /* must flush to old fdes.  */
-      if (pt->rw_active == SCM_PORT_WRITE)
-	scm_flush_unlocked (new);
-      else if (pt->rw_active == SCM_PORT_READ)
-	scm_end_input_unlocked (new);
+      if (SCM_OUTPUT_PORT_P (new))
+        scm_flush_unlocked (new);
+      if (SCM_INPUT_PORT_P (new))
+        scm_end_input_unlocked (new);
+
       ans = dup2 (oldfd, newfd);
       if (ans == -1)
 	SCM_SYSERROR;
-      pt->rw_random = old_pt->rw_random;
-      /* continue using existing buffers, even if inappropriate.  */
+
+      SCM_PTAB_ENTRY (new)->rw_random = SCM_PTAB_ENTRY (old)->rw_random;
     }
   return SCM_UNSPECIFIED;
 }

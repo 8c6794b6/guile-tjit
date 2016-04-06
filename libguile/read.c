@@ -2057,6 +2057,7 @@ char *
 scm_i_scan_for_encoding (SCM port)
 {
   scm_t_port *pt;
+  scm_t_port_buffer *buf;
   char header[SCM_ENCODING_SEARCH_SIZE+1];
   size_t bytes_read, encoding_length, i;
   char *encoding = NULL;
@@ -2064,6 +2065,7 @@ scm_i_scan_for_encoding (SCM port)
   int in_comment;
 
   pt = SCM_PTAB_ENTRY (port);
+  buf = pt->read_buf;
 
   if (pt->rw_random)
     {
@@ -2072,13 +2074,11 @@ scm_i_scan_for_encoding (SCM port)
       pt->rw_active = SCM_PORT_READ;
     }
 
-  if (pt->read_pos == pt->read_end)
+  if (buf->cur == buf->end)
     {
       /* We can use the read buffer, and thus avoid a seek. */
-      if (scm_fill_input_unlocked (port) == EOF)
-        return NULL;
-
-      bytes_read = pt->read_end - pt->read_pos;
+      buf = scm_fill_input_unlocked (port);
+      bytes_read = buf->end - buf->cur;
       if (bytes_read > SCM_ENCODING_SEARCH_SIZE)
         bytes_read = SCM_ENCODING_SEARCH_SIZE;
 
@@ -2086,7 +2086,7 @@ scm_i_scan_for_encoding (SCM port)
         /* An unbuffered port -- don't scan.  */
         return NULL;
 
-      memcpy (header, pt->read_pos, bytes_read);
+      memcpy (header, buf->buf + buf->cur, bytes_read);
       header[bytes_read] = '\0';
     }
   else

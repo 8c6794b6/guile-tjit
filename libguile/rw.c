@@ -231,22 +231,21 @@ SCM_DEFINE (scm_write_string_partial, "write-string/partial", 1, 3, 0,
     {
       SCM port = (SCM_UNBNDP (port_or_fdes)?
 		  scm_current_output_port () : port_or_fdes);
-      scm_t_port *pt;
-      scm_t_off space;
+      scm_t_port_buffer *write_buf;
 
       SCM_VALIDATE_OPFPORT (2, port);
       SCM_VALIDATE_OUTPUT_PORT (2, port);
-      pt = SCM_PTAB_ENTRY (port);
-      /* filling the last character in the buffer would require a flush.  */
-      space = pt->write_end - pt->write_pos - 1;
-      if (space >= write_len)
+      write_buf = SCM_PTAB_ENTRY (port)->write_buf;
+
+      /* Filling the last character in the buffer would require a
+         flush.  */
+      if (write_len < write_buf->size - write_buf->end)
 	{
-	  memcpy (pt->write_pos, src, write_len);
-	  pt->write_pos += write_len;
+          scm_c_write_unlocked (port, src, write_len);
 	  return scm_from_long (write_len);
 	}
-      if (pt->write_pos > pt->write_buf)
-	scm_flush_unlocked (port);
+
+      scm_flush_unlocked (port);
       fdes = SCM_FPORT_FDES (port);
     }
   {

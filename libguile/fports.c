@@ -75,67 +75,6 @@
 scm_t_bits scm_tc16_fport;
 
 
-/* default buffer size, used if the O/S won't supply a value.  */
-static const size_t default_buffer_size = 1024;
-
-/* Create FPORT buffers with specified sizes (or -1 to use default size
-   or 0 for no buffer.)  */
-static void
-scm_fport_buffer_add (SCM port, long read_size, long write_size)
-#define FUNC_NAME "scm_fport_buffer_add"
-{
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (read_size == -1 || write_size == -1)
-    {
-      size_t default_size;
-#ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
-      struct stat st;
-      scm_t_fport *fp = SCM_FSTREAM (port);
-      
-      default_size = (fstat (fp->fdes, &st) == -1) ? default_buffer_size
-	: st.st_blksize;
-#else
-      default_size = default_buffer_size;
-#endif
-      if (read_size == -1)
-	read_size = default_size;
-      if (write_size == -1)
-	write_size = default_size;
-    }
-
-  if (SCM_INPUT_PORT_P (port) && read_size > 0)
-    {
-      pt->read_buf = scm_gc_malloc_pointerless (read_size, "port buffer");
-      pt->read_pos = pt->read_end = pt->read_buf;
-      pt->read_buf_size = read_size;
-    }
-  else
-    {
-      pt->read_pos = pt->read_buf = pt->read_end = &pt->shortbuf;
-      pt->read_buf_size = 1;
-    }
-
-  if (SCM_OUTPUT_PORT_P (port) && write_size > 0)
-    {
-      pt->write_buf = scm_gc_malloc_pointerless (write_size, "port buffer");
-      pt->write_pos = pt->write_buf;
-      pt->write_buf_size = write_size;
-    }
-  else
-    {
-      pt->write_buf = pt->write_pos = &pt->shortbuf;
-      pt->write_buf_size = 1;
-    }
-
-  pt->write_end = pt->write_buf + pt->write_buf_size;
-  if (read_size > 0 || write_size > 0)
-    SCM_SET_CELL_WORD_0 (port, SCM_CELL_WORD_0 (port) & ~SCM_BUF0);
-  else
-    SCM_SET_CELL_WORD_0 (port, SCM_CELL_WORD_0 (port) | SCM_BUF0);
-}
-#undef FUNC_NAME
-
 /* Move ports with the specified file descriptor to new descriptors,
  * resetting the revealed count to 0.
  */
@@ -480,12 +419,6 @@ scm_i_fdes_to_port (int fdes, long mode_bits, SCM name)
   port = scm_c_make_port (scm_tc16_fport, mode_bits, (scm_t_bits)fp);
   
   SCM_PTAB_ENTRY (port)->rw_random = SCM_FDES_RANDOM_P (fdes);
-
-  if (mode_bits & SCM_BUF0)
-    scm_fport_buffer_add (port, 0, 0);
-  else
-    scm_fport_buffer_add (port, -1, -1);
-
   SCM_SET_FILENAME (port, name);
 
   return port;
@@ -643,28 +576,31 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
   return 1;
 }
 
-static void fport_flush (SCM port);
-
 /* fill a port's read-buffer with a single read.  returns the first
    char or EOF if end of file.  */
-static scm_t_wchar
-fport_fill_input (SCM port)
+static void
+fport_read (SCM port, scm_t_port_buffer *dst)
 {
   long count;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
   scm_t_fport *fp = SCM_FSTREAM (port);
+  scm_t_uint8 *ptr = dst->buf + dst->end;
+  size_t size = dst->size - dst->end;
 
-  SCM_SYSCALL (count = read (fp->fdes, pt->read_buf, pt->read_buf_size));
+  SCM_SYSCALL (count = read (fp->fdes, ptr, size));
   if (count == -1)
-    scm_syserror ("fport_fill_input");
-  if (count == 0)
-    return (scm_t_wchar) EOF;
-  else
-    {
-      pt->read_pos = pt->read_buf;
-      pt->read_end = pt->read_buf + count;
-      return *pt->read_buf;
-    }
+    scm_syserror ("fport_read");
+  dst->end += count;
+}
+
+static void
+fport_write (SCM port, scm_t_port_buffer *src)
+{
+  int fd = SCM_FPORT_FDES (port);
+  scm_t_uint8 *ptr = src->buf + src->cur;
+  size_t size = src->end - src->cur;
+
+  if (full_write (fd, ptr, size) < size)
+    scm_syserror ("fport_write");
 }
 
 static scm_t_off
@@ -691,120 +627,9 @@ fport_truncate (SCM port, scm_t_off length)
 }
 
 static void
-fport_write (SCM port, const void *data, size_t size)
-#define FUNC_NAME "fport_write"
-{
-  /* this procedure tries to minimize the number of writes/flushes.  */
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->write_buf == &pt->shortbuf
-      || (pt->write_pos == pt->write_buf && size >= pt->write_buf_size))
-    {
-      /* Unbuffered port, or port with empty buffer and data won't fit in
-	 buffer.  */
-      if (full_write (SCM_FPORT_FDES (port), data, size) < size)
-	SCM_SYSERROR;
-
-      return;
-    }
-
-  {
-    scm_t_off space = pt->write_end - pt->write_pos;
-
-    if (size <= space)
-      {
-	/* data fits in buffer.  */
-	memcpy (pt->write_pos, data, size);
-	pt->write_pos += size;
-	if (pt->write_pos == pt->write_end)
-	  {
-	    fport_flush (port);
-	    /* we can skip the line-buffering check if nothing's buffered. */
-	    return;
-	  }
-      }
-    else
-      {
-	memcpy (pt->write_pos, data, space);
-	pt->write_pos = pt->write_end;
-	fport_flush (port);
-	{
-	  const void *ptr = ((const char *) data) + space;
-	  size_t remaining = size - space;
-
-	  if (size >= pt->write_buf_size)
-	    {
-	      if (full_write (SCM_FPORT_FDES (port), ptr, remaining)
-		  < remaining)
-		SCM_SYSERROR;
-	      return;
-	    }
-	  else
-	    {
-	      memcpy (pt->write_pos, ptr, remaining);
-	      pt->write_pos += remaining;
-	    }
-	}
-      }
-  }
-}
-#undef FUNC_NAME
-
-static void
-fport_flush (SCM port)
-{
-  size_t written;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_fport *fp = SCM_FSTREAM (port);
-  size_t count = pt->write_pos - pt->write_buf;
-
-  written = full_write (fp->fdes, pt->write_buf, count);
-  if (written < count)
-    scm_syserror ("scm_flush");
-
-  pt->write_pos = pt->write_buf;
-}
-
-/* clear the read buffer and adjust the file position for unread bytes. */
-static void
-fport_end_input (SCM port, int offset)
-{
-  scm_t_fport *fp = SCM_FSTREAM (port);
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  
-  offset += pt->read_end - pt->read_pos;
-
-  if (offset > 0)
-    {
-      pt->read_pos = pt->read_end;
-      /* will throw error if unread-char used at beginning of file
-	 then attempting to write.  seems correct.  */
-      if (lseek (fp->fdes, -offset, SEEK_CUR) == -1)
-	scm_syserror ("fport_end_input");
-    }
-}
-
-static void
-close_the_fd (void *data)
-{
-  scm_t_fport *fp = data;
-
-  close (fp->fdes);
-  /* There's already one exception.  That's probably enough!  */
-  errno = 0;
-}
-
-static void
 fport_close (SCM port)
 {
   scm_t_fport *fp = SCM_FSTREAM (port);
-
-  scm_dynwind_begin (0);
-  scm_dynwind_unwind_handler (close_the_fd, fp, 0);
-  fport_flush (port);
-  scm_dynwind_end ();
-
-  scm_port_non_buffer (SCM_PTAB_ENTRY (port));
 
   if (close (fp->fdes) != 0)
     /* It's not useful to retry after EINTR, as the file descriptor is
@@ -814,20 +639,31 @@ fport_close (SCM port)
     scm_syserror ("fport_close");
 }
 
+/* Query the OS to get the natural buffering for FPORT, if available.  */
+static void
+fport_get_natural_buffer_sizes (SCM port, size_t *read_size, size_t *write_size)
+{
+#ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
+  scm_t_fport *fp = SCM_FSTREAM (port);
+  struct stat st;
+
+  if (fstat (fp->fdes, &st) == 0)
+    *read_size = *write_size = st.st_blksize;
+#endif
+}
+
 static scm_t_bits
 scm_make_fptob ()
 {
-  scm_t_bits tc = scm_make_port_type ("file", fport_fill_input, fport_write);
+  scm_t_bits tc = scm_make_port_type ("file", fport_read, fport_write);
 
-  scm_set_port_needs_close_on_gc (tc, 1);
-  scm_set_port_print           (tc, fport_print);
-  scm_set_port_flush           (tc, fport_flush);
-  scm_set_port_end_input       (tc, fport_end_input);
-  scm_set_port_close           (tc, fport_close);
-  scm_set_port_seek            (tc, fport_seek);
-  scm_set_port_truncate        (tc, fport_truncate);
-  scm_set_port_input_waiting   (tc, fport_input_waiting);
-  scm_set_port_setvbuf         (tc, scm_fport_buffer_add);
+  scm_set_port_print                    (tc, fport_print);
+  scm_set_port_needs_close_on_gc        (tc, 1);
+  scm_set_port_close                    (tc, fport_close);
+  scm_set_port_seek                     (tc, fport_seek);
+  scm_set_port_truncate                 (tc, fport_truncate);
+  scm_set_port_input_waiting            (tc, fport_input_waiting);
+  scm_set_port_get_natural_buffer_sizes (tc, fport_get_natural_buffer_sizes);
 
   return tc;
 }

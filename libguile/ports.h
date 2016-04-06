@@ -39,8 +39,6 @@
 
 
 
-#define SCM_INITIAL_PUTBACK_BUF_SIZE 4
-
 /* values for the rw_active flag.  */
 typedef enum scm_t_port_rw_active {
   SCM_PORT_NEITHER = 0,
@@ -51,74 +49,94 @@ typedef enum scm_t_port_rw_active {
 /* An internal-only structure defined in ports-internal.h. */
 struct scm_port_internal;
 
+/* Port buffers.
+
+   It's important to avoid calling into the kernel too many times.  For
+   that reason we buffer the input and output, using `scm_t_port_buffer'
+   objects.  The bytes in a read buffer are laid out like this:
+
+                    |already read | not yet | invalid
+                    |    data     |  read   |  data
+      readbuf: #vu8(|r r r r r r r|u u u u u|x x x x x|)
+                    ^buf          ^cur      ^end      ^size
+
+   Similarly for a write buffer:
+
+                     |already written | not yet | invalid
+                     |    data        | written |  data
+      writebuf: #vu8(|w w w w w w w w |u u u u u|x x x x x|)
+                     ^buf             ^cur      ^end      ^size
+
+   We use a `scm_t_port_buffer' object for both purposes.  Port buffers
+   are implemented as their own object so that they can be atomically
+   swapped in or out.  */
+
+typedef struct
+{
+  /* Start of the buffer.  Never changed.  */
+  scm_t_uint8 *buf;
+
+  /* Offsets into the buffer.  Invariant: cur <= end <= size.  */
+  size_t cur;
+  size_t end;
+  size_t size;
+
+  /* For read buffers, flag indicating whether the last read() returned
+     zero bytes.  Note that in the case of pushback, there could still
+     be bytes in the buffer, but that after any bytes are read off,
+     peek-u8 should still return EOF.  */
+  int has_eof;
+
+  /* Heap object that keeps `buf' alive. */
+  void *holder;
+} scm_t_port_buffer;
+
+
 /* C representation of a Scheme port.  */
 
 typedef struct 
 {
-  SCM port;			/* Link back to the port object.  */
-  scm_i_pthread_mutex_t *lock;  /* A recursive lock for this port.  */
+  /* Link back to the port object.  */
+  SCM port;
 
-  /* pointer to internal-only port structure */
+  /* A recursive lock for this port.  */
+  scm_i_pthread_mutex_t *lock;
+
+  /* Pointer to internal-only port structure. */
   struct scm_port_internal *internal;
 
-  /* data for the underlying port implementation as a raw C value. */
+  /* Data for the underlying port implementation as a raw C value.  */
   scm_t_bits stream;
 
-  SCM file_name;		/* debugging support.  */
-  long line_number;		/* debugging support.  */
-  int column_number;		/* debugging support.  */
+  /* Source location information.  */
+  SCM file_name;
+  long line_number;
+  int column_number;
 
-  /* port buffers.  the buffer(s) are set up for all ports.  
-     in the case of string ports, the buffer is the string itself.
-     in the case of unbuffered file ports, the buffer is a
-     single char: shortbuf.  */
+  /* Port buffers.  */
+  scm_t_port_buffer *read_buf;
+  scm_t_port_buffer *write_buf;
 
-  /* this buffer is filled from read_buf to read_end using the ptob 
-     buffer_fill.  then input requests are taken from read_pos until
-     it reaches read_end.  */
+  /* All ports have read and write buffers; an unbuffered port simply
+     has a one-byte buffer.  However unreading bytes can expand the read
+     buffer, but that doesn't mean that we want to increase the input
+     buffering.  For that reason `read_buffering' is a separate
+     indication of how many characters to buffer on the read side.
+     There isn't a write_buf_size because there isn't an
+     `unwrite-byte'.  */
+  size_t read_buffering;
 
-  unsigned char *read_buf;	/* buffer start.  */
-  const unsigned char *read_pos;/* the next unread char.  */
-  unsigned char *read_end;      /* pointer to last buffered char + 1.  */
-  scm_t_off read_buf_size;		/* size of the buffer.  */
+  /* True if the port is random access.  Implies that the buffers must
+     be flushed before switching between reading and writing, seeking,
+     and so on.  */
+  int rw_random;
 
-  /* when chars are put back into the buffer, e.g., using peek-char or
-     unread-string, the read-buffer pointers are switched to cbuf.
-     the original pointers are saved here and restored when the put-back
-     chars have been consumed.  */
-  unsigned char *saved_read_buf;
-  const unsigned char *saved_read_pos;
-  unsigned char *saved_read_end;
-  scm_t_off saved_read_buf_size;
+  /* For random access ports, indicates which of the buffers is
+     currently in use.  Can be SCM_PORT_WRITE, SCM_PORT_READ, or
+     SCM_PORT_NEITHER.  */
+  scm_t_port_rw_active rw_active;
 
-  /* write requests are saved into this buffer at write_pos until it
-     reaches write_buf + write_buf_size, then the ptob flush is
-     called.  */
-
-  unsigned char *write_buf;     /* buffer start.  */
-  unsigned char *write_pos;     /* pointer to last buffered char + 1.  */
-  unsigned char *write_end;     /* pointer to end of buffer + 1.  */
-  scm_t_off write_buf_size;		/* size of the buffer.  */
-
-  unsigned char shortbuf;       /* buffer for "unbuffered" streams.  */
-
-  int rw_random;                /* true if the port is random access.
-				   implies that the buffers must be
-				   flushed before switching between
-				   reading and writing, seeking, etc.  */
-
-  scm_t_port_rw_active rw_active; /* for random access ports,
-                                     indicates which of the buffers
-                                     is currently in use.  can be
-                                     SCM_PORT_WRITE, SCM_PORT_READ,
-                                     or SCM_PORT_NEITHER.  */
-
-
-  /* a buffer for un-read chars and strings.  */
-  unsigned char *putback_buf;
-  size_t putback_buf_size;        /* allocated size of putback_buf.  */
-
-  /* Character encoding support  */
+  /* Character encoding support.  */
   char *encoding;
   scm_t_string_failed_conversion_handler ilseq_handler;
 } scm_t_port;
@@ -126,8 +144,6 @@ typedef struct
 
 SCM_INTERNAL SCM scm_i_port_weak_set;
 
-
-#define SCM_READ_BUFFER_EMPTY_P(c_port) (c_port->read_pos >= c_port->read_end)
 
 
 
@@ -187,24 +203,18 @@ typedef struct scm_t_ptob_descriptor
 {
   char *name;
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
+
+  void (*read) (SCM port, scm_t_port_buffer *dst);
+  void (*write) (SCM port, scm_t_port_buffer *src);
+  scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
   void (*close) (SCM port);
 
-  void (*write) (SCM port, const void *data, size_t size);
-  void (*flush) (SCM port);
+  void (*get_natural_buffer_sizes) (SCM port, size_t *read_size,
+                                    size_t *write_size);
 
-  void (*end_input) (SCM port, int offset);
-  int (*fill_input) (SCM port);
   int (*input_waiting) (SCM port);
 
-  scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
   void (*truncate) (SCM port, scm_t_off length);
-
-  /* When non-NULL, this is the method called by 'setvbuf' for this port.
-     It must create read and write buffers for PORT with the specified
-     sizes (a size of 0 is for unbuffered ports, which should use the
-     'shortbuf' field.)  Size -1 means to use the port's preferred buffer
-     size.  */
-  void (*setvbuf) (SCM port, long read_size, long write_size);
 
   unsigned flags;
 } scm_t_ptob_descriptor;
@@ -218,22 +228,16 @@ typedef struct scm_t_ptob_descriptor
 SCM_INTERNAL long scm_c_num_port_types (void);
 SCM_API scm_t_ptob_descriptor* scm_c_port_type_ref (long ptobnum);
 SCM_API long scm_c_port_type_add_x (scm_t_ptob_descriptor *desc);
-SCM_API scm_t_bits scm_make_port_type (char *name,
-				       int (*fill_input) (SCM port),
-				       void (*write) (SCM port, 
-						      const void *data,
-						      size_t size));
+SCM_API scm_t_bits scm_make_port_type
+	(char *name,
+         void (*read) (SCM port, scm_t_port_buffer *dst),
+         void (*write) (SCM port, scm_t_port_buffer *src));
 SCM_API void scm_set_port_print (scm_t_bits tc,
 				 int (*print) (SCM exp,
 					       SCM port,
 					       scm_print_state *pstate));
 SCM_API void scm_set_port_close (scm_t_bits tc, void (*close) (SCM));
 SCM_API void scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p);
-
-SCM_API void scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port));
-SCM_API void scm_set_port_end_input (scm_t_bits tc,
-                                     void (*end_input) (SCM port,
-                                                        int offset));
 SCM_API void scm_set_port_seek (scm_t_bits tc,
 				scm_t_off (*seek) (SCM port,
 						   scm_t_off OFFSET,
@@ -242,8 +246,8 @@ SCM_API void scm_set_port_truncate (scm_t_bits tc,
 				    void (*truncate) (SCM port,
 						      scm_t_off length));
 SCM_API void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM));
-SCM_API void scm_set_port_setvbuf (scm_t_bits tc,
-                                   void (*setvbuf) (SCM, long, long));
+SCM_API void scm_set_port_get_natural_buffer_sizes
+  (scm_t_bits tc, void (*get_natural_buffer_sizes) (SCM, size_t *, size_t *));
 
 /* The input, output, error, and load ports.  */
 SCM_API SCM scm_current_input_port (void);
@@ -259,6 +263,9 @@ SCM_API void scm_dynwind_current_input_port (SCM port);
 SCM_API void scm_dynwind_current_output_port (SCM port);
 SCM_API void scm_dynwind_current_error_port (SCM port);
 SCM_INTERNAL void scm_i_dynwind_current_load_port (SCM port);
+
+/* Port buffers.  */
+SCM_INTERNAL scm_t_port_buffer *scm_c_make_port_buffer (size_t size);
 
 /* Mode bits.  */
 SCM_INTERNAL long scm_i_mode_bits (SCM modes);
@@ -334,10 +341,9 @@ SCM_API SCM scm_unread_char (SCM cobj, SCM port);
 SCM_API SCM scm_unread_string (SCM str, SCM port);
 
 /* Manipulating the buffers.  */
-SCM_API void scm_port_non_buffer (scm_t_port *pt);
 SCM_API SCM scm_setvbuf (SCM port, SCM mode, SCM size);
-SCM_API int scm_fill_input (SCM port);
-SCM_API int scm_fill_input_unlocked (SCM port);
+SCM_API scm_t_port_buffer* scm_fill_input (SCM port);
+SCM_API scm_t_port_buffer* scm_fill_input_unlocked (SCM port);
 SCM_INTERNAL size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
 SCM_API SCM scm_drain_input (SCM port);
 SCM_API void scm_end_input (SCM port);
@@ -422,13 +428,19 @@ scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
 SCM_INLINE_IMPLEMENTATION int
 scm_get_byte_or_eof_unlocked (SCM port)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
 
-  if (SCM_LIKELY ((pt->rw_active == SCM_PORT_READ || !pt->rw_random)
-                  && pt->read_pos < pt->read_end))
-    return *pt->read_pos++;
-  else
-    return scm_slow_get_byte_or_eof_unlocked (port);
+  if (SCM_LIKELY (buf->cur < buf->end))
+    return buf->buf[buf->cur++];
+
+  buf = scm_fill_input_unlocked (port);
+  if (buf->cur < buf->end)
+    return buf->buf[buf->cur++];
+
+  /* The next peek or get should cause the read() function to be called
+     to see if we still have EOF.  */
+  buf->has_eof = 0;
+  return EOF;
 }
 
 /* Like `scm_get_byte_or_eof' but does not change PORT's `read_pos'.  */
@@ -436,12 +448,16 @@ SCM_INLINE_IMPLEMENTATION int
 scm_peek_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_buffer *buf = pt->read_buf;
 
-  if (SCM_LIKELY ((pt->rw_active == SCM_PORT_READ || !pt->rw_random)
-                  && pt->read_pos < pt->read_end))
-    return *pt->read_pos;
-  else
-    return scm_slow_peek_byte_or_eof_unlocked (port);
+  if (SCM_LIKELY (buf->cur < buf->end))
+    return buf->buf[buf->cur];
+
+  buf = scm_fill_input_unlocked (port);
+  if (buf->cur < buf->end)
+    return buf->buf[buf->cur];
+
+  return EOF;
 }
 
 SCM_INLINE_IMPLEMENTATION void

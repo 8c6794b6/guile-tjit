@@ -12,13 +12,14 @@
 * Reading::                     Procedures for reading from a port.
 * Writing::                     Procedures for writing to a port.
 * Closing::                     Procedures to close a port.
+* Buffering::                   Controlling when data is written to ports.
 * Random Access::               Moving around a random access port.
 * Line/Delimited::              Read and write lines or delimited text.
 * Block Reading and Writing::   Reading and writing blocks of text.
 * Default Ports::               Defaults for input, output and errors.
 * Port Types::                  Types of port and how to make them.
 * R6RS I/O Ports::              The R6RS port API.
-* I/O Extensions::              Using and extending ports in C.
+* I/O Extensions::              Implementing new port types in C.
 * BOM Handling::                Handling of Unicode byte order marks.
 @end menu
 
@@ -32,26 +33,21 @@ Sequential input/output in Scheme is represented by operations on a
 for working with ports.
 
 Ports are created by opening, for instance @code{open-file} for a file
-(@pxref{File Ports}).  Characters can be read from an input port and
-written to an output port, or both on an input/output port.  A port
-can be closed (@pxref{Closing}) when no longer required, after which
-any attempt to read or write is an error.
-
-The formal definition of a port is very generic: an input port is
-simply ``an object which can deliver characters on demand,'' and an
-output port is ``an object which can accept characters.''  Because
-this definition is so loose, it is easy to write functions that
-simulate ports in software.  @dfn{Soft ports} and @dfn{string ports}
-are two interesting and powerful examples of this technique.
-(@pxref{Soft Ports}, and @ref{String Ports}.)
+(@pxref{File Ports}).  Other kinds of ports include @dfn{soft ports} and
+@dfn{string ports} (@pxref{Soft Ports}, and @ref{String Ports}).
+Characters or bytes can be read from an input port and written to an
+output port, or both on an input/output port.  A port can be closed
+(@pxref{Closing}) when no longer required, after which any attempt to
+read or write is an error.
 
 Ports are garbage collected in the usual way (@pxref{Memory
-Management}), and will be closed at that time if not already closed.
-In this case any errors occurring in the close will not be reported.
-Usually a program will want to explicitly close so as to be sure all
-its operations have been successful.  Of course if a program has
-abandoned something due to an error or other condition then closing
-problems are probably not of interest.
+Management}), and will be closed at that time if not already closed.  In
+this case any errors occurring in the close will not be reported.
+Usually a program will want to explicitly close so as to be sure all its
+operations have been successful, including any buffered writes
+(@pxref{Buffering}).  Of course if a program has abandoned something due
+to an error or other condition then closing problems are probably not of
+interest.
 
 It is strongly recommended that file ports be closed explicitly when
 no longer required.  Most systems have limits on how many files can be
@@ -71,10 +67,10 @@ available, so files bigger than 2 Gbytes (@math{2^31} bytes) can be
 read and written on a 32-bit system.
 
 Each port has an associated character encoding that controls how bytes
-read from the port are converted to characters and string and controls
-how characters and strings written to the port are converted to bytes.
-When ports are created, they inherit their character encoding from the
-current locale, but, that can be modified after the port is created.
+read from the port are converted to characters and controls how
+characters written to the port are converted to bytes.  When ports are
+created, they inherit their character encoding from the current locale,
+but, that can be modified after the port is created.
 
 Currently, the ports only work with @emph{non-modal} encodings.  Most
 encodings are non-modal, meaning that the conversion of bytes to a
@@ -87,6 +83,15 @@ a Guile character can't be converted to the port's encoded character
 representation for output. There are three possible strategies: to
 raise an error, to replace the character with a hex escape, or to
 replace the character with a substitute character.
+
+Finally, all ports have associated input and output buffers, as
+appropriate.  Buffering is a common strategy to limit the overhead of
+small reads and writes: without buffering, each character fetched from a
+file would involve at least one call into the kernel, and maybe more
+depending on the character and the encoding.  Instead, Guile will batch
+reads and writes into internal buffers.  However, sometimes you want to
+make output on a port show up immediately.  @xref{Buffering}, for more
+on interfaces to control port buffering.
 
 @rnindex input-port?
 @deffn {Scheme Procedure} input-port? x
@@ -187,8 +192,6 @@ equivalent to @code{(fluid-set! %default-port-conversion-strategy
 @node Reading
 @subsection Reading
 @cindex Reading
-
-[Generic procedures for reading from ports.]
 
 These procedures pertain to reading characters and strings from
 ports. To read general S-expressions from ports, @xref{Scheme Read}.
@@ -325,8 +328,6 @@ Set the current column or line number of @var{port}.
 @subsection Writing
 @cindex Writing
 
-[Generic procedures for writing to ports.]
-
 These procedures are for writing characters and strings to
 ports. For more information on writing arbitrary Scheme objects to
 ports, @xref{Scheme Write}.
@@ -378,6 +379,14 @@ Write @var{size} bytes at @var{buffer} to @var{port}.
 
 Note that this function does not update @code{port-line} and
 @code{port-column} (@pxref{Reading}).
+@end deftypefn
+
+@deftypefn {C Function} void scm_lfwrite (const char *buffer, size_t size, SCM port)
+Write @var{size} bytes at @var{buffer} to @var{port}.  The @code{lf}
+indicates that unlike @code{scm_c_write}, this function updates the
+port's @code{port-line} and @code{port-column}, and also flushes the
+port if the data contains a newline (@code{\n}) and the port is
+line-buffered.
 @end deftypefn
 
 @findex fflush
@@ -433,6 +442,96 @@ which can close file descriptors.
 Return @code{#t} if @var{port} is closed or @code{#f} if it is
 open.
 @end deffn
+
+
+@node Buffering
+@subsection Buffering
+@cindex Port, buffering
+
+Every port has associated input and output buffers.  You can think of
+ports as being backed by some mutable store, and that store might be far
+away.  For example, ports backed by file descriptors have to go all the
+way to the kernel to read and write their data.  To avoid this
+round-trip cost, Guile usually reads in data from the mutable store in
+chunks, and then services small requests like @code{get-char} out of
+that intermediate buffer.  Similarly, small writes like
+@code{write-char} first go to a buffer, and are sent to the store when
+the buffer is full (or when port is flushed).  Buffered ports speed up
+your program by reducing the number of round-trips to the mutable store,
+and the do so in a way that is mostly transparent to the user.
+
+There are two major ways, however, in which buffering affects program
+semantics.  Building correct, performant programs requires understanding
+these situations.
+
+The first case is in random-access read/write ports (@pxref{Random
+Access}).  These ports, usually backed by a file, logically operate over
+the same mutable store when both reading and writing.  So, if you read a
+character, causing the buffer to fill, then write a character, the bytes
+you filled in your read buffer are now invalid.  Every time you switch
+between reading and writing, Guile has to flush any pending buffer.  If
+this happens frequently, the cost can be high.  In that case you should
+reduce the amount that you buffer, in both directions.  Similarly, Guile
+has to flush buffers before seeking.  None of these considerations apply
+to sockets, which don't logically read from and write to the same
+mutable store, and are not seekable.  Note also that sockets are
+unbuffered by default.  @xref{Network Sockets and Communication}.
+
+The second case is the more pernicious one.  If you write data to a
+buffered port, it probably hasn't gone out to the mutable store yet.
+(This ``probably'' introduces some indeterminism in your program: what
+goes to the store, and when, depends on how full the buffer is.  It is
+something that the user needs to explicitly be aware of.)  The data is
+written to the store later -- when the buffer fills up due to another
+write, or when @code{force-output} is called, or when @code{close-port}
+is called, or when the program exits, or even when the garbage collector
+runs.  The salient point is, @emph{the errors are signalled then too}.
+Buffered writes defer error detection (and defer the side effects to the
+mutable store), perhaps indefinitely if the port type does not need to
+be closed at GC.
+
+One common heuristic that works well for textual ports is to flush
+output when a newline (@code{\n}) is written.  This @dfn{line buffering}
+mode is on by default for TTY ports.  Most other ports are @dfn{block
+buffered}, meaning that once the output buffer reaches the block size,
+which depends on the port and its configuration, the output is flushed
+as a block, without regard to what is in the block.  Likewise reads are
+read in at the block size, though if there are fewer bytes available to
+read, the buffer may not be entirely filled.
+
+Note that reads or writes that are larger than the buffer size go
+directly to the mutable store without passing through the buffers.  If
+your access pattern involves many big reads or writes, buffering might
+not matter so much to you.
+
+To control the buffering behavior of a port, use @code{setvbuf}.
+
+@deffn {Scheme Procedure} setvbuf port mode [size]
+@deffnx {C Function} scm_setvbuf (port, mode, size)
+@cindex port buffering
+Set the buffering mode for @var{port}.  @var{mode} can be one of the
+following symbols:
+
+@table @code
+@item none
+non-buffered
+@item line
+line buffered
+@item block
+block buffered, using a newly allocated buffer of @var{size} bytes.
+If @var{size} is omitted, a default size will be used.
+@end table
+@end deffn
+
+Another way to set the buffering, for file ports, is to open the file
+with @code{0} or @code{l} as part of the mode string, for unbuffered or
+line-buffered ports, respectively.  @xref{File Ports}, for more.
+
+All of these considerations are very similar to those of streams in the
+C library, although Guile's ports are not built on top of C streams.
+Still, it is useful to read what other systems do.
+@xref{Streams,,,libc,The GNU C Library Reference Manual}, for more
+discussion on C streams.
 
 
 @node Random Access
@@ -882,8 +981,7 @@ Create an "unbuffered" port.  In this case input and output
 operations are passed directly to the underlying port
 implementation without additional buffering.  This is likely to
 slow down I/O operations.  The buffering mode can be changed
-while a port is in use @pxref{Ports and File Descriptors,
-setvbuf}
+while a port is in use (@pxref{Buffering}).
 @item l
 Add line-buffering to the port.  The port output buffer will be
 automatically flushed whenever a newline character is written.
@@ -1797,8 +1895,7 @@ Finally, if @var{close} is not @code{#f}, it must be a thunk.  It is
 invoked when the custom binary input port is closed.
 
 The returned port is fully buffered by default, but its buffering mode
-can be changed using @code{setvbuf} (@pxref{Ports and File Descriptors,
-@code{setvbuf}}).
+can be changed using @code{setvbuf} (@pxref{Buffering}).
 
 Using a custom binary input port, the @code{open-bytevector-input-port}
 procedure could be implemented as follows:
@@ -2157,151 +2254,110 @@ the representation, will return an object equal (in the sense of
 @end deffn
 
 @node I/O Extensions
-@subsection Using and Extending Ports in C
+@subsection Implementing New Port Types in C
 
-@menu
-* C Port Interface:: Using ports from C.
-* Port Implementation:: How to implement a new port type in C.
-@end menu
-
-
-@node C Port Interface
-@subsubsection C Port Interface
-@cindex C port interface
-@cindex Port, C interface
-
-This section describes how to use Scheme ports from C.
-
-@subsubheading Port basics
+This section describes how to implement a new port type in C.  Before
+getting to the details, here is a summary of how the generic port
+interface works internally.
 
 @cindex ptob
-@tindex scm_ptob_descriptor
-@tindex scm_port
+@tindex scm_t_ptob_descriptor
+@tindex scm_t_port
+@tindex scm_t_port_buffer
 @findex SCM_PTAB_ENTRY
 @findex SCM_PTOBNUM
 @vindex scm_ptobs
-There are two main data structures.  A port type object (ptob) is of
-type @code{scm_ptob_descriptor}.  A port instance is of type
-@code{scm_port}.  Given an @code{SCM} variable which points to a port,
-the corresponding C port object can be obtained using the
-@code{SCM_PTAB_ENTRY} macro.  The ptob can be obtained by using
-@code{SCM_PTOBNUM} to give an index into the @code{scm_ptobs}
-global array.
+Guile's port facility consists of three main data structures.  A port
+type object (ptob) is of type @code{scm_t_ptob_descriptor}, and holds
+pointers to the methods that implement the port type.  A port instance
+is of type @code{scm_t_port}, and holds all state for the port.  Finally
+the read and write buffers are the @code{read_buf} and @code{write_buf}
+members of the port instance, and are of type @code{scm_t_port_buffer}.
+
+Given an @code{SCM} variable which points to a port, the corresponding C
+port object can be obtained using the @code{SCM_PTAB_ENTRY} macro.  The
+ptob can be obtained by using @code{SCM_PTOBNUM} to give an index into
+the @code{scm_ptobs} global array.
 
 @subsubheading Port buffers
 
 An input port always has a read buffer and an output port always has a
-write buffer.  However the size of these buffers is not guaranteed to be
-more than one byte (e.g., the @code{shortbuf} field in @code{scm_port}
-which is used when no other buffer is allocated).  The way in which the
-buffers are allocated depends on the implementation of the ptob.  For
-example in the case of an fport, buffers may be allocated with malloc
-when the port is created, but in the case of an strport the underlying
-string is used as the buffer.
+write buffer.  @xref{Buffering}.  These buffers are represented in C by
+@code{scm_t_port_buffer} objects. 
+
+The port buffer consists of data as a byte array, pointed to by its
+@code{buf} field.  The valid data in the buffer is between the
+@code{cur} and @code{end} indices into @code{buf}; @code{cur} must
+always be less than or equal to @code{end}, which in turn must be less
+than or equal to the buffer size @code{size}.
+
+``Valid data'' for a read buffer is data that has been buffered, but not
+yet read by the user.  A port's @code{read} procedure fills a read
+buffer from the @code{end} element.  For a write buffer, the ``valid
+data'' is data which has been written by the user, but not yet flushed
+to the mutable store.  A port's @code{write} procedure will consume the
+data between @code{cur} and @code{end} (not including @code{end}) and
+advance @code{cur}.
+
+The size of the buffers is controlled by the user, via @code{setvbuf}.
+A port implementation can provide an idea of what the ``natural'' size
+for its buffers are, but it has no guarantee that the buffer will be
+those sizes.  It's also possible for big reads or writes to work on
+auxiliary buffers, and it's possible for @code{unget-bytevector} to
+cause a read buffer to expand temporarily; port implementations can't
+assume that the buffer they have been given to fill or empty corresponds
+to the port's designated read or write buffer.
+
+Port read buffers also have a flag indicating that the last read did not
+advance @code{end}, which indicates end-of-stream.  It is cleared by
+Guile when Guile gives the user an EOF object.
 
 @subsubheading The @code{rw_random} flag
 
 Special treatment is required for ports which can be seeked at random.
 Before various operations, such as seeking the port or changing from
-input to output on a bidirectional port or vice versa, the port
-implementation must be given a chance to update its state.  The write
-buffer is updated by calling the @code{flush} ptob procedure and the
-input buffer is updated by calling the @code{end_input} ptob procedure.
-In the case of an fport, @code{flush} causes buffered output to be
-written to the file descriptor, while @code{end_input} causes the
-descriptor position to be adjusted to account for buffered input which
-was never read.
+input to output on a bidirectional port or vice versa.  Seeking on a
+port with buffered input, or switching to writing after reading, will
+cause the buffered input to be discarded and Guile will seek the port
+back the buffered number of bytes.  Likewise seeking on a port with
+buffered output, or switching to reading after writing, will flush
+pending bytes with a call to the @code{write} procedure.  Indicate to
+Guile that your port needs this behavior by setting the @code{rw_random}
+flag.  This flag is set by default if the port type supplies a seek
+implementation.
 
-The special treatment must be performed if the @code{rw_random} flag in
-the port is non-zero.
+@subsubheading C interface
 
-@subsubheading The @code{rw_active} variable
+A port type object is created by calling @code{scm_make_port_type}.
 
-The @code{rw_active} variable in the port is only used if
-@code{rw_random} is set.  It's defined as an enum with the following
-values:
-
-@table @code
-@item SCM_PORT_READ
-the read buffer may have unread data.
-
-@item SCM_PORT_WRITE
-the write buffer may have unwritten data.
-
-@item SCM_PORT_NEITHER
-neither the write nor the read buffer has data.
-@end table
-
-@subsubheading Reading from a port.
-
-To read from a port, it's possible to either call existing libguile
-procedures such as @code{scm_getc} and @code{scm_read_line} or to read
-data from the read buffer directly.  Reading from the buffer involves
-the following steps:
-
-@enumerate
-@item
-Flush output on the port, if @code{rw_active} is @code{SCM_PORT_WRITE}.
-
-@item
-Fill the read buffer, if it's empty, using @code{scm_fill_input}.
-
-@item Read the data from the buffer and update the read position in
-the buffer.  Steps 2) and 3) may be repeated as many times as required.
-
-@item Set rw_active to @code{SCM_PORT_READ} if @code{rw_random} is set.
-
-@item update the port's line and column counts.
-@end enumerate
-
-@subsubheading Writing to a port.
-
-To write data to a port, calling @code{scm_lfwrite} should be sufficient for
-most purposes.  This takes care of the following steps:
-
-@enumerate
-@item
-End input on the port, if @code{rw_active} is @code{SCM_PORT_READ}.
-
-@item
-Pass the data to the ptob implementation using the @code{write} ptob
-procedure.  The advantage of using the ptob @code{write} instead of
-manipulating the write buffer directly is that it allows the data to be
-written in one operation even if the port is using the single-byte
-@code{shortbuf}.
-
-@item
-Set @code{rw_active} to @code{SCM_PORT_WRITE} if @code{rw_random}
-is set.
-@end enumerate
-
-
-@node Port Implementation
-@subsubsection Port Implementation
-@cindex Port implementation
-
-This section describes how to implement a new port type in C.
-
-As described in the previous section, a port type object (ptob) is
-a structure of type @code{scm_ptob_descriptor}.  A ptob is created by
-calling @code{scm_make_port_type}.
-
-@deftypefun scm_t_bits scm_make_port_type (char *name, int (*fill_input) (SCM port), void (*write) (SCM port, const void *data, size_t size))
-Return a new port type object.  The @var{name}, @var{fill_input} and
-@var{write} parameters are initial values for those port type fields,
-as described below.  The other fields are initialized with default
-values and can be changed later.
+@deftypefun scm_t_bits scm_make_port_type (char *name, void (*read) (SCM port, scm_t_port_buffer *dst), void (*write) (SCM port, scm_t_port_buffer *src))
+Return a new port type object.  The @var{name}, @var{read} and
+@var{write} parameters are initial values for those port type fields, as
+described below.  The other fields are initialized with default values
+and can be changed later.
 @end deftypefun
 
-All of the elements of the ptob, apart from @code{name}, are procedures
-which collectively implement the port behaviour.  Creating a new port
-type mostly involves writing these procedures.
+All of the elements of the port type object, apart from @code{name}, are
+procedures which collectively implement the port behaviour.  Creating a
+new port type mostly involves writing these procedures.
 
 @table @code
 @item name
 A pointer to a NUL terminated string: the name of the port type.  This
-is the only element of @code{scm_ptob_descriptor} which is not
+is the only element of @code{scm_t_ptob_descriptor} which is not
 a procedure.  Set via the first argument to @code{scm_make_port_type}.
+
+@item read
+A port's @code{read} implementation fills read buffers.  It should copy
+bytes to the supplied port buffer object, advancing the buffer's
+@code{end} field as appropriate, but not past the buffer's @code{size}
+field.
+
+@item write
+A port's @code{write} implementation flushes write buffers to the
+mutable store.  It should copy bytes from the supplied port buffer
+object, advancing the buffer's @code{cur} field as appropriate, but not
+past the buffer's @code{end} field.
 
 @item print
 Called when @code{write} is called on the port object, to print a
@@ -2329,70 +2385,16 @@ port type as needing a close on GC.
 @deftypefun void scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p)
 @end deftypefun
 
-@item write
-Accept data which is to be written using the port.  The port implementation
-may choose to buffer the data instead of processing it directly.
-Set via the third argument to @code{scm_make_port_type}.
-
-@item flush
-Complete the processing of buffered output data.  Reset the value of
-@code{rw_active} to @code{SCM_PORT_NEITHER}.
-Set using
-
-@deftypefun void scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port))
-@end deftypefun
-
-@item end_input
-Perform any synchronization required when switching from input to output
-on the port.  Reset the value of @code{rw_active} to @code{SCM_PORT_NEITHER}.
-Set using
-
-@deftypefun void scm_set_port_end_input (scm_t_bits tc, void (*end_input) (SCM port, int offset))
-@end deftypefun
-
-@item fill_input
-Read new data into the read buffer and return the first character.  It
-can be assumed that the read buffer is empty when this procedure is called.
-Set via the second argument to @code{scm_make_port_type}.
-
-@item input_waiting
-Return a lower bound on the number of bytes that could be read from the
-port without blocking.  It can be assumed that the current state of
-@code{rw_active} is @code{SCM_PORT_NEITHER}.
-Set using
-
-@deftypefun void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM port))
-@end deftypefun
-
 @item seek
-Set the current position of the port.  The procedure can not make
-any assumptions about the value of @code{rw_active} when it's
-called.  It can reset the buffers first if desired by using something
-like:
-
-@example
-if (pt->rw_active == SCM_PORT_READ)
-  scm_end_input (port);
-else if (pt->rw_active == SCM_PORT_WRITE)
-  ptob->flush (port);
-@end example
-
-However note that this will have the side effect of discarding any data
-in the unread-char buffer, in addition to any side effects from the
-@code{end_input} and @code{flush} ptob procedures.  This is undesirable
-when seek is called to measure the current position of the port, i.e.,
-@code{(seek p 0 SEEK_CUR)}.  The libguile fport and string port
-implementations take care to avoid this problem.
-
-The procedure is set using
+Set the current position of the port.  Guile will flush read and/or
+write buffers before seeking, as appropriate.
 
 @deftypefun void scm_set_port_seek (scm_t_bits tc, scm_t_off (*seek) (SCM port, scm_t_off offset, int whence))
 @end deftypefun
 
 @item truncate
-Truncate the port data to be specified length.  It can be assumed that the
-current state of @code{rw_active} is @code{SCM_PORT_NEITHER}.
-Set using
+Truncate the port data to be specified length.  Guile will flush buffers
+before hand, as appropriate.  Set using
 
 @deftypefun void scm_set_port_truncate (scm_t_bits tc, void (*truncate) (SCM port, scm_t_off length))
 @end deftypefun

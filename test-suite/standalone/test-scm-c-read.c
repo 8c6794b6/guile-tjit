@@ -33,52 +33,39 @@
 /* Size of our port's internal buffer.  */
 #define PORT_BUFFER_SIZE 1024
 
+struct custom_port
+{
+  size_t pos;
+  size_t len;
+  char *buf;
+};
+
+
 /* Return a new port of type PORT_TYPE.  */
 static inline SCM
 make_port (scm_t_bits port_type)
 {
-  SCM port;
-  char *c_buffer;
-  scm_t_port *c_port;
+  struct custom_port *stream = scm_gc_typed_calloc (struct custom_port);
 
-  c_buffer = scm_gc_calloc (PORT_BUFFER_SIZE, "custom-port-buffer");
+  stream->pos = 0;
+  stream->len = PORT_BUFFER_SIZE;
+  stream->buf = scm_gc_calloc (stream->len, "custom-port-buffer");
 
-  port = scm_new_port_table_entry (port_type);
-
-  /* Associate C_BUFFER with PORT, for test purposes.  */
-  SCM_SETSTREAM (port, (scm_t_bits) c_buffer);
-
-  /* Use C_BUFFER as PORT's internal buffer.  */
-  c_port = SCM_PTAB_ENTRY (port);
-  c_port->read_pos = c_port->read_buf = (unsigned char *) c_buffer;
-  c_port->read_end = (unsigned char *) c_buffer + PORT_BUFFER_SIZE;
-  c_port->read_buf_size = PORT_BUFFER_SIZE;
-
-  /* Mark PORT as open and readable.  */
-  SCM_SET_CELL_TYPE (port, port_type | SCM_OPN | SCM_RDNG);
-
-  return port;
+  return scm_c_make_port (port_type, SCM_RDNG, (scm_t_bits) stream);
 }
 
-/* Read one byte from PORT.  */
-static int
-fill_input (SCM port)
+static void
+custom_port_read (SCM port, scm_t_port_buffer *dst)
 {
-  int result;
-  scm_t_port *c_port = SCM_PTAB_ENTRY (port);
+  size_t to_copy = dst->size - dst->end;
+  struct custom_port *stream = (void *) SCM_STREAM (port);
 
-  /* Make sure that C_PORT's internal buffer wasn't changed behind our back.
-     See http://lists.gnu.org/archive/html/guile-devel/2008-11/msg00042.html
-     for an example where this assumption matters.  */
-  assert (c_port->read_buf == (unsigned char *) SCM_STREAM (port));
-  assert (c_port->read_buf_size == PORT_BUFFER_SIZE);
+  if (stream->pos + to_copy > stream->len)
+    to_copy = stream->len - stream->pos;
 
-  if (c_port->read_pos >= c_port->read_end)
-    result = EOF;
-  else
-    result = (int) *c_port->read_pos++;
-
-  return result;
+  memcpy (dst->buf + dst->end, stream->buf + stream->pos, to_copy);
+  stream->pos += to_copy;
+  dst->end += to_copy;
 }
 
 /* Return true (non-zero) if BUF contains only zeros.  */
@@ -103,7 +90,7 @@ do_start (void *arg)
   char buffer[PORT_BUFFER_SIZE + (PORT_BUFFER_SIZE / 2)];
   size_t read, last_read;
 
-  port_type = scm_make_port_type ("custom-input-port", fill_input, NULL);
+  port_type = scm_make_port_type ("custom-input-port", custom_port_read, NULL);
   port = make_port (port_type);
 
   read = 0;

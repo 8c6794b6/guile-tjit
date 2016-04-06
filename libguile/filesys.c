@@ -652,7 +652,7 @@ set_element (fd_set *set, SCM *ports_ready, SCM element, int pos)
 	  /* check whether port has buffered input.  */
 	  scm_t_port *pt = SCM_PTAB_ENTRY (element);
       
-	  if (pt->read_pos < pt->read_end)
+	  if (pt->read_buf->cur < pt->read_buf->end)
 	    use_buf = 1;
 	}
       else if (pos == SCM_ARG2)
@@ -661,7 +661,7 @@ set_element (fd_set *set, SCM *ports_ready, SCM element, int pos)
 	  scm_t_port *pt = SCM_PTAB_ENTRY (element);
 
 	  /* > 1 since writing the last byte in the buffer causes flush.  */
-	  if (pt->write_end - pt->write_pos > 1)
+	  if (pt->write_buf->size - pt->write_buf->end > 1)
 	    use_buf = 1;
 	}
       fd = use_buf ? -1 : SCM_FPORT_FDES (element);

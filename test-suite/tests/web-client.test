@@ -471,8 +471,7 @@ Connection: close\r
             (error "Port closed for writing"))
           (put-u8 request-port (char->integer c)))
         (define (put-string s)
-          (string-for-each put-char s))
-        (define (flush)
+          (string-for-each put-char s)
           (set! writing? #f)
           (set! reading? #t)
           (let* ((p (open-bytevector-input-port (get-bytevector)))
@@ -500,8 +499,13 @@ Connection: close\r
           (when writing?
             (unless (eof-object? (get-u8 response-body-port))
               (error "Failed to consume all of body"))))
-        (proc (make-soft-port (vector put-char put-string flush get-char close)
-                              "rw"))))))
+        (let ((soft-port (make-soft-port
+                          (vector put-char put-string #f get-char close)
+                          "rw")))
+          ;; Arrange it so that the only time our put-char/put-string
+          ;; functions are called is during force-output.
+          (setvbuf soft-port 'block 10000)
+          (proc soft-port))))))
 
 (define* (check-transaction method uri
                             request-headers request-body request-body-encoding
