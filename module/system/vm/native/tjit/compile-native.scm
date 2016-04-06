@@ -91,13 +91,13 @@
       ;; Moving value coupled with type to frame local. Return address of VM
       ;; frame need to be recovered when taking exit from inlined procedure
       ;; call. The actual value for return address is captured at the time of
-      ;; Scheme IR conversion and stored in snapshot as pointer.
+      ;; Scheme IR conversion and stored in snapshot.
       (jit-movi r0 (return-address-ip type))
       (sp-set! local r0))
 
      ((dynamic-link? type)
-      ;; Storing fp to local. Dynamic link is stored as offset in type. VM's fp
-      ;; could move, may use different value at the time of compilation and
+      ;; Storing dynamid link to local. Dynamic link record type contains offset
+      ;; in the field. VM may use different value at the time of compilation and
       ;; execution.
       (jit-movi r0 (imm (dynamic-link-offset type)))
       (sp-set! local r0))
@@ -189,7 +189,7 @@
       (_ (values)))))
 
 (define (shift-fp nlocals)
-  "Adjust FP with SP and NLOCALS."
+  "Shift FP, new value will be SP plus NLOCALS."
   (let ((vp r0)
         (vp->fp r1))
     (load-vp vp)
@@ -200,7 +200,7 @@
   "Shift SP for OFFSET, may expand stack with %ASM when offset is negative."
   (cond
    ((= 0 offset)
-    (values))
+    (vm-sync-sp %sp))
    ((< 0 offset)
     (jit-addi %sp %sp (imm (* offset %word-size)))
     (vm-sync-sp %sp))
@@ -490,7 +490,7 @@ DST-TYPES, and SRC-TYPES are local index number."
       ;; Store values passed from parent trace when it's not used by this
       ;; side trace.
       (match (env-parent-snapshot env)
-        (($ $snapshot _ _ _ _ locals exit-variables)
+        (($ $snapshot _ _ _ _ locals vars)
          (let* ((snap0 (hashq-ref snapshots 0))
                 (locals0 (snapshot-locals snap0))
                 (vars0 (snapshot-variables snap0))
@@ -502,7 +502,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                 (hashq-set! references local var)
                 (lp locals0 vars0))
                (_
-                (maybe-store asm locals exit-variables references 0))))))
+                (maybe-store asm locals vars references 0))))))
         (_
          (tjitc-error 'compile-entry "snapshot not found"
                       (env-parent-exit-id env))))))
@@ -596,26 +596,21 @@ DST-TYPES, and SRC-TYPES are local index number."
       (let ((entry (jit-label)))
         (jit-patch entry)
         (match snapshot
-          (($ $snapshot id sp-offset fp-offset nlocals local-x-types)
+          (($ $snapshot id sp-offset fp-offset nlocals locals)
            ;; Store contents of args to frame. Note that args of snapshot 0 in
            ;; root trace is null, no need to recover the frame with snapshot for
            ;; that case.
-           (let lp ((local-x-types local-x-types)
-                    (args args))
-             (match (list local-x-types args)
-               ((((local . type) . local-x-types) (arg . args))
+           (let lp ((locals locals) (args args))
+             (match (cons locals args)
+               ((((local . type) . locals) . (arg . args))
                 (syntax-parameterize ((asm (identifier-syntax %asm)))
                   (store-frame local type arg))
-                (lp local-x-types args))
+                (lp locals args))
                (_ (values))))
 
-           ;; Shift SP.
-           (unless (zero? sp-offset)
-             (shift-sp %asm sp-offset))
-
-           ;; Shift FP for side exit in the middle of inlined call/return.
-           (when (< 0 (snapshot-inline-depth snapshot))
-             (shift-fp nlocals))
+           ;; Shift SP, then shift FP with nlocals.
+           (shift-sp %asm sp-offset)
+           (shift-fp nlocals)
 
            ;; Sync next IP with vp->ip for VM.
            (jit-movi r0 (imm ip))
@@ -745,9 +740,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                    (move-or-load-carefully dst-var-table src-var-table
                                            dst-type-table src-type-table)
 
-                   ;; Shift FP for inlined procedure.
-                   (when (< 0 (snapshot-inline-depth snapshot))
-                     (shift-fp nlocals))
+                   ;; Shift FP.
+                   (shift-fp nlocals)
 
                    ;; Handle interrupts if linked fragment didn't.
                    (when (and (env-handle-interrupts? env)

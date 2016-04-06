@@ -146,4 +146,4 @@
     (sorter l <)))
 
 (use-modules (ice-9 time))
-(sort-benchmark sort1 100)
+(sort-benchmark sort1 1000000)

@@ -478,8 +478,11 @@ index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (current-fp-offset)
   (vector-ref (env-fp-offsets env) (ir-bytecode-index ir)))
 
+;; Bytecode operation `call' and `call-label' at last position are always
+;; inlined.
 (define-syntax-rule (inline-current-call?)
-  (assq-ref (env-calls env) (env-call-num env)))
+  (or (assq-ref (env-calls env) (env-call-num env))
+      (ir-last-op? ir)))
 
 (define-syntax-rule (inline-current-return?)
   (assq-ref (env-returns env) (env-return-num env)))
