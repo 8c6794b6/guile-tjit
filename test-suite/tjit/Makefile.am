@@ -46,7 +46,10 @@ TESTS = \
 	t-br-if-eq-01.scm \
 	t-br-if-eq-02.scm \
 	t-br-if-lt-01.scm \
+	t-br-if-lt-02.scm \
+	t-br-if-lt-03.scm \
 	t-br-if-le-01.scm \
+	t-br-if-le-02.scm \
 	t-br-if-=-01.scm \
 	t-br-if-null-01.scm \
 	t-br-if-null-02.scm \

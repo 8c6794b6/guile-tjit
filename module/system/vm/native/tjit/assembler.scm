@@ -738,6 +738,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
           (err)))))))
 
 (define-binary-guard-double %flt >= jit-bgei-d jit-bger-d)
+(define-binary-guard-double %fle > jit-bgti-d jit-bgtr-d)
+(define-binary-guard-double %fgt <= jit-blei-d jit-bler-d)
 (define-binary-guard-double %fge < jit-blti-d jit-bltr-d)
 
 (define-native (%eqv (int a) (int b))
@@ -841,7 +843,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Call and return
 ;;;
 
-;;; Scheme procedure call. Shifts current FP.
+;;; Scheme procedure call, shift current FP.
 ;;;
 ;;; Fill in the dynamic link, so that libguile/vm.c:scm_i_vm_mark_stack can keep
 ;;; on traversing the stack with SCM_FRAME_DYNAMIC_LINK, garbage collector may

@@ -234,6 +234,14 @@ Example:
       (1.0 456.0 100)
       (456.0 456.0 ,bailout-tag)
       (999.0 456.0 ,bailout-tag))
+     ("fle" %fle
+      (1.0 456.0 100)
+      (456.0 456.0 100)
+      (999.0 456.0 ,bailout-tag))
+     ("fgt" %fgt
+      (1.0 456.0 ,bailout-tag)
+      (456.0 456.0 ,bailout-tag)
+      (999.0 456.0 100))
      ("fge" %fge
       (1.0 456.0 ,bailout-tag)
       (456.0 456.0 100)
