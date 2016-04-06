@@ -677,7 +677,7 @@
 (define (run k)
   (let loop ((n 100) (v 0))
     (if (zero? n)
-        (length v)
+        v
         (begin
           (set! output '())
           (pmaze 20 k)

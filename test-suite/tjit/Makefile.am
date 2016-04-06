@@ -259,8 +259,11 @@ TESTS = \
 	x-nboyer.scm \
 	x-nucleic2.scm \
 	x-nqueens.scm \
+	x-paraffins.scm \
 	x-peval.scm \
 	x-puzzle.scm \
+	x-scheme.scm \
+	x-scheme2.scm \
 	x-sboyer.scm \
 	x-sort1.scm \
 	x-takl.scm \
