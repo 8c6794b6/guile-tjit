@@ -232,6 +232,9 @@ TESTS = \
 	t-types-01.scm \
 	t-u64-01.scm \
 	t-u64-02.scm \
+	t-uadd-01.scm \
+	t-umul-01.scm \
+	t-usub-01.scm \
 	t-vector-length-01.scm \
 	t-vector-ref-01.scm \
 	t-vector-ref-02.scm \

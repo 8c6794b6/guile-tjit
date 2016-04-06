@@ -459,7 +459,7 @@
   ;; Flag to use C functions from "libguile/gc-inline.h".
   (gc-inline? asm-gc-inline?))
 
-(define (make-asm storage end-address gc-inline)
+(define (make-asm storage end-address gc-inline save-volatiles?)
   (define (volatile-regs-in-use storage)
     (hash-fold (lambda (_ reg acc)
                  (if (or (and (gpr? reg)
@@ -471,7 +471,10 @@
                      acc))
                '()
                storage))
-  (%make-asm (volatile-regs-in-use storage) #f end-address '() gc-inline))
+  (let ((volatiles (volatile-regs-in-use storage)))
+    (when save-volatiles?
+      (for-each store-volatile volatiles))
+    (%make-asm volatiles #f end-address '() gc-inline)))
 
 (define-syntax jump
   (syntax-rules ()
@@ -964,6 +967,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 (define-binary-arith-int %add + jit-addi jit-addr)
 (define-binary-arith-int %sub - jit-subi jit-subr)
+(define-binary-arith-int %mul * jit-muli jit-mulr)
 (define-binary-arith-int %rsh rsh jit-rshi jit-rshr)
 (define-binary-arith-int %lsh lsh jit-lshi jit-lshr)
 
@@ -1055,7 +1059,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-int %quo modulo jit-divi jit-divr)
 
 ;; Integer multiplication, with overflow check.
-(define-native (%imul (int dst) (int a) (int b))
+(define-native (%mulov (int dst) (int a) (int b))
   (let ((tmp r1)
         (proceed (jit-forward)))
     (letrec-syntax
@@ -1087,7 +1091,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (jump (jit-bnei tmp (imm 0)) (bailout))
       (jit-link proceed))))
 
-(define-native (%idiv (int dst) (int a) (int b))
+;; Integer division, bailouts when remainder is not zero.
+(define-native (%div (int dst) (int a) (int b))
   (let ((tmp r1))
     (let ((a/r (case (ref-type a)
                  ((con) (movi r0 a))

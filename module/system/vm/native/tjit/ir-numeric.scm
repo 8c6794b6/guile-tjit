@@ -344,16 +344,18 @@
           (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                (pretty-type a/t) (pretty-type b/t))))))))
 
-(define-mul-div-scm-scm mul %imul %fmul)
-(define-mul-div-scm-scm div %idiv %fdiv)
+(define-mul-div-scm-scm mul %mulov %fmul)
+(define-mul-div-scm-scm div %div %fdiv)
 
 (define-syntax define-binary-arith-fx-fx
   (syntax-rules ()
-    ((_ name op)
+    ((_ name op save-volatiles)
      (begin
        (define-ir (name (scm! dst) (scm a) (scm b))
          (nyi "~s: ~a ~a ~a" 'name dst a b))
        (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
+         (when (and (env-parent-snapshot env) save-volatiles)
+           (set-env-save-volatiles! env save-volatiles))
          (let ((dst/v (var-ref dst))
                (a/v (var-ref a))
                (b/v (var-ref b))
@@ -365,9 +367,11 @@
                     (let ((,dst/v (%add ,dst/v 2)))
                       ,(next))))))))))))
 
-(define-binary-arith-fx-fx mod %mod)
-(define-binary-arith-fx-fx quo %quo)
-(define-binary-arith-fx-fx rem %rem)
+;; Primitive %mod uses volatile register. Setting `env-save-volatiles?' flag to
+;; true.
+(define-binary-arith-fx-fx mod %mod #t)
+(define-binary-arith-fx-fx quo %quo #f)
+(define-binary-arith-fx-fx rem %rem #f)
 
 ;; XXX: ash
 ;; XXX: logand
@@ -392,8 +396,6 @@
                 `(let ((_ (%fill ,r2 ,len ,boxed)))
                    (let ((,dst/v ,r2))
                      ,(next)))))))))
-
-;;; XXX: No bound checks done in vector operations.
 
 (define-ir (vector-length (u64! dst) (vector src))
   (let ((dst/v (var-ref dst))
@@ -477,11 +479,18 @@
 
 (define-binary-arith-u64-imm uadd/immediate %add)
 (define-binary-arith-u64-imm usub/immediate %sub)
-
-;; XXX: uadd
-;; XXX: usub
-;; XXX: umul
 ;; XXX: umul/immediate
+
+(define-syntax define-binary-arith-u64-u64
+  (syntax-rules ()
+    ((_ name op)
+     (define-ir (name (u64! dst) (u64 a) (u64 b))
+       `(let ((,(var-ref dst) (op ,(var-ref a) ,(var-ref b))))
+          ,(next))))))
+
+(define-binary-arith-u64-u64 uadd %add)
+(define-binary-arith-u64-u64 usub %sub)
+(define-binary-arith-u64-u64 umul %mul)
 
 ;; XXX: ulogand
 ;; XXX: ulogior

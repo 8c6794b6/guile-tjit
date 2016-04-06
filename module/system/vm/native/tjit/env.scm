@@ -65,6 +65,7 @@
             env-calls set-env-calls!
             env-returns set-env-returns!
             env-inline-depth set-env-inline-depth!
+            env-save-volatiles? set-env-save-volatiles!
 
             increment-env-call-return-num!
             add-env-call!
@@ -80,7 +81,7 @@
   (%make-env id entry-ip linked-ip linked-fragment
              parent-exit-id parent-fragment parent-snapshot
              loop? downrec? uprec? linking-roots?
-             handle-interrupts? initialized?
+             handle-interrupts? save-volatiles? initialized?
              loop-locals loop-vars
              sp-offsets fp-offsets sp-offset fp-offset last-sp-offset
              write-indices read-indices write-buf live-indices
@@ -124,6 +125,9 @@
 
   ;; Flag to emit interrupt handler.
   (handle-interrupts? env-handle-interrupts? set-env-handle-interrupts!)
+
+  ;; Flag to save volatile registers at entry.
+  (save-volatiles? env-save-volatiles? set-env-save-volatiles!)
 
   ;; Flag to hold whether initialized.
   (initialized? env-initialized? set-env-initialized!)
@@ -196,7 +200,7 @@
   (%make-env id entry-ip linked-ip #f
              parent-exit-id parent-fragment parent-snapshot
              loop? downrec? uprec? #f
-             #f #f #f #f '() '() sp-offset fp-offset 0
+             #f #f #f #f #f '() '() sp-offset fp-offset 0
              write-indices '() (list write-indices) live-indices
              '() (copy-tree types-from-parent)
              0 0 '() '() inline-depth))

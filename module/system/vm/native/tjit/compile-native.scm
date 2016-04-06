@@ -495,7 +495,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                 (locals0 (snapshot-locals snap0))
                 (vars0 (snapshot-variables snap0))
                 (references (make-hash-table))
-                (asm (make-asm (make-hash-table) #f #t)))
+                (asm (make-asm (make-hash-table) #f #t #f)))
            (let lp ((locals0 locals0) (vars0 vars0))
              (match (cons locals0 vars0)
                ((((local . _) . locals0) . (var . vars0))
@@ -577,7 +577,8 @@ DST-TYPES, and SRC-TYPES are local index number."
     (($ $primops entry loop mem-idx storage)
      (let* ((linked-fragment (env-linked-fragment env))
             (end-address (and=> linked-fragment fragment-end-address))
-            (asm (make-asm storage end-address #t))
+            (save-volatiles? (env-save-volatiles? env))
+            (asm (make-asm storage end-address #t save-volatiles?))
             (gen-bailouts (compile-ops asm entry storage '())))
        (let-values (((loop-label gen-bailouts)
                      (compile-loop asm loop storage gen-bailouts)))
@@ -732,16 +733,14 @@ DST-TYPES, and SRC-TYPES are local index number."
                 (()
                  (maybe-store %asm locals args ref-table sp-offset)
 
-                 ;; Shift SP.
+                 ;; Shift SP, then shift FP with nlocals.
                  (shift-sp %asm sp-offset)
+                 (shift-fp nlocals)
 
                  ;; Move or load locals for linked trace.
                  (syntax-parameterize ((asm (identifier-syntax %asm)))
                    (move-or-load-carefully dst-var-table src-var-table
                                            dst-type-table src-type-table)
-
-                   ;; Shift FP.
-                   (shift-fp nlocals)
 
                    ;; Handle interrupts if linked fragment didn't.
                    (when (and (env-handle-interrupts? env)
