@@ -843,6 +843,10 @@ init_tjit_hash (void)
 {
   int i;
 
+  GC_exclude_static_roots (hot_ip_hash, hot_ip_hash + TJIT_HASH_SIZE);
+  GC_exclude_static_roots (root_ip_hash, root_ip_hash + TJIT_HASH_SIZE);
+  GC_exclude_static_roots (failed_ip_hash, failed_ip_hash + TJIT_HASH_SIZE);
+
   for (i = 0; i < TJIT_HASH_SIZE; ++i)
     {
       hot_ip_hash[i] = 0;
