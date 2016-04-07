@@ -1,4 +1,5 @@
-;;; Simple loop containing `make-vector', with flonum vector contents.
+;;; Simple loop containing `make-vector/immediate', with flonum vector
+;;; contents.
 
 (define (loop lst)
   (let lp ((lst lst) (acc '()))

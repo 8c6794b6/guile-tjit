@@ -102,6 +102,8 @@ TESTS = \
 	t-guard-01.scm \
 	t-make-closure-01.scm \
 	t-make-long-long-immediate-01.scm \
+	t-make-vector-01.scm \
+	t-make-vector-02.scm \
 	t-make-vector-immediate-01.scm \
 	t-make-vector-immediate-02.scm \
 	t-mod-01.scm \

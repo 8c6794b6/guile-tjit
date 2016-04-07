@@ -379,13 +379,29 @@
 ;; XXX: logxor
 ;; XXX: make-vector
 
+(define-interrupt-ir (make-vector (scm! dst) (u64 len) (scm ini))
+  (let ((dst/v (var-ref dst))
+        (len/v (var-ref len))
+        (ini/v (var-ref ini))
+        (r1 (make-tmpvar 1))
+        (r2 (make-tmpvar 2)))
+    `(let ((,r1 (%lsh ,len/v 8)))
+       (let ((,r1 (%bor ,%tc7-vector ,r1)))
+         (let ((,r2 (%add ,len/v 1)))
+           (let ((,r2 (%words ,r1 ,r2)))
+             ,(with-boxing (type-ref ini) ini/v r1
+                (lambda (boxed)
+                  `(let ((_ (%fill ,r2 ,len/v ,boxed)))
+                     (let ((,dst/v ,r2))
+                       ,(next)))))))))))
+
 (define-interrupt-ir (make-vector/immediate (scm! dst) (const len) (scm ini))
-  (let* ((dst/v (var-ref dst))
-         (ini/v (var-ref ini))
-         (r1 (make-tmpvar 1))
-         (r2 (make-tmpvar 2))
-         (nwords (+ len 1))
-         (head (logior %tc7-vector (ash len 8))))
+  (let ((dst/v (var-ref dst))
+        (ini/v (var-ref ini))
+        (r1 (make-tmpvar 1))
+        (r2 (make-tmpvar 2))
+        (nwords (+ len 1))
+        (head (logior %tc7-vector (ash len 8))))
     `(let ((,r2 (%words ,head ,nwords)))
        ,(with-boxing (type-ref ini) ini/v r1
           (lambda (boxed)
