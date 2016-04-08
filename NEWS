@@ -12,6 +12,13 @@ releasing 2.1.3.
 Changes in 2.1.3 (changes since the 2.1.2 alpha release):
 
 * Notable changes
+** All ports are now buffered, can be targets of `setvbuf'
+
+See "Buffering" in the manual, for more.  A port with a buffer size of 1
+is equivalent to an unbuffered port.  Ports may set their default buffer
+sizes, and some ports (for example soft ports) are unbuffered by default
+for historical reasons.
+
 * New deprecations
 ** `_IONBF', `_IOLBF', and `_IOFBF'
 
@@ -19,18 +26,27 @@ Instead, use the symbol values `none', `line', or `block', respectively,
 as arguments to the `setvbuf' function.
 
 * Incompatible changes
-** Remove `scm_set_port_mark'
+** API to define new port types from C has changed
+
+In Guile 2.2 the API used to define new port types has changed.  This
+largely shouldn't affect port users, modulo the buffering port mentioned
+above.  However, in order to enable all ports to have buffers
+implemented in the same way, which is a prerequisite to non-blocking
+I/O, the port API has changed.  See "I/O Extensions" in the manual, for
+full details.  Notably:
+
+*** Remove `scm_set_port_mark'
 
 Port mark functions have not been called since the switch to the BDW
 garbage collector.
 
-** Remove `scm_set_port_equalp'
+*** Remove `scm_set_port_equalp'
 
 Likewise port equal functions weren't being called.  Given that ports
 have their own internal buffers, it doesn't make sense to hook them into
 equal? anyway.
 
-** Remove `scm_set_port_free'
+*** Remove `scm_set_port_free'
 
 It used to be that if an open port became unreachable, a special "free"
 function would be called instead of the "close" function.  Now that the
@@ -40,6 +56,21 @@ functions.  Note that hooking into the garbage collector has some
 overhead.  For that reason Guile exposes a new interface,
 `scm_set_port_needs_close_on_gc', allowing port implementations to
 indicate to Guile whether they need closing on GC or not.
+
+*** Remove `scm_set_port_end_input', `scm_set_port_flush'
+
+As buffering is handled by Guile itself, these functions which were to
+manage an implementation-side buffer are no longer needed.
+
+*** Change prototype of `scm_make_port_type'
+
+The `read' (renamed from `fill_input') and `write' functions now return
+void and take a port buffer.
+
+*** Remove `SCM_INITIAL_PUTBACK_BUF_SIZE', `SCM_READ_BUFFER_EMPTY_P'
+
+Probably nobody used these.
+
 
 
 Changes in 2.1.2 (changes since the 2.1.1 alpha release):
