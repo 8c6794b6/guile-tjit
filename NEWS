@@ -5,9 +5,6 @@ See the end for copying conditions.
 Please send Guile bug reports to bug-guile@gnu.org.
 
 
-FIXME: Incorporate 2.1.2 changes into cumulative 2.2 changes before
-releasing 2.1.3.
-
 
 Changes in 2.1.3 (changes since the 2.1.2 alpha release):
 
@@ -70,114 +67,6 @@ void and take a port buffer.
 *** Remove `SCM_INITIAL_PUTBACK_BUF_SIZE', `SCM_READ_BUFFER_EMPTY_P'
 
 Probably nobody used these.
-
-
-
-Changes in 2.1.2 (changes since the 2.1.1 alpha release):
-
-* Notable changes
-
-** Unboxed arithmetic
-
-It used to be that Guile's numbers were always boxed with a tag
-indicating their type.  Small integers could sometimes represent their
-tag and value in one word; these are the fixnums.  Other kinds of
-numbers would be allocated on the heap.
-
-Guile can now unbox arithmetic on exact integers (values in the signed
-and unsigned 64-bit integer range) and inexact reals (floating-point
-numbers).  Access to bytevectors are always unboxed, and some arithmetic
-can be unboxed as well.  Unboxing eliminates run-time allocation for
-numbers and removes run-time polymorphic dispatch, providing a
-significant speedup.
-
-** Faster build times
-
-Building Guile from a tarball can now take advantage of a "prebuilt/"
-tree of prebuilt .go files.  These compiled files are created when a
-tarball is made, and are used to speed up the build for users of
-official releases.
-
-These pre-built binaries are not necessary, however: they are not stored
-in revision control and can always be re-created from the source, given
-that Guile can bootstrap itself from its minimal bootstrap C
-interpreter.  If you do not want to depend on these pre-built binaries,
-you can "make -C prebuilt clean" before building.
-
-If Guile doesn't pre-build binaries for your architecture and you would
-like support for your architecture, see prebuilt/Makefile.am for more
-information on how to add support.
-
-** Better backtraces
-
-Guile's backtraces do a better job at finding the function name, and
-they also do a better job printing function arguments whose values are
-unavailable.
-
-** Add "tree" display mode for statprof.
-
-See the newly updated "Statprof" section of the manual, for more.
-
-** Many small compiler and VM improvements
-
-The user-visible change is that Guile is faster, for many small reasons.
-See the commit log for detailed changes.
-
-Note that until the stable 2.2.0 release is made, we will not make any
-efforts towards binary compatibility among 2.1.x releases.  Compiled
-Scheme files from older pre-releases in the Guile 2.1.x series are not
-loadable by the Guile 2.1.2 pre-release.
-
-** Better handling of GUILE_LOAD_COMPILED_PATH
-
-It used to be that Guile would stop at the first .go file it found in
-the GUILE_LOAD_COMPILED_PATH.  If that file turned out to be out of
-date, then no .go file would be loaded.  Now Guile will continue to
-search the path for a file which is both present and up-to-date, with
-respect to the .scm file.
-
-** Fix build when threads are disabled
-** Fix cross-compilation of .go files
-
-* New deprecations
-
-** `with-statprof' macro deprecated
-
-Use the `statprof' procedure instead.
-
-* Incompatible changes
-
-** Remove `frame-procedure'
-
-Several optimizations in Guile make `frame-procedure' an interface that
-we can no longer support.  For background, `frame-procedure' used to
-return the value at slot 0 in a frame, which usually corresponds to the
-SCM value of the procedure being applied.  However it could be that this
-slot is re-used for some other value, because the closure was not needed
-in the function.  Such a re-use might even be for an untagged value, in
-which case treating slot 0 as a SCM value is quite dangerous.  It's also
-possible that so-called "well-known" closures (closures whose callers
-are all known) are optimized in such a way that slot 0 is not a
-procedure but some optimized representation of the procedure's free
-variables.  Instead, developers building debugging tools that would like
-access to `frame-procedure' are invited to look at the source for the
-`(system vm frame)' module for alternate interfaces, including the new
-`frame-procedure-name'.
-
-** Remove `,procedure' REPL command
-
-Not all procedures have values, so it doesn't make sense to expose this
-interface to the user.  Instead, the `,locals' REPL command will include
-the callee, if it is live.
-
-** Remove `frame-local-ref', `frame-local-set!', `frame-num-locals'
-
-These procedures reference values in a frame on the stack.  Since we now
-have unboxed values of different kinds, it is now necessary to specify
-the type when reference locals, and once this incompatible change needs
-to be made, we might as well make these interfaces private.  See
-"Frames' in the manual, for more information on the replacements for
-these low-level interfaces.
 
 
 
@@ -276,6 +165,14 @@ in Scheme.  This decreases its maintenance burden on the rest of Guile,
 while also makes it possible to implement new features in the future,
 such as method combinations or `eqv?' specializers.
 
+** Better handling of GUILE_LOAD_COMPILED_PATH
+
+It used to be that Guile would stop at the first .go file it found in
+the GUILE_LOAD_COMPILED_PATH.  If that file turned out to be out of
+date, then no .go file would be loaded.  Now Guile will continue to
+search the path for a file which is both present and up-to-date, with
+respect to the .scm file.
+
 * Performance improvements
 
 ** Faster programs via new virtual machine
@@ -309,8 +206,9 @@ values and control flow.  Examples of optimizations that this permits
 are optimal contification, optimal common subexpression elimination,
 dead code elimination, loop-invariant code motion, loop peeling, loop
 inversion, parallel moves with at most one temporary, allocation of
-stack slots using precise liveness information, and closure
-optimization.  For more, see "Continuation-Passing Style" in the manual.
+stack slots using precise liveness information, unboxing of 64-bit
+integers and floating point values, and closure optimization.  For more,
+see "Continuation-Passing Style" in the manual.
 
 ** Faster interpreter
 
@@ -364,6 +262,10 @@ See the "Guile Implementation" chapter in the manual for all details.
 ** New functions: `scm_to_uintptr_t', `scm_from_uintptr_t'
 
 See "Integers" in the manual, for more.
+
+** Add "tree" display mode for statprof.
+
+See the newly updated "Statprof" section of the manual, for more.
 
 ** New thread-safe port API
 
@@ -459,6 +361,38 @@ Because R6RS ports are a thin layer on top of Guile's ports, and Guile's
 ports are both textual and binary, Guile's R6RS ports are also both
 textual and binary, and thus both kinds have port transcoders.  This is
 an incompatibility with respect to R6RS.
+
+** Remove `frame-procedure'
+
+Several optimizations in Guile make `frame-procedure' an interface that
+we can no longer support.  For background, `frame-procedure' used to
+return the value at slot 0 in a frame, which usually corresponds to the
+SCM value of the procedure being applied.  However it could be that this
+slot is re-used for some other value, because the closure was not needed
+in the function.  Such a re-use might even be for an untagged value, in
+which case treating slot 0 as a SCM value is quite dangerous.  It's also
+possible that so-called "well-known" closures (closures whose callers
+are all known) are optimized in such a way that slot 0 is not a
+procedure but some optimized representation of the procedure's free
+variables.  Instead, developers building debugging tools that would like
+access to `frame-procedure' are invited to look at the source for the
+`(system vm frame)' module for alternate interfaces, including the new
+`frame-procedure-name'.
+
+** Remove `,procedure' REPL command
+
+Not all procedures have values, so it doesn't make sense to expose this
+interface to the user.  Instead, the `,locals' REPL command will include
+the callee, if it is live.
+
+** Remove `frame-local-ref', `frame-local-set!', `frame-num-locals'
+
+These procedures reference values in a frame on the stack.  Since we now
+have unboxed values of different kinds, it is now necessary to specify
+the type when reference locals, and once this incompatible change needs
+to be made, we might as well make these interfaces private.  See
+"Frames' in the manual, for more information on the replacements for
+these low-level interfaces.
 
 ** Vtable hierarchy changes
 
@@ -647,6 +581,10 @@ scm_t_debug_info', `scm_pure_generic_p', `SCM_PUREGENERICP',
 
 * New deprecations
 
+** `with-statprof' macro deprecated
+
+Use the `statprof' procedure instead.
+
 ** SCM_WTA_DISPATCH_0, SCM_WTA_DISPATCH_1, SCM_WTA_DISPATCH_2, SCM_WTA_DISPATCH_N
 ** SCM_GASSERT0, SCM_GASSERT1, SCM_GASSERT2, SCM_GASSERTn
 ** SCM_WTA_DISPATCH_1_SUBR
@@ -698,6 +636,23 @@ use `scm_c_bind_keyword_arguments'.
 Instead use the normal `scm_slot_ref' and similar procedures.
 
 * Changes to the distribution
+
+** Pre-built binary files in the tarball
+
+Building Guile from a tarball can now take advantage of a "prebuilt/"
+tree of prebuilt .go files.  These compiled files are created when a
+tarball is made, and are used to speed up the build for users of
+official releases.
+
+These pre-built binaries are not necessary, however: they are not stored
+in revision control and can always be re-created from the source, given
+that Guile can bootstrap itself from its minimal bootstrap C
+interpreter.  If you do not want to depend on these pre-built binaries,
+you can "make -C prebuilt clean" before building.
+
+If Guile doesn't pre-build binaries for your architecture and you would
+like support for your architecture, see prebuilt/Makefile.am for more
+information on how to add support.
 
 ** New minor version
 
