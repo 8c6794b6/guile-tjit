@@ -230,7 +230,11 @@ Example:
                                (%move ret 402))
                              arg1 arg2)))))))
          rest))))
-   `(("flt" %flt
+   `(("fne" %fne
+      (1.0 456.0 100)
+      (456.0 456.0 ,bailout-tag)
+      (999.0 456.0 100))
+     ("flt" %flt
       (1.0 456.0 100)
       (456.0 456.0 ,bailout-tag)
       (999.0 456.0 ,bailout-tag))
