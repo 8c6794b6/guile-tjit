@@ -1316,6 +1316,30 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        (memory-set!/f dst f0))
       (else (err)))))
 
+;; Unsigned char ref.
+(define-native (%u8ref (int dst) (int src) (int n))
+  (let ((dst/r (case (ref-type dst)
+                 ((gpr) (gpr dst))
+                 ((fpr) (fpr->gpr r2 (fpr dst)))
+                 ((mem) (memory-ref r2 dst))
+                 (else (err))))
+        (src/r (case (ref-type src)
+                 ((gpr) (gpr src))
+                 ((fpr) (fpr->gpr r1 (fpr src)))
+                 ((mem) (memory-ref r1 src))
+                 (else (err))))
+        (n/r (case (ref-type n)
+               ((gpr) (gpr n))
+               ((fpr) (fpr->gpr r0 (fpr n)))
+               ((mem) (memory-ref r0 n))
+               (else (err)))))
+    (jit-ldxr-uc dst/r src/r n/r)
+    (case (ref-type dst)
+      ((gpr) (values))
+      ((fpr) (gpr->fpr (fpr dst) dst/r))
+      ((mem) (memory-set! dst dst/r))
+      (else (err)))))
+
 ;; Set cell object. This operation uses `r2' register when the argument `cell'
 ;; was memory and argument `n' was not constant.
 (define-native (%cset (int cell) (int n) (int src))
@@ -1360,6 +1384,25 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          ((mem) (op3b (memory-ref r2 cell)))
          (else (err))))
       (else (err)))))
+
+;; Unsigned char set.
+(define-native (%u8set (int dst) (int n) (int src))
+  (let ((dst/r (case (ref-type dst)
+                 ((gpr) (gpr dst))
+                 ((fpr) (fpr->gpr r2 (fpr dst)))
+                 ((mem) (memory-ref r2 dst))
+                 (else (err))))
+        (n/r (case (ref-type n)
+               ((gpr) (gpr n))
+               ((fpr) (fpr->gpr r0 (fpr n)))
+               ((mem) (memory-ref r0 n))
+               (else (err))))
+        (src/r (case (ref-type src)
+                 ((gpr) (gpr src))
+                 ((fpr) (fpr->gpr r1 (fpr src)))
+                 ((mem) (memory-ref r1 src))
+                 (else (err)))))
+    (jit-stxr-c n/r dst/r src/r)))
 
 ;; Fill memory from DST for N words with SRC. The address of DST itself is not
 ;; filled, use %cset for such case.

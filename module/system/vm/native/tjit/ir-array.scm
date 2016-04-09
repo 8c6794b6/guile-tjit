@@ -31,22 +31,21 @@
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit snapshot)
-  #:use-module (system vm native tjit types))
+  #:use-module (system vm native tjit types)
+  #:use-module (system vm native tjit variables))
 
 ;; XXX: load-typed-array
 ;; XXX: make-array
 
-;; XXX: bv-u8-ref
-;; (define-ir (bv-u8-ref (u64 dst) (scm src) (u64 idx))
-;;   (let ((dst/v (var-ref dst))
-;;         (src/v (var-ref src))
-;;         (idx/v (var-ref idx))
-;;         (contents (make-tmpvar 2)))
-;;     `(let ((,contents (%add ,src/v 16)))
-;;        (let ((,contents (%cref ,contents 0)))
-;;          (let ((,dst/v (%cref ,contents ,idx/v)))
-;;            (let ((,dst/v (%band ,dst/v #xff)))
-;;              ,(next)))))))
+;; XXX: Bound check not yet done.
+(define-ir (bv-u8-ref (u64 dst) (bytevector src) (u64 idx))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src))
+        (idx/v (var-ref idx))
+        (tmp (make-tmpvar 2)))
+    `(let ((,tmp (%cref ,src/v 2)))
+       (let ((,dst/v (%u8ref ,tmp ,idx/v)))
+         ,(next)))))
 
 ;; XXX: bv-s8-ref
 ;; XXX: bv-u16-ref
@@ -57,7 +56,18 @@
 ;; XXX: bv-s64-ref
 ;; XXX: bv-f32-ref
 ;; XXX: bv-f64-ref
-;; XXX: bv-u8-set!
+
+;; XXX: Bound check not yet done.
+(define-ir (bv-u8-set! (bytevector dst) (u64 idx) (u64 src))
+  (let ((dst/v (var-ref dst))
+        (idx/v (var-ref idx))
+        (src/v (var-ref src))
+        (tmp1 (make-tmpvar 1))
+        (tmp2 (make-tmpvar 2)))
+    `(let ((,tmp2 (%cref ,dst/v 2)))
+       (let ((_ (%u8set ,tmp2 ,idx/v ,src/v)))
+         ,(next)))))
+
 ;; XXX: bv-s8-set!
 ;; XXX: bv-u16-set!
 ;; XXX: bv-s16-set!

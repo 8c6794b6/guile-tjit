@@ -60,6 +60,9 @@ TESTS = \
 	t-br-if-u64-=-scm-01.scm \
 	t-br-if-u64-=-scm-02.scm \
 	t-bv-length-01.scm \
+	t-bv-u8-ref-01.scm \
+	t-bv-u8-ref-02.scm \
+	t-bv-u8-set-01.scm \
 	t-bytecompile-01.scm \
 	t-bytecompile-02.scm \
 	t-bytecompile-03.scm \
