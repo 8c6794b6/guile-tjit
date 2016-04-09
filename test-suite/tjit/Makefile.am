@@ -100,6 +100,7 @@ TESTS = \
 	t-free-ref-04.scm \
 	t-free-ref-05.scm \
 	t-guard-01.scm \
+	t-load-f64-01.scm \
 	t-make-closure-01.scm \
 	t-make-long-long-immediate-01.scm \
 	t-make-vector-01.scm \

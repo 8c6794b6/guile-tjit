@@ -86,7 +86,9 @@
        (let ((,dst/v (%add ,dst/v 2)))
          ,(next)))))
 
-;; XXX: load-f64
+(define-ir (load-f64 (f64! dst) (const high-bits) (const low-bits))
+  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
+     ,(next)))
 
 (define-ir (load-u64 (u64! dst) (const high-bits) (const low-bits))
   `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))

@@ -1,7 +1,6 @@
 ;; Loop with `br-if-=', loop ends with non-backward-jump, takes small
 ;; fixnum.
 
-
 (define (loop n)
   (let lp ((i 0) (acc 0))
     (if (= i n)
