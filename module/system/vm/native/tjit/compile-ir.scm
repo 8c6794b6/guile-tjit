@@ -350,62 +350,67 @@ Currently does nothing, returns the given argument."
       ;; pass the register and local information to linked trace.
       ;;
       (cond
-       ((env-downrec? env)
-        (match op
-          (('call proc nlocals)
-           (lambda ()
-             (let* ((next-sp (- last-fp-offset proc nlocals))
-                    (sp-shift
-                     (cond
-                      ((and=> (env-parent-fragment env)
-                              (lambda (fragment)
-                                (fragment-loop-locals fragment)))
-                       => (lambda (loop-locals)
-                            (length loop-locals)))
-                      (else
-                       initial-nlocals)))
-                    (next-sp-offset (+ next-sp sp-shift))
-                    (dr-locals
-                     (let lp ((n 0) (end (vector-length locals)) (acc '()))
-                       (if (= n nlocals)
-                           (list->vector acc)
-                           (let* ((i (- end proc n 1))
-                                  (e (vector-ref locals i)))
-                             (lp (+ n 1) end (cons e acc)))))))
-               `(let ((_ ,(entry-snapshot! *ip-key-downrec*
-                                           (dr-locals proc nlocals)
-                                           next-sp-offset next-sp-offset
-                                           #f)))
-                  (loop ,@(reverse (map cdr (ir-vars ir))))))))
-          (('call-label . _)
-           ;; XXX: TODO.
-           (nyi "down-recursion with last op `call-label'"))
-          (_
-           (nyi "Unknown op ~a" op))))
-       ((env-uprec? env)
-        (match op
-          (('return-values n)
-           (lambda ()
-             (let* ((next-sp-offset last-sp-offset))
-               `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals
-                                           next-sp-offset
-                                           (ir-min-sp-offset ir)
-                                           #f)))
-                  (loop ,@(reverse (map cdr (ir-vars ir))))))))
-          (_
-           (nyi "uprec with last op ~a" op))))
-       ((env-loop? env)
+       ;; XXX: NYI downrec
+
+       ;; ((env-downrec? env)
+       ;;  (match op
+       ;;    (('call proc nlocals)
+       ;;     (lambda ()
+       ;;       (let* ((next-sp (- last-fp-offset proc nlocals))
+       ;;              (sp-shift
+       ;;               (cond
+       ;;                ((and=> (env-parent-fragment env)
+       ;;                        (lambda (fragment)
+       ;;                          (fragment-loop-locals fragment)))
+       ;;                 => (lambda (loop-locals)
+       ;;                      (length loop-locals)))
+       ;;                (else
+       ;;                 initial-nlocals)))
+       ;;              (next-sp-offset (+ next-sp sp-shift))
+       ;;              (dr-locals
+       ;;               (let lp ((n 0) (end (vector-length locals)) (acc '()))
+       ;;                 (if (= n nlocals)
+       ;;                     (list->vector acc)
+       ;;                     (let* ((i (- end proc n 1))
+       ;;                            (e (vector-ref locals i)))
+       ;;                       (lp (+ n 1) end (cons e acc)))))))
+       ;;         `(let ((_ ,(entry-snapshot! *ip-key-downrec*
+       ;;                                     (dr-locals proc nlocals)
+       ;;                                     next-sp-offset next-sp-offset
+       ;;                                     #f)))
+       ;;            (loop ,@(reverse (map cdr (ir-vars ir))))))))
+       ;;    (('call-label . _)
+       ;;     ;; XXX: TODO.
+       ;;     (nyi "down-recursion with last op `call-label'"))
+       ;;    (_
+       ;;     (nyi "Unknown op ~a" op))))
+
+       ;; XXX: NYI uprec
+       ;; ((env-uprec? env)
+       ;;  (match op
+       ;;    (('return-values n)
+       ;;     (lambda ()
+       ;;       (let* ((next-sp-offset last-sp-offset))
+       ;;         `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals
+       ;;                                     next-sp-offset
+       ;;                                     (ir-min-sp-offset ir)
+       ;;                                     #f)))
+       ;;            (loop ,@(reverse (map cdr (ir-vars ir))))))))
+       ;;    (_
+       ;;     (nyi "uprec with last op ~a" op))))
+
+       ((not (env-parent-snapshot env)) ; Root trace
         (lambda ()
           `(loop ,@(reverse (map cdr (ir-vars ir))))))
-       (else
+       (else                            ; Side trace
         (lambda ()
           ;; Get the new `nlocals' when side trace ended with one of the call
           ;; or operations containing `ALLOC_FRAME'.
           (let ((nlocals (match op
-                           (('assert-nargs-ee/locals _ nlocals)
-                            (+ nlocals (vector-length locals)))
                            (('alloc-frame nlocals)
                             (max nlocals (vector-length locals)))
+                           (('assert-nargs-ee/locals _ nlocals)
+                            (+ nlocals (vector-length locals)))
                            (('call _ nlocals) nlocals)
                            (('call-label _ nlocals _) nlocals)
                            (('tail-call nlocals) nlocals)

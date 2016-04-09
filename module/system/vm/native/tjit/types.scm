@@ -299,6 +299,8 @@ types in TYPES matched with LOCALS, otherwise return false."
 
 (define (type-of obj)
   (cond
+   ;; Non-scm object.
+   ((zero? (object-address obj)) #f)
    ;; From (@ language cps types)
    ((inline-fixnum? obj) &fixnum)
    ((flonum? obj) &flonum)

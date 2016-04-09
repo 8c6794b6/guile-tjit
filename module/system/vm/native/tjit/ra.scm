@@ -375,7 +375,7 @@
                             (dynamic-link? type))
                         (lp vars locals)
                         (tjitc-error 'ir->primops "var ~a at local ~a, type ~a"
-                                     var local type))))
+                                     var local (pretty-type type)))))
                  (lp vars locals))
                 (_
                  (values)))))
