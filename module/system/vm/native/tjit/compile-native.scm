@@ -393,7 +393,8 @@ DST-TYPES, and SRC-TYPES are local index number."
              (if (tjit-dump-dwarf? (tjit-dump-option))
                  (let* ((addr (pointer-address (bytevector->pointer code)))
                         (elf (make-gdb-jit-elf (env-id env) addr size
-                                               (car sline) (cdr sline))))
+                                               (car sline)
+                                               (or (cdr sline) 1))))
                    (tjit-register-gdb-jit-entry! elf))
                  #f))
             (loop-vars
