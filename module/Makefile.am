@@ -57,8 +57,11 @@ TJIT_IR_TARGETS = 				\
 	system/vm/native/tjit/ir-lexical.go	\
 	system/vm/native/tjit/ir-immediate.go	\
 	system/vm/native/tjit/ir-mutable.go	\
+	system/vm/native/tjit/ir-dynamic.go	\
+	system/vm/native/tjit/ir-string.go  	\
 	system/vm/native/tjit/ir-pair.go	\
 	system/vm/native/tjit/ir-numeric.go	\
+	system/vm/native/tjit/ir-struct.go	\
 	system/vm/native/tjit/ir-array.go	\
 	system/vm/native/tjit/ir-misc.go
 
@@ -377,8 +380,11 @@ SOURCES =					\
   system/vm/native/tjit/ir-lexical.scm		\
   system/vm/native/tjit/ir-immediate.scm	\
   system/vm/native/tjit/ir-mutable.scm		\
+  system/vm/native/tjit/ir-dynamic.scm		\
+  system/vm/native/tjit/ir-string.scm		\
   system/vm/native/tjit/ir-pair.scm		\
   system/vm/native/tjit/ir-numeric.scm		\
+  system/vm/native/tjit/ir-struct.scm		\
   system/vm/native/tjit/ir-array.scm		\
   system/vm/native/tjit/ir-misc.scm		\
   system/vm/native/tjit/ra.scm			\

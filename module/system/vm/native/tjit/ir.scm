@@ -567,32 +567,3 @@ index referenced by dst, a, and b values at runtime."
                         (env (identifier-syntax %env)))
                      . body))))
     (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
-
-;;; *** The dynamic environment
-
-;; XXX: prompt
-;; XXX: wind
-;; XXX: unwind
-;; XXX: push-fluid
-;; XXX: pop-fluid
-;; XXX: fluid-ref
-;; XXX: fluid-set
-
-;;; *** Strings, symbols, and keywords
-
-;; XXX: string-length
-;; XXX: string-ref
-;; XXX: string->number
-;; XXX: string->symbol
-;; XXX: symbol->keyword
-
-;;; *** Structs and GOOPS
-
-;; XXX: struct-vtable
-;; XXX: allocate-struct
-;; XXX: struct-ref
-;; XXX: struct-set!
-;; XXX: allocate-struct/immediate
-;; XXX: struct-ref/immediate
-;; XXX: struct-set!/immediate
-;; XXX: class-of
