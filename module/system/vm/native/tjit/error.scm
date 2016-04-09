@@ -22,8 +22,8 @@
 ;;;
 ;;; Module containing codes related to error during traacing JIT compilation.
 ;;; Errors in tracing JIT compilation happens when somethings wrong happened
-;;; other than not-yet-implemented (NYI). Which means, malfunctioning code in
-;;; known bytecode operation.
+;;; other than explicit retry or not-yet-implemented (NYI). Which means,
+;;; malfunctioning code in bytecode operation which should be compiled.
 
 ;;; Code:
 
@@ -33,36 +33,38 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit parameters)
   #:export (tjitc-errors
-            tjitc-error
             call-with-tjitc-error-handler
             with-tjitc-error-handler
-            nyi
-            call-with-nyi-handler
-            with-nyi-handler))
+            tjitc-error retry nyi))
 
-(define *tjitc-prompt-tag*
-  (make-prompt-tag "tjitc"))
+;;;
+;;; Handler
+;;;
+
+(define *tjitc-error-prompt-tag*
+  (make-prompt-tag 'tjitc))
 
 (define *tjitc-errors-table*
   (make-hash-table))
 
-(define (tjitc-prompt-tag)
-  *tjitc-prompt-tag*)
-
 (define (tjitc-errors)
   *tjitc-errors-table*)
 
-(define (tjitc-error name fmt . args)
-  (apply abort-to-prompt (tjitc-prompt-tag) name fmt args))
-
 (define (call-with-tjitc-error-handler ip thunk)
-  (call-with-prompt (tjitc-prompt-tag)
+  (call-with-prompt *tjitc-error-prompt-tag*
     thunk
-    (lambda (k name fmt . args)
-      (let ((msg (apply format #f fmt args)))
-        (debug 0 "[~a] ~a: ~a~%" (red "TJITC ERROR") name msg)
-        (tjit-increment-compilation-failure! ip)
-        (hashq-set! (tjitc-errors) ip (cons name msg))))))
+    (lambda (k kind name fmt . args)
+      (case kind
+        ((nyi)
+         (debug 1 "NYI: ~a~%" (apply format #f fmt args))
+         (tjit-increment-compilation-failure! ip))
+        ((retry)
+         (debug 1 "[tjitc] retry: ~a~%" (apply format #f fmt args)))
+        ((failure)
+         (let ((msg (apply format #f fmt args)))
+           (debug 0 "[~a] failure: ~a ~a~%" (red "tjitc") name msg)
+           (tjit-increment-compilation-failure! ip)
+           (hashq-set! (tjitc-errors) ip (cons name msg))))))))
 
 (define-syntax with-tjitc-error-handler
   (syntax-rules ()
@@ -70,24 +72,19 @@
      (call-with-tjitc-error-handler ip
        (lambda () exp)))))
 
-(define *nyi-prompt-tag*
-  (make-prompt-tag "nyi"))
 
-(define (nyi-prompt-tag)
-  *nyi-prompt-tag*)
+;;;
+;;; Errors
+;;;
+
+(define-syntax-rule (make-tjitc-error kind name fmt args)
+  (apply abort-to-prompt *tjitc-error-prompt-tag* kind name fmt args))
+
+(define (tjitc-error name fmt . args)
+  (make-tjitc-error 'failure name fmt args))
+
+(define (retry fmt . args)
+  (make-tjitc-error 'retry #f fmt args))
 
 (define (nyi fmt . args)
-  (apply abort-to-prompt (nyi-prompt-tag) fmt args))
-
-(define (call-with-nyi-handler ip thunk)
-  (call-with-prompt (nyi-prompt-tag)
-    thunk
-    (lambda (k fmt . args)
-      (debug 1 "NYI: ~a~%" (apply format #f fmt args))
-      (tjit-increment-compilation-failure! ip))))
-
-(define-syntax with-nyi-handler
-  (syntax-rules ()
-    ((_ ip exp)
-     (call-with-nyi-handler ip
-       (lambda () exp)))))
+  (make-tjitc-error 'nyi #f fmt args))

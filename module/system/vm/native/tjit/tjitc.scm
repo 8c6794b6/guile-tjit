@@ -104,51 +104,46 @@
         ((_ test data exp)
          (when (and (test dump-option) data)
            exp))))
-    (define (failure msg)
-      (debug 1 "~a~%" msg)
-      (tjit-increment-compilation-failure! entry-ip))
-    (define (compile-traces traces)
-      (let-values (((snapshots anf ops) (compile-ir env traces)))
-        (dump tjit-dump-anf? anf (dump-anf trace-id anf))
-        (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
-        (let-values (((code size adjust loop-address trampoline)
-                      (compile-native env ops snapshots sline)))
-          (tjit-increment-id!)
-          (dump tjit-dump-ncode? code
-                (dump-ncode trace-id entry-ip code size adjust
-                            loop-address snapshots trampoline
-                            (not parent-snapshot))))
-        (when (tjit-dump-time? dump-option)
-          (let ((log (get-tjit-time-log trace-id))
-                (t (get-internal-run-time)))
-            (set-tjit-time-log-end! log t)))))
 
     (with-tjitc-error-handler entry-ip
-      (let-values (((traces implemented?) (parse-bytecode env bytecode traces)))
+      (let-values (((traces implemented?)
+                    (parse-bytecode env bytecode traces)))
+        (define (dump-sline-and-bytecode test)
+          (dump tjit-dump-jitc? test (show-sline))
+          (dump tjit-dump-bytecode? test (dump-bytecode trace-id traces)))
         (when (tjit-dump-abort? dump-option)
-          (dump tjit-dump-jitc? #t (show-sline))
-          (dump tjit-dump-bytecode? #t (dump-bytecode trace-id traces)))
+          (dump-sline-and-bytecode #t))
         (cond
-         ((not env)
-          (failure "error during parse"))
          ((not implemented?)
           (tjit-increment-compilation-failure! entry-ip))
          (uprec?
-          (failure "NYI: up recursion"))
+          (nyi "up recursion"))
          (downrec?
-          (failure "NYI: down recursion"))
+          (nyi "down recursion"))
          ((and (not parent-snapshot) (not loop?))
-          (failure "NYI: loop-less root trace"))
+          (nyi "loop-less root trace"))
          ((and (not parent-snapshot) (not (zero? (env-last-sp-offset env))))
-          (failure "NYI: looping root trace with stack pointer shift"))
+          (nyi "looping root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
-          (failure "NYI: no matching linked fragment"))
+          (nyi "side trace with type mismatched link"))
          (else
           (unless (tjit-dump-abort? dump-option)
-            (dump tjit-dump-jitc? implemented? (show-sline))
-            (dump tjit-dump-bytecode? implemented?
-                  (dump-bytecode trace-id traces)))
-          (with-nyi-handler entry-ip (compile-traces traces))))))))
+            (dump-sline-and-bytecode implemented?))
+          (let-values (((snapshots anf ops)
+                        (compile-ir env traces)))
+            (dump tjit-dump-anf? anf (dump-anf trace-id anf))
+            (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
+            (let-values (((code size adjust loop-address trampoline)
+                          (compile-native env ops snapshots sline)))
+              (tjit-increment-id!)
+              (dump tjit-dump-ncode? code
+                    (dump-ncode trace-id entry-ip code size adjust
+                                loop-address snapshots trampoline
+                                (not parent-snapshot))))
+            (when (tjit-dump-time? dump-option)
+              (let ((log (get-tjit-time-log trace-id))
+                    (t (get-internal-run-time)))
+                (set-tjit-time-log-end! log t))))))))))
 
 
 ;;;
