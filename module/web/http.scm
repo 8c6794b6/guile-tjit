@@ -1972,13 +1972,15 @@ closed it will also close PORT, unless the KEEP-ALIVE? is true."
     (loop to-read 0))
   (make-custom-binary-input-port "chunked input port" read! #f #f close))
 
-(define* (make-chunked-output-port port #:key (keep-alive? #f))
+(define* (make-chunked-output-port port #:key (keep-alive? #f)
+                                   (buffering 1200))
   "Returns a new port which translates non-encoded data into a HTTP
-chunked transfer encoded data and writes this to PORT. Data
-written to this port is buffered until the port is flushed, at which
-point it is all sent as one chunk. Take care to close the port when
-done, as it will output the remaining data, and encode the final zero
-chunk. When the port is closed it will also close PORT, unless
+chunked transfer encoded data and writes this to PORT. Data written to
+this port is buffered until the port is flushed, at which point it is
+all sent as one chunk.  The port will otherwise be flushed every
+BUFFERING bytes, which defaults to 1200.  Take care to close the port
+when done, as it will output the remaining data, and encode the final
+zero chunk. When the port is closed it will also close PORT, unless
 KEEP-ALIVE? is true."
   (define (q-for-each f q)
     (while (not (q-empty? q))
@@ -2005,7 +2007,9 @@ KEEP-ALIVE? is true."
     (force-output port)
     (unless keep-alive?
       (close-port port)))
-  (make-soft-port (vector put-char put-string flush #f close) "w"))
+  (let ((ret (make-soft-port (vector put-char put-string flush #f close) "w")))
+    (setvbuf ret 'block buffering)
+    ret))
 
 (define %http-proxy-port? (make-object-property))
 (define (http-proxy-port? port) (%http-proxy-port? port))
