@@ -99,25 +99,26 @@ make_bytevector_input_port (SCM bv)
                                         (scm_t_bits) stream);
 }
 
-static void
-bytevector_input_port_read (SCM port, scm_t_port_buffer *buf)
+static size_t
+bytevector_input_port_read (SCM port, SCM dst, size_t start, size_t count)
 {
-  size_t count;
+  size_t remaining;
   struct bytevector_input_port *stream = (void *) SCM_STREAM (port);
 
   if (stream->pos >= SCM_BYTEVECTOR_LENGTH (stream->bytevector))
-    return;
+    return 0;
 
-  count = SCM_BYTEVECTOR_LENGTH (stream->bytevector) - stream->pos;
-  if (count > buf->size - buf->end)
-    count = buf->size - buf->end;
+  remaining = SCM_BYTEVECTOR_LENGTH (stream->bytevector) - stream->pos;
+  if (remaining < count)
+    count = remaining;
 
-  memcpy (buf->buf + buf->end,
+  memcpy (SCM_BYTEVECTOR_CONTENTS (dst) + start,
           SCM_BYTEVECTOR_CONTENTS (stream->bytevector) + stream->pos,
           count);
 
-  buf->end += count;
   stream->pos += count;
+
+  return count;
 }
 
 static scm_t_off
@@ -277,32 +278,21 @@ make_custom_binary_input_port (SCM read_proc, SCM get_position_proc,
                                         (scm_t_bits) stream);
 }
 
-static void
-custom_binary_input_port_read (SCM port, scm_t_port_buffer *buf)
+static size_t
+custom_binary_input_port_read (SCM port, SCM dst, size_t start, size_t count)
 #define FUNC_NAME "custom_binary_input_port_read"
 {
   struct custom_binary_port *stream = (void *) SCM_STREAM (port);
-  SCM bv, octets;
+  SCM octets;
   size_t c_octets;
 
-  /* FIXME: We need to make sure buf->buf is kept alive.  If read_buf is
-     referenced from PORT, passing PORT as the parent will do it.  But,
-     pushback could re-set PORT->read_buf, which would be a fail.  But,
-     probably buf->buf is itself GC-allocated, so we can pack it
-     directly.  But, perhaps it's not, as in scm_c_read().  In that
-     latter case we're kinda screwed and probably need to prevent
-     rewinding.  But shouldn't we always prevent rewinding?  And how can
-     we avoid allocating the bytevector at all?  */
-  bv = scm_c_take_gc_bytevector ((signed char *) (buf->buf + buf->end),
-                                 buf->size - buf->end,
-                                 PTR2SCM (buf->buf));
-
-  octets = scm_call_3 (stream->read, bv, SCM_INUM0, scm_bytevector_length (bv));
+  octets = scm_call_3 (stream->read, dst, scm_from_size_t (start),
+                       scm_from_size_t (count));
   c_octets = scm_to_size_t (octets);
-  if (c_octets > scm_c_bytevector_length (bv))
+  if (c_octets > count)
     scm_out_of_range (FUNC_NAME, octets);
 
-  buf->end += c_octets;
+  return c_octets;
 }
 #undef FUNC_NAME
 
@@ -405,7 +395,6 @@ SCM_DEFINE (scm_get_bytevector_n, "get-bytevector-n", 2, 0, 0,
 #define FUNC_NAME s_scm_get_bytevector_n
 {
   SCM result;
-  char *c_bv;
   unsigned c_count;
   size_t c_read;
 
@@ -413,11 +402,10 @@ SCM_DEFINE (scm_get_bytevector_n, "get-bytevector-n", 2, 0, 0,
   c_count = scm_to_uint (count);
 
   result = scm_c_make_bytevector (c_count);
-  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (result);
 
   if (SCM_LIKELY (c_count > 0))
     /* XXX: `scm_c_read ()' does not update the port position.  */
-    c_read = scm_c_read_unlocked (port, c_bv, c_count);
+    c_read = scm_c_read_bytes (port, result, 0, c_count);
   else
     /* Don't invoke `scm_c_read ()' since it may block.  */
     c_read = 0;
@@ -443,7 +431,6 @@ SCM_DEFINE (scm_get_bytevector_n_x, "get-bytevector-n!", 4, 0, 0,
 #define FUNC_NAME s_scm_get_bytevector_n_x
 {
   SCM result;
-  char *c_bv;
   unsigned c_start, c_count, c_len;
   size_t c_read;
 
@@ -452,14 +439,13 @@ SCM_DEFINE (scm_get_bytevector_n_x, "get-bytevector-n!", 4, 0, 0,
   c_start = scm_to_uint (start);
   c_count = scm_to_uint (count);
 
-  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
   c_len = SCM_BYTEVECTOR_LENGTH (bv);
 
   if (SCM_UNLIKELY (c_start + c_count > c_len))
     scm_out_of_range (FUNC_NAME, count);
 
   if (SCM_LIKELY (c_count > 0))
-    c_read = scm_c_read_unlocked (port, c_bv + c_start, c_count);
+    c_read = scm_c_read_bytes (port, bv, c_start, c_count);
   else
     /* Don't invoke `scm_c_read ()' since it may block.  */
     c_read = 0;
@@ -513,14 +499,13 @@ SCM_DEFINE (scm_get_bytevector_all, "get-bytevector-all", 1, 0, 0,
 #define FUNC_NAME s_scm_get_bytevector_all
 {
   SCM result;
-  char *c_bv;
   unsigned c_len, c_count;
   size_t c_read, c_total;
 
   SCM_VALIDATE_BINARY_INPUT_PORT (1, port);
 
   c_len = c_count = 4096;
-  c_bv = (char *) scm_gc_malloc_pointerless (c_len, SCM_GC_BYTEVECTOR);
+  result = scm_c_make_bytevector (c_count);
   c_total = c_read = 0;
 
   do
@@ -528,37 +513,27 @@ SCM_DEFINE (scm_get_bytevector_all, "get-bytevector-all", 1, 0, 0,
       if (c_total + c_read > c_len)
 	{
 	  /* Grow the bytevector.  */
-	  c_bv = (char *) scm_gc_realloc (c_bv, c_len, c_len * 2,
-					  SCM_GC_BYTEVECTOR);
+          SCM prev = result;
+          result = scm_c_make_bytevector (c_len * 2);
+          memcpy (SCM_BYTEVECTOR_CONTENTS (result),
+                  SCM_BYTEVECTOR_CONTENTS (prev),
+                  c_total);
 	  c_count = c_len;
 	  c_len *= 2;
 	}
 
       /* `scm_c_read ()' blocks until C_COUNT bytes are available or EOF is
 	 reached.  */
-      c_read = scm_c_read_unlocked (port, c_bv + c_total, c_count);
+      c_read = scm_c_read_bytes (port, result, c_total, c_count);
       c_total += c_read, c_count -= c_read;
     }
   while (c_count == 0);
 
   if (c_total == 0)
-    {
-      result = SCM_EOF_VAL;
-      scm_gc_free (c_bv, c_len, SCM_GC_BYTEVECTOR);
-    }
-  else
-    {
-      if (c_len > c_total)
-	{
-	  /* Shrink the bytevector.  */
-	  c_bv = (char *) scm_gc_realloc (c_bv, c_len, c_total,
-					  SCM_GC_BYTEVECTOR);
-	  c_len = (unsigned) c_total;
-	}
+    return SCM_EOF_VAL;
 
-      result = scm_c_take_gc_bytevector ((signed char *) c_bv, c_len,
-                                         SCM_BOOL_F);
-    }
+  if (c_len > c_total)
+    return scm_c_shrink_bytevector (result, c_total);
 
   return result;
 }
@@ -596,14 +571,12 @@ SCM_DEFINE (scm_put_bytevector, "put-bytevector", 2, 2, 0,
 	    "octets.")
 #define FUNC_NAME s_scm_put_bytevector
 {
-  char *c_bv;
   unsigned c_start, c_count, c_len;
 
   SCM_VALIDATE_BINARY_OUTPUT_PORT (1, port);
   SCM_VALIDATE_BYTEVECTOR (2, bv);
 
   c_len = SCM_BYTEVECTOR_LENGTH (bv);
-  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
 
   if (!scm_is_eq (start, SCM_UNDEFINED))
     {
@@ -626,7 +599,7 @@ SCM_DEFINE (scm_put_bytevector, "put-bytevector", 2, 2, 0,
   else
     c_start = 0, c_count = c_len;
 
-  scm_c_write_unlocked (port, c_bv + c_start, c_count);
+  scm_c_write_bytes (port, bv, c_start, c_count);
 
   return SCM_UNSPECIFIED;
 }
@@ -777,21 +750,22 @@ make_bytevector_output_port (void)
 }
 
 /* Write octets from WRITE_BUF to the backing store.  */
-static void
-bytevector_output_port_write (SCM port, scm_t_port_buffer *write_buf)
+static size_t
+bytevector_output_port_write (SCM port, SCM src, size_t start, size_t count)
 {
-  size_t count;
   scm_t_bytevector_output_port_buffer *buf;
 
   buf = SCM_BYTEVECTOR_OUTPUT_PORT_BUFFER (port);
-  count = write_buf->end - write_buf->cur;
 
   if (buf->pos + count > buf->total_len)
     bytevector_output_port_buffer_grow (buf, buf->pos + count);
 
-  memcpy (buf->buffer + buf->pos, write_buf->buf + write_buf->cur, count);
+  memcpy (buf->buffer + buf->pos, SCM_BYTEVECTOR_CONTENTS (src) + start, count);
+
   buf->pos += count;
   buf->len = (buf->len > buf->pos) ? buf->len : buf->pos;
+
+  return count;
 }
 
 static scm_t_off
@@ -909,41 +883,35 @@ make_custom_binary_output_port (SCM write_proc, SCM get_position_proc,
 }
 
 /* Flush octets from BUF to the backing store.  */
-static void
-custom_binary_output_port_write (SCM port, scm_t_port_buffer *buf)
+static size_t
+custom_binary_output_port_write (SCM port, SCM src, size_t start, size_t count)
 #define FUNC_NAME "custom_binary_output_port_write"
 {
-  size_t size, written;
+  size_t written;
   struct custom_binary_port *stream = (void *) SCM_STREAM (port);
-  SCM bv;
-
-  /* FIXME: If BUF is the same as PORT->write_buf, then the data is
-     GC-managed and we could avoid allocating a new bytevector backing
-     store.  Otherwise we have to copy, as we do here.  */
-  size = buf->end - buf->cur;
-  bv = scm_c_make_bytevector (size);
-  memcpy (SCM_BYTEVECTOR_CONTENTS (bv), buf->buf + buf->cur, size);
 
   /* Since the `write' procedure of Guile's ports has type `void', it must
      try hard to write exactly SIZE bytes, regardless of how many bytes the
      sink can handle.  */
   written = 0;
-  while (written < size)
+  while (written < count)
     {
       long int c_result;
       SCM result;
 
-      result = scm_call_3 (stream->write, bv,
-			   scm_from_size_t (written),
-			   scm_from_size_t (size - written));
+      result = scm_call_3 (stream->write, src,
+			   scm_from_size_t (start + written),
+			   scm_from_size_t (count - written));
 
       c_result = scm_to_long (result);
-      if (c_result < 0 || (size_t) c_result > (size - written))
+      if (c_result < 0 || (size_t) c_result > (count - written))
 	scm_wrong_type_arg_msg (FUNC_NAME, 0, result,
 				"R6RS custom binary output port `write!' "
 				"returned a incorrect integer");
       written += c_result;
     }
+
+  return written;
 }
 #undef FUNC_NAME
 
@@ -1008,32 +976,19 @@ make_transcoded_port (SCM binary_port, unsigned long mode)
   return port;
 }
 
-static void
-transcoded_port_write (SCM port, scm_t_port_buffer *buf)
+static size_t
+transcoded_port_write (SCM port, SCM src, size_t start, size_t count)
 {
   SCM bport = SCM_TRANSCODED_PORT_BINARY_PORT (port);
-  scm_c_write_unlocked (bport, buf->buf + buf->cur, buf->end - buf->cur);
+  scm_c_write_bytes (bport, src, start, count);
+  return count;
 }
 
-static void
-transcoded_port_read (SCM port, scm_t_port_buffer *buf)
+static size_t
+transcoded_port_read (SCM port, SCM dst, size_t start, size_t count)
 {
-  size_t count;
-  scm_t_port_buffer *bport_buf;
-
-  /* We can't use `scm_c_read' here, since it blocks until the whole
-     block has been read or EOF. */
-  
-  bport_buf = scm_fill_input (SCM_TRANSCODED_PORT_BINARY_PORT (port));
-  /* Consume EOF from bport.  */
-  bport_buf->has_eof = 0;
-  count = bport_buf->end - bport_buf->cur;
-  if (count > buf->size - buf->end)
-    count = buf->size - buf->end;
-
-  memcpy (buf->buf + buf->end, bport_buf->buf + bport_buf->cur, count);
-  bport_buf->cur += count;
-  buf->end += count;
+  SCM bport = SCM_TRANSCODED_PORT_BINARY_PORT (port);
+  return scm_c_read_bytes (bport, dst, start, count);
 }
 
 static void

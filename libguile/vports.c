@@ -72,27 +72,30 @@ soft_port_get_natural_buffer_sizes (SCM port, size_t *read_size,
   *write_size = 1;
 }
 
-static void
-soft_port_write (SCM port, scm_t_port_buffer *buf)
+static size_t
+soft_port_write (SCM port, SCM src, size_t start, size_t count)
 {
   struct soft_port *stream = (void *) SCM_STREAM (port);
-  scm_t_uint8 * ptr = buf->buf + buf->cur;
-  SCM str = scm_from_port_stringn ((char *) ptr, buf->end - buf->cur, port);
-  buf->end = buf->cur = 0;
+  signed char * ptr = SCM_BYTEVECTOR_CONTENTS (src) + start;
 
-  scm_call_1 (stream->write_string, str);
+  scm_call_1 (stream->write_string,
+              scm_from_port_stringn ((char *) ptr, count, port));
 
   /* Backwards compatibility.  */
   if (scm_is_true (stream->flush))
     scm_call_0 (stream->flush);
+
+  return count;
 }
 
 /* places a single char in the input buffer.  */
-static void
-soft_port_read (SCM port, scm_t_port_buffer *dst)
+static size_t
+soft_port_read (SCM port, SCM dst, size_t start, size_t count)
 {
+  size_t written;
   struct soft_port *stream = (void *) SCM_STREAM (port);
   scm_t_port_buffer *encode_buf = stream->encode_buf;
+  signed char *dst_ptr = SCM_BYTEVECTOR_CONTENTS (dst) + start;
 
   /* A character can be more than one byte, but we don't have a
      guarantee that there is more than one byte in the read buffer.  So,
@@ -106,7 +109,7 @@ soft_port_read (SCM port, scm_t_port_buffer *dst)
 
       ans = scm_call_0 (stream->read_char);
       if (scm_is_false (ans) || SCM_EOF_OBJECT_P (ans))
-        return;
+        return 0;
       SCM_ASSERT (SCM_CHARP (ans), ans, SCM_ARG1, "soft_port_read");
 
       /* It's possible to make a fast path here, but it would be fastest
@@ -119,8 +122,12 @@ soft_port_read (SCM port, scm_t_port_buffer *dst)
       free (str);
     }
 
-  while (dst->end < dst->size && encode_buf->cur < encode_buf->end)
-    dst->buf[dst->end++] = encode_buf->buf[encode_buf->cur++];
+  for (written = 0;
+       written < count && encode_buf->cur < encode_buf->end;
+       written++, encode_buf->cur++)
+    dst_ptr[written] = encode_buf->buf[encode_buf->cur];
+
+  return written;
 }
 
 

@@ -578,29 +578,29 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 
 /* fill a port's read-buffer with a single read.  returns the first
    char or EOF if end of file.  */
-static void
-fport_read (SCM port, scm_t_port_buffer *dst)
+static size_t
+fport_read (SCM port, SCM dst, size_t start, size_t count)
 {
-  long count;
+  long res;
   scm_t_fport *fp = SCM_FSTREAM (port);
-  scm_t_uint8 *ptr = dst->buf + dst->end;
-  size_t size = dst->size - dst->end;
+  signed char *ptr = SCM_BYTEVECTOR_CONTENTS (dst) + start;
 
-  SCM_SYSCALL (count = read (fp->fdes, ptr, size));
-  if (count == -1)
+  SCM_SYSCALL (res = read (fp->fdes, ptr, count));
+  if (res == -1)
     scm_syserror ("fport_read");
-  dst->end += count;
+  return res;
 }
 
-static void
-fport_write (SCM port, scm_t_port_buffer *src)
+static size_t
+fport_write (SCM port, SCM src, size_t start, size_t count)
 {
   int fd = SCM_FPORT_FDES (port);
-  scm_t_uint8 *ptr = src->buf + src->cur;
-  size_t size = src->end - src->cur;
+  signed char *ptr = SCM_BYTEVECTOR_CONTENTS (src) + start;
 
-  if (full_write (fd, ptr, size) < size)
+  if (full_write (fd, ptr, count) < count)
     scm_syserror ("fport_write");
+
+  return count;
 }
 
 static scm_t_off

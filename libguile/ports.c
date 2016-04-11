@@ -229,8 +229,10 @@ static const size_t default_buffer_size = 1024;
 
 scm_t_bits
 scm_make_port_type (char *name,
-		    void (*read) (SCM port, scm_t_port_buffer *buf),
-		    void (*write) (SCM port, scm_t_port_buffer *buf))
+                    size_t (*read) (SCM port, SCM dst, size_t start,
+                                    size_t count),
+                    size_t (*write) (SCM port, SCM src, size_t start,
+                                     size_t count))
 {
   scm_t_ptob_descriptor *desc;
   long ptobnum;
@@ -527,7 +529,8 @@ scm_c_make_port_buffer (size_t size)
   scm_t_port_buffer *ret = scm_gc_typed_calloc (scm_t_port_buffer);
 
   ret->size = size;
-  ret->buf = scm_gc_malloc_pointerless (ret->size, "port buffer");
+  ret->bytevector = scm_c_make_bytevector (size);
+  ret->buf = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (ret->bytevector);
 
   return ret;
 }
@@ -1432,33 +1435,51 @@ scm_peek_byte_or_eof (SCM port)
   return ret;
 }
 
+static size_t
+scm_i_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
+{
+  size_t filled;
+  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+
+  assert (count <= SCM_BYTEVECTOR_LENGTH (dst));
+  assert (start + count <= SCM_BYTEVECTOR_LENGTH (dst));
+
+  filled = ptob->read (port, dst, start, count);
+
+  assert (filled <= count);
+
+  return filled;
+}
+
 /* scm_i_read_unlocked is used internally to add bytes to the given port
    buffer.  If the number of available bytes in the buffer does not
    increase after a call to scm_i_read_unlocked, that indicates EOF.  */
 static void
 scm_i_read_unlocked (SCM port, scm_t_port_buffer *buf)
 {
-  size_t prev_end = buf->end;
+  size_t count;
+
   assert (buf->end < buf->size);
 
-  SCM_PORT_DESCRIPTOR (port)->read (port, buf);
-  buf->has_eof = buf->end == prev_end;
+  count = scm_i_read_bytes_unlocked (port, buf->bytevector, buf->end,
+                                     buf->size - buf->end);
+  buf->end += count;
+  buf->has_eof = count == 0;
 }
 
-/* scm_c_read
- *
- * Used by an application to read arbitrary number of bytes from an SCM
- * port.  Same semantics as libc read, except that scm_c_read only
- * returns less than SIZE bytes if at end-of-file.
- *
- * Warning: Doesn't update port line and column counts!  */
-size_t
-scm_c_read_unlocked (SCM port, void *buffer, size_t size)
-#define FUNC_NAME "scm_c_read"
+/* Used by an application to read arbitrary number of bytes from an SCM
+   port.  Same semantics as libc read, except that scm_c_read_bytes only
+   returns less than SIZE bytes if at end-of-file.
+
+   Warning: Doesn't update port line and column counts!  */
+static size_t
+scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
+#define FUNC_NAME "scm_c_read_bytes"
 {
+  size_t to_read = count;
   scm_t_port *pt;
   scm_t_port_buffer *read_buf;
-  scm_t_port_buffer dst_buf = { buffer, 0, 0, size, 0, NULL };
+  signed char *dst_ptr = SCM_BYTEVECTOR_CONTENTS (dst) + start;
 
   SCM_VALIDATE_OPINPORT (1, port);
 
@@ -1475,45 +1496,114 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
   /* Take bytes first from the port's read buffer. */
   if (read_buf->cur < read_buf->end)
     {
-      size_t to_read = dst_buf.size - dst_buf.end;
-      to_read = min (to_read, read_buf->end - read_buf->cur);
-      memcpy (dst_buf.buf + dst_buf.end, read_buf->buf + read_buf->cur,
-              to_read);
-      dst_buf.end += to_read;
-      read_buf->cur += to_read;
+      size_t to_copy = count;
+      to_copy = min (to_copy, read_buf->end - read_buf->cur);
+      memcpy (dst_ptr, read_buf->buf + read_buf->cur, to_copy);
+      dst_ptr += to_copy;
+      to_read -= to_copy;
+      read_buf->cur += to_copy;
     }
 
-  while (dst_buf.end < dst_buf.size)
-    /* If the read buffering is larger than our read size, buffer the
-       read.  Otherwise read into our buffer directly.  */
-    if (dst_buf.size - dst_buf.end < pt->read_buffering)
-      {
-        size_t to_read = dst_buf.size - dst_buf.end;
-        read_buf = scm_fill_input_unlocked (port);
-        if (to_read > read_buf->end - read_buf->cur)
-          to_read = read_buf->end - read_buf->cur;
-        if (to_read == 0)
-          {
-            /* Consider that we've read off this EOF.  */
-            read_buf->has_eof = 0;
-            break;
-          }
-        memcpy (dst_buf.buf + dst_buf.end,
-                read_buf->buf + read_buf->cur,
-                to_read);
-        read_buf->cur += to_read;
-        dst_buf.end += to_read;
-      }
-    else
-      {
-        scm_i_read_unlocked (port, &dst_buf);
-        if (dst_buf.has_eof)
-          break;
-      }
+  while (to_read)
+    {
+      /* If the read is smaller than the buffering on the read side of
+         this port, then go through the buffer.  Otherwise fill our
+         buffer directly.  */
+      if (to_read < pt->read_buffering)
+        {
+          size_t to_copy = to_read;
+          read_buf = scm_fill_input_unlocked (port);
+          to_copy = min (to_copy, read_buf->end - read_buf->cur);
+          memcpy (dst_ptr, read_buf->buf + read_buf->cur, to_copy);
+          if (to_copy == 0)
+            {
+              /* Consider that we've read off this EOF.  */
+              read_buf->has_eof = 0;
+              break;
+            }
+          dst_ptr += to_copy;
+          to_read -= to_copy;
+          read_buf->cur += to_copy;
+        }
+      else
+        {
+          size_t filled;
 
-  return dst_buf.end;
+          filled = scm_i_read_bytes_unlocked (port, dst,
+                                              start + count - to_read,
+                                              to_read);
+          if (filled == 0)
+            break;
+          to_read -= filled;
+          dst_ptr += filled;
+        }
+    }
+
+  return count - to_read;
 }
 #undef FUNC_NAME
+
+/* Like scm_c_read_bytes, but always proxies reads through the port's
+   read buffer.  Used by an application when it wants to read into a
+   memory chunk that's not owned by Guile's GC.  */
+size_t
+scm_c_read_unlocked (SCM port, void *buffer, size_t size)
+#define FUNC_NAME "scm_c_read"
+{
+  size_t copied = 0;
+  scm_t_port *pt;
+  scm_t_port_buffer *read_buf;
+  scm_t_uint8 *dst = buffer;
+
+  SCM_VALIDATE_OPINPORT (1, port);
+
+  pt = SCM_PTAB_ENTRY (port);
+  read_buf = pt->read_buf;
+
+  if (pt->rw_random)
+    {
+      if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush_unlocked (port);
+      pt->rw_active = SCM_PORT_READ;
+    }
+
+  while (copied < size)
+    {
+      read_buf = scm_fill_input_unlocked (port);
+      /* Take bytes first from the port's read buffer. */
+      if (read_buf->cur < read_buf->end)
+        {
+          size_t to_copy = size - copied;
+          to_copy = min (to_copy, read_buf->end - read_buf->cur);
+          memcpy (dst + copied, read_buf->buf + read_buf->cur, to_copy);
+          copied += to_copy;
+          read_buf->cur += to_copy;
+        }
+      else
+        {
+          /* Consider that we've read off this EOF.  */
+          read_buf->has_eof = 0;
+          break;
+        }
+    }
+
+  return copied;
+}
+#undef FUNC_NAME
+
+size_t
+scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count)
+{
+  scm_i_pthread_mutex_t *lock;
+  size_t ret;
+
+  scm_c_lock_port (port, &lock);
+  ret = scm_c_read_bytes_unlocked (port, dst, start, count);
+  if (lock)
+    scm_i_pthread_mutex_unlock (lock);
+
+  return ret;
+}
 
 size_t
 scm_c_read (SCM port, void *buffer, size_t size)
@@ -2447,13 +2537,14 @@ SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
 }
 #undef FUNC_NAME
 
+static void scm_i_write_unlocked (SCM port, scm_t_port_buffer *src);
+
 void
 scm_flush_unlocked (SCM port)
 {
   scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->write_buf;
   if (buf->cur < buf->end)
-    SCM_PORT_DESCRIPTOR (port)->write (port, buf);
-  buf->cur = buf->end = 0;
+    scm_i_write_unlocked (port, buf);
   SCM_PTAB_ENTRY (port)->rw_active = SCM_PORT_NEITHER;
 }
 
@@ -2520,27 +2611,56 @@ scm_puts (const char *s, SCM port)
     scm_i_pthread_mutex_unlock (lock);
 }
   
-/* scm_c_write
- *
- * Used by an application to write arbitrary number of bytes to an SCM
- * port.  Similar semantics as libc write.  However, unlike libc
- * write, scm_c_write writes the requested number of bytes and has no
- * return value.
- *
- * Warning: Doesn't update port line and column counts!
- */
-void
-scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
-#define FUNC_NAME "scm_c_write"
+static void
+scm_i_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
+{
+  size_t written;
+  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+
+  assert (count <= SCM_BYTEVECTOR_LENGTH (src));
+  assert (start + count <= SCM_BYTEVECTOR_LENGTH (src));
+
+  written = ptob->write (port, src, start, count);
+
+  /* FIXME: Allow short writes?  */
+  assert (written == count);
+}
+
+static void
+scm_i_write_unlocked (SCM port, scm_t_port_buffer *src)
+{
+  size_t start, count;
+
+  assert (src->cur < src->end);
+  assert (src->end <= src->size);
+
+  /* Update cursors before attempting to write, assuming that I/O errors
+     are sticky.  That way if the write throws an error, causing the
+     computation to abort, and possibly causing the port to be collected
+     by GC when it's open, any subsequent close-port / force-output
+     won't signal *another* error.  */
+
+  start = src->cur;
+  count = src->end - src->cur;
+  src->cur = src->end = 0;
+  scm_i_write_bytes_unlocked (port, src->bytevector, start, count);
+}
+
+/* Used by an application to write arbitrary number of bytes to an SCM
+   port.  Similar semantics as libc write.  However, unlike libc write,
+   scm_c_write writes the requested number of bytes.
+
+   Warning: Doesn't update port line and column counts!  */
+static size_t
+scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
+#define FUNC_NAME "scm_c_write_bytes"
 {
   scm_t_port *pt;
   scm_t_port_buffer *write_buf;
-  scm_t_ptob_descriptor *ptob;
 
   SCM_VALIDATE_OPOUTPORT (1, port);
 
   pt = SCM_PTAB_ENTRY (port);
-  ptob = SCM_PORT_DESCRIPTOR (port);
   write_buf = pt->write_buf;
 
   if (pt->rw_random)
@@ -2550,7 +2670,7 @@ scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
       pt->rw_active = SCM_PORT_WRITE;
     }
 
-  if (size < write_buf->size)
+  if (count < write_buf->size)
     {
       /* Make it so that write_buf->end is only nonzero if there are
          buffered bytes already.  */
@@ -2562,36 +2682,72 @@ scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
          flush it beforehand.  Otherwise it could be that the buffer is
          full after filling it with the new data; if that's the case, we
          flush then instead.  */
-      if (write_buf->end + size > write_buf->size)
-        {
-          ptob->write (port, write_buf);
-          write_buf->cur = write_buf->end = 0;
-        }
+      if (write_buf->end + count > write_buf->size)
+        scm_i_write_unlocked (port, write_buf);
 
-      memcpy (write_buf->buf + write_buf->end, ptr, size);
-      write_buf->end += size;
+      memcpy (write_buf->buf + write_buf->end,
+              SCM_BYTEVECTOR_CONTENTS (src) + start,
+              count);
+      write_buf->end += count;
 
       if (write_buf->end == write_buf->size)
-        {
-          ptob->write (port, write_buf);
-          write_buf->cur = write_buf->end = 0;
-        }
+        scm_i_write_unlocked (port, write_buf);
     }
   else
     {
       /* Our write would overflow the buffer.  Flush buffered bytes (if
          needed), then write our bytes with just one syscall.  */
-
-      scm_t_port_buffer ad_hoc_buf =
-        { (scm_t_uint8 *) ptr, 0, size, size, 0, NULL };
+      size_t written;
 
       if (write_buf->cur < write_buf->end)
-        {
-          ptob->write (port, write_buf);
-          write_buf->cur = write_buf->end = 0;
-        }
+        scm_i_write_unlocked (port, write_buf);
 
-      ptob->write (port, &ad_hoc_buf);
+      written = SCM_PORT_DESCRIPTOR (port)->write (port, src, start, count);
+      assert (written == count);
+    }
+
+  return count;
+}
+#undef FUNC_NAME
+
+/* Like scm_c_write_bytes, but always writes through the write buffer.
+   Used when an application wants to write bytes stored in an area not
+   managed by GC.  */
+void
+scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
+#define FUNC_NAME "scm_c_write"
+{
+  scm_t_port *pt;
+  scm_t_port_buffer *write_buf;
+  size_t written = 0;
+  const scm_t_uint8 *src = ptr;
+
+  SCM_VALIDATE_OPOUTPORT (1, port);
+
+  pt = SCM_PTAB_ENTRY (port);
+  write_buf = pt->write_buf;
+
+  if (pt->rw_random)
+    {
+      if (pt->rw_active == SCM_PORT_READ)
+        scm_end_input_unlocked (port);
+      pt->rw_active = SCM_PORT_WRITE;
+    }
+
+  while (written < size)
+    {
+      size_t to_write = write_buf->size - write_buf->end;
+
+      if (to_write > size - written)
+        to_write = size - written;
+
+      memcpy (write_buf->buf + write_buf->end, src, to_write);
+      write_buf->end += to_write;
+      written += to_write;
+      src += to_write;
+
+      if (write_buf->end == write_buf->size)
+        scm_i_write_unlocked (port, write_buf);
     }
 }
 #undef FUNC_NAME
@@ -2602,6 +2758,16 @@ scm_c_write (SCM port, const void *ptr, size_t size)
   scm_i_pthread_mutex_t *lock;
   scm_c_lock_port (port, &lock);
   scm_c_write_unlocked (port, ptr, size);
+  if (lock)
+    scm_i_pthread_mutex_unlock (lock);
+}
+
+void
+scm_c_write_bytes (SCM port, SCM src, size_t start, size_t count)
+{
+  scm_i_pthread_mutex_t *lock;
+  scm_c_lock_port (port, &lock);
+  scm_c_write_bytes_unlocked (port, src, start, count);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
 }
@@ -2846,7 +3012,6 @@ SCM_DEFINE (scm_truncate_file, "truncate-file", 1, 1, 0,
   else if (SCM_OPOUTPORTP (object))
     {
       off_t_or_off64_t c_length = scm_to_off_t_or_off64_t (length);
-      scm_t_port *pt = SCM_PTAB_ENTRY (object);
       scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (object);
 
       if (!ptob->truncate)
@@ -3082,14 +3247,16 @@ SCM_DEFINE (scm_flush_all_ports, "flush-all-ports", 0, 0, 0,
 
 scm_t_bits scm_tc16_void_port = 0;
 
-static void
-void_port_read (SCM port, scm_t_port_buffer *buf)
+static size_t
+void_port_read (SCM port, SCM dst, size_t start, size_t count)
 {
+  return 0;
 }
 
-static void
-void_port_write (SCM port, scm_t_port_buffer *buf)
+static size_t
+void_port_write (SCM port, SCM src, size_t start, size_t count)
 {
+  return count;
 }
 
 static SCM

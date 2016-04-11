@@ -60,31 +60,29 @@ struct string_port {
   size_t len;
 };
 
-static void
-string_port_read (SCM port, scm_t_port_buffer *dst)
+static size_t
+string_port_read (SCM port, SCM dst, size_t start, size_t count)
 {
-  size_t count;
   struct string_port *stream = (void *) SCM_STREAM (port);
 
   if (stream->pos >= stream->len)
-    return;
+    return 0;
 
-  count = stream->len - stream->pos;
-  if (count > dst->size - dst->end)
-    count = dst->size - dst->end;
+  if (count > stream->len - stream->pos)
+    count = stream->len - stream->pos;
 
-  memcpy (dst->buf + dst->end,
+  memcpy (SCM_BYTEVECTOR_CONTENTS (dst) + start,
           SCM_BYTEVECTOR_CONTENTS (stream->bytevector) + stream->pos,
           count);
-  dst->end += count;
+
   stream->pos += count;
+  return count;
 }
 
-static void
-string_port_write (SCM port, scm_t_port_buffer *src)
+static size_t
+string_port_write (SCM port, SCM src, size_t start, size_t count)
 {
   struct string_port *stream = (void *) SCM_STREAM (port);
-  size_t count = src->end - src->cur;
 
   if (SCM_BYTEVECTOR_LENGTH (stream->bytevector) < stream->pos + count)
     {
@@ -101,12 +99,13 @@ string_port_write (SCM port, scm_t_port_buffer *src)
     }
 
   memcpy (SCM_BYTEVECTOR_CONTENTS (stream->bytevector) + stream->pos,
-          src->buf + src->cur,
+          SCM_BYTEVECTOR_CONTENTS (src) + start,
           count);
-  src->cur += count;
   stream->pos += count;
   if (stream->pos > stream->len)
     stream->len = stream->pos;
+
+  return count;
 }
 
 static scm_t_off

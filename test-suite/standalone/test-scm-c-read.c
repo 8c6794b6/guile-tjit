@@ -54,18 +54,20 @@ make_port (scm_t_bits port_type)
   return scm_c_make_port (port_type, SCM_RDNG, (scm_t_bits) stream);
 }
 
-static void
-custom_port_read (SCM port, scm_t_port_buffer *dst)
+static size_t
+custom_port_read (SCM port, SCM dst, size_t start, size_t count)
 {
-  size_t to_copy = dst->size - dst->end;
+  size_t to_copy = count;
   struct custom_port *stream = (void *) SCM_STREAM (port);
 
   if (stream->pos + to_copy > stream->len)
     to_copy = stream->len - stream->pos;
 
-  memcpy (dst->buf + dst->end, stream->buf + stream->pos, to_copy);
+  memcpy (SCM_BYTEVECTOR_CONTENTS (dst) + start,
+          stream->buf + stream->pos, to_copy);
   stream->pos += to_copy;
-  dst->end += to_copy;
+
+  return to_copy;
 }
 
 /* Return true (non-zero) if BUF contains only zeros.  */

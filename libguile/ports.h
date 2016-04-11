@@ -87,8 +87,8 @@ typedef struct
      peek-u8 should still return EOF.  */
   int has_eof;
 
-  /* Heap object that keeps `buf' alive. */
-  void *holder;
+  /* Bytevector whose contents are [BUF, BUF + SIZE). */
+  SCM bytevector;
 } scm_t_port_buffer;
 
 
@@ -204,8 +204,8 @@ typedef struct scm_t_ptob_descriptor
   char *name;
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
 
-  void (*read) (SCM port, scm_t_port_buffer *dst);
-  void (*write) (SCM port, scm_t_port_buffer *src);
+  size_t (*read) (SCM port, SCM dst, size_t start, size_t count);
+  size_t (*write) (SCM port, SCM src, size_t start, size_t count);
   scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
   void (*close) (SCM port);
 
@@ -230,8 +230,8 @@ SCM_API scm_t_ptob_descriptor* scm_c_port_type_ref (long ptobnum);
 SCM_API long scm_c_port_type_add_x (scm_t_ptob_descriptor *desc);
 SCM_API scm_t_bits scm_make_port_type
 	(char *name,
-         void (*read) (SCM port, scm_t_port_buffer *dst),
-         void (*write) (SCM port, scm_t_port_buffer *src));
+         size_t (*read) (SCM port, SCM dst, size_t start, size_t count),
+         size_t (*write) (SCM port, SCM src, size_t start, size_t count));
 SCM_API void scm_set_port_print (scm_t_bits tc,
 				 int (*print) (SCM exp,
 					       SCM port,
@@ -323,6 +323,7 @@ SCM_INLINE int scm_peek_byte_or_eof_unlocked (SCM port);
 SCM_API int scm_slow_peek_byte_or_eof_unlocked (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API size_t scm_c_read_unlocked (SCM port, void *buffer, size_t size);
+SCM_API size_t scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count);
 SCM_API scm_t_wchar scm_getc (SCM port);
 SCM_API scm_t_wchar scm_getc_unlocked (SCM port);
 SCM_API SCM scm_read_char (SCM port);
@@ -359,6 +360,7 @@ SCM_API void scm_puts (const char *str_data, SCM port);
 SCM_INLINE void scm_puts_unlocked (const char *str_data, SCM port);
 SCM_API void scm_c_write (SCM port, const void *buffer, size_t size);
 SCM_API void scm_c_write_unlocked (SCM port, const void *buffer, size_t size);
+SCM_API void scm_c_write_bytes (SCM port, SCM src, size_t start, size_t count);
 SCM_API void scm_lfwrite (const char *ptr, size_t size, SCM port);
 SCM_API void scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port);
 SCM_INTERNAL void scm_lfwrite_substr (SCM str, size_t start, size_t end,
