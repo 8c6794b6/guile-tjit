@@ -105,4 +105,15 @@
 ;; XXX: tail-apply
 ;; XXX: call/cc
 ;; XXX: abort
-;; XXX: builtin-ref
+
+(define-ir (builtin-ref (scm! dst) (const idx))
+  (let ((ref (case idx
+               ((0) apply)
+               ((1) values)
+               ((2) abort-to-prompt)
+               ((3) call-with-values)
+               ((4) call-with-current-continuation)
+               (else
+                (tjitc-error 'builtin-ref "unknown builtin ~a" idx)))))
+    `(let ((,(var-ref dst) ,(object-address ref)))
+       ,(next))))

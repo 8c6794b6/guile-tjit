@@ -59,6 +59,7 @@ TESTS = \
 	t-br-if-u64-le-scm-01.scm \
 	t-br-if-u64-=-scm-01.scm \
 	t-br-if-u64-=-scm-02.scm \
+	t-builtin-ref-01.scm \
 	t-bv-length-01.scm \
 	t-bv-u8-ref-01.scm \
 	t-bv-u8-ref-02.scm \
