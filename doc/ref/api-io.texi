@@ -2289,7 +2289,10 @@ The port buffer consists of data as a byte array, pointed to by its
 @code{buf} field.  The valid data in the buffer is between the
 @code{cur} and @code{end} indices into @code{buf}; @code{cur} must
 always be less than or equal to @code{end}, which in turn must be less
-than or equal to the buffer size @code{size}.
+than or equal to the buffer size @code{size}.  The @code{buf} pointer is
+actually a pointer to the start of a bytevector, stored in the
+@code{bytevector} member.  Using bytevectors to back port buffers allows
+Scheme to manipulate these buffers.
 
 ``Valid data'' for a read buffer is data that has been buffered, but not
 yet read by the user.  A port's @code{read} procedure fills a read
@@ -2330,7 +2333,7 @@ implementation.
 
 A port type object is created by calling @code{scm_make_port_type}.
 
-@deftypefun scm_t_bits scm_make_port_type (char *name, void (*read) (SCM port, scm_t_port_buffer *dst), void (*write) (SCM port, scm_t_port_buffer *src))
+@deftypefun scm_t_bits scm_make_port_type (char *name, size_t (*read) (SCM port, SCM dst, size_t start, size_t count), size_t (*write) (SCM port, SCM src, size_t start, size_t count))
 Return a new port type object.  The @var{name}, @var{read} and
 @var{write} parameters are initial values for those port type fields, as
 described below.  The other fields are initialized with default values
@@ -2349,15 +2352,16 @@ a procedure.  Set via the first argument to @code{scm_make_port_type}.
 
 @item read
 A port's @code{read} implementation fills read buffers.  It should copy
-bytes to the supplied port buffer object, advancing the buffer's
-@code{end} field as appropriate, but not past the buffer's @code{size}
-field.
+bytes to the supplied bytevector @code{dst}, starting at offset
+@code{start} and continuing for @code{count} bytes, returning the number
+of bytes read.
 
 @item write
 A port's @code{write} implementation flushes write buffers to the
-mutable store.  It should copy bytes from the supplied port buffer
-object, advancing the buffer's @code{cur} field as appropriate, but not
-past the buffer's @code{end} field.
+mutable store.  A port's @code{read} implementation fills read buffers.
+It should write out bytes from the supplied bytevector @code{src},
+starting at offset @code{start} and continuing for @code{count} bytes,
+and return the number of bytes that were written.
 
 @item print
 Called when @code{write} is called on the port object, to print a
