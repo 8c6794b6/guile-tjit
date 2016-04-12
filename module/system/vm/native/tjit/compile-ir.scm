@@ -153,7 +153,7 @@ Currently does nothing, returns the given argument."
                    (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
                           n initial-sp-offset (pretty-type parent-type)
                           (pretty-type snapshot-type))
-                   (and (not (env-loop? env))
+                   (and (env-parent-snapshot env)
                         (or (and parent-type
                                  snapshot-type
                                  (eq? parent-type snapshot-type))
