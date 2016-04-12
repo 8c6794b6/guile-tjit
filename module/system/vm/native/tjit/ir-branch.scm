@@ -251,6 +251,13 @@
                `(let ((_ ,(take-snapshot! ip dest)))
                   (let ((_ (,op ,va ,vb)))
                     ,(next))))
+              ((and (eq? &flonum a/t) (eq? &scm b/t))
+               (let ((f2 (make-tmpvar/f 2)))
+                 (with-type-guard &flonum vb
+                   (lambda ()
+                     `(let ((,f2 (%cref/f ,vb 2)))
+                        (let ((_ (,op ,va ,f2)))
+                          ,(next)))))))
               ((and (eq? &scm a/t) (eq? &flonum b/t))
                (let ((f2 (make-tmpvar/f 2)))
                  (with-type-guard &flonum va
