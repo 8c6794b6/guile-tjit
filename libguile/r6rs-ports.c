@@ -887,29 +887,18 @@ static size_t
 custom_binary_output_port_write (SCM port, SCM src, size_t start, size_t count)
 #define FUNC_NAME "custom_binary_output_port_write"
 {
-  size_t written;
   struct custom_binary_port *stream = (void *) SCM_STREAM (port);
+  size_t written;
+  SCM result;
 
-  /* Since the `write' procedure of Guile's ports has type `void', it must
-     try hard to write exactly SIZE bytes, regardless of how many bytes the
-     sink can handle.  */
-  written = 0;
-  while (written < count)
-    {
-      long int c_result;
-      SCM result;
+  result = scm_call_3 (stream->write, src, scm_from_size_t (start),
+                       scm_from_size_t (count));
 
-      result = scm_call_3 (stream->write, src,
-			   scm_from_size_t (start + written),
-			   scm_from_size_t (count - written));
-
-      c_result = scm_to_long (result);
-      if (c_result < 0 || (size_t) c_result > (count - written))
-	scm_wrong_type_arg_msg (FUNC_NAME, 0, result,
-				"R6RS custom binary output port `write!' "
-				"returned a incorrect integer");
-      written += c_result;
-    }
+  written = scm_to_size_t (result);
+  if (written > count)
+    scm_wrong_type_arg_msg (FUNC_NAME, 0, result,
+                            "R6RS custom binary output port `write!' "
+                            "returned a incorrect integer");
 
   return written;
 }

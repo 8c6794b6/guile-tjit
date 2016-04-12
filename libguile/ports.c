@@ -2614,15 +2614,16 @@ scm_puts (const char *s, SCM port)
 static void
 scm_i_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
 {
-  size_t written;
+  size_t written = 0;
   scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
 
   assert (count <= SCM_BYTEVECTOR_LENGTH (src));
   assert (start + count <= SCM_BYTEVECTOR_LENGTH (src));
 
-  written = ptob->write (port, src, start, count);
+  do
+    written += ptob->write (port, src, start + written, count - written);
+  while (written < count);
 
-  /* FIXME: Allow short writes?  */
   assert (written == count);
 }
 
@@ -2697,13 +2698,10 @@ scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
     {
       /* Our write would overflow the buffer.  Flush buffered bytes (if
          needed), then write our bytes with just one syscall.  */
-      size_t written;
-
       if (write_buf->cur < write_buf->end)
         scm_i_write_unlocked (port, write_buf);
 
-      written = SCM_PORT_DESCRIPTOR (port)->write (port, src, start, count);
-      assert (written == count);
+      scm_i_write_bytes_unlocked (port, src, start, count);
     }
 
   return count;
