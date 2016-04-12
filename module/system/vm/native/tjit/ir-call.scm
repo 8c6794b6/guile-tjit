@@ -134,26 +134,25 @@
   ;; according to the type, and compare with the value used at compile time.
   ;;
   (let ((r2 (make-tmpvar 2)))
-    `(let ((_ ,(take-snapshot! ip 0)))
-       ,(cond
-         ((bytecode-program? flag)
-          `(let ((,r2 (%cref ,var 0)))
-             (let ((,r2 (%band ,r2 ,scm-f-program-is-bytecode-mask)))
-               (let ((_ (%eq ,r2 0)))
-                 (let ((,r2 (%cref ,var 1)))
-                   (let ((_ (%eq ,r2 ,(program-code proc))))
-                     ,(thunk)))))))
-         ((primitive-program? flag)
-          (let ((free-ref0 (program-free-variable-ref proc 0)))
-            `(let ((,r2 (%cref ,var 0)))
-               (let ((,r2 (%band ,r2 ,scm-f-program-is-primitive)))
-                 (let ((_ (%ne ,r2 0)))
-                   (let ((,r2 (%cref ,var ,(+ 2 0))))
-                     (let ((,r2 (%cref ,r2 1)))
-                       (let ((_ (%eq ,r2 ,(pointer-address free-ref0))))
-                         ,(thunk)))))))))
-         (else
-          (nyi "with-callee-guard: ~a" proc))))))
+    (cond
+     ((bytecode-program? flag)
+      `(let ((,r2 (%cref ,var 0)))
+         (let ((,r2 (%band ,r2 ,scm-f-program-is-bytecode-mask)))
+           (let ((_ (%eq ,r2 0)))
+             (let ((,r2 (%cref ,var 1)))
+               (let ((_ (%eq ,r2 ,(program-code proc))))
+                 ,(thunk)))))))
+     ((primitive-program? flag)
+      (let ((free-ref0 (program-free-variable-ref proc 0)))
+        `(let ((,r2 (%cref ,var 0)))
+           (let ((,r2 (%band ,r2 ,scm-f-program-is-primitive)))
+             (let ((_ (%ne ,r2 0)))
+               (let ((,r2 (%cref ,var ,(+ 2 0))))
+                 (let ((,r2 (%cref ,r2 1)))
+                   (let ((_ (%eq ,r2 ,(pointer-address free-ref0))))
+                     ,(thunk)))))))))
+     (else
+      (nyi "with-callee-guard: ~a" proc)))))
 
 ;;; XXX: halt is not defined, might not necessary.
 
@@ -176,9 +175,10 @@
                           (next)
                           `(let ((_ (%scall ,proc)))
                              ,(next))))))
-    ;; XXX: Add guard for proc when proc type was not inferred.
     (check-entry-ip (program-code proc/l) 'call)
-    (with-callee-guard proc/l proc/f proc/v emit-next)))
+    `(let ((_ ,(take-snapshot! ip 0)))
+       (let ((_ (%tceq ,proc/v #x7f ,%tc7-program)))
+         ,(with-callee-guard proc/l proc/f proc/v emit-next)))))
 
 (define-scan (call-label proc nlocals label)
   (scan-call proc nlocals #t))
@@ -220,7 +220,8 @@
          (proc/f (program-flag proc/l))
          (r2 (make-tmpvar 2)))
     (check-entry-ip (program-code proc/l) 'tail-call)
-    (with-callee-guard proc/l proc/f proc/v next)))
+    `(let ((_ ,(take-snapshot! ip 0)))
+       ,(with-callee-guard proc/l proc/f proc/v next))))
 
 (define-scan (tail-call-label nlocals label)
   (scan-tail-call nlocals))
