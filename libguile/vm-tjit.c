@@ -369,7 +369,7 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
         {
           if (tj->start_seen)
             {
-              if (tj->loop_start != tj->loop_end)
+              if (tj->loop_start != tj->loop_end && !has_root_trace)
                 record (tj, thread, vp, ip, sp);
               SCM_TJITC (SCM_BOOL_T);
             }
