@@ -85,6 +85,7 @@ SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
 #define SCM_FRAGMENT_DOWNREC_P(T)      SCM_STRUCT_SLOT_REF (T, 3)
 #define SCM_FRAGMENT_UPREC_P(T)        SCM_STRUCT_SLOT_REF (T, 4)
 #define SCM_FRAGMENT_TYPE_CHECKER(T)   SCM_STRUCT_SLOT_REF (T, 5)
+#define SCM_FRAGMENT_ENTRY_IP(T)       SCM_STRUCT_SLOT_REF (T, 6)
 
 SCM_API SCM scm_tjit_fragment (void);
 SCM_API SCM scm_tjit_root_trace (void);

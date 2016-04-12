@@ -159,6 +159,10 @@ SCM_TJIT_HASH (root_ip)
    number of failed compilation. */
 SCM_TJIT_HASH (failed_ip)
 
+/* Hash array to hold IPs of side trace. Key is bytecode IP, value is
+   number of compilation trials */
+SCM_TJIT_HASH (bailout_ip)
+
 /* Hash table to hold all fragments. Key is fragment ID, value is
    fragment data. */
 SCM_TJIT_TABLE (fragment, fragment);
@@ -424,14 +428,15 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
 }
 
 
-static inline void
-call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
+static inline scm_t_uint32*
+call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
   scm_t_native_code native_code;
-  SCM code, exit_id, fragment_id, exit_counts, count;
+  SCM s_ip, code, exit_id, fragment_id, exit_counts, count;
   struct scm_tjit_retval *ret;
 
+  s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
   code = SCM_FRAGMENT_CODE (fragment);
   native_code = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = native_code (thread, vp, registers);
@@ -440,37 +445,44 @@ call_native (SCM s_ip, SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   fragment_id = SCM_PACK (ret->fragment_id);
   fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
 
-  if (scm_is_true (fragment))
+  /* XXX: Ad hoc a way to restrict compilation of side trace starting
+     from identical IP too many times.
+
+     Recompilation of side exit starting with `call' or `tail-call'
+     could happen frequently, which caused by programs using higher
+     order functions. In such case, might better to try recompiling
+     parent root trace. */
+  if (scm_is_true (fragment)
+      && bailout_ip_ref ((scm_t_uintptr) vp->ip) < 50)
     {
       exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
       count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
       count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
       scm_hashq_set_x (exit_counts, exit_id, count);
+
+      if (SCM_TJIT_IS_HOT (tjit_hot_exit, vp->ip, count))
+        {
+          scm_t_uint16 ntrials = bailout_ip_ref ((scm_t_uintptr) vp->ip);
+          scm_t_uint32 *start = vp->ip;
+          scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
+
+          tj->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
+          tj->parent_exit_id = (int) SCM_I_INUM (exit_id);
+          bailout_ip_set ((scm_t_uintptr) vp->ip, ntrials + 1);
+
+          /* When start and end is the same IP, recording starts when VM
+             entered the same loop next time. To prevent the VM
+             interpreter to stop recording immediately without visiting
+             bytecode of the loop, setting `tj->start_seen' flag to
+             0. Result of record will be a side trace starting from
+             entry IP of parent trace. */
+          start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP,
+                           start == end ? 0 : 1);
+        }
     }
-  else
-    /* Formerly, this part was displaying debug message to tell that
-       required fragment was not found. After migrating from CPS IR to
-       ANF IR, the use of SCM port was causing problem, seemed like
-       related to garbage collector and GCC's reordering. Thus, removed
-       the message. */
-    count = SCM_INUM0;
 
-  if (SCM_TJIT_IS_HOT (tjit_hot_exit, vp->ip, count))
-    {
-      scm_t_uint32 *start = vp->ip;
-      scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
-
-      tj->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
-      tj->parent_exit_id = (int) SCM_I_INUM (exit_id);
-
-      /* When start and end is the same IP, recording starts when VM
-         entered the same loop next time. To prevent the VM interpreter
-         to stop recording immediately without visiting bytecode of the
-         loop, setting `tj->start_seen' flag to 0. Result of record will
-         be a side trace starting from entry IP of parent trace. */
-      start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP,
-                       start == end ? 0 : 1);
-    }
+  /* Return the possibly updated IP. */
+  return vp->ip;
 }
 
 static inline struct scm_tjit_state*
@@ -540,8 +552,8 @@ scm_acquire_tjit_state (void)
         CACHE_SP ();                                                    \
         if (scm_is_true (fragment))                                     \
           {                                                             \
-            call_native (s_ip, fragment, thread, vp, registers, tj);    \
-            CACHE_REGISTER ();                                          \
+            ip = call_native (fragment, thread, vp, registers, tj);     \
+            CACHE_SP ();                                                \
             NEXT (0);                                                   \
           }                                                             \
       }                                                                 \
@@ -845,12 +857,14 @@ init_tjit_hash (void)
   GC_exclude_static_roots (hot_ip_hash, hot_ip_hash + TJIT_HASH_SIZE);
   GC_exclude_static_roots (root_ip_hash, root_ip_hash + TJIT_HASH_SIZE);
   GC_exclude_static_roots (failed_ip_hash, failed_ip_hash + TJIT_HASH_SIZE);
+  GC_exclude_static_roots (bailout_ip_hash, bailout_ip_hash + TJIT_HASH_SIZE);
 
   for (i = 0; i < TJIT_HASH_SIZE; ++i)
     {
       hot_ip_hash[i] = 0;
       root_ip_hash[i] = 0;
       failed_ip_hash[i] = 0;
+      bailout_ip_hash[i] = 0;
     }
 }
 
