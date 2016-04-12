@@ -359,12 +359,13 @@
          (let ((dst/v (var-ref dst))
                (a/v (var-ref a))
                (b/v (var-ref b))
+               (r1 (make-tmpvar 1))
                (r2 (make-tmpvar 2)))
            `(let ((,r2 (%rsh ,a/v 2)))
-              (let ((,dst/v (%rsh ,b/v 2)))
-                (let ((,dst/v (op ,r2 ,dst/v)))
-                  (let ((,dst/v (%lsh ,dst/v 2)))
-                    (let ((,dst/v (%add ,dst/v 2)))
+              (let ((,r1 (%rsh ,b/v 2)))
+                (let ((,r2 (op ,r2 ,r1)))
+                  (let ((,r2 (%lsh ,r2 2)))
+                    (let ((,dst/v (%add ,r2 2)))
                       ,(next))))))))))))
 
 ;; Primitive %mod uses volatile register. Setting `env-save-volatiles?' flag to
