@@ -63,7 +63,9 @@
   (let ((val (ref-value x)))
     (cond
      ((and (number? val) (exact? val))
-      (make-pointer (ref-value x)))
+      (if (<= 0 val)
+          (make-pointer val)
+          (make-negative-pointer val)))
      (else
       (scm->pointer val)))))
 
