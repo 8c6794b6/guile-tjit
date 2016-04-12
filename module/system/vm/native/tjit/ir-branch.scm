@@ -45,8 +45,8 @@
           (logand (pointer-address *tc) #x7f))
         #f)))
 
+;; Nothing to emit for br.
 (define-ir (br (const offset))
-  ;; Nothing to emit for br.
   (next))
 
 (define-ir (br-if-true (scm test) (const invert) (const offset))

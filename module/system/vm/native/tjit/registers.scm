@@ -121,12 +121,10 @@
   (vector-length *non-volatile-registers*))
 
 ;; Number of GPRs used for argument passing.
-(define *num-arg-gprs*
-  6)
+(define *num-arg-gprs* 6)
 
 ;; Number of FPRs used for argument passing.
-(define *num-arg-fprs*
-  8)
+(define *num-arg-fprs* 8)
 
 ;; Using negative numbers to refer scratch GPRs.
 (define (gpr-ref i)

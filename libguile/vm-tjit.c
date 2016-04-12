@@ -565,10 +565,9 @@ scm_acquire_tjit_state (void)
 
 #define SCM_TJIT_MERGE()                                                \
   do {                                                                  \
-    scm_t_uint32 *start_ip = (scm_t_uint32 *) tj->loop_start;           \
     sp = tjit_merge (ip, sp, thread, vp, tj);                           \
     if (SCM_I_INUM (tjit_max_record) < tj->bc_idx)                      \
-      abort_recording (tj, start_ip);                                   \
+      abort_recording (tj, (scm_t_uint32 *) tj->loop_start);            \
   } while (0)
 
 

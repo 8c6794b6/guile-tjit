@@ -470,8 +470,8 @@ DST-TYPES, and SRC-TYPES are local index number."
         ;; `jit-tramp'. Native code will not work if number of spilled variables
         ;; exceeds the number returned from parameter `(tjit-max-spills)'.
         ;;
-        (jit-allocai (imm (* (+ max-spills *num-fpr* *num-volatiles* 1)
-                             %word-size)))
+        (let ((nwords (+ max-spills *num-fpr* *num-volatiles* 1)))
+          (jit-allocai (imm (* nwords %word-size))))
 
         ;; Get arguments.
         (jit-getarg %thread (jit-arg))   ; thread
@@ -599,9 +599,7 @@ DST-TYPES, and SRC-TYPES are local index number."
         (jit-patch entry)
         (match snapshot
           (($ $snapshot id sp-offset fp-offset nlocals locals)
-           ;; Store contents of args to frame. Note that args of snapshot 0 in
-           ;; root trace is null, no need to recover the frame with snapshot for
-           ;; that case.
+           ;; Store contents of args to the stack.
            (let lp ((locals locals) (args args))
              (match (cons locals args)
                ((((local . type) . locals) . (arg . args))
