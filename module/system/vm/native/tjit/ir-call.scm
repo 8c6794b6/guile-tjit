@@ -319,7 +319,6 @@
                               (if (memq i indices)
                                   indices
                                   (cons i indices)))))
-    (set-ir-return-subr! ir #f)
     `(let ((_ ,snapshot))
        ,(if (inline-current-return?)
             (next)
