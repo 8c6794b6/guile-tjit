@@ -147,29 +147,45 @@
        (let ((_ (,op ,a/v ,b/v)))
          ,(next)))))
 
-;; XXX: br-if-eqv
-;; (define-ir (br-if-eqv (scm a) (scm b) (const invert) (const offset))
-;;   (let* ((a/l (scm-ref a))
-;;          (b/l (scm-ref b))
-;;          (a/v (var-ref a))
-;;          (b/v (var-ref b))
-;;          (r1 (make-tmpvar 1))
-;;          (r2 (make-tmpvar 2))
-;;          (dest (if (end-of-root-trace?)
-;;                    3
-;;                    (if (eq? a/l b/l)
-;;                        (if invert offset 3)
-;;                        (if invert 3 offset))))
-;;          (op (if (end-of-root-trace?)
-;;                  (if invert '%nev '%eqv)
-;;                  (if (eqv? a/l b/l) '%eqv '%nev))))
-;;     `(let ((_ ,(take-snapshot! ip dest)))
-;;        ,(with-boxing (type-ref a) a/v r2
-;;           (lambda (boxed1)
-;;             (with-boxing (type-ref b) b/v r1
-;;               (lambda (boxed2)
-;;                 `(let ((_ (,op ,boxed1 ,boxed2)))
-;;                    ,(next)))))))))
+(define-ir (br-if-eqv (scm a) (scm b) (const invert) (const offset))
+  (let* ((a/l (scm-ref a))
+         (b/l (scm-ref b))
+         (a/v (var-ref a))
+         (b/v (var-ref b))
+         (dest (if (end-of-root-trace?)
+                   3
+                   (if (eqv? a/l b/l)
+                       (if invert offset 3)
+                       (if invert 3 offset))))
+         (op (if (end-of-root-trace?)
+                 (if invert '%nev '%eqv)
+                 (if (eqv? a/l b/l) '%eqv '%nev))))
+    (let ((r1 (make-tmpvar 1))
+          (r2 (make-tmpvar 2)))
+      `(let ((_ ,(take-snapshot! ip dest)))
+         ,(with-boxing (type-ref a) a/v r2
+            (lambda (boxed1)
+              (with-boxing (type-ref b) b/v r1
+                (lambda (boxed2)
+                  `(let ((_ (,op ,boxed1 ,boxed2)))
+                     ,(next))))))))))
+
+(define-ir (br-if-eqv (flonum a) (flonum b) (const invert) (const offset))
+  (let* ((a/l (scm-ref a))
+         (b/l (scm-ref b))
+         (a/v (var-ref a))
+         (b/v (var-ref b))
+         (dest (if (end-of-root-trace?)
+                   3
+                   (if (eqv? a/l b/l)
+                       (if invert offset 3)
+                       (if invert 3 offset))))
+         (op (if (end-of-root-trace?)
+                 (if invert '%ne '%eq)
+                 (if (eqv? a/l b/l) '%eq '%ne))))
+    `(let ((_ ,(take-snapshot! ip dest)))
+       (let ((_ (,op ,a/v ,b/v)))
+         ,(next)))))
 
 ;; XXX: br-if-logtest
 

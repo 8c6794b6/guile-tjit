@@ -45,6 +45,8 @@ TESTS = \
 	t-bind-rest-03.scm \
 	t-br-if-eq-01.scm \
 	t-br-if-eq-02.scm \
+	t-br-if-eqv-01.scm \
+	t-br-if-eqv-02.scm \
 	t-br-if-lt-01.scm \
 	t-br-if-lt-02.scm \
 	t-br-if-lt-03.scm \
