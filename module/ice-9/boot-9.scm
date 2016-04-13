@@ -895,7 +895,10 @@ for key @var{k}, then invoke @var{thunk}."
 
           (when frame
             (print-location frame port)
-            (let ((name (false-if-exception (frame-procedure-name frame))))
+            ;; When booting, false-if-exception isn't defined yet.
+            (let ((name (catch #t
+                          (lambda () (frame-procedure-name frame))
+                          (lambda _ #f))))
               (when name
                 (format port "In procedure ~a:\n" name))))
 
