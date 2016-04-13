@@ -35,13 +35,6 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-(define-syntax-rule (obj->tc7 obj)
-  (let ((ptr (scm->pointer obj)))
-    (if (zero? (logand (pointer-address ptr) 6))
-        (let ((cell-type (dereference-pointer ptr)))
-          (logand (pointer-address cell-type) #x7f))
-        #f)))
-
 (define-syntax ensure-loop
   (syntax-rules ()
     ((_ test invert offset op-size)
@@ -55,62 +48,73 @@
          (when (not (= entry-ip (+ ip (* 4 jump))))
            (retry "trace not looping")))))))
 
+(define-syntax define-br-unary
+  (syntax-rules ()
+    ((_ name op-scm op-t op-f args)
+     (define-ir (name (scm test) (const invert) (const offset))
+       (let* ((test/v (var-ref test))
+              (test/l (scm-ref test))
+              (test/r (op-scm test/l))
+              (dest (if test/r
+                        (if invert offset 2)
+                        (if invert 2 offset)))
+              (op (if test/r 'op-t 'op-f)))
+         (ensure-loop test/r invert offset 2)
+         `(let ((_ ,(take-snapshot! ip dest)))
+            (let ((_ (,op ,test/v . args)))
+              ,(next))))))))
+
+(define-syntax br-binary-body
+  (syntax-rules ()
+    ((_ a b invert offset test a-ref b-ref a/l b/l a/v b/v dest . body)
+     (let* ((a/l (a-ref a))
+            (b/l (b-ref b))
+            (a/v (var-ref a))
+            (b/v (var-ref b))
+            (dest (if (test a/l b/l)
+                      (if invert offset 3)
+                      (if invert 3 offset))))
+       . body))))
+
+(define-syntax br-binary-scm-scm-body
+  (syntax-rules ()
+    ((_ a b invert offset test ra rb va vb dest . body)
+     (br-binary-body a b invert offset test scm-ref scm-ref
+       ra rb va vb dest . body))))
+
+(define-syntax br-binary-u64-scm-body
+  (syntax-rules ()
+    ((_ a b invert offset test ra rb va vb dest . body)
+     (br-binary-body a b invert offset test u64-ref scm-ref
+       ra rb va vb dest . body))))
+
+(define-syntax br-binary-u64-u64-body
+  (syntax-rules ()
+    ((_ a b invert offset test ra rb va vb dest . body)
+     (br-binary-body a b invert offset test u64-ref u64-ref
+       ra rb va vb dest . body))))
+
 ;; Nothing to emit for br.
 (define-ir (br (const offset))
   (next))
 
-(define-ir (br-if-true (scm test) (const invert) (const offset))
-  (let* ((test/v (var-ref test))
-         (test/l (scm-ref test))
-         (dest (if test/l
-                   (if invert offset 2)
-                   (if invert 2 offset)))
-         (op (if test/l '%ne '%eq)))
-    (ensure-loop test/l invert offset 2)
-    `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((_ (,op ,test/v #f)))
-         ,(next)))))
-
-(define-ir (br-if-null (scm test) (const invert) (const offset))
-  (let* ((test/l (scm-ref test))
-         (test/v (var-ref test))
-         (dest (if (null? test/l)
-                   (if invert offset 2)
-                   (if invert 2 offset)))
-         (op (if (null? test/l) '%eq '%ne)))
-    (ensure-loop (null? test/l) invert offset 2)
-    `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((_ (,op ,test/v ())))
-         ,(next)))))
+(define-br-unary br-if-true (lambda (x) x) %ne %eq (#f))
+(define-br-unary br-if-null null? %eq %ne (()))
+(define-br-unary br-if-pair pair? %tceq %tcne (1 ,%tc3-cons))
 
 ;; XXX: br-if-nil
 
-(define-ir (br-if-pair (scm test) (const invert) (const offset))
-  (let* ((test/l (scm-ref test))
-         (test/v (var-ref test))
-         (dest (if (pair? test/l)
-                   (if invert offset 2)
-                   (if invert 2 offset)))
-         (op (if (pair? test/l) '%tceq '%tcne)))
-    (ensure-loop (pair? test/l) invert offset 2)
-    `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((_ (,op ,test/v 1 ,%tc3-cons)))
-         ,(next)))))
-
 ;; XXX: br-if-struct
-;; (define-ir (br-if-struct (scm test) (const invert) (const offset))
-;;   (let* ((test/l (scm-ref test))
-;;          (test/v (var-ref test))
-;;          (dest (if (struct? test/l)
-;;                    (if invert offset 2)
-;;                    (if invert 2 offset)))
-;;          (op (if (struct? test/l) '%tceq '%tcne)))
-;;     (ensure-loop (struct? test/l) invert offset 2)
-;;     `(let ((_ ,(take-snapshot! ip dest)))
-;;        (let ((_ (,op ,test/v #x7 ,%tc3-struct)))
-;;          ,(next)))))
+;; (define-br-unary br-if-struct struct? %tceq %tcne (7 ,%tc3-struct))
 
 ;; XXX: br-if-char
+
+(define-syntax-rule (obj->tc7 obj)
+  (let ((ptr (scm->pointer obj)))
+    (if (zero? (logand (pointer-address ptr) 6))
+        (let ((cell-type (dereference-pointer ptr)))
+          (logand (pointer-address cell-type) #x7f))
+        #f)))
 
 ;; XXX: br-if-tc7
 ;; (define-ir (br-if-tc7 (scm test) (const invert) (const tc7) (const offset))
@@ -127,86 +131,44 @@
 ;;          ,(next)))))
 
 (define-ir (br-if-eq (scm a) (scm b) (const invert) (const offset))
-  (let* ((a/l (scm-ref a))
-         (b/l (scm-ref b))
-         (a/v (var-ref a))
-         (b/v (var-ref b))
-         (dest (if (eq? a/l b/l)
-                   (if invert offset 3)
-                   (if invert 3 offset)))
-         (op (if (eq? a/l b/l) '%eq '%ne)))
-    (ensure-loop (eq? a/l b/l) invert offset 3)
-    `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((_ (,op ,a/v ,b/v)))
-         ,(next)))))
+  (br-binary-scm-scm-body
+   a b invert offset eq? a/l b/l a/v b/v dest
+   (let* ((test/l (eq? a/l b/l))
+          (op (if test/l '%eq '%ne)))
+     (ensure-loop test/l invert offset 3)
+     `(let ((_ ,(take-snapshot! ip dest)))
+        (let ((_ (,op ,a/v ,b/v)))
+          ,(next))))))
 
 (define-ir (br-if-eqv (scm a) (scm b) (const invert) (const offset))
-  (let* ((a/l (scm-ref a))
-         (b/l (scm-ref b))
-         (a/v (var-ref a))
-         (b/v (var-ref b))
-         (dest (if (eqv? a/l b/l)
-                   (if invert offset 3)
-                   (if invert 3 offset)))
-         (op (if (eqv? a/l b/l) '%eqv '%nev)))
-    (ensure-loop (eqv? a/l b/l) invert offset 3)
-    (let ((r1 (make-tmpvar 1))
+  (br-binary-scm-scm-body
+   a b invert offset eqv? a/l b/l a/v b/v dest
+   (let* ((test/l (eqv? a/l b/l))
+          (op (if test/l '%eqv '%nev))
+          (r1 (make-tmpvar 1))
           (r2 (make-tmpvar 2)))
-      `(let ((_ ,(take-snapshot! ip dest)))
-         ,(with-boxing (type-ref a) a/v r2
-            (lambda (boxed1)
-              (with-boxing (type-ref b) b/v r1
-                (lambda (boxed2)
-                  `(let ((_ (,op ,boxed1 ,boxed2)))
-                     ,(next))))))))))
+     (ensure-loop test/l invert offset 3)
+     `(let ((_ ,(take-snapshot! ip dest)))
+        ,(with-boxing (type-ref a) a/v r2
+           (lambda (boxed1)
+             (with-boxing (type-ref b) b/v r1
+               (lambda (boxed2)
+                 `(let ((_ (,op ,boxed1 ,boxed2)))
+                            ,(next))))))))))
 
 (define-ir (br-if-eqv (flonum a) (flonum b) (const invert) (const offset))
-  (let* ((a/l (scm-ref a))
-         (b/l (scm-ref b))
-         (a/v (var-ref a))
-         (b/v (var-ref b))
-         (dest (if (eqv? a/l b/l)
-                   (if invert offset 3)
-                   (if invert 3 offset)))
-         (op (if (eqv? a/l b/l) '%eq '%ne)))
-    (ensure-loop (eqv? a/l b/l) invert offset 3)
-    `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((_ (,op ,a/v ,b/v)))
-         ,(next)))))
+  (br-binary-scm-scm-body
+   a b invert offset eqv? a/l b/l a/v b/v dest
+   (let* ((test/l (eqv? a/l b/l))
+          (op (if test/l '%eq '%ne)))
+     (ensure-loop test/l invert offset 3)
+     `(let ((_ ,(take-snapshot! ip dest)))
+        (let ((_ (,op ,a/v ,b/v)))
+          ,(next))))))
 
 ;; XXX: br-if-logtest
 
-(define-syntax define-br-binary-body
-  (syntax-rules ()
-    ((_ name a b invert offset test a-ref b-ref ra rb va vb dest . body)
-     (let* ((ra (a-ref a))
-            (rb (b-ref b))
-            (va (var-ref a))
-            (vb (var-ref b))
-            (dest (if (test ra rb)
-                      (if invert offset 3)
-                      (if invert 3 offset))))
-       . body))))
-
-(define-syntax define-br-binary-scm-scm-body
-  (syntax-rules ()
-    ((_ name a b invert offset test ra rb va vb dest . body)
-     (define-br-binary-body name a b invert offset test scm-ref scm-ref
-       ra rb va vb dest . body))))
-
-(define-syntax define-br-binary-u64-scm-body
-  (syntax-rules ()
-    ((_ name a b invert offset test ra rb va vb dest . body)
-     (define-br-binary-body name a b invert offset test u64-ref scm-ref
-       ra rb va vb dest . body))))
-
-(define-syntax define-br-binary-u64-u64-body
-  (syntax-rules ()
-    ((_ name a b invert offset test ra rb va vb dest . body)
-     (define-br-binary-body name a b invert offset test u64-ref u64-ref
-       ra rb va vb dest . body))))
-
-(define-syntax define-br-binary-scm-scm
+(define-syntax define-br-binary-arith-scm-scm
   (syntax-rules ()
     ((_  name op-scm op-fx-t op-fx-f op-fl-t op-fl-f)
      (begin
@@ -214,8 +176,7 @@
        (define-ir (name (scm a) (scm b) (const invert) (const offset))
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert offset))
        (define-ir (name (fixnum a) (fixnum b) (const invert) (const offset))
-         (define-br-binary-scm-scm-body name a b invert offset op-scm
-           ra rb va vb dest
+         (br-binary-scm-scm-body a b invert offset op-scm ra rb va vb dest
            (let* ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
                   (a/t (type-ref a))
                   (b/t (type-ref b))
@@ -239,8 +200,7 @@
                (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name (pretty-type a/t)
                     (pretty-type b/t)))))))
        (define-ir (name (flonum a) (flonum b) (const invert) (const offset))
-         (define-br-binary-scm-scm-body name a b invert offset op-scm
-           ra rb va vb dest
+         (br-binary-scm-scm-body a b invert offset op-scm ra rb va vb dest
            (let ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
                  (a/t (type-ref a))
                  (b/t (type-ref b)))
@@ -268,34 +228,33 @@
                (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                     (pretty-type a/t) (pretty-type b/t)))))))))))
 
-(define-br-binary-scm-scm br-if-= = %eq %ne %feq %fne)
-(define-br-binary-scm-scm br-if-< < %lt %ge %flt %fge)
-(define-br-binary-scm-scm br-if-<= <= %le %gt %fle %fgt)
+(define-br-binary-arith-scm-scm br-if-= = %eq %ne %feq %fne)
+(define-br-binary-arith-scm-scm br-if-< < %lt %ge %flt %fge)
+(define-br-binary-arith-scm-scm br-if-<= <= %le %gt %fle %fgt)
 
-(define-syntax define-br-binary-u64-u64
+(define-syntax define-br-binary-arith-u64-u64
   (syntax-rules ()
     ((_ name op-scm op-fx-t op-fx-f)
      (define-ir (name (u64 a) (u64 b) (const invert) (const offset))
-       (define-br-binary-u64-u64-body name a b invert offset op-scm
-         ra rb va vb dest
+       (br-binary-u64-u64-body a b invert offset op-scm ra rb va vb dest
          (let ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f)))
            (ensure-loop (op-scm ra rb) invert offset 3)
            `(let ((_ ,(take-snapshot! ip dest)))
               (let ((_ (,op ,va ,vb)))
                 ,(next)))))))))
 
-(define-br-binary-u64-u64 br-if-u64-= = %eq %ne)
-(define-br-binary-u64-u64 br-if-u64-< < %lt %ge)
-(define-br-binary-u64-u64 br-if-u64-<= <= %le %gt)
+(define-br-binary-arith-u64-u64 br-if-u64-= = %eq %ne)
+(define-br-binary-arith-u64-u64 br-if-u64-< < %lt %ge)
+(define-br-binary-arith-u64-u64 br-if-u64-<= <= %le %gt)
 
-(define-syntax define-br-binary-u64-scm
+(define-syntax define-br-binary-arith-u64-scm
   (syntax-rules ()
     ((_ name op-scm op-fx-t op-fx-f)
      (begin
        (define-ir (name (u64 a) (scm b) (const invert) (const offset))
          (nyi "~s: ~a ~a ~a ~a" 'name a b invert offset))
        (define-ir (name (u64 a) (fixnum b) (const invert) (const offset))
-         (define-br-binary-u64-scm-body name a b invert offset op-scm
+         (br-binary-u64-scm-body a b invert offset op-scm
            ra rb va vb dest
            (let* ((r2 (make-tmpvar 2))
                   (b/t (type-ref b))
@@ -315,8 +274,8 @@
               (else
                (nyi "~s: et=fixnum it=~a" 'name (pretty-type b/t)))))))))))
 
-(define-br-binary-u64-scm br-if-u64-=-scm = %eq %ne)
-(define-br-binary-u64-scm br-if-u64-<-scm < %lt %ge)
-(define-br-binary-u64-scm br-if-u64-<=-scm <= %le %gt)
-(define-br-binary-u64-scm br-if-u64->-scm > %gt %le)
-(define-br-binary-u64-scm br-if-u64->=-scm >= %ge %lt)
+(define-br-binary-arith-u64-scm br-if-u64-=-scm = %eq %ne)
+(define-br-binary-arith-u64-scm br-if-u64-<-scm < %lt %ge)
+(define-br-binary-arith-u64-scm br-if-u64-<=-scm <= %le %gt)
+(define-br-binary-arith-u64-scm br-if-u64->-scm > %gt %le)
+(define-br-binary-arith-u64-scm br-if-u64->=-scm >= %ge %lt)
