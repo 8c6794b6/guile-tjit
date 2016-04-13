@@ -555,9 +555,6 @@ DST-TYPES, and SRC-TYPES are local index number."
          (cond
           ((hashq-ref *native-prim-procedures* op-name)
            => (lambda (proc)
-                (let ((verbosity (lightning-verbosity)))
-                  (when (and verbosity (<= 4 verbosity))
-                    (jit-note (format #f "~a" (cons op-name args)) 0)))
                 (apply proc asm args)
                 (lp ops acc)))
           (else

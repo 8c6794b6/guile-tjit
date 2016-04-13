@@ -101,9 +101,8 @@ After successufl parse, this procedure will update fields in ENV."
       (begin
         (debug 1 "NYI: ~a~%" (car op))
         #f))
-    (debug 2 ";;; [scan-trace] op=~a~%" op)
-    (debug 2 ";;; [parse] env-call-num=~a env-return-num=~a~%"
-           (env-call-num env) (env-return-num env))
+    (debug 2 ";;; [parse] call=~a return=~a op=~a~%"
+           (env-call-num env) (env-return-num env) op)
     (match (hashq-ref *scan-procedures* (car op))
       ((? list? procs)
        (let lp ((procs procs))

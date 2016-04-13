@@ -137,7 +137,7 @@
      (begin
        (define (name %asm arg ...)
          (let ((verbosity (lightning-verbosity)))
-           (when (and verbosity (<= 5 verbosity))
+           (when (and verbosity (<= 4 verbosity))
              (jit-note (format #f "~a" `(name ,arg ...)) 0))
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
          (syntax-parameterize

@@ -8,5 +8,5 @@
         (lp (+ i 1) (+ acc 1)))))
 
 (do ((i 0 (+ i 1))
-     (acc '() (cons (loop 3) acc)))
+     (acc 0 (+ (loop 3) acc)))
     ((= i 65) acc))
