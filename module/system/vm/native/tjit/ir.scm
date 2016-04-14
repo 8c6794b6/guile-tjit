@@ -476,6 +476,7 @@ index referenced by dst, a, and b values at runtime."
 ;; inlined.
 (define-syntax-rule (inline-current-call?)
   (or (assq-ref (env-calls env) (env-call-num env))
+      (< 0 (env-inline-depth env))
       (ir-last-op? ir)))
 
 (define-syntax-rule (inline-current-return?)
