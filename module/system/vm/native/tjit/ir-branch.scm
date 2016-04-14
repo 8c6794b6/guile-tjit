@@ -104,8 +104,7 @@
 
 ;; XXX: br-if-nil
 
-;; XXX: br-if-struct
-;; (define-br-unary br-if-struct struct? %tceq %tcne (7 ,%tc3-struct))
+(define-br-unary br-if-struct struct? %tceq %tcne (7 ,%tc3-struct))
 
 ;; XXX: br-if-char
 

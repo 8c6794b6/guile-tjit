@@ -56,6 +56,7 @@ TESTS = \
 	t-br-if-null-01.scm \
 	t-br-if-null-02.scm \
 	t-br-if-pair-01.scm \
+	t-br-if-struct-01.scm \
 	t-br-if-tc7-01.scm \
 	t-br-if-true-01.scm \
 	t-br-if-u64-lt-scm-01.scm \
