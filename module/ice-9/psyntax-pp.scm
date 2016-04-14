@@ -3246,7 +3246,7 @@
                  (set-port-encoding! p (let ((t enc)) (if t t "UTF-8")))
                  (let f ((x (read p)) (result '()))
                    (if (eof-object? x)
-                     (begin (close-input-port p) (reverse result))
+                     (begin (close-port p) (reverse result))
                      (f (read p) (cons (datum->syntax k x) result)))))))))
         (let ((src (syntax-source x)))
           (let ((file (if src (assq-ref src 'filename) #f)))

@@ -121,8 +121,8 @@ SCM_DEFINE (scm_file_port_p, "file-port?", 1, 0, 0,
 
 
 static SCM sys_file_port_name_canonicalization;
-SCM_SYMBOL (sym_relative, "relative");
-SCM_SYMBOL (sym_absolute, "absolute");
+static SCM sym_relative;
+static SCM sym_absolute;
 
 static SCM
 fport_canonicalize_filename (SCM filename)
@@ -677,16 +677,34 @@ scm_init_fports_keywords ()
   k_encoding       = scm_from_latin1_keyword ("encoding");
 }
 
+static void
+scm_init_ice_9_fports (void)
+{
+#include "libguile/fports.x"
+}
+
 void
 scm_init_fports ()
 {
   scm_tc16_fport = scm_make_fptob ();
 
+  scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
+                            "scm_init_ice_9_fports",
+			    (scm_t_extension_init_func) scm_init_ice_9_fports,
+			    NULL);
+
+  /* The following bindings are used early in boot-9.scm.  */
+
+  /* Used by `include' and also by `file-exists?' if `stat' is
+     unavailable.  */
+  scm_c_define_gsubr (s_scm_i_open_file, 2, 0, 1, (scm_t_subr) scm_i_open_file);
+
+  /* Used by `open-file.', also via C.  */
+  sym_relative = scm_from_latin1_symbol ("relative");
+  sym_absolute = scm_from_latin1_symbol ("absolute");
   sys_file_port_name_canonicalization = scm_make_fluid ();
   scm_c_define ("%file-port-name-canonicalization",
                 sys_file_port_name_canonicalization);
-                                    
-#include "libguile/fports.x"
 }
 
 /*

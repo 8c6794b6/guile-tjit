@@ -425,14 +425,9 @@ SCM_DEFINE (scm_current_load_port, "current-load-port", 0, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_set_current_input_port, "set-current-input-port", 1, 0, 0,
-           (SCM port),
-	    "@deffnx {Scheme Procedure} set-current-output-port port\n"
-	    "@deffnx {Scheme Procedure} set-current-error-port port\n"
-	    "Change the ports returned by @code{current-input-port},\n"
-	    "@code{current-output-port} and @code{current-error-port}, respectively,\n"
-	    "so that they use the supplied @var{port} for input or output.")
-#define FUNC_NAME s_scm_set_current_input_port
+SCM
+scm_set_current_input_port (SCM port)
+#define FUNC_NAME "set-current-input-port"
 {
   SCM oinp = scm_fluid_ref (cur_inport_fluid);
   SCM_VALIDATE_OPINPORT (1, port);
@@ -441,11 +436,9 @@ SCM_DEFINE (scm_set_current_input_port, "set-current-input-port", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-
-SCM_DEFINE (scm_set_current_output_port, "set-current-output-port", 1, 0, 0,
-	    (SCM port),
-	    "Set the current default output port to @var{port}.")
-#define FUNC_NAME s_scm_set_current_output_port
+SCM
+scm_set_current_output_port (SCM port)
+#define FUNC_NAME "scm-set-current-output-port"
 {
   SCM ooutp = scm_fluid_ref (cur_outport_fluid);
   port = SCM_COERCE_OUTPORT (port);
@@ -455,11 +448,9 @@ SCM_DEFINE (scm_set_current_output_port, "set-current-output-port", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-
-SCM_DEFINE (scm_set_current_error_port, "set-current-error-port", 1, 0, 0,
-	    (SCM port),
-	    "Set the current default error port to @var{port}.")
-#define FUNC_NAME s_scm_set_current_error_port
+SCM
+scm_set_current_error_port (SCM port)
+#define FUNC_NAME "set-current-error-port"
 {
   SCM oerrp = scm_fluid_ref (cur_errport_fluid);
   port = SCM_COERCE_OUTPORT (port);
@@ -468,7 +459,6 @@ SCM_DEFINE (scm_set_current_error_port, "set-current-error-port", 1, 0, 0,
   return oerrp;
 }
 #undef FUNC_NAME
-
 
 SCM
 scm_set_current_warning_port (SCM port)
@@ -481,7 +471,6 @@ scm_set_current_warning_port (SCM port)
   return owarnp;
 }
 #undef FUNC_NAME
-
 
 void
 scm_dynwind_current_input_port (SCM port)
@@ -916,19 +905,12 @@ SCM_DEFINE (scm_close_output_port, "close-output-port", 1, 0, 0,
 /* A fluid specifying the default encoding for newly created ports.  If it is
    a string, that is the encoding.  If it is #f, it is in the "native"
    (Latin-1) encoding.  */
-SCM_VARIABLE (default_port_encoding_var, "%default-port-encoding");
-
-static int scm_port_encoding_init = 0;
+static SCM default_port_encoding_var;
 
 /* Use ENCODING as the default encoding for future ports.  */
 void
 scm_i_set_default_port_encoding (const char *encoding)
 {
-  if (!scm_port_encoding_init
-      || !scm_is_fluid (SCM_VARIABLE_REF (default_port_encoding_var)))
-    scm_misc_error (NULL, "tried to set port encoding fluid before it is initialized",
-		    SCM_EOL);
-
   if (encoding_matches (encoding, "ISO-8859-1"))
     scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), SCM_BOOL_F);
   else
@@ -940,63 +922,41 @@ scm_i_set_default_port_encoding (const char *encoding)
 const char *
 scm_i_default_port_encoding (void)
 {
-  if (!scm_port_encoding_init)
-    return "ISO-8859-1";
-  else if (!scm_is_fluid (SCM_VARIABLE_REF (default_port_encoding_var)))
+  SCM encoding;
+
+  encoding = scm_fluid_ref (SCM_VARIABLE_REF (default_port_encoding_var));
+  if (!scm_is_string (encoding))
     return "ISO-8859-1";
   else
-    {
-      SCM encoding;
-
-      encoding = scm_fluid_ref (SCM_VARIABLE_REF (default_port_encoding_var));
-      if (!scm_is_string (encoding))
-	return "ISO-8859-1";
-      else
-	return scm_i_string_chars (encoding);
-    }
+    return scm_i_string_chars (encoding);
 }
 
 /* A fluid specifying the default conversion handler for newly created
    ports.  Its value should be one of the symbols below.  */
-SCM_VARIABLE (default_conversion_strategy_var,
-	      "%default-port-conversion-strategy");
-
-/* Whether the above fluid is initialized.  */
-static int scm_conversion_strategy_init = 0;
+static SCM default_conversion_strategy_var;
 
 /* The possible conversion strategies.  */
-SCM_SYMBOL (sym_error, "error");
-SCM_SYMBOL (sym_substitute, "substitute");
-SCM_SYMBOL (sym_escape, "escape");
+static SCM sym_error;
+static SCM sym_substitute;
+static SCM sym_escape;
 
 /* Return the default failed encoding conversion policy for new created
    ports.  */
 scm_t_string_failed_conversion_handler
 scm_i_default_port_conversion_handler (void)
 {
-  scm_t_string_failed_conversion_handler handler;
+  SCM value;
 
-  if (!scm_conversion_strategy_init
-      || !scm_is_fluid (SCM_VARIABLE_REF (default_conversion_strategy_var)))
-    handler = SCM_FAILED_CONVERSION_QUESTION_MARK;
+  value = scm_fluid_ref (SCM_VARIABLE_REF (default_conversion_strategy_var));
+
+  if (scm_is_eq (sym_substitute, value))
+    return SCM_FAILED_CONVERSION_QUESTION_MARK;
+  else if (scm_is_eq (sym_escape, value))
+    return SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE;
   else
-    {
-      SCM fluid, value;
-
-      fluid = SCM_VARIABLE_REF (default_conversion_strategy_var);
-      value = scm_fluid_ref (fluid);
-
-      if (scm_is_eq (sym_substitute, value))
-	handler = SCM_FAILED_CONVERSION_QUESTION_MARK;
-      else if (scm_is_eq (sym_escape, value))
-	handler = SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE;
-      else
-	/* Default to 'error also when the fluid's value is not one of
-	   the valid symbols.  */
-	handler = SCM_FAILED_CONVERSION_ERROR;
-    }
-
-  return handler;
+    /* Default to 'error also when the fluid's value is not one of
+       the valid symbols.  */
+    return SCM_FAILED_CONVERSION_ERROR;
 }
 
 /* Use HANDLER as the default conversion strategy for future ports.  */
@@ -1005,11 +965,6 @@ scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handle
 					   handler)
 {
   SCM strategy;
-
-  if (!scm_conversion_strategy_init
-      || !scm_is_fluid (SCM_VARIABLE_REF (default_conversion_strategy_var)))
-    scm_misc_error (NULL, "tried to set conversion strategy fluid before it is initialized",
-		    SCM_EOL);
 
   switch (handler)
     {
@@ -3286,35 +3241,15 @@ SCM_DEFINE (scm_sys_make_void_port, "%make-void-port", 1, 0, 0,
 
 /* Initialization.  */
 
-void
-scm_init_ports ()
+static void
+scm_init_ice_9_ports (void)
 {
+#include "libguile/ports.x"
+
   /* lseek() symbols.  */
   scm_c_define ("SEEK_SET", scm_from_int (SEEK_SET));
   scm_c_define ("SEEK_CUR", scm_from_int (SEEK_CUR));
   scm_c_define ("SEEK_END", scm_from_int (SEEK_END));
-
-  scm_tc16_void_port = scm_make_port_type ("void", void_port_read,
-					   void_port_write);
-
-  cur_inport_fluid = scm_make_fluid ();
-  cur_outport_fluid = scm_make_fluid ();
-  cur_errport_fluid = scm_make_fluid ();
-  cur_warnport_fluid = scm_make_fluid ();
-  cur_loadport_fluid = scm_make_fluid ();
-
-  scm_i_port_weak_set = scm_c_make_weak_set (31);
-
-#include "libguile/ports.x"
-
-  /* Use Latin-1 as the default port encoding.  */
-  SCM_VARIABLE_SET (default_port_encoding_var,
-                    scm_make_fluid_with_default (SCM_BOOL_F));
-  scm_port_encoding_init = 1;
-
-  SCM_VARIABLE_SET (default_conversion_strategy_var,
-                    scm_make_fluid_with_default (sym_substitute));
-  scm_conversion_strategy_init = 1;
 
   /* These bindings are used when boot-9 turns `current-input-port' et
      al into parameters.  They are then removed from the guile module.  */
@@ -3322,6 +3257,61 @@ scm_init_ports ()
   scm_c_define ("%current-output-port-fluid", cur_outport_fluid);
   scm_c_define ("%current-error-port-fluid", cur_errport_fluid);
   scm_c_define ("%current-warning-port-fluid", cur_warnport_fluid);
+}
+
+void
+scm_init_ports (void)
+{
+  scm_tc16_void_port = scm_make_port_type ("void", void_port_read,
+					   void_port_write);
+
+  scm_i_port_weak_set = scm_c_make_weak_set (31);
+
+  cur_inport_fluid = scm_make_fluid ();
+  cur_outport_fluid = scm_make_fluid ();
+  cur_errport_fluid = scm_make_fluid ();
+  cur_warnport_fluid = scm_make_fluid ();
+  cur_loadport_fluid = scm_make_fluid ();
+
+  sym_substitute = scm_from_latin1_symbol ("substitute");
+  sym_escape = scm_from_latin1_symbol ("escape");
+  sym_error = scm_from_latin1_symbol ("error");
+
+  /* Use Latin-1 as the default port encoding.  */
+  default_port_encoding_var =
+    scm_c_define ("%default-port-encoding",
+                  scm_make_fluid_with_default (SCM_BOOL_F));
+  default_conversion_strategy_var =
+    scm_c_define ("%default-port-conversion-strategy",
+                  scm_make_fluid_with_default (sym_substitute));
+
+  scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
+                            "scm_init_ice_9_ports",
+			    (scm_t_extension_init_func) scm_init_ice_9_ports,
+			    NULL);
+
+  /* The following bindings are used early in boot-9.scm.  */
+
+  /* Used by `include'.  */
+  scm_c_define_gsubr (s_scm_set_port_encoding_x, 2, 0, 0,
+                      (scm_t_subr) scm_set_port_encoding_x);
+  scm_c_define_gsubr (s_scm_eof_object_p, 1, 0, 0,
+                      (scm_t_subr) scm_eof_object_p);
+
+  /* Used by a number of error/warning-printing routines.  */
+  scm_c_define_gsubr (s_scm_force_output, 0, 1, 0,
+                      (scm_t_subr) scm_force_output);
+
+  /* Used by `file-exists?' and related functions if `stat' is
+     unavailable.  */
+  scm_c_define_gsubr (s_scm_close_port, 1, 0, 0,
+                      (scm_t_subr) scm_close_port);
+
+  /* Used by error routines.  */
+  scm_c_define_gsubr (s_scm_current_error_port, 0, 0, 0,
+                      (scm_t_subr) scm_current_error_port);
+  scm_c_define_gsubr (s_scm_current_warning_port, 0, 0, 0,
+                      (scm_t_subr) scm_current_warning_port);
 }
 
 /*

@@ -3183,7 +3183,7 @@
                   (result '()))
             (if (eof-object? x)
                 (begin
-                  (close-input-port p)
+                  (close-port p)
                   (reverse result))
                 (f (read p)
                    (cons (datum->syntax k x) result)))))))

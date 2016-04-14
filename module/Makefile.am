@@ -88,6 +88,7 @@ SOURCES =					\
   ice-9/poe.scm					\
   ice-9/poll.scm				\
   ice-9/popen.scm				\
+  ice-9/ports.scm				\
   ice-9/posix.scm				\
   ice-9/pretty-print.scm			\
   ice-9/psyntax-pp.scm				\

@@ -302,12 +302,21 @@ SCM_DEFINE (scm_fdes_to_ports, "fdes->ports", 1, 0, 0,
 #undef FUNC_NAME    
 
 
+static void
+scm_init_ice_9_ioext (void)
+{
+#include "libguile/ioext.x"
+}
+
 void 
 scm_init_ioext ()
 {
   scm_add_feature ("i/o-extensions");
 
-#include "libguile/ioext.x"
+  scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
+                            "scm_init_ice_9_ioext",
+			    (scm_t_extension_init_func) scm_init_ice_9_ioext,
+			    NULL);
 }
 
 

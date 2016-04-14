@@ -151,38 +151,6 @@ a-cont
 
 
 
-;;; {Low-Level Port Code}
-;;;
-
-;; These are used to request the proper mode to open files in.
-;;
-(define OPEN_READ "r")
-(define OPEN_WRITE "w")
-(define OPEN_BOTH "r+")
-
-(define *null-device* "/dev/null")
-
-;; NOTE: Later in this file, this is redefined to support keywords
-(define (open-input-file str)
-  "Takes a string naming an existing file and returns an input port
-capable of delivering characters from the file.  If the file
-cannot be opened, an error is signalled."
-  (open-file str OPEN_READ))
-
-;; NOTE: Later in this file, this is redefined to support keywords
-(define (open-output-file str)
-  "Takes a string naming an output file to be created and returns an
-output port capable of writing characters to a new file by that
-name.  If the file cannot be opened, an error is signalled.  If a
-file with the given name already exists, the effect is unspecified."
-  (open-file str OPEN_WRITE))
-
-(define (open-io-file str) 
-  "Open file with name STR for both input and output."
-  (open-file str OPEN_BOTH))
-
-
-
 ;;; {Simple Debugging Tools}
 ;;;
 
@@ -315,11 +283,10 @@ file with the given name already exists, the effect is unspecified."
              (for-eachn (cdr l1) (map cdr rest))))))))
 
 
-;; Temporary definition used in the include-from-path expansion;
-;; replaced later.
+;; Temporary definitions used by `include'; replaced later.
 
-(define (absolute-file-name? file-name)
-  #t)
+(define (absolute-file-name? file-name) #t)
+(define (open-input-file str) (open-file str "r"))
 
 ;;; {and-map and or-map}
 ;;;
@@ -1195,11 +1162,6 @@ VALUE."
 ;;
 ;; It should print OBJECT to PORT.
 
-(define (inherit-print-state old-port new-port)
-  (if (get-print-state old-port)
-      (port-with-print-state new-port (get-print-state old-port))
-      new-port))
-
 ;; 0: type-name, 1: fields, 2: constructor
 (define record-type-vtable
   (let ((s (make-vtable (string-append standard-vtable-fields "prprpw")
@@ -1446,29 +1408,6 @@ CONV is not applied to the initial value."
 
 
 
-;;; Current ports as parameters.
-;;;
-
-(let ()
-  (define-syntax-rule (port-parameterize! binding fluid predicate msg)
-    (begin
-      (set! binding (fluid->parameter (module-ref (current-module) 'fluid)
-                                      (lambda (x)
-                                        (if (predicate x) x
-                                            (error msg x)))))
-      (hashq-remove! (%get-pre-modules-obarray) 'fluid)))
-  
-  (port-parameterize! current-input-port %current-input-port-fluid
-                      input-port? "expected an input port")
-  (port-parameterize! current-output-port %current-output-port-fluid
-                      output-port? "expected an output port")
-  (port-parameterize! current-error-port %current-error-port-fluid
-                      output-port? "expected an output port")
-  (port-parameterize! current-warning-port %current-warning-port-fluid
-                      output-port? "expected an output port"))
-
-
-
 ;;; {Languages}
 ;;;
 
@@ -1483,140 +1422,6 @@ CONV is not applied to the initial value."
 ;;; {High-Level Port Routines}
 ;;;
 
-(define* (open-input-file
-          file #:key (binary #f) (encoding #f) (guess-encoding #f))
-  "Takes a string naming an existing file and returns an input port
-capable of delivering characters from the file.  If the file
-cannot be opened, an error is signalled."
-  (open-file file (if binary "rb" "r")
-             #:encoding encoding
-             #:guess-encoding guess-encoding))
-
-(define* (open-output-file file #:key (binary #f) (encoding #f))
-  "Takes a string naming an output file to be created and returns an
-output port capable of writing characters to a new file by that
-name.  If the file cannot be opened, an error is signalled.  If a
-file with the given name already exists, the effect is unspecified."
-  (open-file file (if binary "wb" "w")
-             #:encoding encoding))
-
-(define* (call-with-input-file
-          file proc #:key (binary #f) (encoding #f) (guess-encoding #f))
-  "PROC should be a procedure of one argument, and FILE should be a
-string naming a file.  The file must
-already exist. These procedures call PROC
-with one argument: the port obtained by opening the named file for
-input or output.  If the file cannot be opened, an error is
-signalled.  If the procedure returns, then the port is closed
-automatically and the values yielded by the procedure are returned.
-If the procedure does not return, then the port will not be closed
-automatically unless it is possible to prove that the port will
-never again be used for a read or write operation."
-  (let ((p (open-input-file file
-                            #:binary binary
-                            #:encoding encoding
-                            #:guess-encoding guess-encoding)))
-    (call-with-values
-      (lambda () (proc p))
-      (lambda vals
-        (close-input-port p)
-        (apply values vals)))))
-
-(define* (call-with-output-file file proc #:key (binary #f) (encoding #f))
-  "PROC should be a procedure of one argument, and FILE should be a
-string naming a file.  The behaviour is unspecified if the file
-already exists. These procedures call PROC
-with one argument: the port obtained by opening the named file for
-input or output.  If the file cannot be opened, an error is
-signalled.  If the procedure returns, then the port is closed
-automatically and the values yielded by the procedure are returned.
-If the procedure does not return, then the port will not be closed
-automatically unless it is possible to prove that the port will
-never again be used for a read or write operation."
-  (let ((p (open-output-file file #:binary binary #:encoding encoding)))
-    (call-with-values
-      (lambda () (proc p))
-      (lambda vals
-        (close-output-port p)
-        (apply values vals)))))
-
-(define (with-input-from-port port thunk)
-  (parameterize ((current-input-port port))
-    (thunk)))
-
-(define (with-output-to-port port thunk)
-  (parameterize ((current-output-port port))
-    (thunk)))
-
-(define (with-error-to-port port thunk)
-  (parameterize ((current-error-port port))
-    (thunk)))
-
-(define* (with-input-from-file
-          file thunk #:key (binary #f) (encoding #f) (guess-encoding #f))
-  "THUNK must be a procedure of no arguments, and FILE must be a
-string naming a file.  The file must already exist. The file is opened for
-input, an input port connected to it is made
-the default value returned by `current-input-port',
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed and the previous
-default is restored.  Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-input-file file
-   (lambda (p) (with-input-from-port p thunk))
-   #:binary binary
-   #:encoding encoding
-   #:guess-encoding guess-encoding))
-
-(define* (with-output-to-file file thunk #:key (binary #f) (encoding #f))
-  "THUNK must be a procedure of no arguments, and FILE must be a
-string naming a file.  The effect is unspecified if the file already exists.
-The file is opened for output, an output port connected to it is made
-the default value returned by `current-output-port',
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed and the previous
-default is restored.  Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-output-file file
-   (lambda (p) (with-output-to-port p thunk))
-   #:binary binary
-   #:encoding encoding))
-
-(define* (with-error-to-file file thunk #:key (binary #f) (encoding #f))
-  "THUNK must be a procedure of no arguments, and FILE must be a
-string naming a file.  The effect is unspecified if the file already exists.
-The file is opened for output, an output port connected to it is made
-the default value returned by `current-error-port',
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed and the previous
-default is restored.  Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-output-file file
-   (lambda (p) (with-error-to-port p thunk))
-   #:binary binary
-   #:encoding encoding))
-
-(define (call-with-input-string string proc)
-  "Calls the one-argument procedure @var{proc} with a newly created
-input port from which @var{string}'s contents may be read.  The value
-yielded by the @var{proc} is returned."
-  (proc (open-input-string string)))
-
-(define (with-input-from-string string thunk)
-  "THUNK must be a procedure of no arguments.
-The test of STRING  is opened for
-input, an input port connected to it is made, 
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed.
-Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-input-string string
-   (lambda (p) (with-input-from-port p thunk))))
-
 (define (call-with-output-string proc)
   "Calls the one-argument procedure @var{proc} with a newly created output
 port.  When the function returns, the string composed of the characters
@@ -1624,18 +1429,6 @@ written into the port is returned."
   (let ((port (open-output-string)))
     (proc port)
     (get-output-string port)))
-
-(define (with-output-to-string thunk)
-  "Calls THUNK and returns its output as a string."
-  (call-with-output-string
-   (lambda (p) (with-output-to-port p thunk))))
-
-(define (with-error-to-string thunk)
-  "Calls THUNK and returns its error output as a string."
-  (call-with-output-string
-   (lambda (p) (with-error-to-port p thunk))))
-
-(define the-eof-object (call-with-input-string "" (lambda (p) (read-char p))))
 
 
 
@@ -1758,94 +1551,8 @@ written into the port is returned."
 
 
 
-;;; {File Descriptors and Ports}
+;;; {C Environment}
 ;;;
-
-(define file-position ftell)
-(define* (file-set-position port offset #:optional (whence SEEK_SET))
-  (seek port offset whence))
-
-(define (move->fdes fd/port fd)
-  (cond ((integer? fd/port)
-         (dup->fdes fd/port fd)
-         (close fd/port)
-         fd)
-        (else
-         (primitive-move->fdes fd/port fd)
-         (set-port-revealed! fd/port 1)
-         fd/port)))
-
-(define (release-port-handle port)
-  (let ((revealed (port-revealed port)))
-    (if (> revealed 0)
-        (set-port-revealed! port (- revealed 1)))))
-
-(define dup->port
-  (case-lambda
-    ((port/fd mode)
-     (fdopen (dup->fdes port/fd) mode))
-    ((port/fd mode new-fd)
-     (let ((port (fdopen (dup->fdes port/fd new-fd) mode)))
-       (set-port-revealed! port 1)
-       port))))
-
-(define dup->inport
-  (case-lambda
-    ((port/fd)
-     (dup->port port/fd "r"))
-    ((port/fd new-fd)
-     (dup->port port/fd "r" new-fd))))
-
-(define dup->outport
-  (case-lambda
-    ((port/fd)
-     (dup->port port/fd "w"))
-    ((port/fd new-fd)
-     (dup->port port/fd "w" new-fd))))
-
-(define dup
-  (case-lambda
-    ((port/fd)
-     (if (integer? port/fd)
-         (dup->fdes port/fd)
-         (dup->port port/fd (port-mode port/fd))))
-    ((port/fd new-fd)
-     (if (integer? port/fd)
-         (dup->fdes port/fd new-fd)
-         (dup->port port/fd (port-mode port/fd) new-fd)))))
-
-(define (duplicate-port port modes)
-  (dup->port port modes))
-
-(define (fdes->inport fdes)
-  (let loop ((rest-ports (fdes->ports fdes)))
-    (cond ((null? rest-ports)
-           (let ((result (fdopen fdes "r")))
-             (set-port-revealed! result 1)
-             result))
-          ((input-port? (car rest-ports))
-           (set-port-revealed! (car rest-ports)
-                               (+ (port-revealed (car rest-ports)) 1))
-           (car rest-ports))
-          (else
-           (loop (cdr rest-ports))))))
-
-(define (fdes->outport fdes)
-  (let loop ((rest-ports (fdes->ports fdes)))
-    (cond ((null? rest-ports)
-           (let ((result (fdopen fdes "w")))
-             (set-port-revealed! result 1)
-             result))
-          ((output-port? (car rest-ports))
-           (set-port-revealed! (car rest-ports)
-                               (+ (port-revealed (car rest-ports)) 1))
-           (car rest-ports))
-          (else
-           (loop (cdr rest-ports))))))
-
-(define (port->fdes port)
-  (set-port-revealed! port (+ (port-revealed port) 1))
-  (fileno port))
 
 (define (setenv name value)
   (if value
@@ -4319,6 +4026,16 @@ when none is available, reading FILE-NAME with READER."
 
 (begin-deprecated
  (module-use! the-scm-module (resolve-interface '(ice-9 deprecated))))
+
+
+
+;;; {Ports}
+;;;
+
+;; Allow code in (guile) to use port bindings.
+(module-use! the-root-module (resolve-interface '(ice-9 ports)))
+;; Allow users of (guile) to see port bindings.
+(module-use! the-scm-module (resolve-interface '(ice-9 ports)))
 
 
 

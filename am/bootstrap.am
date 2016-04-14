@@ -123,6 +123,7 @@ SOURCES =					\
   system/base/ck.scm				\
 						\
   ice-9/boot-9.scm				\
+  ice-9/ports.scm				\
   ice-9/r5rs.scm				\
   ice-9/deprecated.scm				\
   ice-9/binary-ports.scm			\
