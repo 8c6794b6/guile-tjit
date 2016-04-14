@@ -143,18 +143,40 @@
                (module-obarray (resolve-r6rs-interface '(only (guile) +)))))))
   
   (with-test-prefix "except"
-    (let ((bindings (hash-map->list
-                     (lambda (sym var) sym)
-                     (module-obarray
-                      (resolve-r6rs-interface '(except (guile) +))))))
+    ;; In Guile, interfaces can use other interfaces.  For R6RS modules
+    ;; that are imported as-is (without `except', etc), Guile will just
+    ;; import them as-is.  `(guile)' is one of those modules.  For other
+    ;; import kinds like `except', the resolve-r6rs-interface code will
+    ;; go binding-by-binding and create a new flat interface.  Anyway,
+    ;; that means to compare an except interface with (guile), we're
+    ;; comparing a flat interface with a deep interface, so we need to
+    ;; do more work to get the set of bindings in (guile), knowing also
+    ;; that some of those bindings could be duplicates.
+    (define (bound-name-count mod)
+      (define (module-for-each/nonlocal f mod)
+        (define (module-and-uses mod)
+          (let lp ((in (list mod)) (out '()))
+            (cond
+             ((null? in) (reverse out))
+             ((memq (car in) out) (lp (cdr in) out))
+             (else (lp (append (module-uses (car in)) (cdr in))
+                       (cons (car in) out))))))
+        (for-each (lambda (mod)
+                    (module-for-each f mod))
+                  (module-and-uses mod)))
+      (hash-fold (lambda (sym var n) (1+ n))
+                 0
+                 (let ((t (make-hash-table)))
+                   (module-for-each/nonlocal (lambda (sym var)
+                                               (hashq-set! t sym var))
+                                             mod)
+                   t)))
+    (let ((except-+ (resolve-r6rs-interface '(except (guile) +))))
       (pass-if "contains"
-        (equal? (length bindings)
-                (1- (hash-fold
-                     (lambda (sym var n) (1+ n))
-                     0
-                     (module-obarray (resolve-interface '(guile)))))))
+        (equal? (bound-name-count except-+)
+                (1- (bound-name-count (resolve-interface '(guile))))))
       (pass-if "does not contain"
-        (not (memq '+ bindings)))))
+        (not (module-variable except-+ '+)))))
 
   (with-test-prefix "prefix"
     (let ((iface (resolve-r6rs-interface '(prefix (ice-9 q) q:))))

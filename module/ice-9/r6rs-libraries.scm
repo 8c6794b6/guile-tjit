@@ -26,6 +26,17 @@
       (set-module-kind! iface 'custom-interface)
       (set-module-name! iface (module-name mod))
       iface))
+  (define (module-for-each/nonlocal f mod)
+    (define (module-and-uses mod)
+      (let lp ((in (list mod)) (out '()))
+        (cond
+         ((null? in) (reverse out))
+         ((memq (car in) out) (lp (cdr in) out))
+         (else (lp (append (module-uses (car in)) (cdr in))
+                   (cons (car in) out))))))
+    (for-each (lambda (mod)
+                (module-for-each f mod))
+              (module-and-uses mod)))
   (define (sym? x) (symbol? (syntax->datum x)))
 
   (syntax-case import-spec (library only except prefix rename srfi)
@@ -63,7 +74,7 @@
             (iface (make-custom-interface mod)))
        (for-each (lambda (sym)
                    (module-add! iface sym
-                                (or (module-local-variable mod sym)
+                                (or (module-variable mod sym)
                                     (error "no binding `~A' in module ~A"
                                            sym mod))))
                  (syntax->datum #'(identifier ...)))
@@ -73,7 +84,9 @@
      (and-map sym? #'(identifier ...))
      (let* ((mod (resolve-r6rs-interface #'import-set))
             (iface (make-custom-interface mod)))
-       (module-for-each (lambda (sym var) (module-add! iface sym var)) mod)
+       (module-for-each/nonlocal (lambda (sym var)
+                                   (module-add! iface sym var))
+                                 mod)
        (for-each (lambda (sym)
                    (if (module-local-variable iface sym)
                        (module-remove! iface sym)
@@ -86,16 +99,19 @@
      (let* ((mod (resolve-r6rs-interface #'import-set))
             (iface (make-custom-interface mod))
             (pre (syntax->datum #'identifier)))
-       (module-for-each (lambda (sym var)
-                          (module-add! iface (symbol-append pre sym) var))
-                        mod)
+       (module-for-each/nonlocal
+        (lambda (sym var)
+          (module-add! iface (symbol-append pre sym) var))
+        mod)
        iface))
 
     ((rename import-set (from to) ...)
      (and (and-map sym? #'(from ...)) (and-map sym? #'(to ...)))
      (let* ((mod (resolve-r6rs-interface #'import-set))
             (iface (make-custom-interface mod)))
-       (module-for-each (lambda (sym var) (module-add! iface sym var)) mod)
+       (module-for-each/nonlocal
+        (lambda (sym var) (module-add! iface sym var))
+        mod)
        (let lp ((in (syntax->datum #'((from . to) ...))) (out '()))
          (cond
           ((null? in)
@@ -108,7 +124,7 @@
             out)
            iface)
           (else
-           (let ((var (or (module-local-variable mod (caar in))
+           (let ((var (or (module-variable mod (caar in))
                           (error "no binding `~A' in module ~A"
                                  (caar in) mod))))
              (module-remove! iface (caar in))
@@ -126,9 +142,9 @@
   (lambda (stx)
     (define (compute-exports ifaces specs)
       (define (re-export? sym)
-        (or-map (lambda (iface) (module-local-variable iface sym)) ifaces))
+        (or-map (lambda (iface) (module-variable iface sym)) ifaces))
       (define (replace? sym)
-        (module-local-variable the-scm-module sym))
+        (module-variable the-scm-module sym))
       
       (let lp ((specs specs) (e '()) (r '()) (x '()))
         (syntax-case specs (rename)
