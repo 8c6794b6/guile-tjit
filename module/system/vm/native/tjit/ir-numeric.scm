@@ -380,7 +380,7 @@
 ;; XXX: logxor
 ;; XXX: make-vector
 
-(define-interrupt-ir (make-vector (scm! dst) (u64 len) (scm ini))
+(define-interrupt-ir (make-vector (vector! dst) (u64 len) (scm ini))
   (let ((dst/v (var-ref dst))
         (len/v (var-ref len))
         (ini/v (var-ref ini))
@@ -396,7 +396,7 @@
                      (let ((,dst/v ,r2))
                        ,(next)))))))))))
 
-(define-interrupt-ir (make-vector/immediate (scm! dst) (const len) (scm ini))
+(define-interrupt-ir (make-vector/immediate (vector! dst) (const len) (scm ini))
   (let ((dst/v (var-ref dst))
         (ini/v (var-ref ini))
         (r1 (make-tmpvar 1))
