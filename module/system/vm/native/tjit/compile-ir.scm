@@ -139,32 +139,33 @@ Currently does nothing, returns the given argument."
     (debug 3 ";;;   locals0=~a~%"
            (sort (snapshot-locals snapshot0)
                  (lambda (a b) (< (car a) (car b)))))
+    (debug 3 ";;;   sp-offset0=~a~%" (snapshot-sp-offset snapshot0))
     (debug 3 ";;;   live-vars-in-parent=~s~%" live-vars-in-parent)
+    (debug 3 ";;;   read-indices=~s~%" (env-read-indices env))
+    (debug 3 ";;;   initial-vars=~s~%" initial-vars)
     (let lp ((vars (reverse initial-vars)))
       (match vars
         (((n . var) . vars)
-         (let ((j (+ n initial-sp-offset))
-               (i (- n (snapshot-sp-offset snapshot0))))
+         (let ((i (- n (snapshot-sp-offset snapshot0))))
            (cond
-            ((or (< j 0)
+            ((or (< n 0)
                  (not (<= 0 i (- (vector-length initial-locals) 1)))
-                 (let ((parent-type (type-from-parent j))
-                       (snapshot-type (type-from-snapshot j)))
+                 (let* ((j (+ n initial-sp-offset))
+                        (parent-type (type-from-parent j))
+                        (snapshot-type (type-from-snapshot j)))
                    (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
                           n initial-sp-offset (pretty-type parent-type)
                           (pretty-type snapshot-type))
                    (and (env-parent-snapshot env)
+                        (memq var live-vars-in-parent)
                         (or (and parent-type
                                  snapshot-type
                                  (eq? parent-type snapshot-type))
-                            (and (not snapshot-type)
-                                 parent-type)
                             (or (dynamic-link? parent-type)
                                 (return-address? parent-type))
                             (and (<= 0 initial-sp-offset)
                                  (< n 0))
-                            (not (memq n (env-read-indices env)))
-                            (memq var live-vars-in-parent)))))
+                            (not (memq n (env-read-indices env)))))))
              (lp vars))
             (else
              (let ((guard (assq-ref (env-entry-types env) n))

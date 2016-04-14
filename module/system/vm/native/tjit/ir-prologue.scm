@@ -26,9 +26,9 @@
 
 (define-module (system vm native tjit ir-prologue)
   #:use-module (system foreign)
-  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
@@ -38,9 +38,11 @@
     (let lp ((n 0) (acc (env-live-indices env)))
       (if (< n nlocals)
           (lp (+ n 1) (let ((m (- offset n)))
-                        (if (memq m acc)
-                            acc
-                            (cons m acc))))
+                        (if (and (not (memq m acc))
+                                 (or (memq m (env-read-indices env))
+                                     (memq m (env-write-indices env))))
+                            (cons m acc)
+                            acc)))
           (set-env-live-indices! env (sort acc <))))))
 
 (define-syntax-rule (scan-frame nlocals)

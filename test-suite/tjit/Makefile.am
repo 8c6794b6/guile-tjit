@@ -232,6 +232,7 @@ TESTS = \
 	t-tail-call-08.scm \
 	t-tail-call-09.scm \
 	t-tail-call-10.scm \
+	t-tail-call-11.scm \
 	t-tail-call-label-01.scm \
 	t-tail-call-label-02.scm \
 	t-toplevel-box-01.scm \
