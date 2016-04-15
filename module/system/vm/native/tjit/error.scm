@@ -59,6 +59,7 @@
          (debug 1 "NYI: ~a~%" (apply format #f fmt args))
          (tjit-increment-compilation-failure! ip))
         ((retry)
+         (tjit-increment-compilation-failure! ip)
          (debug 1 "[tjitc] retry: ~a~%" (apply format #f fmt args)))
         ((failure)
          (let ((msg (apply format #f fmt args)))
