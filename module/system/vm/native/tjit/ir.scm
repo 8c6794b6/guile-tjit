@@ -480,7 +480,8 @@ index referenced by dst, a, and b values at runtime."
       (ir-last-op? ir)))
 
 (define-syntax-rule (inline-current-return?)
-  (assq-ref (env-returns env) (env-return-num env)))
+  (or (assq-ref (env-returns env) (env-return-num env))
+      (< 0 (env-inline-depth env))))
 
 (define-syntax-rule (scm-ref n)
   (vector-ref locals n))
@@ -546,6 +547,7 @@ index referenced by dst, a, and b values at runtime."
                        . body)
                      #t)))
     (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
+
 
 ;;;
 ;;; Macro for Type Inference
