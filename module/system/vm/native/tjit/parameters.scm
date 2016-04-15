@@ -56,6 +56,8 @@
             set-tjit-num-unrolls!
             tjit-scheme-engine
             set-tjit-scheme-engine!
+            tjit-max-record
+            set-tjit-max-record!
             tjit-increment-compilation-failure!
             tjit-add-root-ip!
             tjit-register-gdb-jit-entry!
