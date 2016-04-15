@@ -1,5 +1,8 @@
 ;; Tail call loop with mutually recursive top-level definition.
 
+(use-modules (system vm native tjit parameters))
+(set-tjit-max-retries! 3)
+
 (define (f n acc)
   (if (= n 0)
       acc

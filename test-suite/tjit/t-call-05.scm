@@ -19,16 +19,10 @@
   (+ (f6 x) (f6 6)))
 
 (define (f6 x)
-  (+ (f7 x) 7))
+  (+ (f7 x) (f7 7)))
 
 (define (f7 x)
-  (+ (f8 x) 8))
-
-(define (f8 x)
-  (+ (f9 x) 9))
-
-(define (f9 x)
-  (+ x 10))
+  (+ 8 x))
 
 (define (loop n)
   (let lp ((n n) (acc 0))
