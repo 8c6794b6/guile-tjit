@@ -123,7 +123,7 @@
          ((and (not parent-snapshot) (not loop?))
           (nyi "loop-less root trace"))
          ((and (not parent-snapshot) (not (zero? (env-last-sp-offset env))))
-          (nyi "looping root trace with stack pointer shift"))
+          (nyi "root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
           (nyi "side trace with type mismatched link"))
          (else
