@@ -20,12 +20,14 @@
 ;;; Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
 
 (use-modules (ice-9 getopt-long)
+             (ice-9 regex)
              ((srfi srfi-1) #:select (every))
              (srfi srfi-11)
              (system vm coverage)
              (system vm vm)
              (system vm loader)
              (system vm native tjit error)
+             (system vm native tjit parameters)
              (system vm native tjit tjitc)
              (system base compile)
              (system base language))
@@ -57,17 +59,22 @@
       path
       (string-append (getcwd) file-name-separator-string path)))
 
-(define (run-tjit-test show-file-name)
+(define (run-tjit-test coverage)
   (lambda (path)
-    (when show-file-name
+    (when coverage
       (format #t "Running: ~a~%" path))
-    (let* ((path (ensure-absolute-path path))
-           (thunk (compile-file-to-thunk path))
-           (result-regular (thunk))
-           (result-tjit (call-with-vm-tjit thunk)))
-      (if (equal? result-regular result-tjit)
-          #f
-          (list result-regular result-tjit)))))
+    (call-with-output-file *null-device*
+      (lambda (nowhere)
+        (parameterize ((current-output-port (if coverage
+                                                nowhere
+                                                (current-output-port))))
+          (let* ((path (ensure-absolute-path path))
+                 (thunk (compile-file-to-thunk path))
+                 (result-regular (thunk))
+                 (result-tjit (call-with-vm-tjit thunk)))
+            (if (equal? result-regular result-tjit)
+                #f
+                (list result-regular result-tjit))))))))
 
 (define (main args)
   (let* ((spec '((coverage (required? #f)
@@ -81,8 +88,16 @@
          (coverage (option-ref opts 'coverage #f))
          (out (option-ref opts 'out "tjit-tests.info")))
     (init-vm-tjit coverage)
+    (when coverage
+      (set-tjit-dump-option! "jbovdstn"))
     (let* ((run (lambda ()
-                  (map (run-tjit-test coverage) paths)))
+                  (map (run-tjit-test coverage)
+                       (if coverage
+                           (let ((rx (make-regexp "t-.*\\.scm")))
+                             (filter (lambda (path)
+                                       (regexp-exec rx path))
+                                     paths))
+                           paths))))
            (results (if coverage
                         (let-values (((data results)
                                       (with-code-coverage run)))
