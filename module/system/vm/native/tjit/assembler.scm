@@ -766,6 +766,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                ((mem) (memory-ref r1 b))
                (else (err)))))
     (jump (jit-beqr a/r b/r) proceed)
+    (jump (scm-imp a/r) (bailout))
+    (jump (scm-imp b/r) (bailout))
     (for-each store-volatile volatiles)
     (jit-prepare)
     (let ((b/r (if (equal? b (argr 1))
@@ -781,6 +783,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 (define-native (%nev (int a) (int b))
   (let ((volatiles (asm-volatiles asm))
+        (proceed (jit-forward))
         (a/r (case (ref-type a)
                ((con) (jit-movi r0 (constant a)))
                ((gpr) (gpr a))
@@ -794,6 +797,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                ((mem) (memory-ref r1 b))
                (else (err)))))
     (jump (jit-beqr a/r b/r) (bailout))
+    (jump (scm-imp a/r) proceed)
+    (jump (scm-imp b/r) proceed)
     (for-each store-volatile volatiles)
     (jit-prepare)
     (let ((b/r (if (equal? b (argr 1))
@@ -804,7 +809,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (jit-calli %scm-eqv)
     (jit-retval r0)
     (for-each load-volatile volatiles)
-    (jump (jit-bnei r0 *scm-false*) (bailout))))
+    (jump (jit-bnei r0 *scm-false*) (bailout))
+    (jit-link proceed)))
 
 ;;; Type guard.
 (define-native (%typeq (int src) (void type))
