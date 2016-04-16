@@ -60,6 +60,7 @@
             set-tjit-max-record!
             tjit-increment-compilation-failure!
             tjit-add-root-ip!
+            tjit-remove-fragment!
             tjit-register-gdb-jit-entry!
             make-negative-pointer
 

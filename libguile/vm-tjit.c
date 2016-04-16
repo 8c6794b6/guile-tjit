@@ -151,8 +151,8 @@ SCM_TJIT_PARAM (scheme_engine, scheme-engine, SCM_VM_REGULAR_ENGINE)
    value is current count. */
 SCM_TJIT_HASH (hot_ip)
 
-/* Hash array to hold IP of  root traces. Key is bytecode IP,
-   value is 0 or 1. */
+/* Hash array to hold IP of root traces. Key is bytecode IP, value is 0
+   or 1. */
 SCM_TJIT_HASH (root_ip)
 
 /* Hash array to hold IPs of failed traces. Key is bytecode IP, value is
@@ -160,7 +160,7 @@ SCM_TJIT_HASH (root_ip)
 SCM_TJIT_HASH (failed_ip)
 
 /* Hash array to hold IPs of side trace. Key is bytecode IP, value is
-   number of compilation trials */
+   number of compilation trials. */
 SCM_TJIT_HASH (bailout_ip)
 
 /* Hash table to hold all fragments. Key is fragment ID, value is
@@ -179,6 +179,7 @@ static SCM tjitc_var;
 
 /* Initial trace id, increment after native compilation. */
 static int tjit_trace_id = 1;
+
 
 /*
  * Internal functions
@@ -399,8 +400,8 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
             }
         }
       else if (ip == end_ip)
-        /* XXX: Hot non-recursive procedure call. Worth to compile */
-        /* but currently marked as failure and ignored.            */
+        /* XXX: Hot non-recursive procedure call. May worth compiling
+           but currently marked as failure and ignored. */
         abort_recording (tj, start_ip);
       else
         record (tj, thread, vp, ip, sp);
@@ -426,7 +427,6 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
     }
   return sp;
 }
-
 
 static inline scm_t_uint32*
 call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
@@ -612,6 +612,22 @@ SCM_DEFINE (scm_tjit_add_root_ip_x, "tjit-add-root-ip!", 1, 0, 0,
 #define FUNC_NAME s_scm_tjit_add_root_ip_x
 {
   root_ip_set (SCM_I_INUM (ip), 1);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_tjit_remove_fragment_x, "tjit-remove-fragment!",
+            1, 0, 0, (SCM id), "Remove fragment with ID.")
+#define FUNC_NAME s_scm_tit_remove_fragment_x
+{
+  SCM fragment = scm_hashq_ref (tjit_fragment_table, id, SCM_BOOL_F);
+
+  if (scm_is_true (fragment))
+    {
+      scm_hashq_remove_x (tjit_fragment_table, id);
+      root_ip_set (SCM_I_INUM (SCM_FRAGMENT_ENTRY_IP (fragment)), 0);
+    }
+
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
