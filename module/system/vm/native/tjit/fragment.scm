@@ -50,10 +50,13 @@
             fragment-storage
             fragment-bailout-code
             fragment-handle-interrupts?
+            fragment-side-trace-ids set-fragment-side-trace-ids!
 
             put-fragment!
             get-fragment
-            get-root-trace))
+            get-root-trace
+            get-origin-fragment
+            remove-fragment-and-side-traces))
 
 ;;;
 ;;; The fragment data
@@ -70,7 +73,7 @@
   (%make-fragment id code exit-counts downrec? uprec? type-checker entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
                   snapshots trampoline end-address gdb-jit-entry storage
-                  bailout-code handle-interrupts?)
+                  bailout-code handle-interrupts? side-trace-ids)
   fragment?
 
   ;; Trace id number.
@@ -128,7 +131,10 @@
   (bailout-code fragment-bailout-code)
 
   ;; Flag for handling interrupts
-  (handle-interrupts? fragment-handle-interrupts?))
+  (handle-interrupts? fragment-handle-interrupts?)
+
+  ;; Side trace IDs of this fragment
+  (side-trace-ids fragment-side-trace-ids set-fragment-side-trace-ids!))
 
 (define make-fragment %make-fragment)
 
@@ -160,3 +166,24 @@
            fragment
            (lp fragments)))
       (_ #f))))
+
+(define (get-origin-fragment fragment)
+  "Get origin root trace fragment of FRAGMENT."
+  (let lp ((fragment fragment))
+    (if (not fragment)
+        #f
+        (let ((parent-id (fragment-parent-id fragment)))
+          (if (zero? parent-id)
+              fragment
+              (lp (get-fragment parent-id)))))))
+
+(define (remove-fragment-and-side-traces fragment)
+  "Remove FRAGMENT and its side traces from global cached table."
+  (letrec ((go (lambda (fragment)
+                 (let lp ((ids (fragment-side-trace-ids fragment)))
+                   (if (null? ids)
+                       (tjit-remove-fragment! (fragment-id fragment))
+                       (begin
+                         (and=> (get-fragment (car ids)) go)
+                         (lp (cdr ids))))))))
+    (go fragment)))

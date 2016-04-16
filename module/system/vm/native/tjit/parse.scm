@@ -154,14 +154,9 @@ After successufl parse, this procedure will update fields in ENV."
                  ;; reaches to root trace and compare it with linked trace. This
                  ;; loop could be avoided by saving the origin trace id in
                  ;; fragment record type.
-                 (let ((origin-id
-                        (let lp ((fragment (env-parent-fragment env)))
-                          (if (not fragment)
-                              #f
-                              (let ((parent-id (fragment-parent-id fragment)))
-                                (if (zero? parent-id)
-                                    (fragment-id fragment)
-                                    (lp (get-fragment parent-id)))))))
+                 (let ((origin-id (and=> (get-origin-fragment
+                                          (env-parent-fragment env))
+                                         fragment-id))
                        (linked-id (and=> linked-fragment fragment-id)))
                    (and origin-id linked-id
                         (not (eq? origin-id linked-id)))))

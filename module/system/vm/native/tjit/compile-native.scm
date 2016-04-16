@@ -433,7 +433,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      gdb-jit-entry
                                      storage
                                      bcode
-                                     (env-handle-interrupts? env)))
+                                     (env-handle-interrupts? env)
+                                     '()))
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
        ;; When this trace is a side trace, replace the native code
@@ -441,9 +442,12 @@ DST-TYPES, and SRC-TYPES are local index number."
        (let ((fragment (env-parent-fragment env))
              (code-address (pointer-address ptr)))
          (when fragment
-           (let ((trampoline (fragment-trampoline fragment)))
+           (let ((trampoline (fragment-trampoline fragment))
+                 (side-trace-ids (fragment-side-trace-ids fragment)))
              (trampoline-set! trampoline (env-parent-exit-id env) ptr)
-             (set-snapshot-code! (env-parent-snapshot env) code)))
+             (set-snapshot-code! (env-parent-snapshot env) code)
+             (set-fragment-side-trace-ids! fragment
+                                           (cons (env-id env) side-trace-ids))))
          (values code size code-address loop-address trampoline))))))
 
 (define (compile-entry env primops snapshots)
