@@ -34,10 +34,28 @@
   #:use-module (system vm native tjit variables))
 
 ;; XXX: struct-vtable
+;; (define-ir (struct-vtable (scm! dst) (scm src))
+;;   (let ((dst/v (var-ref dst))
+;;         (src/v (var-ref src))
+;;         (r2 (make-tmpvar 2)))
+;;     `(let ((,r2 (%cref ,src/v 0)))
+;;        (let ((,r2 (%sub ,r2 1)))
+;;          (let ((,dst/v (%cref ,r2 2)))
+;;            ,(next))))))
+
 ;; XXX: allocate-struct
 ;; XXX: struct-ref
 ;; XXX: struct-set!
 ;; XXX: allocate-struct/immediate
+
 ;; XXX: struct-ref/immediate
+;; (define-ir (struct-ref/immediate (scm! dst) (scm src) (const idx))
+;;   (let ((dst/v (var-ref dst))
+;;         (src/v (var-ref src))
+;;         (r2 (make-tmpvar 2)))
+;;     `(let ((,r2 (%cref ,src/v 1)))
+;;        (let ((,dst/v (%cref ,r2 ,idx)))
+;;          ,(next)))))
+
 ;; XXX: struct-set!/immediate
 ;; XXX: class-of
