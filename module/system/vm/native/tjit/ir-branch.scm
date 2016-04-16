@@ -106,7 +106,20 @@
 
 (define-br-unary br-if-struct struct? %tceq %tcne (7 ,%tc3-struct))
 
-;; XXX: br-if-char
+(define-ir (br-if-char (scm test) (const invert) (const offset))
+  (let* ((test/v (var-ref test))
+         (test/l (scm-ref test))
+         (test/r (char? test/l))
+         (dest (if test/r
+                   (if invert offset 2)
+                   (if invert 2 offset)))
+         (op (if test/r '%eq '%ne))
+         (r2 (make-tmpvar 2)))
+    (ensure-loop test/r invert offset 2)
+    `(let ((_ ,(take-snapshot! ip dest)))
+       (let ((,r2 (%band ,test/v #xf)))
+         (let ((_ (,op ,r2 ,%tc8-char)))
+           ,(next))))))
 
 (define-syntax-rule (obj->tc7 obj)
   (let ((ptr (scm->pointer obj)))
