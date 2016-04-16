@@ -46,7 +46,7 @@
                                   fragment-entry-ip)
                            (env-entry-ip env))))
          (when (not (= entry-ip (+ ip (* 4 jump))))
-           (retry "trace not looping")))))))
+           (retrace "trace not looping")))))))
 
 (define-syntax define-br-unary
   (syntax-rules ()

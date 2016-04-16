@@ -80,7 +80,11 @@
             (lambda args
               (apply make-env trace-id entry-ip linked-ip
                      parent-exit-id parent-fragment parent-snapshot
-                     loop? downrec? uprec? args)))))
+                     loop? downrec? uprec? args))))
+         (num-traces-with-same-entry-ip
+          (hash-count (lambda (k v)
+                        (eq? entry-ip (fragment-entry-ip v)))
+                     (tjit-fragment))))
     (define (show-sline)
       (let ((exit-pair (if (< 0 parent-ip)
                            (format #f " (~a:~a)"
@@ -126,6 +130,13 @@
           (nyi "root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
           (nyi "side trace with type mismatched link"))
+         ((and (<= 3 num-traces-with-same-entry-ip)
+               (let ((op (car (list-ref (car traces) 0))))
+                 (or (eq? op 'call)
+                     (eq? op 'call-label))))
+          (let ((origin (get-origin-fragment (env-parent-fragment env))))
+            (remove-fragment-and-side-traces origin)
+            (recompile "trace ~a, side trace with call" (fragment-id origin))))
          (else
           (unless (tjit-dump-abort? dump-option)
             (dump-sline-and-bytecode implemented?))

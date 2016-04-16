@@ -35,7 +35,7 @@
   #:export (tjitc-errors
             call-with-tjitc-error-handler
             with-tjitc-error-handler
-            tjitc-error retry nyi))
+            tjitc-error retrace recompile nyi))
 
 ;;;
 ;;; Handler
@@ -58,9 +58,11 @@
         ((nyi)
          (debug 1 "NYI: ~a~%" (apply format #f fmt args))
          (tjit-increment-compilation-failure! ip))
-        ((retry)
+        ((retrace)
          (tjit-increment-compilation-failure! ip)
-         (debug 1 "[tjitc] retry: ~a~%" (apply format #f fmt args)))
+         (debug 1 "[tjitc] retrace: ~a~%" (apply format #f fmt args)))
+        ((recompile)
+         (debug 1 "[tjitc] recompile: ~a~%" (apply format #f fmt args)))
         ((failure)
          (let ((msg (apply format #f fmt args)))
            (debug 0 "[~a] failure: ~a ~a~%" (red "tjitc") name msg)
@@ -84,8 +86,11 @@
 (define (tjitc-error name fmt . args)
   (make-tjitc-error 'failure name fmt args))
 
-(define (retry fmt . args)
-  (make-tjitc-error 'retry #f fmt args))
+(define (retrace fmt . args)
+  (make-tjitc-error 'retrace #f fmt args))
+
+(define (recompile fmt . args)
+  (make-tjitc-error 'recompile #f fmt args))
 
 (define (nyi fmt . args)
   (make-tjitc-error 'nyi #f fmt args))
