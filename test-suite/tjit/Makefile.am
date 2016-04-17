@@ -222,6 +222,7 @@ TESTS = \
 	t-subr-call-08.scm \
 	t-subr-call-09.scm \
 	t-subr-call-10.scm \
+	t-string-length-01.scm \
 	t-tail-call-01.scm \
 	t-tail-call-02.scm \
 	t-tail-call-03.scm \

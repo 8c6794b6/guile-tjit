@@ -33,7 +33,12 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-;; XXX: string-length
+(define-ir (string-length (u64! dst) (string src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((,dst/v (%cref ,src/v 3)))
+       ,(next))))
+
 ;; XXX: string-ref
 ;; XXX: string->number
 ;; XXX: string->symbol
