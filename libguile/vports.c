@@ -52,6 +52,8 @@
 
 static scm_t_bits scm_tc16_soft_port;
 
+#define ENCODE_BUF_SIZE 10
+
 struct soft_port {
   SCM write_char;
   SCM write_string;
@@ -59,7 +61,9 @@ struct soft_port {
   SCM read_char;
   SCM close;
   SCM input_waiting;
-  scm_t_port_buffer *encode_buf;
+  scm_t_uint8 encode_buf[ENCODE_BUF_SIZE];
+  size_t encode_cur;
+  size_t encode_end;
 };
 
 
@@ -94,14 +98,13 @@ soft_port_read (SCM port, SCM dst, size_t start, size_t count)
 {
   size_t written;
   struct soft_port *stream = (void *) SCM_STREAM (port);
-  scm_t_port_buffer *encode_buf = stream->encode_buf;
   signed char *dst_ptr = SCM_BYTEVECTOR_CONTENTS (dst) + start;
 
   /* A character can be more than one byte, but we don't have a
      guarantee that there is more than one byte in the read buffer.  So,
      use an intermediate buffer.  Terrible.  This whole facility should
      be (re)designed.  */
-  if (encode_buf->cur == encode_buf->end)
+  if (stream->encode_cur == stream->encode_end)
     {
       SCM ans;
       char *str;
@@ -115,17 +118,17 @@ soft_port_read (SCM port, SCM dst, size_t start, size_t count)
       /* It's possible to make a fast path here, but it would be fastest
          if the read procedure could fill its buffer directly.  */
       str = scm_to_port_stringn (scm_string (scm_list_1 (ans)), &len, port);
-      assert (len > 0 && len <= encode_buf->size);
-      encode_buf->cur = 0;
-      encode_buf->end = len;
-      memcpy (encode_buf->buf, str, len);
+      assert (len > 0 && len <= ENCODE_BUF_SIZE);
+      stream->encode_cur = 0;
+      stream->encode_end = len;
+      memcpy (stream->encode_buf, str, len);
       free (str);
     }
 
   for (written = 0;
-       written < count && encode_buf->cur < encode_buf->end;
-       written++, encode_buf->cur++)
-    dst_ptr[written] = encode_buf->buf[encode_buf->cur];
+       written < count && stream->encode_cur < stream->encode_end;
+       written++, stream->encode_cur++)
+    dst_ptr[written] = stream->encode_buf[stream->encode_cur];
 
   return written;
 }
@@ -217,8 +220,6 @@ SCM_DEFINE (scm_make_soft_port, "make-soft-port", 2, 0, 0,
   stream->close = SCM_SIMPLE_VECTOR_REF (pv, 4);
   stream->input_waiting =
     vlen == 6 ? SCM_SIMPLE_VECTOR_REF (pv, 5) : SCM_BOOL_F;
-
-  stream->encode_buf = scm_c_make_port_buffer (10);
 
   return scm_c_make_port (scm_tc16_soft_port, scm_i_mode_bits (modes),
                           (scm_t_bits) stream);
