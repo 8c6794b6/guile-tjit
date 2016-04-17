@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include "libguile/bytevectors.h"
 #include "libguile/gc.h"
 #include "libguile/tags.h"
 #include "libguile/error.h"
@@ -73,8 +74,8 @@ struct scm_port_internal;
 
 typedef struct
 {
-  /* Start of the buffer.  Never changed.  */
-  scm_t_uint8 *buf;
+  /* The port buffer. */
+  SCM bytevector;
 
   /* Offsets into the buffer.  Invariant: cur <= end <= size(buf).  */
   size_t cur;
@@ -86,8 +87,6 @@ typedef struct
      peek-u8 should still return EOF.  */
   SCM has_eof_p;
 
-  /* Bytevector whose contents are [BUF, BUF + SIZE). */
-  SCM bytevector;
 } scm_t_port_buffer;
 
 
@@ -430,13 +429,16 @@ SCM_INLINE_IMPLEMENTATION int
 scm_get_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
+  scm_t_uint8 *ptr;
 
+  ptr = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
   if (SCM_LIKELY (buf->cur < buf->end))
-    return buf->buf[buf->cur++];
+    return ptr[buf->cur++];
 
   buf = scm_fill_input_unlocked (port);
+  ptr = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
   if (buf->cur < buf->end)
-    return buf->buf[buf->cur++];
+    return ptr[buf->cur++];
 
   /* The next peek or get should cause the read() function to be called
      to see if we still have EOF.  */
@@ -448,15 +450,15 @@ scm_get_byte_or_eof_unlocked (SCM port)
 SCM_INLINE_IMPLEMENTATION int
 scm_peek_byte_or_eof_unlocked (SCM port)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_buffer *buf = pt->read_buf;
+  scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
+  scm_t_uint8 *ptr = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
 
   if (SCM_LIKELY (buf->cur < buf->end))
-    return buf->buf[buf->cur];
+    return ptr[buf->cur];
 
   buf = scm_fill_input_unlocked (port);
   if (buf->cur < buf->end)
-    return buf->buf[buf->cur];
+    return ptr[buf->cur];
 
   return EOF;
 }

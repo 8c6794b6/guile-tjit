@@ -2086,7 +2086,7 @@ scm_i_scan_for_encoding (SCM port)
         /* An unbuffered port -- don't scan.  */
         return NULL;
 
-      memcpy (header, buf->buf + buf->cur, bytes_read);
+      memcpy (header, scm_port_buffer_take_pointer (buf), bytes_read);
       header[bytes_read] = '\0';
     }
   else

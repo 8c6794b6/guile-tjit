@@ -22,6 +22,8 @@
 #ifndef SCM_PORTS_INTERNAL
 #define SCM_PORTS_INTERNAL
 
+#include <assert.h>
+
 #include "libguile/_scm.h"
 #include "libguile/ports.h"
 
@@ -35,6 +37,12 @@ static inline void
 scm_port_buffer_reset (scm_t_port_buffer *buf)
 {
   buf->cur = buf->end = 0;
+}
+
+static inline void
+scm_port_buffer_reset_end (scm_t_port_buffer *buf)
+{
+  buf->cur = buf->end = scm_port_buffer_size (buf);
 }
 
 static inline size_t
@@ -94,6 +102,18 @@ scm_port_buffer_put (scm_t_port_buffer *buf, const scm_t_uint8 *src,
     memcpy (scm_port_buffer_put_pointer (buf), src, count);
   scm_port_buffer_did_put (buf, count);
   return count;
+}
+
+static inline void
+scm_port_buffer_putback (scm_t_port_buffer *buf, const scm_t_uint8 *src,
+                         size_t count)
+{
+  assert (count <= buf->cur);
+
+  /* Sometimes used to move around data within a buffer, so we must use
+     memmove.  */
+  buf->cur -= count;
+  memmove (SCM_BYTEVECTOR_CONTENTS (buf->bytevector) + buf->cur, src, count);
 }
 
 enum scm_port_encoding_mode {

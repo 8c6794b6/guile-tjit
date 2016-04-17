@@ -518,7 +518,6 @@ scm_c_make_port_buffer (size_t size)
   scm_t_port_buffer *ret = scm_gc_typed_calloc (scm_t_port_buffer);
 
   ret->bytevector = scm_c_make_bytevector (size);
-  ret->buf = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (ret->bytevector);
   ret->has_eof_p = SCM_BOOL_F;
 
   return ret;
@@ -1998,11 +1997,9 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
         {
           /* But they would fit if we shift the not-yet-read bytes from
              the read_buf right.  Let's do that.  */
-          memmove (read_buf->buf + (size - buffered),
-                   scm_port_buffer_take_pointer (read_buf),
-                   buffered);
-          read_buf->end = size;
-          read_buf->cur = read_buf->end - buffered;
+          const scm_t_uint8 *to_shift = scm_port_buffer_take_pointer (read_buf);
+          scm_port_buffer_reset_end (read_buf);
+          scm_port_buffer_putback (read_buf, to_shift, buffered);
         }
       else
         {
@@ -2013,18 +2010,16 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
             size *= 2;
 
           new_buf = scm_c_make_port_buffer (size);
-          new_buf->end = size;
-          new_buf->cur = new_buf->end - buffered;
+          scm_port_buffer_reset_end (new_buf);
           new_buf->has_eof_p = read_buf->has_eof_p;
-          memcpy (new_buf->buf + new_buf->cur, read_buf->buf + read_buf->cur,
-                  buffered);
-
+          scm_port_buffer_putback (new_buf,
+                                   scm_port_buffer_take_pointer (read_buf),
+                                   buffered);
           pt->read_buf = read_buf = new_buf;
         }
     }
 
-  read_buf->cur -= len;
-  memcpy (read_buf->buf + read_buf->cur, buf, len);
+  scm_port_buffer_putback (read_buf, buf, len);
 }
 #undef FUNC_NAME
 
