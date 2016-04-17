@@ -425,7 +425,10 @@ Currently does nothing, returns the given argument."
         (let* ((old-index (ir-bytecode-index ir))
                (new-index (+ old-index 1))
                (sp-offsets (env-sp-offsets env))
-               (old-sp-offset (vector-ref sp-offsets old-index))
+               (old-sp-offset
+                (or (and (<= 0 old-index (1- (vector-length sp-offsets)))
+                         (vector-ref sp-offsets old-index))
+                    (tjitc-error 'trace->anf "gen-next: index out of range")))
                (fp-offsets (env-fp-offsets env))
                (old-fp-offset (vector-ref fp-offsets old-index))
                (nlocals (vector-length locals))
