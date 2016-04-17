@@ -47,6 +47,7 @@
 #include "libguile/strings.h"
 #include "libguile/vectors.h"
 #include "libguile/dynwind.h"
+#include "libguile/ports-internal.h"
 
 #include "libguile/validate.h"
 #include "libguile/filesys.h"
@@ -652,7 +653,7 @@ set_element (fd_set *set, SCM *ports_ready, SCM element, int pos)
 	  /* check whether port has buffered input.  */
 	  scm_t_port *pt = SCM_PTAB_ENTRY (element);
       
-	  if (pt->read_buf->cur < pt->read_buf->end)
+	  if (scm_port_buffer_can_take (pt->read_buf) > 0)
 	    use_buf = 1;
 	}
       else if (pos == SCM_ARG2)
@@ -661,7 +662,7 @@ set_element (fd_set *set, SCM *ports_ready, SCM element, int pos)
 	  scm_t_port *pt = SCM_PTAB_ENTRY (element);
 
 	  /* > 1 since writing the last byte in the buffer causes flush.  */
-	  if (pt->write_buf->size - pt->write_buf->end > 1)
+	  if (scm_port_buffer_can_put (pt->write_buf) > 1)
 	    use_buf = 1;
 	}
       fd = use_buf ? -1 : SCM_FPORT_FDES (element);

@@ -76,10 +76,9 @@ typedef struct
   /* Start of the buffer.  Never changed.  */
   scm_t_uint8 *buf;
 
-  /* Offsets into the buffer.  Invariant: cur <= end <= size.  */
+  /* Offsets into the buffer.  Invariant: cur <= end <= size(buf).  */
   size_t cur;
   size_t end;
-  size_t size;
 
   /* For read buffers, flag indicating whether the last read() returned
      zero bytes.  Note that in the case of pushback, there could still

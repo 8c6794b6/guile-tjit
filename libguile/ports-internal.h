@@ -25,6 +25,77 @@
 #include "libguile/_scm.h"
 #include "libguile/ports.h"
 
+static inline size_t
+scm_port_buffer_size (scm_t_port_buffer *buf)
+{
+  return scm_c_bytevector_length (buf->bytevector);
+}
+
+static inline void
+scm_port_buffer_reset (scm_t_port_buffer *buf)
+{
+  buf->cur = buf->end = 0;
+}
+
+static inline size_t
+scm_port_buffer_can_take (scm_t_port_buffer *buf)
+{
+  return buf->end - buf->cur;
+}
+
+static inline size_t
+scm_port_buffer_can_put (scm_t_port_buffer *buf)
+{
+  return scm_port_buffer_size (buf) - buf->end;
+}
+
+static inline void
+scm_port_buffer_did_take (scm_t_port_buffer *buf, size_t count)
+{
+  buf->cur += count;
+}
+
+static inline void
+scm_port_buffer_did_put (scm_t_port_buffer *buf, size_t count)
+{
+  buf->end += count;
+}
+
+static inline const scm_t_uint8 *
+scm_port_buffer_take_pointer (scm_t_port_buffer *buf)
+{
+  signed char *ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
+  return ((scm_t_uint8 *) ret) + buf->cur;
+}
+
+static inline scm_t_uint8 *
+scm_port_buffer_put_pointer (scm_t_port_buffer *buf)
+{
+  signed char *ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
+  return ((scm_t_uint8 *) ret) + buf->end;
+}
+
+static inline size_t
+scm_port_buffer_take (scm_t_port_buffer *buf, scm_t_uint8 *dst, size_t count)
+{
+  count = min (count, scm_port_buffer_can_take (buf));
+  if (dst)
+    memcpy (dst, scm_port_buffer_take_pointer (buf), count);
+  scm_port_buffer_did_take (buf, count);
+  return count;
+}
+
+static inline size_t
+scm_port_buffer_put (scm_t_port_buffer *buf, const scm_t_uint8 *src,
+                     size_t count)
+{
+  count = min (count, scm_port_buffer_can_put (buf));
+  if (src)
+    memcpy (scm_port_buffer_put_pointer (buf), src, count);
+  scm_port_buffer_did_put (buf, count);
+  return count;
+}
+
 enum scm_port_encoding_mode {
   SCM_PORT_ENCODING_MODE_UTF8,
   SCM_PORT_ENCODING_MODE_LATIN1,

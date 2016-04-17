@@ -475,13 +475,13 @@ SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
   SCM_VALIDATE_BINARY_INPUT_PORT (1, port);
 
   buf = scm_fill_input_unlocked (port);
-  if (buf->cur == buf->end)
+  size = scm_port_buffer_can_take (buf);
+  if (size == 0)
     {
       buf->has_eof_p = SCM_BOOL_F;
       return SCM_EOF_VAL;
     }
 
-  size = buf->end - buf->cur;
   bv = scm_c_make_bytevector (size);
   scm_take_from_input_buffers
     (port, (char *) SCM_BYTEVECTOR_CONTENTS (bv), size);

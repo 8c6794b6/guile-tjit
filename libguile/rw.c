@@ -36,6 +36,7 @@
 #include "libguile/validate.h"
 #include "libguile/modules.h"
 #include "libguile/strports.h"
+#include "libguile/ports-internal.h"
 
 #include <unistd.h>
 #ifdef HAVE_IO_H
@@ -239,7 +240,7 @@ SCM_DEFINE (scm_write_string_partial, "write-string/partial", 1, 3, 0,
 
       /* Filling the last character in the buffer would require a
          flush.  */
-      if (write_len < write_buf->size - write_buf->end)
+      if (write_len < scm_port_buffer_size (write_buf) - write_buf->end)
 	{
           scm_c_write_unlocked (port, src, write_len);
 	  return scm_from_long (write_len);

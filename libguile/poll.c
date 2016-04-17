@@ -29,8 +29,9 @@
 
 #include "libguile/_scm.h"
 #include "libguile/bytevectors.h"
-#include "libguile/numbers.h"
 #include "libguile/error.h"
+#include "libguile/numbers.h"
+#include "libguile/ports-internal.h"
 #include "libguile/validate.h"
 
 #include "libguile/poll.h"
@@ -108,11 +109,11 @@ scm_primitive_poll (SCM pollfds, SCM nfds, SCM ports, SCM timeout)
             {
               scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-              if (pt->read_buf->cur < pt->read_buf->end)
+              if (scm_port_buffer_can_take (pt->read_buf) > 0)
                 /* Buffered input waiting to be read. */
                 revents |= POLLIN;
               if (SCM_OUTPUT_PORT_P (port)
-                  && pt->write_buf->size - pt->write_buf->end > 1)
+                  && scm_port_buffer_can_put (pt->write_buf) > 1)
                 /* Buffered output possible.  The "> 1" is because
                    writing the last byte would flush the port.  */
                 revents |= POLLOUT;
@@ -146,11 +147,11 @@ scm_primitive_poll (SCM pollfds, SCM nfds, SCM ports, SCM timeout)
               {
                 scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-                if (pt->read_buf->cur < pt->read_buf->end)
+                if (scm_port_buffer_can_take (pt->read_buf) > 0)
                   /* Buffered input waiting to be read. */
                   revents |= POLLIN;
                 if (SCM_OUTPUT_PORT_P (port)
-                    && pt->write_buf->size - pt->write_buf->end > 1)
+                    && scm_port_buffer_can_put (pt->write_buf) > 1)
                   /* Buffered output possible.  The "> 1" is because
                      writing the last byte would flush the port.  */
                   revents |= POLLOUT;
