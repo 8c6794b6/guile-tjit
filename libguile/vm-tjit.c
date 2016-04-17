@@ -137,7 +137,7 @@ SCM_TJIT_PARAM (max_record, max-record, 3000)
 SCM_TJIT_PARAM (max_retries, max-retries, 2)
 
 /* Number of recursive procedure calls to unroll. */
-SCM_TJIT_PARAM (num_unrolls, num-unrolls, 3)
+SCM_TJIT_PARAM (num_unrolls, num-unrolls, 2)
 
 /* VM engine used for Scheme procedure call. */
 SCM_TJIT_PARAM (scheme_engine, scheme-engine, SCM_VM_REGULAR_ENGINE)
@@ -403,6 +403,7 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
         /* XXX: Hot non-recursive procedure call. May worth compiling
            but currently marked as failure and ignored. */
         abort_recording (tj, start_ip);
+        /* stop_recording (tj); */
       else
         record (tj, thread, vp, ip, sp);
       break;
