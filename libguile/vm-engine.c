@@ -692,7 +692,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      NEXT (0);
+      VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 3);
     }
 
   /* tail-call nlocals:24
