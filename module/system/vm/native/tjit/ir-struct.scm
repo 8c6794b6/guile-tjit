@@ -46,10 +46,18 @@
 ;; XXX: allocate-struct
 ;; XXX: struct-ref
 ;; XXX: struct-set!
+
 ;; XXX: allocate-struct/immediate
+;; (define-ir (allocate-struct/immediate (struct! dst) (scm vtable) (const nfields))
+;;   (let ((dst/v (var-ref dst))
+;;         (vt/v (var-ref vtable)))
+;;     `(let ((_ (%carg ,(+ (ash nfields 2) 2))))
+;;        (let ((_ (%carg ,vt/v)))
+;;          (let ((,dst/v (%ccall ,(object-address allocate-struct))))
+;;            ,(next))))))
 
 ;; XXX: struct-ref/immediate
-;; (define-ir (struct-ref/immediate (scm! dst) (scm src) (const idx))
+;; (define-ir (struct-ref/immediate (scm! dst) (struct src) (const idx))
 ;;   (let ((dst/v (var-ref dst))
 ;;         (src/v (var-ref src))
 ;;         (r2 (make-tmpvar 2)))
@@ -58,4 +66,12 @@
 ;;          ,(next)))))
 
 ;; XXX: struct-set!/immediate
+;; (define-ir (struct-set!/immediate (struct dst) (const idx) (scm src))
+;;   (let ((dst/v (var-ref dst))
+;;         (src/v (var-ref src))
+;;         (r2 (make-tmpvar 2)))
+;;     `(let ((,r2 (%cref ,dst/v 1)))
+;;        (let ((_ (%cset ,r2 ,idx ,src/v)))
+;;          ,(next)))))
+
 ;; XXX: class-of
