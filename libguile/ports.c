@@ -307,13 +307,13 @@ scm_set_port_get_natural_buffer_sizes
 static void
 scm_i_set_pending_eof (SCM port)
 {
-  SCM_PTAB_ENTRY (port)->read_buf->has_eof = 1;
+  SCM_PTAB_ENTRY (port)->read_buf->has_eof_p = SCM_BOOL_T;
 }
 
 static void
 scm_i_clear_pending_eof (SCM port)
 {
-  SCM_PTAB_ENTRY (port)->read_buf->has_eof = 0;
+  SCM_PTAB_ENTRY (port)->read_buf->has_eof_p = SCM_BOOL_F;
 }
 
 SCM_DEFINE (scm_i_port_property, "%port-property", 2, 0, 0,
@@ -520,6 +520,7 @@ scm_c_make_port_buffer (size_t size)
   ret->size = size;
   ret->bytevector = scm_c_make_bytevector (size);
   ret->buf = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (ret->bytevector);
+  ret->has_eof_p = SCM_BOOL_F;
 
   return ret;
 }
@@ -1419,7 +1420,7 @@ scm_i_read_unlocked (SCM port, scm_t_port_buffer *buf)
   count = scm_i_read_bytes_unlocked (port, buf->bytevector, buf->end,
                                      buf->size - buf->end);
   buf->end += count;
-  buf->has_eof = count == 0;
+  buf->has_eof_p = scm_from_bool (count == 0);
 }
 
 /* Used by an application to read arbitrary number of bytes from an SCM
@@ -1473,7 +1474,7 @@ scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
           if (to_copy == 0)
             {
               /* Consider that we've read off this EOF.  */
-              read_buf->has_eof = 0;
+              read_buf->has_eof_p = SCM_BOOL_F;
               break;
             }
           dst_ptr += to_copy;
@@ -1537,7 +1538,7 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
       else
         {
           /* Consider that we've read off this EOF.  */
-          read_buf->has_eof = 0;
+          read_buf->has_eof_p = SCM_BOOL_F;
           break;
         }
     }
@@ -2030,7 +2031,7 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
           new_buf = scm_c_make_port_buffer (size);
           new_buf->end = new_buf->size;
           new_buf->cur = new_buf->end - buffered;
-          new_buf->has_eof = read_buf->has_eof;
+          new_buf->has_eof_p = read_buf->has_eof_p;
           memcpy (new_buf->buf + new_buf->cur, read_buf->buf + read_buf->cur,
                   buffered);
 
@@ -2364,7 +2365,7 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
                      port);
 
   if (saved_read_buf)
-    pt->read_buf->has_eof = saved_read_buf->has_eof;
+    pt->read_buf->has_eof_p = saved_read_buf->has_eof_p;
 
   return SCM_UNSPECIFIED;
 }
@@ -2519,7 +2520,7 @@ scm_fill_input_unlocked (SCM port)
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   scm_t_port_buffer *read_buf = pt->read_buf;
 
-  if (read_buf->cur < read_buf->end || read_buf->has_eof)
+  if (read_buf->cur < read_buf->end || scm_is_true (read_buf->has_eof_p))
     return read_buf;
 
   if (pt->rw_random)
@@ -2800,7 +2801,7 @@ SCM_DEFINE (scm_char_ready_p, "char-ready?", 0, 1, 0,
   pt = SCM_PTAB_ENTRY (port);
   read_buf = pt->read_buf;
 
-  if (read_buf->cur < read_buf->end || read_buf->has_eof)
+  if (read_buf->cur < read_buf->end || scm_is_true (read_buf->has_eof_p))
     /* FIXME: Verify that a whole character is available?  */
     return SCM_BOOL_T;
   else

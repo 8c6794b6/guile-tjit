@@ -477,7 +477,7 @@ SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
   buf = scm_fill_input_unlocked (port);
   if (buf->cur == buf->end)
     {
-      buf->has_eof = 0;
+      buf->has_eof_p = SCM_BOOL_F;
       return SCM_EOF_VAL;
     }
 

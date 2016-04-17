@@ -85,7 +85,7 @@ typedef struct
      zero bytes.  Note that in the case of pushback, there could still
      be bytes in the buffer, but that after any bytes are read off,
      peek-u8 should still return EOF.  */
-  int has_eof;
+  SCM has_eof_p;
 
   /* Bytevector whose contents are [BUF, BUF + SIZE). */
   SCM bytevector;
@@ -441,7 +441,7 @@ scm_get_byte_or_eof_unlocked (SCM port)
 
   /* The next peek or get should cause the read() function to be called
      to see if we still have EOF.  */
-  buf->has_eof = 0;
+  buf->has_eof_p = SCM_BOOL_F;
   return EOF;
 }
 
