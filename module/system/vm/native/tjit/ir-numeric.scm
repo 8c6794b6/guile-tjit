@@ -347,15 +347,17 @@
 (define-mul-div-scm-scm mul %mulov %fmul)
 (define-mul-div-scm-scm div %div %fdiv)
 
+;; Primitive %mod, %quo, and %rem may use volatile register. Setting
+;; `env-save-volatiles?' flag to true.
 (define-syntax define-binary-arith-fx-fx
   (syntax-rules ()
-    ((_ name op save-volatiles)
+    ((_ name op)
      (begin
        (define-ir (name (scm! dst) (scm a) (scm b))
          (nyi "~s: ~a ~a ~a" 'name dst a b))
        (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
-         (when (and (env-parent-snapshot env) save-volatiles)
-           (set-env-save-volatiles! env save-volatiles))
+         (when (env-parent-snapshot env)
+           (set-env-save-volatiles! env #t))
          (let ((dst/v (var-ref dst))
                (a/v (var-ref a))
                (b/v (var-ref b))
@@ -368,11 +370,9 @@
                     (let ((,dst/v (%add ,r2 2)))
                       ,(next))))))))))))
 
-;; Primitive %mod uses volatile register. Setting `env-save-volatiles?' flag to
-;; true.
-(define-binary-arith-fx-fx mod %mod #t)
-(define-binary-arith-fx-fx quo %quo #f)
-(define-binary-arith-fx-fx rem %rem #f)
+(define-binary-arith-fx-fx mod %mod)
+(define-binary-arith-fx-fx quo %quo)
+(define-binary-arith-fx-fx rem %rem)
 
 ;; XXX: ash
 ;; XXX: logand
