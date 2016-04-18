@@ -237,12 +237,10 @@
          (sp-offset (env-sp-offset env))
          (fp (- stack-size proc)))
     (set-entry-type! env (+ (- stack-size proc 2) sp-offset) &scm)
-    (let ((new-offsets (cons (env-sp-offset env)
-                             (env-sp-offsets env))))
+    (let ((new-offsets (cons (env-sp-offset env) (env-sp-offsets env))))
       (set-env-sp-offsets! env new-offsets))
     (pop-scan-sp-offset! env (- stack-size nlocals))
-    (let ((new-fp-offsets (cons (env-fp-offset env)
-                                (env-fp-offsets env))))
+    (let ((new-fp-offsets (cons (env-fp-offset env) (env-fp-offsets env))))
       (set-env-fp-offsets! env new-fp-offsets))))
 
 (define-ti (receive dst proc nlocals)
@@ -272,7 +270,7 @@
           (thunk)))))
 
 (define-scan (receive-values proc allow-extra? nvalues)
-  (if (= nvalues 1)
+  (if (<= nvalues 1)
       (set-scan-initial-fields! env)
       (begin
         (debug 1 "NYI: receive-values ~a ~a ~a~%" proc allow-extra? nvalues)
@@ -290,8 +288,7 @@
 ;; XXX: tail-call/shuffle
 
 (define-scan (return-values nlocals)
-  (let* ((sp-offset (env-sp-offset env))
-         (stack-size (vector-length locals)))
+  (let ((stack-size (vector-length locals)))
     (set-scan-initial-fields! env)
     (add-env-return! env)
     (pop-scan-sp-offset! env (- stack-size nlocals))
