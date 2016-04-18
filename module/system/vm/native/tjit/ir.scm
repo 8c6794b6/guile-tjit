@@ -146,10 +146,9 @@
   (set-env-fp-offset! env (+ (env-fp-offset env) n)))
 
 (define-syntax-rule (set-scan-initial-fields! env)
-  (let-syntax
-      ((update! (syntax-rules ()
-                  ((_ setter current olds)
-                   (setter env (cons (current env) (olds env)))))))
+  (let-syntax ((update! (syntax-rules ()
+                          ((_ setter current olds)
+                           (setter env (cons (current env) (olds env)))))))
     (update! set-env-sp-offsets! env-sp-offset env-sp-offsets)
     (update! set-env-fp-offsets! env-fp-offset env-fp-offsets)))
 
@@ -328,35 +327,45 @@ returns, current call-num, and current return-num."
     (gen-scan-type . rest)))
 
 (define-syntax gen-scan-type
-  (syntax-rules (scm fixnum flonum procedure pair vector box bytevector
-                     u64 f64)
+  (syntax-rules (scm fixnum flonum char procedure pair vector box struct
+                     string bytevector u64 f64)
     ((_) (values))
     ((_ (scm arg) . rest) (gen-entry-type &scm arg rest))
     ((_ (fixnum arg) . rest) (gen-entry-type &fixnum arg rest))
     ((_ (flonum arg) . rest) (gen-entry-type &flonum arg rest))
+    ((_ (char arg) . rest) (gen-entry-type &char arg rest))
     ((_ (pair arg) . rest) (gen-entry-type &pair arg rest))
     ((_ (procedure arg) . rest) (gen-entry-type &procedure arg rest))
     ((_ (vector arg) . rest) (gen-entry-type &vector arg rest))
     ((_ (box arg) . rest) (gen-entry-type &box arg rest))
+    ((_ (struct arg) . rest) (gen-entry-type &struct arg rest))
+    ((_ (string arg) . rest) (gen-entry-type &string arg rest))
     ((_ (bytevector arg) . rest) (gen-entry-type &bytevector arg rest))
     ((_ (u64 arg) . rest) (gen-entry-type &u64 arg rest))
     ((_ (f64 arg) . rest) (gen-entry-type &f64 arg rest))
     ((_ (other arg) . rest) (gen-scan-type . rest))))
 
 (define-syntax gen-infer-type
-  (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
+  (syntax-rules (scm! fixnum! flonum! char! pair! vector! box! struct! string!
+                      u64! f64!)
     ((_ (scm! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &scm))
     ((_ (fixnum! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &fixnum))
     ((_ (flonum! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &flonum))
+    ((_ (char! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &char))
     ((_ (pair! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &pair))
     ((_ (vector! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &vector))
     ((_ (box! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &box))
+    ((_ (struct! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &struct))
+    ((_ (string! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &string))
     ((_ (u64! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &u64))
     ((_ (f64! arg) . rest)
@@ -372,13 +381,15 @@ returns, current call-num, and current return-num."
          (set-env-live-indices! env (cons idx+sp-offset live-indices)))))))
 
 (define-syntax gen-update-live-indices
-  (syntax-rules (scm! fixnum! flonum! pair! vector! box! u64! f64!)
+  (syntax-rules (scm! fixnum! flonum! char! pair! vector! box! struct! u64! f64!)
     ((_ (scm! arg) . rest) (maybe-update-live-indices arg))
     ((_ (fixnum! arg) . rest) (maybe-update-live-indices arg))
     ((_ (flonum! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (char! arg) . rest) (maybe-update-live-indices arg))
     ((_ (pair! arg) . rest) (maybe-update-live-indices arg))
     ((_ (vector! arg) . rest) (maybe-update-live-indices arg))
     ((_ (box! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (struct! arg) . rest) (maybe-update-live-indices arg))
     ((_ (u64! arg) . rest) (maybe-update-live-indices arg))
     ((_ (f64! arg) . rest) (maybe-update-live-indices arg))
     ((_ . other) (values))))
@@ -400,7 +411,7 @@ index referenced by dst, a, and b values at runtime."
               (let lp ((flags '(flag ...)) (ns (cdr op)))
                 (match (cons flags ns)
                   (((f . flags) . (n . ns))
-                   (if (memq f '(fixnum flonum procedure pair vector box
+                   (if (memq f '(fixnum flonum char procedure pair vector box
                                  struct string bytevector array))
                        (let* ((v (vector-ref locals n))
                               (t (type-of v)))
