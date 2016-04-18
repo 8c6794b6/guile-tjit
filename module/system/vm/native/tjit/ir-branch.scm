@@ -263,7 +263,8 @@
     ((_ name op-scm op-fx-t op-fx-f)
      (begin
        (define-ir (name (u64 a) (scm b) (const invert) (const offset))
-         (nyi "~s: ~a ~a ~a ~a" 'name a b invert offset))
+         (nyi "~s: et=(u64 scm) it=(u64 ~a)" 'name
+              (pretty-type (type-ref b))))
        (define-ir (name (u64 a) (fixnum b) (const invert) (const offset))
          (br-binary-u64-scm-body a b invert offset op-scm
            ra rb va vb dest
