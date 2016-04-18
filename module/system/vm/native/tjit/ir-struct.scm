@@ -34,7 +34,7 @@
   #:use-module (system vm native tjit variables))
 
 ;; XXX: struct-vtable
-;; (define-ir (struct-vtable (scm! dst) (scm src))
+;; (define-ir (struct-vtable (struct! dst) (struct src))
 ;;   (let ((dst/v (var-ref dst))
 ;;         (src/v (var-ref src))
 ;;         (r2 (make-tmpvar 2)))
@@ -48,7 +48,8 @@
 ;; XXX: struct-set!
 
 ;; XXX: allocate-struct/immediate
-;; (define-ir (allocate-struct/immediate (struct! dst) (scm vtable) (const nfields))
+;; (define-ir (allocate-struct/immediate (struct! dst) (struct vtable)
+;;                                       (const nfields))
 ;;   (let ((dst/v (var-ref dst))
 ;;         (vt/v (var-ref vtable)))
 ;;     `(let ((_ (%carg ,(+ (ash nfields 2) 2))))
