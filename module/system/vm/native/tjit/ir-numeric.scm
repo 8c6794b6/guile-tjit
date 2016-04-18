@@ -331,6 +331,18 @@
          ((and (eq? &flonum a/t) (eq? &flonum b/t))
           `(let ((,dst/v (fl-op ,a/v ,b/v)))
              ,(next)))
+         ((and (eq? &flonum a/t) (eq? &scm b/t))
+          (with-type-guard &flonum b/v
+            (lambda ()
+              `(let ((,f2 (%cref/f ,b/v 2)))
+                 (let ((,dst/v (fl-op ,a/v ,f2)))
+                   ,(next))))))
+         ((and (eq? &scm a/t) (eq? &flonum b/t))
+          (with-type-guard &flonum a/v
+            (lambda ()
+              `(let ((,f1 (%cref/f ,a/v 2)))
+                 (let ((,dst/v (fl-op ,f1 ,b/v)))
+                   ,(next))))))
          ((and (eq? &scm a/t) (eq? &scm b/t))
           (with-type-guard &flonum a/v
             (lambda ()
