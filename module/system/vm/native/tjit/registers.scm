@@ -133,7 +133,7 @@
        ((= i -1) r0)
        ((= i -2) r1)
        ((= i -3) r2)
-       (else (tjitc-error 'gpr-ref "~s" i)))
+       (else (failure 'gpr-ref "~s" i)))
       (vector-ref *gprs* i)))
 
 ;; Using negative numbers to refer scratch FPRs.
@@ -143,7 +143,7 @@
        ((= i -1) f0)
        ((= i -2) f1)
        ((= i -3) f2)
-       (else (tjitc-error 'fpr-ref "~s" i)))
+       (else (failure 'fpr-ref "~s" i)))
       (vector-ref *fprs* i)))
 
 (define (register-name r)
@@ -155,15 +155,15 @@
          #(xmm10 xmm9 xmm8 xmm11 xmm12 xmm13 xmm14 xmm15
                  xmm7 xmm6 xmm5 xmm4 xmm3 xmm2 xmm1 xmm0)))
     (when (not (pair? r))
-      (tjitc-error 'physical-name "unknown argument ~s" r))
+      (failure 'physical-name "unknown argument ~s" r))
     (let ((t (car r))
           (n (cdr r)))
       (when (not (integer? n))
-        (tjitc-error 'physical-name "cdr not an integer ~s" r))
+        (failure 'physical-name "cdr not an integer ~s" r))
       (cond
        ((eq? t 'gpr)
         (vector-ref gpr-names (+ 3 n)))
        ((eq? t 'fpr)
         (vector-ref fpr-names (+ 3 n)))
        (else
-        (tjitc-error 'physical-name "not a register ~s" r))))))
+        (failure 'physical-name "not a register ~s" r))))))

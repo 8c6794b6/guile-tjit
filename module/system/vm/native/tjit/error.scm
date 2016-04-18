@@ -35,7 +35,7 @@
   #:export (tjitc-errors
             call-with-tjitc-error-handler
             with-tjitc-error-handler
-            tjitc-error retrace recompile nyi))
+            failure retrace recompile nyi))
 
 ;;;
 ;;; Handler
@@ -83,7 +83,7 @@
 (define-syntax-rule (make-tjitc-error kind name fmt args)
   (apply abort-to-prompt *tjitc-error-prompt-tag* kind name fmt args))
 
-(define (tjitc-error name fmt . args)
+(define (failure name fmt . args)
   (make-tjitc-error 'failure name fmt args))
 
 (define (retrace fmt . args)

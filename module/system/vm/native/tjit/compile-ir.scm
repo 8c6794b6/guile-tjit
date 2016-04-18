@@ -428,7 +428,8 @@ Currently does nothing, returns the given argument."
                (old-sp-offset
                 (or (and (<= 0 old-index (1- (vector-length sp-offsets)))
                          (vector-ref sp-offsets old-index))
-                    (tjitc-error 'trace->anf "gen-next: index out of range")))
+                    (failure 'trace->anf "gen-next: SP index ~s out of range ~s"
+                             old-index sp-offsets)))
                (fp-offsets (env-fp-offsets env))
                (old-fp-offset (vector-ref fp-offsets old-index))
                (nlocals (vector-length locals))

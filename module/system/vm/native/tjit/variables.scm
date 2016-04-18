@@ -137,8 +137,9 @@
             (+ (- (case %word-size
                     ((4) #xffffffff)
                     ((8) #xffffffffffffffff)
-                    (else tjitc-error 'physical-name "unknown word-size ~s"
-                          %word-size))
+                    (else
+                     (failure 'physical-name "unknown word-size ~s"
+                              %word-size)))
                   (pointer-address (moffs x)))
                1)))
    (else x)))

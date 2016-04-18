@@ -145,15 +145,15 @@
               (err
                (syntax-rules ()
                  ((_)
-                  (tjitc-error 'name
-                               ((lambda args
-                                  (let lp ((args args) (acc '()))
-                                    (if (null? args)
-                                        (string-join acc " ")
-                                        (lp (cdr args)
-                                            (cons "~a" acc)))))
-                                'arg ...)
-                               arg ...)))))
+                  (failure 'name
+                           ((lambda args
+                              (let lp ((args args) (acc '()))
+                                (if (null? args)
+                                    (string-join acc " ")
+                                    (lp (cdr args)
+                                        (cons "~a" acc)))))
+                            'arg ...)
+                           arg ...)))))
            <body>))
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
@@ -265,7 +265,7 @@
              ((fpr)
               (+ 2 1 (ref-value reg) *num-volatiles*))
              (else
-              (tjitc-error 'volatile-offset "~s" reg)))))
+              (failure 'volatile-offset "~s" reg)))))
     (make-negative-pointer (* (- n) %word-size))))
 
 (define (spilled-offset mem)
@@ -341,13 +341,13 @@
   (case (ref-type src)
     ((gpr) (jit-stxi (volatile-offset src) %fp (gpr src)))
     ((fpr) (jit-stxi-d (volatile-offset src) %fp (fpr src)))
-    (else (tjitc-error 'store-volatile "~s" src))))
+    (else (failure 'store-volatile "~s" src))))
 
 (define (load-volatile dst)
   (case (ref-type dst)
     ((gpr) (jit-ldxi (gpr dst) %fp (volatile-offset dst)))
     ((fpr) (jit-ldxi-d (fpr dst) %fp (volatile-offset dst)))
-    (else (tjitc-error 'load-volatile "~s" dst))))
+    (else (failure 'load-volatile "~s" dst))))
 
 ;;; XXX: Offsets for fields in C structs were manually taken with observing
 ;;; output from `objdump'. It would be nice if the offsets were derived in
@@ -491,7 +491,7 @@
 (define-syntax-rule (memory-ref dst src)
   (cond
    ((not (memory? src))
-    (tjitc-error 'memory-ref "not a memory ~s" src))
+    (failure 'memory-ref "not a memory ~s" src))
    (else
     (jit-ldxi dst %fp (moffs src))
     dst)))
@@ -499,7 +499,7 @@
 (define-syntax-rule (memory-ref/f dst src)
   (cond
    ((not (memory? src))
-    (tjitc-error 'memory-ref/f "not a memory ~s" src))
+    (failure 'memory-ref/f "not a memory ~s" src))
    (else
     (jit-ldxi-d dst %fp (moffs src))
     dst)))
@@ -507,14 +507,14 @@
 (define-syntax-rule (memory-set! dst src)
   (cond
    ((not (memory? dst))
-    (tjitc-error 'memory-set! "not a memory ~s" dst))
+    (failure 'memory-set! "not a memory ~s" dst))
    (else
     (jit-stxi (moffs dst) %fp src))))
 
 (define-syntax-rule (memory-set!/f dst src)
   (cond
    ((not (memory? dst))
-    (tjitc-error 'memory-set!/f "not a memory" dst))
+    (failure 'memory-set!/f "not a memory" dst))
    (else
     (jit-stxi-d (moffs dst) %fp src))))
 
@@ -545,7 +545,7 @@
       ((mem)
        (jit-pushargr (memory-ref r1 arg)))
       (else
-       (tjitc-error 'push-as-gpr "unknown arg ~s" arg))))))
+       (failure 'push-as-gpr "unknown arg ~s" arg))))))
 
 (define-syntax-rule (retval-to-reg-or-mem dst)
   (case (ref-type dst)
@@ -558,7 +558,7 @@
      (jit-retval r0)
      (memory-set! dst r0))
     (else
-     (tjitc-error 'retval-to-reg-or-mem "unknown dst ~s" dst))))
+     (failure 'retval-to-reg-or-mem "unknown dst ~s" dst))))
 
 ;;;
 ;;; Type guards
@@ -603,8 +603,8 @@
          ((err
            (syntax-rules ()
              ((_)
-              (tjitc-error 'guard-type "~a ~a ~s"
-                           (physical-name src) (pretty-type type)))))
+              (failure 'guard-type "~a ~a ~s"
+                       (physical-name src) (pretty-type type)))))
           (guard-constant
            (syntax-rules ()
              ((_ constant)
@@ -880,7 +880,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (vp->fp r1)
         (tmp r2))
     (when (not (constant? ra))
-      (tjitc-error '%return "got non-constant ra: ~s" ra))
+      (failure '%return "got non-constant ra: ~s" ra))
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
@@ -905,7 +905,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (let ((var0 (program-free-variable-ref subr 0)))
           (if (pointer? var0)
               var0
-              (tjitc-error '%ccall "not a primitive ~s" subr)))))
+              (failure '%ccall "not a primitive ~s" subr)))))
     (for-each store-volatile volatiles)
     (jit-prepare)
     (let lp ((cargs cargs) (i 1) (pushed '()))
@@ -1138,13 +1138,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (scm-real-value f0 src)
          (memory-set!/f dst f0))
         (else
-         (tjitc-error 'unbox-stack-element "~s ~s ~s" dst src type)))
+         (failure 'unbox-stack-element "~s ~s ~s" dst src type)))
       (case (ref-type dst)
         ((gpr) (jit-movr (gpr dst) src))
         ((fpr) (gpr->fpr (fpr dst) src))
         ((mem) (memory-set! dst src))
         (else
-         (tjitc-error 'unbox-stack-element "~s ~s ~s" dst src type)))))
+         (failure 'unbox-stack-element "~s ~s ~s" dst src type)))))
 
 ;; Type check local N with TYPE and load to gpr or memory DST.
 (define-native (%fref (int dst) (void n) (void type))
@@ -1508,19 +1508,19 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 (define (move dst src)
   (let-syntax ((err (syntax-rules ()
-                      ((_) (tjitc-error 'move "~a ~a"
-                                        (physical-name dst)
-                                        (physical-name src))))))
+                      ((_) (failure 'move "~a ~a"
+                                    (physical-name dst)
+                                    (physical-name src))))))
     (case (ref-type dst)
       ((gpr)
        (case (ref-type src)
          ((con) (let ((val (ref-value src)))
-                    (cond
-                     ((flonum? val)
-                      (jit-movi-d f0 (constant src))
-                      (fpr->gpr (gpr dst) f0))
-                     (else
-                      (jit-movi (gpr dst) (constant src))))))
+                  (cond
+                   ((flonum? val)
+                    (jit-movi-d f0 (constant src))
+                    (fpr->gpr (gpr dst) f0))
+                   (else
+                    (jit-movi (gpr dst) (constant src))))))
          ((gpr)
           (cond
            ;; XXX: Workaround for Lightning, force to emit `(move %rsi %rcx)'.
@@ -1537,12 +1537,12 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       ((fpr)
        (case (ref-type src)
          ((con) (let ((val (ref-value src)))
-                    (cond
-                     ((flonum? val)
-                      (jit-movi-d (fpr dst) (constant src)))
-                     (else
-                      (jit-movi r0 (constant src))
-                      (gpr->fpr (fpr dst) r0)))))
+                  (cond
+                   ((flonum? val)
+                    (jit-movi-d (fpr dst) (constant src)))
+                   (else
+                    (jit-movi r0 (constant src))
+                    (gpr->fpr (fpr dst) r0)))))
          ((gpr) (gpr->fpr (fpr dst) (gpr src)))
          ((fpr) (jit-movr-d (fpr dst) (fpr src)))
          ((mem) (memory-ref/f (fpr dst) src))
@@ -1550,13 +1550,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       ((mem)
        (case (ref-type src)
          ((con) (let ((val (ref-value src)))
-                    (cond
-                     ((flonum? val)
-                      (jit-movi-d f0 (constant src))
-                      (memory-set!/f dst f0))
-                     (else
-                      (jit-movi r0 (constant src))
-                      (memory-set! dst r0)))))
+                  (cond
+                   ((flonum? val)
+                    (jit-movi-d f0 (constant src))
+                    (memory-set!/f dst f0))
+                   (else
+                    (jit-movi r0 (constant src))
+                    (memory-set! dst r0)))))
          ((gpr) (memory-set! dst (gpr src)))
          ((fpr) (memory-set!/f dst (fpr src)))
          ((mem) (memory-set! dst (memory-ref r0 src)))

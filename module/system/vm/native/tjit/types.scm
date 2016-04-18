@@ -384,4 +384,4 @@ types in TYPES matched with LOCALS, otherwise return false."
    ((eq? flag 'bytevector) &bytevector)
    ((eq? flag 'array) &array)
    (else
-    (tjitc-error 'flag->type "~s" flag))))
+    (failure 'flag->type "~s" flag))))

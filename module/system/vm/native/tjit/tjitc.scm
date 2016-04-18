@@ -134,6 +134,8 @@
                (let ((op (car (list-ref (car traces) 0))))
                  (or (eq? op 'call)
                      (eq? op 'call-label))))
+          ;; Recompile side trace of procedure call. This is likely to be a
+          ;; higher order procedure call.
           (let ((origin (get-origin-fragment (env-parent-fragment env))))
             (remove-fragment-and-side-traces origin)
             (recompile "trace ~a, side trace with call" (fragment-id origin))))

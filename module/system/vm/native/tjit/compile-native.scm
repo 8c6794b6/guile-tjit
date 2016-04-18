@@ -82,7 +82,7 @@
 ;; defined as macro.
 (define-syntax-rule (store-frame local type src)
   (let ((err (lambda ()
-               (tjitc-error 'store-frame "~s ~a ~s"
+               (failure 'store-frame "~s ~a ~s"
                             local (pretty-type type) src))))
     (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
            local (pretty-type type) (physical-name src))
@@ -246,7 +246,7 @@ DST-TYPES, and SRC-TYPES are local index number."
         (guard-type r0 type)
         (unbox-stack-element dst r0 type))
        (else
-        (tjitc-error 'move-or-load-carefully "unbox ~a ~a ~a" dst src type))))
+        (failure 'move-or-load-carefully "unbox ~a ~a ~a" dst src type))))
     (define (dump-move local dst src)
       (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local
              (physical-name dst) (physical-name src)))
@@ -465,7 +465,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (vp r0)
             (registers r1))
         (when (< max-spills nspills)
-          (tjitc-error 'compile-entry "Too many spills ~s" nspills))
+          (failure 'compile-entry "Too many spills ~s" nspills))
 
         ;; Root trace allocates spaces for spilled variables. One word to store
         ;; `registers' from argument, and space to save volatile registers.
@@ -511,7 +511,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                (_
                 (maybe-store asm locals vars references 0))))))
         (_
-         (tjitc-error 'compile-entry "snapshot not found"
+         (failure 'compile-entry "snapshot not found"
                       (env-parent-exit-id env))))))
 
     ;; Assemble the primitives.
@@ -554,7 +554,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                       (set-asm-exit! asm exit))
                     (lp ops (cons gen-bailout acc)))))))
           (else
-           (tjitc-error 'compile-ops "no snapshot ~s" snapshot-id))))
+           (failure 'compile-ops "no snapshot ~s" snapshot-id))))
         (((op-name . args) . ops)
          (cond
           ((hashq-ref *native-prim-procedures* op-name)
@@ -562,7 +562,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                 (apply proc asm args)
                 (lp ops acc)))
           (else
-           (tjitc-error 'compile-ops "op not found ~s" op-name))))
+           (failure 'compile-ops "op not found ~s" op-name))))
         (()
          acc))))
   (define (compile-loop %asm loop storage gen-bailouts)
@@ -588,7 +588,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                      (compile-loop asm loop storage gen-bailouts)))
          (values trampoline loop-label gen-bailouts storage))))
     (_
-     (tjitc-error 'compile-body "not a $primops" primops))))
+     (failure 'compile-body "not a $primops" primops))))
 
 (define (compile-bailout env %asm snapshot trampoline args)
   (lambda (end-address)
@@ -753,7 +753,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                  ;; Jump to the beginning of the loop in linked trace.
                  (jumpi (fragment-loop-address linked-fragment))))))))))
     (_
-     (tjitc-error 'compile-link "not a snapshot ~s" snapshot))))
+     (failure 'compile-link "not a snapshot ~s" snapshot))))
 
 ;; XXX: Incomplete
 ;; (define (compile-downrec tj asm loop? snapshot initial-nlocals dsts)

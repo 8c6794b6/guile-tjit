@@ -97,7 +97,7 @@
                     `(let ((_ (%carg ,boxed)))
                        ,(lp (+ n 1))))))
               (emit-ccall)))
-        (tjitc-error 'subr-call "not a primitive ~s" subr/l))))
+        (failure 'subr-call "not a primitive ~s" subr/l))))
 
 ;; XXX: foreign-call
 ;; XXX: continuation-call
@@ -114,6 +114,6 @@
                ((3) call-with-values)
                ((4) call-with-current-continuation)
                (else
-                (tjitc-error 'builtin-ref "unknown builtin ~a" idx)))))
+                (failure 'builtin-ref "unknown builtin ~a" idx)))))
     `(let ((,(var-ref dst) ,(object-address ref)))
        ,(next))))

@@ -151,7 +151,7 @@
         (let lp ((types (if dst
                             (if (pair? types)
                                 (cdr types)
-                                (tjitc-error 'get-arg-types!
+                                (failure 'get-arg-types!
                                              "unknown type ~s ~s"
                                              op types))
                             types))
@@ -176,7 +176,7 @@
                 (else
                  (lp types args acc))))
               (else
-               (tjitc-error 'get-arg-types! "arg ~s ~s" arg type))))
+               (failure 'get-arg-types! "arg ~s ~s" arg type))))
             (_
              (reverse! acc))))))
     (define (get-dst-type! op dst)
@@ -187,12 +187,12 @@
          (assigned        assigned)
          ((= type int)    (get-gpr! dst))
          ((= type double) (get-fpr! dst))
-         (else (tjitc-error 'get-dst-types! "dst ~s ~s" dst type)))))
+         (else (failure 'get-dst-types! "dst ~s ~s" dst type)))))
     (define (ref k)
       (cond
        ((symbol? k) (hashq-ref storage k))
        ((constant? k) (make-constant k))
-       (else (tjitc-error 'assign-registers "ref ~s not found" k))))
+       (else (failure 'assign-registers "ref ~s not found" k))))
     (define (constant? x)
       (cond
        ((boolean? x) #t)
@@ -274,7 +274,7 @@
              (when (<= (variable-ref initial-mem-idx) i)
                (variable-set! initial-mem-idx (+ i 1)))))
           (else
-           (tjitc-error 'anf->primops "unknown var ~s" v))))
+           (failure 'anf->primops "unknown var ~s" v))))
        storage))
 
     ;; Share registers and memory offset for side trace with parent trace.
@@ -374,7 +374,7 @@
                     (if (or (return-address? type)
                             (dynamic-link? type))
                         (lp vars locals)
-                        (tjitc-error 'ir->primops "var ~a at local ~a, type ~a"
+                        (failure 'ir->primops "var ~a at local ~a, type ~a"
                                      var local (pretty-type type)))))
                  (lp vars locals))
                 (_
@@ -390,4 +390,4 @@
                   (sort-variables-in-storage storage))
            (make-primops patch-ops '() (variable-ref mem-idx) storage)))
         (_
-         (tjitc-error 'ir->primops "malformed term" term))))))
+         (failure 'ir->primops "malformed term" term))))))
