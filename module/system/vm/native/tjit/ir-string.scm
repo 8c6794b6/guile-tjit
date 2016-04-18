@@ -39,7 +39,37 @@
     `(let ((,dst/v (%cref ,src/v 3)))
        ,(next))))
 
-;; XXX: string-ref
-;; XXX: string->number
-;; XXX: string->symbol
-;; XXX: symbol->keyword
+;; XXX: Inline with `scm_i_string_ref'.
+(define-ir (string-ref (char! dst) (string src) (u64 idx))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src))
+        (idx/v (var-ref idx))
+        (r2 (make-tmpvar 2)))
+    `(let ((,r2 (%lsh ,idx/v 2)))
+       (let ((,r2 (%add ,r2 2)))
+         (let ((_ (%carg ,r2)))
+           (let ((_ (%carg ,src/v)))
+             (let ((,dst/v (%ccall ,(object-address string-ref))))
+               ,(next))))))))
+
+(define-ir (string->number (scm! dst) (string src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((_ (%carg #x904)))
+       (let ((_ (%carg ,src/v)))
+         (let ((,dst/v (%ccall ,(object-address string->number))))
+           ,(next))))))
+
+(define-ir (string->symbol (scm! dst) (string src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((_ (%carg ,src/v)))
+       (let ((,dst/v (%ccall ,(object-address string->symbol))))
+         ,(next)))))
+
+(define-ir (symbol->keyword (scm! dst) (scm src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    `(let ((_ (%carg ,src/v)))
+       (let ((,dst/v (%ccall ,(object-address symbol->keyword))))
+         ,(next)))))
