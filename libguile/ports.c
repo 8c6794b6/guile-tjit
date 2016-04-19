@@ -518,6 +518,7 @@ scm_c_make_port_buffer (size_t size)
   scm_t_port_buffer *ret = scm_gc_typed_calloc (scm_t_port_buffer);
 
   ret->bytevector = scm_c_make_bytevector (size);
+  ret->cur = ret->end = SCM_INUM0;
   ret->has_eof_p = SCM_BOOL_F;
 
   return ret;
@@ -1000,7 +1001,7 @@ looking_at_bytes (SCM port, const unsigned char *bytes, int len)
 
   while (i < len && scm_peek_byte_or_eof_unlocked (port) == bytes[i])
     {
-      pt->read_buf->cur++;
+      scm_port_buffer_did_take (pt->read_buf, 1);
       i++;
     }
   scm_i_unget_bytes_unlocked (bytes, i, port);
@@ -1413,7 +1414,8 @@ scm_i_read_unlocked (SCM port, scm_t_port_buffer *buf)
 {
   size_t count;
 
-  count = scm_i_read_bytes_unlocked (port, buf->bytevector, buf->end,
+  count = scm_i_read_bytes_unlocked (port, buf->bytevector,
+                                     scm_to_size_t (buf->end),
                                      scm_port_buffer_can_put (buf));
   scm_port_buffer_did_put (buf, count);
   buf->has_eof_p = scm_from_bool (count == 0);
@@ -1636,7 +1638,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   if (SCM_UNLIKELY ((b) == EOF))		\
     goto invalid_seq
 #define CONSUME_PEEKED_BYTE()				\
-  pt->read_buf->cur++
+  scm_port_buffer_did_take (pt->read_buf, 1)
 
   int byte;
   scm_t_port *pt;
@@ -1985,7 +1987,7 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
       pt->rw_active = SCM_PORT_READ;
     }
 
-  if (read_buf->cur < len)
+  if (scm_port_buffer_can_putback (read_buf) < len)
     {
       /* The bytes don't fit directly in the read_buf.  */
       size_t buffered, size;
@@ -2562,8 +2564,8 @@ scm_i_write_unlocked (SCM port, scm_t_port_buffer *src)
 {
   size_t start, count;
 
-  assert (src->cur < src->end);
-  assert (src->end <= scm_port_buffer_size (src));
+  assert (scm_to_size_t (src->cur) < scm_to_size_t (src->end));
+  assert (scm_to_size_t (src->end) <= scm_port_buffer_size (src));
 
   /* Update cursors before attempting to write, assuming that I/O errors
      are sticky.  That way if the write throws an error, causing the
@@ -2571,8 +2573,8 @@ scm_i_write_unlocked (SCM port, scm_t_port_buffer *src)
      by GC when it's open, any subsequent close-port / force-output
      won't signal *another* error.  */
 
-  start = src->cur;
-  count = src->end - src->cur;
+  start = scm_to_size_t (src->cur);
+  count = scm_port_buffer_can_take (src);
   scm_port_buffer_reset (src);
   scm_i_write_bytes_unlocked (port, src->bytevector, start, count);
 }

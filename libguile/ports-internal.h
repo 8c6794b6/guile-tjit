@@ -36,51 +36,57 @@ scm_port_buffer_size (scm_t_port_buffer *buf)
 static inline void
 scm_port_buffer_reset (scm_t_port_buffer *buf)
 {
-  buf->cur = buf->end = 0;
+  buf->cur = buf->end = SCM_INUM0;
 }
 
 static inline void
 scm_port_buffer_reset_end (scm_t_port_buffer *buf)
 {
-  buf->cur = buf->end = scm_port_buffer_size (buf);
+  buf->cur = buf->end = scm_from_size_t (scm_port_buffer_size (buf));
 }
 
 static inline size_t
 scm_port_buffer_can_take (scm_t_port_buffer *buf)
 {
-  return buf->end - buf->cur;
+  return scm_to_size_t (buf->end) - scm_to_size_t (buf->cur);
 }
 
 static inline size_t
 scm_port_buffer_can_put (scm_t_port_buffer *buf)
 {
-  return scm_port_buffer_size (buf) - buf->end;
+  return scm_port_buffer_size (buf) - scm_to_size_t (buf->end);
+}
+
+static inline size_t
+scm_port_buffer_can_putback (scm_t_port_buffer *buf)
+{
+  return scm_to_size_t (buf->cur);
 }
 
 static inline void
 scm_port_buffer_did_take (scm_t_port_buffer *buf, size_t count)
 {
-  buf->cur += count;
+  buf->cur = scm_from_size_t (scm_to_size_t (buf->cur) + count);
 }
 
 static inline void
 scm_port_buffer_did_put (scm_t_port_buffer *buf, size_t count)
 {
-  buf->end += count;
+  buf->end = scm_from_size_t (scm_to_size_t (buf->end) + count);
 }
 
 static inline const scm_t_uint8 *
 scm_port_buffer_take_pointer (scm_t_port_buffer *buf)
 {
   signed char *ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
-  return ((scm_t_uint8 *) ret) + buf->cur;
+  return ((scm_t_uint8 *) ret) + scm_to_size_t (buf->cur);
 }
 
 static inline scm_t_uint8 *
 scm_port_buffer_put_pointer (scm_t_port_buffer *buf)
 {
   signed char *ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
-  return ((scm_t_uint8 *) ret) + buf->end;
+  return ((scm_t_uint8 *) ret) + scm_to_size_t (buf->end);
 }
 
 static inline size_t
@@ -108,12 +114,13 @@ static inline void
 scm_port_buffer_putback (scm_t_port_buffer *buf, const scm_t_uint8 *src,
                          size_t count)
 {
-  assert (count <= buf->cur);
+  assert (count <= scm_to_size_t (buf->cur));
 
   /* Sometimes used to move around data within a buffer, so we must use
      memmove.  */
-  buf->cur -= count;
-  memmove (SCM_BYTEVECTOR_CONTENTS (buf->bytevector) + buf->cur, src, count);
+  buf->cur = scm_from_size_t (scm_to_size_t (buf->cur) - count);
+  memmove (SCM_BYTEVECTOR_CONTENTS (buf->bytevector) + scm_to_size_t (buf->cur),
+           src, count);
 }
 
 enum scm_port_encoding_mode {

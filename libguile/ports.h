@@ -78,8 +78,8 @@ typedef struct
   SCM bytevector;
 
   /* Offsets into the buffer.  Invariant: cur <= end <= size(buf).  */
-  size_t cur;
-  size_t end;
+  SCM cur;
+  SCM end;
 
   /* For read buffers, flag indicating whether the last read() returned
      zero bytes.  Note that in the case of pushback, there could still
@@ -429,16 +429,24 @@ SCM_INLINE_IMPLEMENTATION int
 scm_get_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
-  scm_t_uint8 *ptr;
+  size_t cur;
 
-  ptr = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
-  if (SCM_LIKELY (buf->cur < buf->end))
-    return ptr[buf->cur++];
+  cur = scm_to_size_t (buf->cur);
+  if (SCM_LIKELY (cur < scm_to_size_t (buf->end)))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
+      buf->cur = scm_from_size_t (cur + 1);
+      return ret;
+    }
 
   buf = scm_fill_input_unlocked (port);
-  ptr = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
-  if (buf->cur < buf->end)
-    return ptr[buf->cur++];
+  cur = scm_to_size_t (buf->cur);
+  if (cur < scm_to_size_t (buf->end))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
+      buf->cur = scm_from_size_t (cur + 1);
+      return ret;
+    }
 
   /* The next peek or get should cause the read() function to be called
      to see if we still have EOF.  */
@@ -451,14 +459,22 @@ SCM_INLINE_IMPLEMENTATION int
 scm_peek_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
-  scm_t_uint8 *ptr = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (buf->bytevector);
+  size_t cur;
 
-  if (SCM_LIKELY (buf->cur < buf->end))
-    return ptr[buf->cur];
+  cur = scm_to_size_t (buf->cur);
+  if (SCM_LIKELY (cur < scm_to_size_t (buf->end)))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
+      return ret;
+    }
 
   buf = scm_fill_input_unlocked (port);
-  if (buf->cur < buf->end)
-    return ptr[buf->cur];
+  cur = scm_to_size_t (buf->cur);
+  if (cur < scm_to_size_t (buf->end))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
+      return ret;
+    }
 
   return EOF;
 }

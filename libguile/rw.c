@@ -240,7 +240,7 @@ SCM_DEFINE (scm_write_string_partial, "write-string/partial", 1, 3, 0,
 
       /* Filling the last character in the buffer would require a
          flush.  */
-      if (write_len < scm_port_buffer_size (write_buf) - write_buf->end)
+      if (write_len < scm_port_buffer_can_put (write_buf))
 	{
           scm_c_write_unlocked (port, src, write_len);
 	  return scm_from_long (write_len);
