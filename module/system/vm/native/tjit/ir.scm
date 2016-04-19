@@ -412,14 +412,14 @@ index referenced by dst, a, and b values at runtime."
                 (match (cons flags ns)
                   (((f . flags) . (n . ns))
                    (if (memq f '(fixnum flonum char procedure pair vector box
-                                 struct string bytevector array))
-                       (let* ((v (vector-ref locals n))
-                              (t (type-of v)))
-                         (if (eq? t (flag->type f))
+                                        struct string bytevector array))
+                       (let ((runtime-value (vector-ref locals n)))
+                         (if (eq? (type-of runtime-value) (flag->type f))
                              (lp flags ns)
                              #f))
                        (lp flags ns)))
-                  (_ #t)))))
+                  (_
+                   #t)))))
            (scan-proc
             (lambda (%env %ip %dl %locals arg ...)
               (syntax-parameterize ((env (identifier-syntax %env)))
@@ -440,6 +440,7 @@ index referenced by dst, a, and b values at runtime."
                    (ra (identifier-syntax %ra))
                    (dl (identifier-syntax %dl))
                    (locals (identifier-syntax %locals)))
+                (debug 2 ";;; ~a~%" (cons 'name '(flag ...)))
                 ;; Updating live indices, only for side traces. Live indices in
                 ;; root traces are constantly same as write indices, loaded at
                 ;; the time of entry.
@@ -536,10 +537,10 @@ index referenced by dst, a, and b values at runtime."
    (else
     (proc var))))
 
-(define-syntax-rule (with-type-guard type src thunk)
+(define-syntax-rule (with-type-guard type src expr)
   `(let ((_ ,(take-snapshot! ip 0)))
      (let ((_ (%typeq ,src ,type)))
-       ,(thunk))))
+       ,expr)))
 
 
 ;;;

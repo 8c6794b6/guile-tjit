@@ -744,6 +744,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (else
           (err)))))))
 
+(define-binary-guard-double %feq != jit-bnei-d jit-bner-d)
 (define-binary-guard-double %fne = jit-beqi-d jit-beqr-d)
 (define-binary-guard-double %flt >= jit-bgei-d jit-bger-d)
 (define-binary-guard-double %fle > jit-bgti-d jit-bgtr-d)
