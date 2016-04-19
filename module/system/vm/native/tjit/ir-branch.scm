@@ -165,7 +165,7 @@
              (with-boxing (type-ref b) b/v r1
                (lambda (boxed2)
                  `(let ((_ (,op ,boxed1 ,boxed2)))
-                            ,(next))))))))))
+                    ,(next))))))))))
 
 (define-ir (br-if-eqv (flonum a) (flonum b) (const invert) (const offset))
   (br-binary-scm-scm-body

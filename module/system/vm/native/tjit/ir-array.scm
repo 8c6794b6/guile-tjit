@@ -78,9 +78,6 @@
 ;; XXX: bv-f32-set!
 ;; XXX: bv-f64-set!
 
-(define-ir (bv-length (u64! dst) (scm src))
-  (nyi "bv-length: ~a ~a" dst src))
-
 (define-ir (bv-length (u64! dst) (bytevector src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
