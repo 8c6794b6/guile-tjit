@@ -429,13 +429,15 @@ SCM_INLINE_IMPLEMENTATION int
 scm_get_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
-  size_t cur;
+  size_t cur = SCM_I_INUM (buf->cur);
 
-  cur = scm_to_size_t (buf->cur);
-  if (SCM_LIKELY (cur < scm_to_size_t (buf->end)))
+  if (SCM_LIKELY (SCM_I_INUMP (buf->cur))
+      && SCM_LIKELY (SCM_I_INUMP (buf->end))
+      && SCM_LIKELY (cur < SCM_I_INUM (buf->end))
+      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf->bytevector)))
     {
       scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
-      buf->cur = scm_from_size_t (cur + 1);
+      buf->cur = SCM_I_MAKINUM (cur + 1);
       return ret;
     }
 
@@ -459,10 +461,12 @@ SCM_INLINE_IMPLEMENTATION int
 scm_peek_byte_or_eof_unlocked (SCM port)
 {
   scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
-  size_t cur;
+  size_t cur = SCM_I_INUM (buf->cur);
 
-  cur = scm_to_size_t (buf->cur);
-  if (SCM_LIKELY (cur < scm_to_size_t (buf->end)))
+  if (SCM_LIKELY (SCM_I_INUMP (buf->cur))
+      && SCM_LIKELY (SCM_I_INUMP (buf->end))
+      && SCM_LIKELY (cur < SCM_I_INUM (buf->end))
+      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf->bytevector)))
     {
       scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
       return ret;

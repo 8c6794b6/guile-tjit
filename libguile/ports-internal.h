@@ -27,10 +27,26 @@
 #include "libguile/_scm.h"
 #include "libguile/ports.h"
 
+/* The port buffers are exposed to Scheme, which can mutate their
+   fields.  We have to do dynamic checks to ensure that
+   potentially-malicious Scheme doesn't invalidate our invariants.
+   However these dynamic checks are slow, so we need to avoid them where
+   they are unnecessary.  An unnecessary check is a check which has
+   already been performed, or one which would already be performed by
+   the time that memory is accessed.  Given that the "can_take",
+   "can_put", or "can_putback" functions are eventually called before
+   any access to the buffer, we hoist the necessary type checks the
+   can_foo and size functions, and otherwise assume that the cur and end
+   values are inums within the right ranges.  */
+
 static inline size_t
 scm_port_buffer_size (scm_t_port_buffer *buf)
 {
-  return scm_c_bytevector_length (buf->bytevector);
+  if (SCM_LIKELY (SCM_BYTEVECTOR_P (buf->bytevector)))
+    return SCM_BYTEVECTOR_LENGTH (buf->bytevector);
+  scm_misc_error (NULL, "invalid port buffer ~a",
+                  scm_list_1 (buf->bytevector));
+  return -1;
 }
 
 static inline void
@@ -48,31 +64,45 @@ scm_port_buffer_reset_end (scm_t_port_buffer *buf)
 static inline size_t
 scm_port_buffer_can_take (scm_t_port_buffer *buf)
 {
-  return scm_to_size_t (buf->end) - scm_to_size_t (buf->cur);
+  size_t cur, end;
+  cur = scm_to_size_t (buf->cur);
+  end = scm_to_size_t (buf->end);
+  if (cur > end || end > scm_port_buffer_size (buf))
+    scm_misc_error (NULL, "invalid port buffer cursors ~a, ~a",
+                    scm_list_2 (buf->cur, buf->end));
+  return end - cur;
 }
 
 static inline size_t
 scm_port_buffer_can_put (scm_t_port_buffer *buf)
 {
-  return scm_port_buffer_size (buf) - scm_to_size_t (buf->end);
+  size_t end = scm_to_size_t (buf->end);
+  if (end > scm_port_buffer_size (buf))
+    scm_misc_error (NULL, "invalid port buffer cursor ~a",
+                    scm_list_1 (buf->end));
+  return scm_port_buffer_size (buf) - end;
 }
 
 static inline size_t
 scm_port_buffer_can_putback (scm_t_port_buffer *buf)
 {
-  return scm_to_size_t (buf->cur);
+  size_t cur = scm_to_size_t (buf->cur);
+  if (cur > scm_port_buffer_size (buf))
+    scm_misc_error (NULL, "invalid port buffer cursor ~a",
+                    scm_list_1 (buf->cur));
+  return cur;
 }
 
 static inline void
 scm_port_buffer_did_take (scm_t_port_buffer *buf, size_t count)
 {
-  buf->cur = scm_from_size_t (scm_to_size_t (buf->cur) + count);
+  buf->cur = SCM_I_MAKINUM (SCM_I_INUM (buf->cur) + count);
 }
 
 static inline void
 scm_port_buffer_did_put (scm_t_port_buffer *buf, size_t count)
 {
-  buf->end = scm_from_size_t (scm_to_size_t (buf->end) + count);
+  buf->end = SCM_I_MAKINUM (SCM_I_INUM (buf->end) + count);
 }
 
 static inline const scm_t_uint8 *
