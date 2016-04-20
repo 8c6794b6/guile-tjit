@@ -307,13 +307,13 @@ scm_set_port_get_natural_buffer_sizes
 static void
 scm_i_set_pending_eof (SCM port)
 {
-  SCM_PTAB_ENTRY (port)->read_buf->has_eof_p = SCM_BOOL_T;
+  scm_port_buffer_set_has_eof_p (SCM_PTAB_ENTRY (port)->read_buf, SCM_BOOL_T);
 }
 
 static void
 scm_i_clear_pending_eof (SCM port)
 {
-  SCM_PTAB_ENTRY (port)->read_buf->has_eof_p = SCM_BOOL_F;
+  scm_port_buffer_set_has_eof_p (SCM_PTAB_ENTRY (port)->read_buf, SCM_BOOL_F);
 }
 
 SCM_DEFINE (scm_i_port_property, "%port-property", 2, 0, 0,
@@ -512,14 +512,14 @@ scm_i_dynwind_current_load_port (SCM port)
 
 /* Port buffers.  */
 
-scm_t_port_buffer *
+SCM
 scm_c_make_port_buffer (size_t size)
 {
-  scm_t_port_buffer *ret = scm_gc_typed_calloc (scm_t_port_buffer);
+  SCM ret = scm_c_make_vector (SCM_PORT_BUFFER_FIELD_COUNT, SCM_INUM0);
 
-  ret->bytevector = scm_c_make_bytevector (size);
-  ret->cur = ret->end = SCM_INUM0;
-  ret->has_eof_p = SCM_BOOL_F;
+  SCM_SIMPLE_VECTOR_SET (ret, SCM_PORT_BUFFER_FIELD_BYTEVECTOR,
+                         scm_c_make_bytevector (size));
+  scm_port_buffer_set_has_eof_p (ret, SCM_BOOL_F);
 
   return ret;
 }
@@ -1410,15 +1410,15 @@ scm_i_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
    buffer.  If the number of available bytes in the buffer does not
    increase after a call to scm_i_read_unlocked, that indicates EOF.  */
 static void
-scm_i_read_unlocked (SCM port, scm_t_port_buffer *buf)
+scm_i_read_unlocked (SCM port, SCM buf)
 {
   size_t count;
 
-  count = scm_i_read_bytes_unlocked (port, buf->bytevector,
-                                     scm_to_size_t (buf->end),
+  count = scm_i_read_bytes_unlocked (port, scm_port_buffer_bytevector (buf),
+                                     scm_to_size_t (scm_port_buffer_end (buf)),
                                      scm_port_buffer_can_put (buf));
   scm_port_buffer_did_put (buf, count);
-  buf->has_eof_p = scm_from_bool (count == 0);
+  scm_port_buffer_set_has_eof_p (buf, scm_from_bool (count == 0));
 }
 
 /* Used by an application to read arbitrary number of bytes from an SCM
@@ -1432,7 +1432,7 @@ scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
 {
   size_t to_read = count;
   scm_t_port *pt;
-  scm_t_port_buffer *read_buf;
+  SCM read_buf;
   scm_t_uint8 *dst_ptr = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (dst) + start;
 
   SCM_VALIDATE_OPINPORT (1, port);
@@ -1470,7 +1470,7 @@ scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
           if (did_read == 0)
             {
               /* Consider that we've read off this EOF.  */
-              read_buf->has_eof_p = SCM_BOOL_F;
+              scm_port_buffer_set_has_eof_p (read_buf, SCM_BOOL_F);
               break;
             }
         }
@@ -1499,7 +1499,7 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
 {
   size_t copied = 0;
   scm_t_port *pt;
-  scm_t_port_buffer *read_buf;
+  SCM read_buf;
   scm_t_uint8 *dst = buffer;
 
   SCM_VALIDATE_OPINPORT (1, port);
@@ -1523,7 +1523,7 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
       if (count == 0)
         {
           /* Consider that we've read off this EOF.  */
-          read_buf->has_eof_p = SCM_BOOL_F;
+          scm_port_buffer_set_has_eof_p (read_buf, SCM_BOOL_F);
           break;
         }
     }
@@ -1978,7 +1978,7 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
 #define FUNC_NAME "scm_unget_bytes"
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_buffer *read_buf = pt->read_buf;
+  SCM read_buf = pt->read_buf;
 
   if (pt->rw_random)
     {
@@ -2006,14 +2006,15 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
       else
         {
           /* Bah, have to expand the read_buf for the putback.  */
-          scm_t_port_buffer *new_buf;
+          SCM new_buf;
 
           while (size < len + buffered)
             size *= 2;
 
           new_buf = scm_c_make_port_buffer (size);
           scm_port_buffer_reset_end (new_buf);
-          new_buf->has_eof_p = read_buf->has_eof_p;
+          scm_port_buffer_set_has_eof_p (new_buf,
+                                         scm_port_buffer_has_eof_p (read_buf));
           scm_port_buffer_putback (new_buf,
                                    scm_port_buffer_take_pointer (read_buf),
                                    buffered);
@@ -2286,7 +2287,7 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
   scm_t_ptob_descriptor *ptob;
   scm_t_bits tag_word;
   size_t read_buf_size, write_buf_size;
-  scm_t_port_buffer *saved_read_buf;
+  SCM saved_read_buf;
 
   port = SCM_COERCE_OUTPORT (port);
 
@@ -2348,17 +2349,18 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
                      port);
 
   if (saved_read_buf)
-    pt->read_buf->has_eof_p = saved_read_buf->has_eof_p;
+    scm_port_buffer_set_has_eof_p (pt->read_buf,
+                                   scm_port_buffer_has_eof_p (saved_read_buf));
 
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
-scm_t_port_buffer*
+SCM
 scm_fill_input (SCM port)
 {
   scm_i_pthread_mutex_t *lock;
-  scm_t_port_buffer *ret;
+  SCM ret;
   
   scm_c_lock_port (port, &lock);
   ret = scm_fill_input_unlocked (port);
@@ -2374,7 +2376,7 @@ scm_fill_input (SCM port)
 size_t
 scm_take_from_input_buffers (SCM port, char *dest, size_t read_len)
 {
-  scm_t_port_buffer *read_buf = SCM_PTAB_ENTRY (port)->read_buf;
+  SCM read_buf = SCM_PTAB_ENTRY (port)->read_buf;
   return scm_port_buffer_take (read_buf, (scm_t_uint8 *) dest, read_len);
 }
 
@@ -2398,7 +2400,7 @@ SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0,
 {
   SCM result;
   scm_t_port *pt;
-  scm_t_port_buffer *read_buf;
+  SCM read_buf;
   long count;
 
   SCM_VALIDATE_OPINPORT (1, port);
@@ -2423,7 +2425,7 @@ void
 scm_end_input_unlocked (SCM port)
 {
   scm_t_port *pt;
-  scm_t_port_buffer *buf;
+  SCM buf;
   size_t discarded;
 
   pt = SCM_PTAB_ENTRY (port);
@@ -2469,12 +2471,12 @@ SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
 }
 #undef FUNC_NAME
 
-static void scm_i_write_unlocked (SCM port, scm_t_port_buffer *src);
+static void scm_i_write_unlocked (SCM port, SCM buf);
 
 void
 scm_flush_unlocked (SCM port)
 {
-  scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->write_buf;
+  SCM buf = SCM_PTAB_ENTRY (port)->write_buf;
   if (scm_port_buffer_can_take (buf))
     scm_i_write_unlocked (port, buf);
   SCM_PTAB_ENTRY (port)->rw_active = SCM_PORT_NEITHER;
@@ -2490,13 +2492,14 @@ scm_flush (SCM port)
     scm_i_pthread_mutex_unlock (lock);
 }
 
-scm_t_port_buffer *
+SCM
 scm_fill_input_unlocked (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_buffer *read_buf = pt->read_buf;
+  SCM read_buf = pt->read_buf;
 
-  if (scm_port_buffer_can_take (read_buf) || scm_is_true (read_buf->has_eof_p))
+  if (scm_port_buffer_can_take (read_buf) ||
+      scm_is_true (scm_port_buffer_has_eof_p (read_buf)))
     return read_buf;
 
   if (pt->rw_random)
@@ -2517,6 +2520,54 @@ scm_fill_input_unlocked (SCM port)
 
   return read_buf;
 }
+
+SCM_DEFINE (scm_port_read_buffer, "port-read-buffer", 1, 0, 0,
+            (SCM port),
+	    "Return the read buffer for a port.  If the port is\n"
+            "random-access, its write buffer, if any, will be flushed\n"
+            "if needed.")
+#define FUNC_NAME s_scm_port_read_buffer
+{
+  scm_t_port *pt;
+
+  SCM_VALIDATE_OPINPORT (1, port);
+
+  pt = SCM_PTAB_ENTRY (port);
+
+  if (pt->rw_random)
+    {
+      if (pt->rw_active == SCM_PORT_WRITE)
+        scm_flush (pt->port);
+      pt->rw_active = SCM_PORT_READ;
+    }
+
+  return pt->read_buf;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_port_write_buffer, "port-write-buffer", 1, 0, 0,
+            (SCM port),
+	    "Return the write buffer for a port.  If the port is\n"
+            "random-access, its read buffer, if any, will be discarded\n"
+            "if needed.")
+#define FUNC_NAME s_scm_port_write_buffer
+{
+  scm_t_port *pt;
+
+  SCM_VALIDATE_OPOUTPORT (1, port);
+
+  pt = SCM_PTAB_ENTRY (port);
+
+  if (pt->rw_random)
+    {
+      if (pt->rw_active == SCM_PORT_READ)
+        scm_end_input (pt->port);
+      pt->rw_active = SCM_PORT_WRITE;
+    }
+
+  return pt->write_buf;
+}
+#undef FUNC_NAME
 
 
 
@@ -2560,12 +2611,9 @@ scm_i_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
 }
 
 static void
-scm_i_write_unlocked (SCM port, scm_t_port_buffer *src)
+scm_i_write_unlocked (SCM port, SCM buf)
 {
   size_t start, count;
-
-  assert (scm_to_size_t (src->cur) < scm_to_size_t (src->end));
-  assert (scm_to_size_t (src->end) <= scm_port_buffer_size (src));
 
   /* Update cursors before attempting to write, assuming that I/O errors
      are sticky.  That way if the write throws an error, causing the
@@ -2573,10 +2621,11 @@ scm_i_write_unlocked (SCM port, scm_t_port_buffer *src)
      by GC when it's open, any subsequent close-port / force-output
      won't signal *another* error.  */
 
-  start = scm_to_size_t (src->cur);
-  count = scm_port_buffer_can_take (src);
-  scm_port_buffer_reset (src);
-  scm_i_write_bytes_unlocked (port, src->bytevector, start, count);
+  start = scm_to_size_t (scm_port_buffer_cur (buf));
+  count = scm_port_buffer_can_take (buf);
+  scm_port_buffer_reset (buf);
+  scm_i_write_bytes_unlocked (port, scm_port_buffer_bytevector (buf), start,
+                              count);
 }
 
 /* Used by an application to write arbitrary number of bytes to an SCM
@@ -2589,7 +2638,7 @@ scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
 #define FUNC_NAME "scm_c_write_bytes"
 {
   scm_t_port *pt;
-  scm_t_port_buffer *write_buf;
+  SCM write_buf;
 
   SCM_VALIDATE_OPOUTPORT (1, port);
 
@@ -2605,8 +2654,8 @@ scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
 
   if (count < scm_port_buffer_size (write_buf))
     {
-      /* Make it so that write_buf->end is only nonzero if there are
-         buffered bytes already.  */
+      /* Make it so that the write_buf "end" cursor is only nonzero if
+         there are buffered bytes already.  */
       if (scm_port_buffer_can_take (write_buf) == 0)
         scm_port_buffer_reset (write_buf);
 
@@ -2648,7 +2697,7 @@ scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
 #define FUNC_NAME "scm_c_write"
 {
   scm_t_port *pt;
-  scm_t_port_buffer *write_buf;
+  SCM write_buf;
   size_t written = 0;
   const scm_t_uint8 *src = ptr;
 
@@ -2759,7 +2808,7 @@ SCM_DEFINE (scm_char_ready_p, "char-ready?", 0, 1, 0,
 #define FUNC_NAME s_scm_char_ready_p
 {
   scm_t_port *pt;
-  scm_t_port_buffer *read_buf;
+  SCM read_buf;
 
   if (SCM_UNBNDP (port))
     port = scm_current_input_port ();
@@ -2770,7 +2819,8 @@ SCM_DEFINE (scm_char_ready_p, "char-ready?", 0, 1, 0,
   pt = SCM_PTAB_ENTRY (port);
   read_buf = pt->read_buf;
 
-  if (scm_port_buffer_can_take (read_buf) || scm_is_true (read_buf->has_eof_p))
+  if (scm_port_buffer_can_take (read_buf) ||
+      scm_is_true (scm_port_buffer_has_eof_p (read_buf)))
     /* FIXME: Verify that a whole character is available?  */
     return SCM_BOOL_T;
   else

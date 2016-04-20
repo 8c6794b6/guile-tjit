@@ -232,7 +232,7 @@ SCM_DEFINE (scm_write_string_partial, "write-string/partial", 1, 3, 0,
     {
       SCM port = (SCM_UNBNDP (port_or_fdes)?
 		  scm_current_output_port () : port_or_fdes);
-      scm_t_port_buffer *write_buf;
+      SCM write_buf;
 
       SCM_VALIDATE_OPFPORT (2, port);
       SCM_VALIDATE_OUTPUT_PORT (2, port);

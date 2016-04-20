@@ -2057,7 +2057,7 @@ char *
 scm_i_scan_for_encoding (SCM port)
 {
   scm_t_port *pt;
-  scm_t_port_buffer *buf;
+  SCM buf;
   char header[SCM_ENCODING_SEARCH_SIZE+1];
   size_t bytes_read, encoding_length, i;
   char *encoding = NULL;

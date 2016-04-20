@@ -468,7 +468,7 @@ SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
             "position to point just past these bytes.")
 #define FUNC_NAME s_scm_get_bytevector_some
 {
-  scm_t_port_buffer *buf;
+  SCM buf;
   size_t size;
   SCM bv;
 
@@ -478,7 +478,7 @@ SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
   size = scm_port_buffer_can_take (buf);
   if (size == 0)
     {
-      buf->has_eof_p = SCM_BOOL_F;
+      scm_port_buffer_set_has_eof_p (buf, SCM_BOOL_F);
       return SCM_EOF_VAL;
     }
 

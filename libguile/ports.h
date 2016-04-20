@@ -37,6 +37,7 @@
 #include "libguile/struct.h"
 #include "libguile/threads.h"
 #include "libguile/strings.h"
+#include "libguile/vectors.h"
 
 
 
@@ -53,42 +54,35 @@ struct scm_port_internal;
 /* Port buffers.
 
    It's important to avoid calling into the kernel too many times.  For
-   that reason we buffer the input and output, using `scm_t_port_buffer'
-   objects.  The bytes in a read buffer are laid out like this:
+   that reason we buffer the input and output, using "port buffer"
+   objects.  Port buffers are represented as vectors containing the
+   buffer, two cursors, and a flag.  The bytes in a read buffer are laid
+   out like this:
 
                     |already read | not yet | invalid
                     |    data     |  read   |  data
       readbuf: #vu8(|r r r r r r r|u u u u u|x x x x x|)
-                    ^buf          ^cur      ^end      ^size
+               ^buf               ^cur      ^end      ^size(buf)
 
    Similarly for a write buffer:
 
                      |already written | not yet | invalid
                      |    data        | written |  data
       writebuf: #vu8(|w w w w w w w w |u u u u u|x x x x x|)
-                     ^buf             ^cur      ^end      ^size
+                ^buf                  ^cur      ^end      ^size(buf)
 
-   We use a `scm_t_port_buffer' object for both purposes.  Port buffers
-   are implemented as their own object so that they can be atomically
-   swapped in or out.  */
+   We use the same port buffer data structure for both purposes.  Port
+   buffers are implemented as their own object so that they can be
+   atomically swapped in or out of ports, and as Scheme vectors so they
+   can be manipulated from Scheme.  */
 
-typedef struct
-{
-  /* The port buffer. */
-  SCM bytevector;
-
-  /* Offsets into the buffer.  Invariant: cur <= end <= size(buf).  */
-  SCM cur;
-  SCM end;
-
-  /* For read buffers, flag indicating whether the last read() returned
-     zero bytes.  Note that in the case of pushback, there could still
-     be bytes in the buffer, but that after any bytes are read off,
-     peek-u8 should still return EOF.  */
-  SCM has_eof_p;
-
-} scm_t_port_buffer;
-
+enum scm_port_buffer_field {
+  SCM_PORT_BUFFER_FIELD_BYTEVECTOR,
+  SCM_PORT_BUFFER_FIELD_CUR,
+  SCM_PORT_BUFFER_FIELD_END,
+  SCM_PORT_BUFFER_FIELD_HAS_EOF_P,
+  SCM_PORT_BUFFER_FIELD_COUNT
+};
 
 /* C representation of a Scheme port.  */
 
@@ -112,8 +106,8 @@ typedef struct
   int column_number;
 
   /* Port buffers.  */
-  scm_t_port_buffer *read_buf;
-  scm_t_port_buffer *write_buf;
+  SCM read_buf;
+  SCM write_buf;
 
   /* All ports have read and write buffers; an unbuffered port simply
      has a one-byte buffer.  However unreading bytes can expand the read
@@ -263,7 +257,7 @@ SCM_API void scm_dynwind_current_error_port (SCM port);
 SCM_INTERNAL void scm_i_dynwind_current_load_port (SCM port);
 
 /* Port buffers.  */
-SCM_INTERNAL scm_t_port_buffer *scm_c_make_port_buffer (size_t size);
+SCM_INTERNAL SCM scm_c_make_port_buffer (size_t size);
 
 /* Mode bits.  */
 SCM_INTERNAL long scm_i_mode_bits (SCM modes);
@@ -341,8 +335,8 @@ SCM_API SCM scm_unread_string (SCM str, SCM port);
 
 /* Manipulating the buffers.  */
 SCM_API SCM scm_setvbuf (SCM port, SCM mode, SCM size);
-SCM_API scm_t_port_buffer* scm_fill_input (SCM port);
-SCM_API scm_t_port_buffer* scm_fill_input_unlocked (SCM port);
+SCM_API SCM scm_fill_input (SCM port);
+SCM_API SCM scm_fill_input_unlocked (SCM port);
 SCM_INTERNAL size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
 SCM_API SCM scm_drain_input (SCM port);
 SCM_API void scm_end_input (SCM port);
@@ -350,6 +344,8 @@ SCM_API void scm_end_input_unlocked (SCM port);
 SCM_API SCM scm_force_output (SCM port);
 SCM_API void scm_flush (SCM port);
 SCM_API void scm_flush_unlocked (SCM port);
+SCM_INTERNAL SCM scm_port_read_buffer (SCM port);
+SCM_INTERNAL SCM scm_port_write_buffer (SCM port);
 
 /* Output.  */
 SCM_API void scm_putc (char c, SCM port);
@@ -428,31 +424,42 @@ scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
 SCM_INLINE_IMPLEMENTATION int
 scm_get_byte_or_eof_unlocked (SCM port)
 {
-  scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
-  size_t cur = SCM_I_INUM (buf->cur);
+  SCM buf = SCM_PTAB_ENTRY (port)->read_buf;
+  SCM buf_bv, buf_cur, buf_end;
+  size_t cur;
 
-  if (SCM_LIKELY (SCM_I_INUMP (buf->cur))
-      && SCM_LIKELY (SCM_I_INUMP (buf->end))
-      && SCM_LIKELY (cur < SCM_I_INUM (buf->end))
-      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf->bytevector)))
+  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
+  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
+  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
+  cur = SCM_I_INUM (buf_cur);
+
+  if (SCM_LIKELY (SCM_I_INUMP (buf_cur))
+      && SCM_LIKELY (SCM_I_INUMP (buf_end))
+      && SCM_LIKELY (cur < SCM_I_INUM (buf_end))
+      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf_bv)))
     {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
-      buf->cur = SCM_I_MAKINUM (cur + 1);
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
+      buf_cur = SCM_I_MAKINUM (cur + 1);
+      SCM_SIMPLE_VECTOR_SET (buf, SCM_PORT_BUFFER_FIELD_CUR, buf_cur);
       return ret;
     }
 
   buf = scm_fill_input_unlocked (port);
-  cur = scm_to_size_t (buf->cur);
-  if (cur < scm_to_size_t (buf->end))
+  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
+  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
+  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
+  cur = scm_to_size_t (buf_cur);
+  if (cur < scm_to_size_t (buf_end))
     {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
-      buf->cur = scm_from_size_t (cur + 1);
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
+      buf_cur = SCM_I_MAKINUM (cur + 1);
+      SCM_SIMPLE_VECTOR_SET (buf, SCM_PORT_BUFFER_FIELD_CUR, buf_cur);
       return ret;
     }
 
   /* The next peek or get should cause the read() function to be called
      to see if we still have EOF.  */
-  buf->has_eof_p = SCM_BOOL_F;
+  SCM_SIMPLE_VECTOR_SET (buf, SCM_PORT_BUFFER_FIELD_HAS_EOF_P, SCM_BOOL_F);
   return EOF;
 }
 
@@ -460,23 +467,31 @@ scm_get_byte_or_eof_unlocked (SCM port)
 SCM_INLINE_IMPLEMENTATION int
 scm_peek_byte_or_eof_unlocked (SCM port)
 {
-  scm_t_port_buffer *buf = SCM_PTAB_ENTRY (port)->read_buf;
-  size_t cur = SCM_I_INUM (buf->cur);
+  SCM buf = SCM_PTAB_ENTRY (port)->read_buf;
+  SCM buf_bv, buf_cur, buf_end;
+  size_t cur;
 
-  if (SCM_LIKELY (SCM_I_INUMP (buf->cur))
-      && SCM_LIKELY (SCM_I_INUMP (buf->end))
-      && SCM_LIKELY (cur < SCM_I_INUM (buf->end))
-      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf->bytevector)))
+  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
+  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
+  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
+  cur = SCM_I_INUM (buf_cur);
+  if (SCM_LIKELY (SCM_I_INUMP (buf_cur))
+      && SCM_LIKELY (SCM_I_INUMP (buf_end))
+      && SCM_LIKELY (cur < SCM_I_INUM (buf_end))
+      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf_bv)))
     {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
       return ret;
     }
 
   buf = scm_fill_input_unlocked (port);
-  cur = scm_to_size_t (buf->cur);
-  if (cur < scm_to_size_t (buf->end))
+  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
+  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
+  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
+  cur = scm_to_size_t (buf_cur);
+  if (cur < scm_to_size_t (buf_end))
     {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf->bytevector)[cur];
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
       return ret;
     }
 
