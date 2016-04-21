@@ -250,29 +250,16 @@
 ;;; Auxiliary
 ;;;
 
-(define (gen-type-checker types id)
+(define (gen-type-checker arg-types id)
   "Returns a procedure for checking types.
 
-Takes assoc list TYPES, with its keys being local index and values being type
-values. Returns a procedure taking one argument LOCALS, which is a vector
-containing stack elements. The returned procedure will return true if all of the
-types in TYPES matched with LOCALS, otherwise return false."
+Takes assoc list ARG-TYPES, with its keys being local index and values being
+type values. Returns a procedure taking two argument INFERRED-TYPES and LOCALS.
+LOCALS is a vector containing stack elements. The returned procedure will return
+true if all of the types in ARG-TYPES matched with LOCALS, otherwise return
+false."
   (lambda (inferred-types locals)
-    (define (f nt)
-      (cons (car nt) (pretty-type (cdr nt))))
-    (define (g ts)
-      (map f (sort ts (lambda (a b) (< (car a) (car b))))))
-    (debug 2 ";;; trace ~a: types=~a~%" id (g types))
-    (debug 2 ";;; trace ~a: inferred=~a~%" id (g inferred-types))
-    (debug 2 ";;; trace ~a: locals=~a~%" id
-           (let lp ((v (make-vector (vector-length locals)))
-                    (i (- (vector-length locals) 1)))
-             (if (< i 0)
-                 v
-                 (begin
-                   (vector-set! v i (scm->pointer (vector-ref locals i)))
-                   (lp v (- i 1))))))
-    (let lp ((types types))
+    (let lp ((types arg-types))
       (match types
         (((n . t) . types)
          (if (or (memq t (list &scm &u64 &f64 &s64))
@@ -286,7 +273,22 @@ types in TYPES matched with LOCALS, otherwise return false."
                                 (type-of (vector-ref locals n)))))
                    (eq? t tr)))
              (lp types)
-             (begin
+             (let ((f (lambda (ts)
+                        (map (lambda (nt)
+                               (cons (car nt) (pretty-type (cdr nt))))
+                             (sort ts (lambda (a b)
+                                        (< (car a) (car b))))))))
+               (debug 2 ";;; trace ~a: types=~a~%" id (f arg-types))
+               (debug 2 ";;; trace ~a: inferred=~a~%" id (f inferred-types))
+               (debug 2 ";;; trace ~a: locals=~a~%" id
+                      (let lp ((v (make-vector (vector-length locals)))
+                               (i (- (vector-length locals) 1)))
+                        (if (< i 0)
+                            v
+                            (begin
+                              (vector-set! v i (scm->pointer
+                                                (vector-ref locals i)))
+                              (lp v (- i 1))))))
                (debug 2 ";;; trace ~a: local ~a expect ~a, got ~a:~a~%"
                       id n
                       (pretty-type t)
@@ -296,9 +298,7 @@ types in TYPES matched with LOCALS, otherwise return false."
                             (<= 0 n (- (vector-length locals) 1))
                             (type-of (vector-ref locals n)))))
                #f)))
-        (()
-         (debug 2 ";;; trace ~a: all type matched~%" id)
-         #t)))))
+        (() #t)))))
 
 (define (type->stack-element-type type)
   (cond
