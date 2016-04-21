@@ -79,15 +79,10 @@
         (dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/t (type-ref src)))
-    (if (eq? &flonum src/t)
-        `(let ((,r2 ,%tc7-variable))
-           ,(with-boxing src/t src/v r1
-              (lambda (src/v)
-                `(let ((,dst/v (%cell ,r2 ,src/v)))
-                   ,(next)))))
-        `(let ((,r2 ,%tc7-variable))
-           (let ((,dst/v (%cell ,r2 ,src/v)))
-             ,(next))))))
+    (with-boxing src/t src/v r1
+      (lambda (boxed)
+        `(let ((,dst/v (%cell ,%tc7-variable ,boxed)))
+           ,(next))))))
 
 ;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'.
 ;; Boxing back tagged value every time will make the loop slow, need

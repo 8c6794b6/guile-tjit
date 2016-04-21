@@ -169,5 +169,6 @@
                     (tail (if (zero? n)
                               '()
                               r2)))
+                (set-env-handle-interrupts! env #t)
                 `(let ((,rest (%cell ,(var-ref n) ,tail)))
                    ,(lp (+ n 1)))))))))

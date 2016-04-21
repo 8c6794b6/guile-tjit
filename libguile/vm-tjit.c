@@ -447,12 +447,7 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
 
   /* XXX: Ad hoc a way to restrict compilation of side trace starting
-     from identical IP too many times.
-
-     Recompilation of side exit starting with `call' or `tail-call'
-     could happen frequently, which caused by programs using higher
-     order functions. In such case, might better to try recompiling
-     parent root trace. */
+     from identical IP too many times. */
   if (scm_is_true (fragment)
       && bailout_ip_ref ((scm_t_uintptr) vp->ip) < 50)
     {
