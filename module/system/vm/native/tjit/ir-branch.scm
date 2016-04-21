@@ -197,7 +197,7 @@
                                `(let ((_ ,(take-snapshot! ip dest)))
                                   (let ((_ (,op ,va ,vb)))
                                     ,(next))))))
-            (ensure-loop (op-scm ra rb) invert offset 2)
+            (ensure-loop (op-scm ra rb) invert offset 3)
             (cond
              ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
               (next-thunk))
@@ -227,7 +227,7 @@
                          (let ((,f2 (%i2d ,r2)))
                            (let ((_ (,op ,a/v ,f2)))
                              ,(next))))))))
-            (ensure-loop (op-scm a/l b/l) invert offset 2)
+            (ensure-loop (op-scm a/l b/l) invert offset 3)
             (cond
              ((and (eq? &flonum a/t) (eq? &fixnum b/t))
               (next-thunk))
@@ -249,7 +249,7 @@
                 (b/t (type-ref b))
                 (f1 (make-tmpvar/f 1))
                 (f2 (make-tmpvar/f 2)))
-            (ensure-loop (op-scm ra rb) invert offset 2)
+            (ensure-loop (op-scm ra rb) invert offset 3)
             (cond
              ((and (eq? &flonum a/t) (eq? &flonum b/t))
               `(let ((_ ,(take-snapshot! ip dest)))
