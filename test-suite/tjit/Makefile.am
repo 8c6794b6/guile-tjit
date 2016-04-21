@@ -124,6 +124,8 @@ TESTS = \
 	t-mul-01.scm \
 	t-mul-02.scm \
 	t-mul-03.scm \
+	t-mul-04.scm \
+	t-mul-05.scm \
 	t-nest-01.scm \
 	t-nest-02.scm \
 	t-nest-03.scm \

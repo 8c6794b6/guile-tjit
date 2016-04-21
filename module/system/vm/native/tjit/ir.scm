@@ -327,12 +327,13 @@ returns, current call-num, and current return-num."
     (gen-scan-type . rest)))
 
 (define-syntax gen-scan-type
-  (syntax-rules (scm fixnum flonum char procedure pair vector box struct
-                     string bytevector u64 f64)
+  (syntax-rules (scm fixnum flonum fraction char procedure pair vector box
+                     struct string bytevector u64 f64)
     ((_) (values))
     ((_ (scm arg) . rest) (gen-entry-type &scm arg rest))
     ((_ (fixnum arg) . rest) (gen-entry-type &fixnum arg rest))
     ((_ (flonum arg) . rest) (gen-entry-type &flonum arg rest))
+    ((_ (fraction arg) . rest) (gen-entry-type &fraction arg rest))
     ((_ (char arg) . rest) (gen-entry-type &char arg rest))
     ((_ (pair arg) . rest) (gen-entry-type &pair arg rest))
     ((_ (procedure arg) . rest) (gen-entry-type &procedure arg rest))
@@ -411,8 +412,8 @@ index referenced by dst, a, and b values at runtime."
               (let lp ((flags '(flag ...)) (ns (cdr op)))
                 (match (cons flags ns)
                   (((f . flags) . (n . ns))
-                   (if (memq f '(fixnum flonum char procedure pair vector box
-                                        struct string bytevector array))
+                   (if (memq f '(fixnum flonum fraction char procedure pair
+                                 vector box struct string bytevector array))
                        (let ((runtime-value (vector-ref locals n)))
                          (if (eq? (type-of runtime-value) (flag->type f))
                              (lp flags ns)

@@ -51,6 +51,7 @@
             &scm
 
             flonum?
+            fraction?
             unbound?
             true?
             false?
@@ -84,6 +85,7 @@
             %tc7-bitvector
             %tc7-port
             %tc16-real
+            %tc16-fraction
 
             *ti-procedures*
             infer-type
@@ -169,7 +171,8 @@
   %tc7-array
   %tc7-bitvector
   %tc7-port
-  %tc16-real)
+  %tc16-real
+  %tc16-fraction)
 
 ;;;
 ;;; Exported hash table
@@ -232,6 +235,13 @@
 
 (define (true? x)
   (eq? x #t))
+
+(define (fraction? x)
+  (let* ((ptr (scm->pointer x))
+         (addr (pointer-address ptr)))
+    (and (zero? (logand addr 6))
+         (= (logand #xffff (pointer-address (dereference-pointer ptr)))
+            %tc16-fraction))))
 
 (define *unbound*
   (pointer->scm (make-pointer #xb04)))
@@ -304,6 +314,7 @@ types in TYPES matched with LOCALS, otherwise return false."
    ;; From (@ language cps types)
    ((inline-fixnum? obj) &fixnum)
    ((flonum? obj) &flonum)
+   ((fraction? obj) &fraction)
    ((number? obj) &number)
    ((char? obj) &char)
    ((unspecified? obj) &unspecified)
@@ -335,6 +346,7 @@ types in TYPES matched with LOCALS, otherwise return false."
    ((eq? type &scm) "scm")
    ((eq? type &fixnum) (blue "fixn"))
    ((eq? type &flonum) (magenta "flon"))
+   ((eq? type &fraction) (yellow "frac"))
    ((eq? type &char) (blue "char"))
    ((eq? type &unspecified) (green "uspc"))
    ((eq? type &unbound) (green "ubnd"))
@@ -375,6 +387,7 @@ types in TYPES matched with LOCALS, otherwise return false."
    ((eq? flag 'scm) &scm)
    ((eq? flag 'fixnum) &fixnum)
    ((eq? flag 'flonum) &flonum)
+   ((eq? flag 'fraction) &fraction)
    ((eq? flag 'procedure) &procedure)
    ((eq? flag 'pair) &pair)
    ((eq? flag 'vector) &vector)

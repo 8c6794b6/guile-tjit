@@ -138,7 +138,11 @@
        (define (name %asm arg ...)
          (let ((verbosity (lightning-verbosity)))
            (when (and verbosity (<= 4 verbosity))
-             (jit-note (format #f "~a" `(name ,arg ...)) 0))
+             (let ((f (lambda (x)
+                        (case (ref-type x)
+                          ((con) (ref-value x))
+                          (else (physical-name x))))))
+               (jit-note (format #f "~a" (cons 'name (map f `(,arg ...)))) 0)))
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
          (syntax-parameterize
              ((asm (identifier-syntax %asm))
@@ -612,6 +616,7 @@
        (cond
         ((eq? type &fixnum) (guard-tc2 src %tc2-int))
         ((eq? type &flonum) (guard-tc16 src %tc16-real))
+        ((eq? type &fraction) (guard-tc16 src %tc16-fraction))
         ((eq? type &char) (guard-tc8 src %tc8-char))
         ((eq? type &unspecified) (guard-constant *scm-unspecified*))
         ((eq? type &unbound) (guard-constant *scm-unspecified*))
