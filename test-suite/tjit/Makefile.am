@@ -179,6 +179,7 @@ TESTS = \
 	t-pairs-10.scm \
 	t-pairs-11.scm \
 	t-pairs-12.scm \
+	t-pairs-13.scm \
 	t-pic-01.scm \
 	t-pic-02.scm \
 	t-pic-03.scm \

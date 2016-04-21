@@ -32,39 +32,60 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-;; Using dedicated IR for `cons'. Uses C function `scm_inline_cons', which
+;; Using dedicated IR for `cons'. Uses C function `scm_inline_cell', which
 ;; expects current thread as first argument. The value of current thread is not
-;; stored in frame but in non-volatile register.
+;; stored in frame but in register.
+;;
+;; When both `x' and `y' are unboxed value, using spilled offset to temporary
+;; hold the boxed result of x, since subsequent C function calls could overwrite
+;; the contents of x when the boxed value of x were stored in register.
 (define-interrupt-ir (cons (pair! dst) (scm x) (scm y))
-  (let* ((vdst (var-ref dst))
-         (vx (var-ref x))
-         (vy (var-ref y))
-         (r1 (make-tmpvar 1))
+  (let* ((dst/v (var-ref dst))
+         (x/t (type-ref x))
+         (y/t (type-ref y))
          (r2 (make-tmpvar 2))
-         (emit-cons (lambda (a)
-                      (lambda (b)
-                        `(let ((,vdst (%cell ,a ,b)))
-                           ,(next)))))
-         (emit-y (lambda (a)
-                   (with-boxing (type-ref y) vy r1
-                     (emit-cons a))))
-         (emit-x (lambda ()
-                   (with-boxing (type-ref x) vx r2
-                     emit-y))))
-    (emit-x)))
+         (m0 (make-spill 0)))
+    (if (and (eq? &flonum x/t) (eq? &flonum y/t))
+        `(let ((,m0 (%d2s ,(var-ref x))))
+           (let ((,r2 (%d2s ,(var-ref y))))
+             (let ((,dst/v (%cell ,m0 ,r2)))
+               ,(next))))
+        (with-boxing (type-ref x) (var-ref x) r2
+          (lambda (x/boxed)
+            (with-boxing (type-ref y) (var-ref y) r2
+              (lambda (y/boxed)
+                `(let ((,dst/v (%cell ,x/boxed ,y/boxed)))
+                   ,(next)))))))))
+
+(define-syntax-rule (with-pair-guard x x/v expr)
+  (if (eq? &pair (type-ref x))
+      expr
+      (with-type-guard &pair x/v expr)))
 
 (define-ir (car (scm! dst) (pair src))
-  `(let ((,(var-ref dst) (%cref ,(var-ref src) 0)))
-     ,(next)))
+  (let* ((src/v (var-ref src))
+         (thunk (lambda ()
+                  `(let ((,(var-ref dst) (%cref ,src/v 0)))
+                     ,(next)))))
+    (with-pair-guard src src/v (thunk))))
 
 (define-ir (cdr (scm! dst) (pair src))
-  `(let ((,(var-ref dst) (%cref ,(var-ref src) 1)))
-     ,(next)))
+  (let* ((src/v (var-ref src))
+         (thunk (lambda ()
+                  `(let ((,(var-ref dst) (%cref ,src/v 1)))
+                     ,(next)))))
+    (with-pair-guard src src/v (thunk))))
 
 (define-ir (set-car! (pair dst) (scm src))
-  `(let ((_ (%cset ,(var-ref dst) 0 ,(var-ref src))))
-     ,(next)))
+  (let* ((dst/v (var-ref dst))
+         (thunk (lambda ()
+                  `(let ((_ (%cset ,dst/v 0 ,(var-ref src))))
+                     ,(next)))))
+    (with-pair-guard dst dst/v (thunk))))
 
 (define-ir (set-cdr! (pair dst) (scm src))
-  `(let ((_ (%cset ,(var-ref dst) 1 ,(var-ref src))))
-     ,(next)))
+  (let* ((dst/v (var-ref dst))
+         (thunk (lambda ()
+                  `(let ((_ (%cset ,dst/v 1 ,(var-ref src))))
+                     ,(next)))))
+    (with-pair-guard dst dst/v (thunk))))

@@ -37,7 +37,7 @@
             make-gpr gpr? gpr
             make-fpr fpr? fpr
             make-memory memory?
-            make-tmpvar make-tmpvar/f
+            make-tmpvar make-tmpvar/f make-spill
             argr fargr moffs physical-name))
 
 ;;;
@@ -113,6 +113,9 @@
 
 (define (make-tmpvar/f n)
   (vector-ref *tmpvars/f* n))
+
+(define (make-spill n)
+  (string->symbol (string-append "m" (number->string n))))
 
 (define (argr n)
   (if (< *num-arg-gprs* n)

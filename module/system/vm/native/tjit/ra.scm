@@ -288,6 +288,7 @@
     (hashq-set! initial-storage (make-tmpvar/f 0) (make-fpr -1))
     (hashq-set! initial-storage (make-tmpvar/f 1) (make-fpr -2))
     (hashq-set! initial-storage (make-tmpvar/f 2) (make-fpr -3))
+    (hashq-set! initial-storage (make-spill 0) (make-memory -1))
 
     (syntax-parameterize
         ((free-gprs (identifier-syntax initial-free-gprs))
