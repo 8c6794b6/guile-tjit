@@ -2100,7 +2100,7 @@ scm_i_scan_for_encoding (SCM port)
       if (SCM_FPORTP (port) && !SCM_FDES_RANDOM_P (SCM_FPORT_FDES (port)))
         return NULL;
 
-      bytes_read = scm_c_read_unlocked (port, header, SCM_ENCODING_SEARCH_SIZE);
+      bytes_read = scm_c_read (port, header, SCM_ENCODING_SEARCH_SIZE);
       header[bytes_read] = '\0';
       scm_seek (port, scm_from_int (0), scm_from_int (SEEK_SET));
     }

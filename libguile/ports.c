@@ -1555,7 +1555,7 @@ scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
    read buffer.  Used by an application when it wants to read into a
    memory chunk that's not owned by Guile's GC.  */
 size_t
-scm_c_read_unlocked (SCM port, void *buffer, size_t size)
+scm_c_read (SCM port, void *buffer, size_t size)
 #define FUNC_NAME "scm_c_read"
 {
   size_t copied = 0;
@@ -1570,15 +1570,20 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
 
   if (pt->rw_random)
     {
-      if (pt->rw_active == SCM_PORT_WRITE)
-        scm_flush_unlocked (port);
+      int needs_flush;
+      scm_i_pthread_mutex_lock (pt->lock);
+      needs_flush = pt->rw_active == SCM_PORT_WRITE;
       pt->rw_active = SCM_PORT_READ;
+      scm_i_pthread_mutex_unlock (pt->lock);
+
+      if (needs_flush)
+        scm_flush (port);
     }
 
   while (copied < size)
     {
       size_t count;
-      read_buf = scm_fill_input_unlocked (port);
+      read_buf = scm_fill_input (port);
       count = scm_port_buffer_take (read_buf, dst + copied, size - copied);
       copied += count;
       if (count == 0)
@@ -1601,20 +1606,6 @@ scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count)
 
   scm_c_lock_port (port, &lock);
   ret = scm_c_read_bytes_unlocked (port, dst, start, count);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-
-  return ret;
-}
-
-size_t
-scm_c_read (SCM port, void *buffer, size_t size)
-{
-  scm_i_pthread_mutex_t *lock;
-  size_t ret;
-
-  scm_c_lock_port (port, &lock);
-  ret = scm_c_read_unlocked (port, buffer, size);
   if (lock)
     scm_i_pthread_mutex_unlock (lock);
 

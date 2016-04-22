@@ -310,7 +310,6 @@ SCM_INLINE int scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
 SCM_API int scm_get_byte_or_eof (SCM port);
 SCM_API int scm_peek_byte_or_eof (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
-SCM_API size_t scm_c_read_unlocked (SCM port, void *buffer, size_t size);
 SCM_API size_t scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count);
 SCM_API scm_t_wchar scm_getc (SCM port);
 SCM_API scm_t_wchar scm_getc_unlocked (SCM port);
