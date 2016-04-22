@@ -1486,8 +1486,8 @@ scm_i_read_unlocked (SCM port, SCM buf)
    returns less than SIZE bytes if at end-of-file.
 
    Warning: Doesn't update port line and column counts!  */
-static size_t
-scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
+size_t
+scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count)
 #define FUNC_NAME "scm_c_read_bytes"
 {
   size_t to_read = count;
@@ -1583,20 +1583,6 @@ scm_c_read (SCM port, void *buffer, size_t size)
   return copied;
 }
 #undef FUNC_NAME
-
-size_t
-scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count)
-{
-  scm_i_pthread_mutex_t *lock;
-  size_t ret;
-
-  scm_c_lock_port (port, &lock);
-  ret = scm_c_read_bytes_unlocked (port, dst, start, count);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-
-  return ret;
-}
 
 /* Update the line and column number of PORT after consumption of C.  */
 static inline void
