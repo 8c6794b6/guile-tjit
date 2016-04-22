@@ -300,7 +300,6 @@ SCM_API int scm_peek_byte_or_eof (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API size_t scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count);
 SCM_API scm_t_wchar scm_getc (SCM port);
-SCM_API scm_t_wchar scm_getc_unlocked (SCM port);
 SCM_API SCM scm_read_char (SCM port);
 
 /* Pushback.  */

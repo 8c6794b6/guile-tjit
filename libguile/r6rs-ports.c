@@ -1053,7 +1053,7 @@ SCM_DEFINE (scm_get_string_n_x,
 
   for (j = c_start; j < c_end; j++)
     {
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
       if (c == EOF)
         {
           size_t chars_read = j - c_start;

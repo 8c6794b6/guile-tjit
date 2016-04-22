@@ -1936,7 +1936,7 @@ get_codepoint (SCM port, scm_t_wchar *codepoint,
 
 /* Read a codepoint from PORT and return it.  */
 scm_t_wchar
-scm_getc_unlocked (SCM port)
+scm_getc (SCM port)
 #define FUNC_NAME "scm_getc"
 {
   int err;
@@ -1954,20 +1954,6 @@ scm_getc_unlocked (SCM port)
 }
 #undef FUNC_NAME
 
-scm_t_wchar
-scm_getc (SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_t_wchar ret;
-
-  scm_c_lock_port (port, &lock);
-  ret = scm_getc_unlocked (port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-
-  return ret;
-}
-
 SCM_DEFINE (scm_read_char, "read-char", 0, 1, 0,
            (SCM port),
 	    "Return the next character available from @var{port}, updating\n"
@@ -1983,7 +1969,7 @@ SCM_DEFINE (scm_read_char, "read-char", 0, 1, 0,
   if (SCM_UNBNDP (port))
     port = scm_current_input_port ();
   SCM_VALIDATE_OPINPORT (1, port);
-  c = scm_getc_unlocked (port);
+  c = scm_getc (port);
   if (EOF == c)
     return SCM_EOF_VAL;
   return SCM_MAKE_CHAR (c);

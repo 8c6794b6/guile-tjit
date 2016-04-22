@@ -335,7 +335,7 @@ flush_ws (SCM port, scm_t_read_opts *opts, const char *eoferr)
 {
   scm_t_wchar c;
   while (1)
-    switch (c = scm_getc_unlocked (port))
+    switch (c = scm_getc (port))
       {
       case EOF:
       goteof:
@@ -350,7 +350,7 @@ flush_ws (SCM port, scm_t_read_opts *opts, const char *eoferr)
 
       case ';':
       lp:
-	switch (c = scm_getc_unlocked (port))
+	switch (c = scm_getc (port))
 	  {
 	  case EOF:
 	    goto goteof;
@@ -362,7 +362,7 @@ flush_ws (SCM port, scm_t_read_opts *opts, const char *eoferr)
 	break;
 
       case '#':
-	switch (c = scm_getc_unlocked (port))
+	switch (c = scm_getc (port))
 	  {
 	  case EOF:
 	    eoferr = "read_sharp";
@@ -557,7 +557,7 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
       c = 0;                                                       \
       while (i < ndigits)                                          \
         {                                                          \
-          a = scm_getc_unlocked (port);                                     \
+          a = scm_getc (port);                                     \
           if (a == EOF)                                            \
             goto str_eof;                                          \
           if (terminator                                           \
@@ -587,7 +587,7 @@ skip_intraline_whitespace (SCM port)
   
   do
     {
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
       if (c == EOF)
         return;
     }
@@ -614,7 +614,7 @@ scm_read_string_like_syntax (int chr, SCM port, scm_t_read_opts *opts)
   long line = SCM_LINUM (port);
   int column = SCM_COL (port) - 1;
 
-  while (chr != (c = scm_getc_unlocked (port)))
+  while (chr != (c = scm_getc (port)))
     {
       if (c == EOF)
         {
@@ -634,7 +634,7 @@ scm_read_string_like_syntax (int chr, SCM port, scm_t_read_opts *opts)
 
       if (c == '\\')
         {
-          switch (c = scm_getc_unlocked (port))
+          switch (c = scm_getc (port))
             {
             case EOF:
               goto str_eof;
@@ -876,7 +876,7 @@ scm_read_quote (int chr, SCM port, scm_t_read_opts *opts)
       {
 	scm_t_wchar c;
 
-	c = scm_getc_unlocked (port);
+	c = scm_getc (port);
 	if ('@' == c)
 	  p = scm_sym_uq_splicing;
 	else
@@ -923,7 +923,7 @@ scm_read_syntax (int chr, SCM port, scm_t_read_opts *opts)
       {
 	int c;
 
-	c = scm_getc_unlocked (port);
+	c = scm_getc (port);
 	if ('@' == c)
 	  p = sym_unsyntax_splicing;
 	else
@@ -987,7 +987,7 @@ try_read_ci_chars (SCM port, const char *expected_chars)
 
   while (num_chars_read < num_chars_wanted)
     {
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
       if (c == EOF)
         break;
       else if (c_tolower (c) != expected_chars[num_chars_read])
@@ -1049,7 +1049,7 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
 
   if (bytes_read == 0)
     {
-      chr = scm_getc_unlocked (port);
+      chr = scm_getc (port);
       if (chr == EOF)
 	scm_i_input_error (FUNC_NAME, port, "unexpected end of file "
 			   "while reading character", SCM_EOL);
@@ -1181,7 +1181,7 @@ read_decimal_integer (SCM port, int c, ssize_t *resp)
   if (c == '-')
     {
       sign = -1;
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
     }
 
   while ('0' <= c && c <= '9')
@@ -1191,7 +1191,7 @@ read_decimal_integer (SCM port, int c, ssize_t *resp)
                            "number too large", SCM_EOL);
       res = 10*res + c-'0';
       got_it = 1;
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
     }
 
   if (got_it)
@@ -1222,7 +1222,7 @@ scm_read_array (int c, SCM port, scm_t_read_opts *opts, long line, int column)
   /* Disambiguate between '#f' and uniform floating point vectors. */
   if (c == 'f')
     {
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
       if (c != '3' && c != '6')
 	{
           if (c == 'a' && try_read_ci_chars (port, "lse"))
@@ -1251,7 +1251,7 @@ scm_read_array (int c, SCM port, scm_t_read_opts *opts, long line, int column)
          && tag_len < sizeof tag_buf / sizeof tag_buf[0])
     {
       tag_buf[tag_len++] = c;
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
     }
   if (tag_len == 0)
     tag = SCM_BOOL_T;
@@ -1275,7 +1275,7 @@ scm_read_array (int c, SCM port, scm_t_read_opts *opts, long line, int column)
 
 	  if (c == '@')
 	    {
-	      c = scm_getc_unlocked (port);
+	      c = scm_getc (port);
 	      c = read_decimal_integer (port, c, &lbnd);
 	    }
 
@@ -1283,7 +1283,7 @@ scm_read_array (int c, SCM port, scm_t_read_opts *opts, long line, int column)
 
 	  if (c == ':')
 	    {
-	      c = scm_getc_unlocked (port);
+	      c = scm_getc (port);
 	      c = read_decimal_integer (port, c, &len);
 	      if (len < 0)
 		scm_i_input_error (NULL, port,
@@ -1345,15 +1345,15 @@ static SCM
 scm_read_bytevector (scm_t_wchar chr, SCM port, scm_t_read_opts *opts,
                      long line, int column)
 {
-  chr = scm_getc_unlocked (port);
+  chr = scm_getc (port);
   if (chr != 'u')
     goto syntax;
 
-  chr = scm_getc_unlocked (port);
+  chr = scm_getc (port);
   if (chr != '8')
     goto syntax;
 
-  chr = scm_getc_unlocked (port);
+  chr = scm_getc (port);
   if (chr != '(')
     goto syntax;
 
@@ -1376,9 +1376,9 @@ scm_read_guile_bit_vector (scm_t_wchar chr, SCM port, scm_t_read_opts *opts,
      terribly inefficient but who cares?  */
   SCM s_bits = SCM_EOL;
 
-  for (chr = scm_getc_unlocked (port);
+  for (chr = scm_getc (port);
        (chr != EOF) && ((chr == '0') || (chr == '1'));
-       chr = scm_getc_unlocked (port))
+       chr = scm_getc (port))
     {
       s_bits = scm_cons ((chr == '0') ? SCM_BOOL_F : SCM_BOOL_T, s_bits);
     }
@@ -1398,7 +1398,7 @@ scm_read_scsh_block_comment (scm_t_wchar chr, SCM port)
 
   for (;;)
     {
-      int c = scm_getc_unlocked (port);
+      int c = scm_getc (port);
 
       if (c == EOF)
 	scm_i_input_error ("skip_block_comment", port,
@@ -1431,7 +1431,7 @@ scm_read_shebang (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
 
   while (i <= READER_DIRECTIVE_NAME_MAX_SIZE)
     {
-      c = scm_getc_unlocked (port);
+      c = scm_getc (port);
       if (c == EOF)
 	scm_i_input_error ("skip_block_comment", port,
 			   "unterminated `#! ... !#' comment", SCM_EOL);
@@ -1477,7 +1477,7 @@ scm_read_r6rs_block_comment (scm_t_wchar chr, SCM port)
      nested.  So care must be taken.  */
   int nesting_level = 1;
 
-  int a = scm_getc_unlocked (port);
+  int a = scm_getc (port);
 
   if (a == EOF)
     scm_i_input_error ("scm_read_r6rs_block_comment", port,
@@ -1485,7 +1485,7 @@ scm_read_r6rs_block_comment (scm_t_wchar chr, SCM port)
 
   while (nesting_level > 0)
     {
-      int b = scm_getc_unlocked (port);
+      int b = scm_getc (port);
 
       if (b == EOF)
 	scm_i_input_error ("scm_read_r6rs_block_comment", port,
@@ -1537,7 +1537,7 @@ scm_read_extended_symbol (scm_t_wchar chr, SCM port)
 
   buf = scm_i_string_start_writing (buf);
 
-  while ((chr = scm_getc_unlocked (port)) != EOF)
+  while ((chr = scm_getc (port)) != EOF)
     {
       if (saw_brace)
 	{
@@ -1564,7 +1564,7 @@ scm_read_extended_symbol (scm_t_wchar chr, SCM port)
              that the extended read syntax would never put a `\' before
              an `x'.  For now, we just ignore other instances of
              backslash in the string.  */
-          switch ((chr = scm_getc_unlocked (port)))
+          switch ((chr = scm_getc (port)))
             {
             case EOF:
               goto done;
@@ -1653,7 +1653,7 @@ scm_read_sharp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts,
 {
   SCM result;
 
-  chr = scm_getc_unlocked (port);
+  chr = scm_getc (port);
 
   result = scm_read_sharp_extension (chr, port, opts);
   if (!scm_is_eq (result, SCM_UNSPECIFIED))
@@ -1743,7 +1743,7 @@ read_inner_expression (SCM port, scm_t_read_opts *opts)
     {
       scm_t_wchar chr;
 
-      chr = scm_getc_unlocked (port);
+      chr = scm_getc (port);
 
       switch (chr)
 	{
@@ -1881,7 +1881,7 @@ scm_read_expression (SCM port, scm_t_read_opts *opts)
          new expression.  For example, f{n - 1}(x) => ((f (- n 1)) x). */
       for (;;)
         {
-          int chr = scm_getc_unlocked (port);
+          int chr = scm_getc (port);
 
           if (chr == '(')
             /* e(...) => (e ...) */
