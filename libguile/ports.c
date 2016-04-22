@@ -698,7 +698,6 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   /* By default, any port type with a seek function has random-access
      ports.  */
   entry->rw_random = ptob->seek != NULL;
-  entry->rw_active = SCM_PORT_NEITHER;
   entry->port = ret;
   entry->stream = stream;
 
@@ -1502,11 +1501,7 @@ scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
   read_buf = pt->read_buf;
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_WRITE)
-        scm_flush_unlocked (port);
-      pt->rw_active = SCM_PORT_READ;
-    }
+    scm_flush_unlocked (port);
 
   /* Take bytes first from the port's read buffer. */
   {
@@ -1569,16 +1564,7 @@ scm_c_read (SCM port, void *buffer, size_t size)
   read_buf = pt->read_buf;
 
   if (pt->rw_random)
-    {
-      int needs_flush;
-      scm_i_pthread_mutex_lock (pt->lock);
-      needs_flush = pt->rw_active == SCM_PORT_WRITE;
-      pt->rw_active = SCM_PORT_READ;
-      scm_i_pthread_mutex_unlock (pt->lock);
-
-      if (needs_flush)
-        scm_flush (port);
-    }
+    scm_flush (port);
 
   while (copied < size)
     {
@@ -2033,11 +2019,7 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
   SCM read_buf = pt->read_buf;
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_WRITE)
-        scm_flush_unlocked (port);
-      pt->rw_active = SCM_PORT_READ;
-    }
+    scm_flush_unlocked (port);
 
   if (scm_port_buffer_can_putback (read_buf) < len)
     {
@@ -2488,7 +2470,6 @@ scm_end_input_unlocked (SCM port)
 
   if (discarded != 0)
     SCM_PORT_DESCRIPTOR (port)->seek (port, -discarded, SEEK_CUR);
-  pt->rw_active = SCM_PORT_NEITHER;
 }
 
 void
@@ -2531,7 +2512,6 @@ scm_flush_unlocked (SCM port)
   SCM buf = SCM_PTAB_ENTRY (port)->write_buf;
   if (scm_port_buffer_can_take (buf))
     scm_i_write_unlocked (port, buf);
-  SCM_PTAB_ENTRY (port)->rw_active = SCM_PORT_NEITHER;
 }
 
 void
@@ -2555,11 +2535,7 @@ scm_fill_input_unlocked (SCM port)
     return read_buf;
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_WRITE)
-        scm_flush_unlocked (pt->port);
-      pt->rw_active = SCM_PORT_READ;
-    }
+    scm_flush_unlocked (pt->port);
 
   /* It could be that putback caused us to enlarge the buffer; now that
      we've read all the bytes we need to shrink it again.  */
@@ -2587,11 +2563,7 @@ SCM_DEFINE (scm_port_read_buffer, "port-read-buffer", 1, 0, 0,
   pt = SCM_PTAB_ENTRY (port);
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_WRITE)
-        scm_flush (pt->port);
-      pt->rw_active = SCM_PORT_READ;
-    }
+    scm_flush (pt->port);
 
   return pt->read_buf;
 }
@@ -2611,11 +2583,7 @@ SCM_DEFINE (scm_port_write_buffer, "port-write-buffer", 1, 0, 0,
   pt = SCM_PTAB_ENTRY (port);
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_READ)
-        scm_end_input (pt->port);
-      pt->rw_active = SCM_PORT_WRITE;
-    }
+    scm_end_input (pt->port);
 
   return pt->write_buf;
 }
@@ -2698,11 +2666,7 @@ scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
   write_buf = pt->write_buf;
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_READ)
-        scm_end_input_unlocked (port);
-      pt->rw_active = SCM_PORT_WRITE;
-    }
+    scm_end_input_unlocked (port);
 
   if (count < scm_port_buffer_size (write_buf))
     {
@@ -2759,11 +2723,7 @@ scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
   write_buf = pt->write_buf;
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_READ)
-        scm_end_input_unlocked (port);
-      pt->rw_active = SCM_PORT_WRITE;
-    }
+    scm_end_input_unlocked (port);
 
   while (written < size)
     {
@@ -2937,11 +2897,8 @@ SCM_DEFINE (scm_seek, "seek", 3, 0, 0,
       /* FIXME: Avoid flushing buffers for SEEK_CUR with an offset of
          0.  */
 
-      if (pt->rw_active == SCM_PORT_READ)
-        scm_end_input_unlocked (pt->port);
-      else if (pt->rw_active == SCM_PORT_WRITE)
-        scm_flush_unlocked (pt->port);
-      pt->rw_active = SCM_PORT_NEITHER;
+      scm_end_input_unlocked (pt->port);
+      scm_flush_unlocked (pt->port);
 
       rv = ptob->seek (fd_port, off, how);
 

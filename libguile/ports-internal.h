@@ -232,6 +232,12 @@ typedef struct scm_port_internal scm_t_port_internal;
 
 #define SCM_PORT_GET_INTERNAL(x)  (SCM_PTAB_ENTRY(x)->internal)
 
+typedef enum scm_t_port_rw_active {
+  SCM_PORT_NEITHER = 0,
+  SCM_PORT_READ = 1,
+  SCM_PORT_WRITE = 2
+} scm_t_port_rw_active;
+
 SCM_INTERNAL scm_t_iconv_descriptors *
 scm_i_port_iconv_descriptors (SCM port, scm_t_port_rw_active mode);
 

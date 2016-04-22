@@ -2068,11 +2068,7 @@ scm_i_scan_for_encoding (SCM port)
   buf = pt->read_buf;
 
   if (pt->rw_random)
-    {
-      if (pt->rw_active == SCM_PORT_WRITE)
-        scm_flush_unlocked (port);
-      pt->rw_active = SCM_PORT_READ;
-    }
+    scm_flush_unlocked (port);
 
   if (scm_port_buffer_can_take (buf) == 0)
     {

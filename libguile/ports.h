@@ -41,13 +41,6 @@
 
 
 
-/* values for the rw_active flag.  */
-typedef enum scm_t_port_rw_active {
-  SCM_PORT_NEITHER = 0,
-  SCM_PORT_READ = 1,
-  SCM_PORT_WRITE = 2
-} scm_t_port_rw_active;
-
 /* An internal-only structure defined in ports-internal.h. */
 struct scm_port_internal;
 
@@ -122,11 +115,6 @@ typedef struct
      be flushed before switching between reading and writing, seeking,
      and so on.  */
   int rw_random;
-
-  /* For random access ports, indicates which of the buffers is
-     currently in use.  Can be SCM_PORT_WRITE, SCM_PORT_READ, or
-     SCM_PORT_NEITHER.  */
-  scm_t_port_rw_active rw_active;
 
   /* Character encoding support.  */
   char *encoding;
