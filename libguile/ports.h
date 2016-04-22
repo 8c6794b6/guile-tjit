@@ -308,11 +308,7 @@ SCM_INLINE int scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
 
 /* Input.  */
 SCM_API int scm_get_byte_or_eof (SCM port);
-SCM_INLINE int scm_get_byte_or_eof_unlocked (SCM port);
-SCM_API int scm_slow_get_byte_or_eof_unlocked (SCM port);
 SCM_API int scm_peek_byte_or_eof (SCM port);
-SCM_INLINE int scm_peek_byte_or_eof_unlocked (SCM port);
-SCM_API int scm_slow_peek_byte_or_eof_unlocked (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API size_t scm_c_read_unlocked (SCM port, void *buffer, size_t size);
 SCM_API size_t scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count);
@@ -419,83 +415,6 @@ scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
     }
   else
     return 0;
-}
-
-SCM_INLINE_IMPLEMENTATION int
-scm_get_byte_or_eof_unlocked (SCM port)
-{
-  SCM buf = SCM_PTAB_ENTRY (port)->read_buf;
-  SCM buf_bv, buf_cur, buf_end;
-  size_t cur;
-
-  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
-  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
-  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
-  cur = SCM_I_INUM (buf_cur);
-
-  if (SCM_LIKELY (SCM_I_INUMP (buf_cur))
-      && SCM_LIKELY (SCM_I_INUMP (buf_end))
-      && SCM_LIKELY (cur < SCM_I_INUM (buf_end))
-      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf_bv)))
-    {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
-      buf_cur = SCM_I_MAKINUM (cur + 1);
-      SCM_SIMPLE_VECTOR_SET (buf, SCM_PORT_BUFFER_FIELD_CUR, buf_cur);
-      return ret;
-    }
-
-  buf = scm_fill_input_unlocked (port);
-  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
-  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
-  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
-  cur = scm_to_size_t (buf_cur);
-  if (cur < scm_to_size_t (buf_end))
-    {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
-      buf_cur = SCM_I_MAKINUM (cur + 1);
-      SCM_SIMPLE_VECTOR_SET (buf, SCM_PORT_BUFFER_FIELD_CUR, buf_cur);
-      return ret;
-    }
-
-  /* The next peek or get should cause the read() function to be called
-     to see if we still have EOF.  */
-  SCM_SIMPLE_VECTOR_SET (buf, SCM_PORT_BUFFER_FIELD_HAS_EOF_P, SCM_BOOL_F);
-  return EOF;
-}
-
-/* Like `scm_get_byte_or_eof' but does not change PORT's `read_pos'.  */
-SCM_INLINE_IMPLEMENTATION int
-scm_peek_byte_or_eof_unlocked (SCM port)
-{
-  SCM buf = SCM_PTAB_ENTRY (port)->read_buf;
-  SCM buf_bv, buf_cur, buf_end;
-  size_t cur;
-
-  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
-  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
-  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
-  cur = SCM_I_INUM (buf_cur);
-  if (SCM_LIKELY (SCM_I_INUMP (buf_cur))
-      && SCM_LIKELY (SCM_I_INUMP (buf_end))
-      && SCM_LIKELY (cur < SCM_I_INUM (buf_end))
-      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf_bv)))
-    {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
-      return ret;
-    }
-
-  buf = scm_fill_input_unlocked (port);
-  buf_bv = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_BYTEVECTOR);
-  buf_cur = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_CUR);
-  buf_end = SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_END);
-  cur = scm_to_size_t (buf_cur);
-  if (cur < scm_to_size_t (buf_end))
-    {
-      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
-      return ret;
-    }
-
-  return EOF;
 }
 
 SCM_INLINE_IMPLEMENTATION void

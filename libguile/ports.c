@@ -1001,7 +1001,7 @@ looking_at_bytes (SCM port, const unsigned char *bytes, int len)
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   int i = 0;
 
-  while (i < len && scm_peek_byte_or_eof_unlocked (port) == bytes[i])
+  while (i < len && scm_peek_byte_or_eof (port) == bytes[i])
     {
       scm_port_buffer_did_take (pt->read_buf, 1);
       i++;
@@ -1364,32 +1364,91 @@ scm_dynwind_lock_port (SCM port)
 
 /* Input.  */
 
+static int
+get_byte_or_eof (SCM port)
+{
+  SCM buf = SCM_PTAB_ENTRY (port)->read_buf;
+  SCM buf_bv, buf_cur, buf_end;
+  size_t cur;
+
+  buf_bv = scm_port_buffer_bytevector (buf);
+  buf_cur = scm_port_buffer_cur (buf);
+  buf_end = scm_port_buffer_end (buf);
+  cur = SCM_I_INUM (buf_cur);
+
+  if (SCM_LIKELY (SCM_I_INUMP (buf_cur))
+      && SCM_LIKELY (SCM_I_INUMP (buf_end))
+      && SCM_LIKELY (cur < SCM_I_INUM (buf_end))
+      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf_bv)))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
+      scm_port_buffer_set_cur (buf, SCM_I_MAKINUM (cur + 1));
+      return ret;
+    }
+
+  buf = scm_fill_input (port);
+  buf_bv = scm_port_buffer_bytevector (buf);
+  buf_cur = scm_port_buffer_cur (buf);
+  buf_end = scm_port_buffer_end (buf);
+  cur = scm_to_size_t (buf_cur);
+  if (cur < scm_to_size_t (buf_end))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
+      scm_port_buffer_set_cur (buf, SCM_I_MAKINUM (cur + 1));
+      return ret;
+    }
+
+  /* The next peek or get should cause the read() function to be called
+     to see if we still have EOF.  */
+  scm_port_buffer_set_has_eof_p (buf, SCM_BOOL_F);
+  return EOF;
+}
+
+/* Like `scm_get_byte_or_eof' but does not change PORT's `read_pos'.  */
+static int
+peek_byte_or_eof (SCM port)
+{
+  SCM buf = SCM_PTAB_ENTRY (port)->read_buf;
+  SCM buf_bv, buf_cur, buf_end;
+  size_t cur;
+
+  buf_bv = scm_port_buffer_bytevector (buf);
+  buf_cur = scm_port_buffer_cur (buf);
+  buf_end = scm_port_buffer_end (buf);
+  cur = scm_to_size_t (buf_cur);
+  if (SCM_LIKELY (SCM_I_INUMP (buf_cur))
+      && SCM_LIKELY (SCM_I_INUMP (buf_end))
+      && SCM_LIKELY (cur < SCM_I_INUM (buf_end))
+      && SCM_LIKELY (cur < SCM_BYTEVECTOR_LENGTH (buf_bv)))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
+      return ret;
+    }
+
+  buf = scm_fill_input (port);
+  buf_bv = scm_port_buffer_bytevector (buf);
+  buf_cur = scm_port_buffer_cur (buf);
+  buf_end = scm_port_buffer_end (buf);
+  cur = scm_to_size_t (buf_cur);
+  if (cur < scm_to_size_t (buf_end))
+    {
+      scm_t_uint8 ret = SCM_BYTEVECTOR_CONTENTS (buf_bv)[cur];
+      return ret;
+    }
+
+  return EOF;
+}
+
 int
 scm_get_byte_or_eof (SCM port)
 {
-  scm_i_pthread_mutex_t *lock;
-  int ret;
-
-  scm_c_lock_port (port, &lock);
-  ret = scm_get_byte_or_eof_unlocked (port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-
-  return ret;
+  return get_byte_or_eof (port);
 }
 
 int
 scm_peek_byte_or_eof (SCM port)
 {
-  scm_i_pthread_mutex_t *lock;
-  int ret;
-
-  scm_c_lock_port (port, &lock);
-  ret = scm_peek_byte_or_eof_unlocked (port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-
-  return ret;
+  return peek_byte_or_eof (port);
 }
 
 static size_t
@@ -1648,7 +1707,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   *len = 0;
   pt = SCM_PTAB_ENTRY (port);
 
-  byte = scm_get_byte_or_eof_unlocked (port);
+  byte = get_byte_or_eof (port);
   if (byte == EOF)
     {
       *codepoint = EOF;
@@ -1664,7 +1723,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   else if (buf[0] >= 0xc2 && buf[0] <= 0xdf)
     {
       /* 2-byte form.  */
-      byte = scm_peek_byte_or_eof_unlocked (port);
+      byte = peek_byte_or_eof (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1680,7 +1739,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   else if ((buf[0] & 0xf0) == 0xe0)
     {
       /* 3-byte form.  */
-      byte = scm_peek_byte_or_eof_unlocked (port);
+      byte = peek_byte_or_eof (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80
@@ -1692,7 +1751,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
       buf[1] = (scm_t_uint8) byte;
       *len = 2;
 
-      byte = scm_peek_byte_or_eof_unlocked (port);
+      byte = peek_byte_or_eof (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1709,7 +1768,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   else if (buf[0] >= 0xf0 && buf[0] <= 0xf4)
     {
       /* 4-byte form.  */
-      byte = scm_peek_byte_or_eof_unlocked (port);
+      byte = peek_byte_or_eof (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY (((byte & 0xc0) != 0x80)
@@ -1721,7 +1780,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
       buf[1] = (scm_t_uint8) byte;
       *len = 2;
 
-      byte = scm_peek_byte_or_eof_unlocked (port);
+      byte = peek_byte_or_eof (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1731,7 +1790,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
       buf[2] = (scm_t_uint8) byte;
       *len = 3;
 
-      byte = scm_peek_byte_or_eof_unlocked (port);
+      byte = peek_byte_or_eof (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1771,7 +1830,7 @@ static int
 get_latin1_codepoint (SCM port, scm_t_wchar *codepoint,
                       char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
 {
-  *codepoint = scm_get_byte_or_eof_unlocked (port);
+  *codepoint = get_byte_or_eof (port);
 
   if (*codepoint == EOF)
     *len = 0;
@@ -1801,7 +1860,7 @@ get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
       char *input, *output;
       size_t input_left, output_left, done;
 
-      byte_read = scm_get_byte_or_eof_unlocked (port);
+      byte_read = get_byte_or_eof (port);
       if (SCM_UNLIKELY (byte_read == EOF))
 	{
           if (SCM_LIKELY (input_size == 0))

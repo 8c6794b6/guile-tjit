@@ -263,7 +263,7 @@ read_token (SCM port, scm_t_read_opts *opts,
      {
        int chr;
 
-       chr = scm_get_byte_or_eof_unlocked (port);
+       chr = scm_get_byte_or_eof (port);
 
        if (chr == EOF)
         return 0;
@@ -965,9 +965,9 @@ scm_read_semicolon_comment (int chr, SCM port)
   /* We use the get_byte here because there is no need to get the
      locale correct with comment input. This presumes that newline
      always represents itself no matter what the encoding is.  */
-  for (c = scm_get_byte_or_eof_unlocked (port);
+  for (c = scm_get_byte_or_eof (port);
        (c != EOF) && (c != '\n');
-       c = scm_get_byte_or_eof_unlocked (port));
+       c = scm_get_byte_or_eof (port));
 
   return SCM_UNSPECIFIED;
 }
