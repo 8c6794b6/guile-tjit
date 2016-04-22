@@ -44,6 +44,15 @@
 (define *scan-procedures*
   (make-hash-table 255))
 
+;;; XXX: Not so polite way to refer private procedure.
+;;;
+;;; Without defining `disassemble-one' as top level variable, trace happened at
+;;; the time of module import in beginning of script was failing.  Private
+;;; lookup may fail when trace happened in early stage of program execution,
+;;; hence defined as top level variable in this module.
+(define disassemble-one
+  (@@ (system vm disassembler) disassemble-one))
+
 
 ;;;
 ;;; Parser
@@ -62,8 +71,7 @@ corresponding IP, return address, dynamic link, and locals. The second value is
 a success flag, true on success, false otherwise.
 
 After successufl parse, this procedure will update fields in ENV."
-  (define disassemble-one
-    (@@ (system vm disassembler) disassemble-one))
+
   (define last-locals
     (and (pair? traces) (cadddr (car traces))))
   (define initial-sp-offset
