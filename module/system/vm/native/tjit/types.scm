@@ -262,7 +262,7 @@ false."
     (let lp ((types arg-types))
       (match types
         (((n . t) . types)
-         (if (or (memq t (list &scm &u64 &f64 &s64))
+         (if (or (memq t (list #f &scm &u64 &f64 &s64))
                  (let ((ti (and (pair? inferred-types)
                                 (assq-ref inferred-types n))))
                    (or (eq? t ti)
