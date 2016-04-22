@@ -26,6 +26,7 @@
              (system vm coverage)
              (system vm vm)
              (system vm loader)
+             (system vm native debug)
              (system vm native tjit error)
              (system vm native tjit parameters)
              (system vm native tjit tjitc)
@@ -89,6 +90,7 @@
          (out (option-ref opts 'out "tjit-tests.info")))
     (init-vm-tjit coverage)
     (when coverage
+      (lightning-verbosity 2)
       (set-tjit-dump-option! "jbovdstn"))
     (let* ((run (lambda ()
                   (map (run-tjit-test coverage)
