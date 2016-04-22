@@ -89,14 +89,14 @@ SCM_DEFINE (scm_redirect_port, "redirect-port", 2, 0, 0,
       /* Ensure there is nothing in either port's input or output
          buffers.  */
       if (SCM_OUTPUT_PORT_P (old))
-        scm_flush_unlocked (old);
-      if (SCM_INPUT_PORT_P (old))
-        scm_end_input_unlocked (old);
+        scm_flush (old);
+      if (SCM_INPUT_PORT_P (old) && SCM_PTAB_ENTRY (old)->rw_random)
+        scm_end_input (old);
 
       if (SCM_OUTPUT_PORT_P (new))
-        scm_flush_unlocked (new);
-      if (SCM_INPUT_PORT_P (new))
-        scm_end_input_unlocked (new);
+        scm_flush (new);
+      if (SCM_INPUT_PORT_P (new) && SCM_PTAB_ENTRY (new)->rw_random)
+        scm_end_input (new);
 
       ans = dup2 (oldfd, newfd);
       if (ans == -1)

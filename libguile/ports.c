@@ -1501,7 +1501,7 @@ scm_c_read_bytes_unlocked (SCM port, SCM dst, size_t start, size_t count)
   read_buf = pt->read_buf;
 
   if (pt->rw_random)
-    scm_flush_unlocked (port);
+    scm_flush (port);
 
   /* Take bytes first from the port's read buffer. */
   {
@@ -2019,7 +2019,7 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
   SCM read_buf = pt->read_buf;
 
   if (pt->rw_random)
-    scm_flush_unlocked (port);
+    scm_flush (port);
 
   if (scm_port_buffer_can_putback (read_buf) < len)
     {
@@ -2368,7 +2368,7 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
     write_buf_size = 1;
 
   if (SCM_OUTPUT_PORT_P (port))
-    scm_flush_unlocked (port);
+    scm_flush (port);
 
   saved_read_buf = pt->read_buf;
 
@@ -2456,30 +2456,21 @@ SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0,
 #undef FUNC_NAME
 
 void
-scm_end_input_unlocked (SCM port)
+scm_end_input (SCM port)
 {
   scm_t_port *pt;
   SCM buf;
   size_t discarded;
 
   pt = SCM_PTAB_ENTRY (port);
+
+  scm_i_pthread_mutex_lock (pt->lock);
   buf = SCM_PTAB_ENTRY (port)->read_buf;
   discarded = scm_port_buffer_take (buf, NULL, (size_t) -1);
-
-  assert (pt->rw_random);
+  scm_i_pthread_mutex_unlock (pt->lock);
 
   if (discarded != 0)
     SCM_PORT_DESCRIPTOR (port)->seek (port, -discarded, SEEK_CUR);
-}
-
-void
-scm_end_input (SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_end_input_unlocked (port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
 }
 
 SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
@@ -2499,7 +2490,7 @@ SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
       port = SCM_COERCE_OUTPORT (port);
       SCM_VALIDATE_OPOUTPORT (1, port);
     }
-  scm_flush_unlocked (port);
+  scm_flush (port);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -2507,21 +2498,11 @@ SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
 static void scm_i_write_unlocked (SCM port, SCM buf);
 
 void
-scm_flush_unlocked (SCM port)
+scm_flush (SCM port)
 {
   SCM buf = SCM_PTAB_ENTRY (port)->write_buf;
   if (scm_port_buffer_can_take (buf))
     scm_i_write_unlocked (port, buf);
-}
-
-void
-scm_flush (SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_flush_unlocked (port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
 }
 
 SCM
@@ -2535,7 +2516,7 @@ scm_fill_input_unlocked (SCM port)
     return read_buf;
 
   if (pt->rw_random)
-    scm_flush_unlocked (pt->port);
+    scm_flush (pt->port);
 
   /* It could be that putback caused us to enlarge the buffer; now that
      we've read all the bytes we need to shrink it again.  */
@@ -2666,7 +2647,7 @@ scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
   write_buf = pt->write_buf;
 
   if (pt->rw_random)
-    scm_end_input_unlocked (port);
+    scm_end_input (port);
 
   if (count < scm_port_buffer_size (write_buf))
     {
@@ -2723,7 +2704,7 @@ scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
   write_buf = pt->write_buf;
 
   if (pt->rw_random)
-    scm_end_input_unlocked (port);
+    scm_end_input (port);
 
   while (written < size)
     {
@@ -2773,7 +2754,7 @@ scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port)
 
   /* Handle line buffering.  */
   if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) && saved_line != SCM_LINUM (port))
-    scm_flush_unlocked (port);
+    scm_flush (port);
 }
 
 void
@@ -2897,8 +2878,8 @@ SCM_DEFINE (scm_seek, "seek", 3, 0, 0,
       /* FIXME: Avoid flushing buffers for SEEK_CUR with an offset of
          0.  */
 
-      scm_end_input_unlocked (pt->port);
-      scm_flush_unlocked (pt->port);
+      scm_end_input (pt->port);
+      scm_flush (pt->port);
 
       rv = ptob->seek (fd_port, off, how);
 
@@ -3001,9 +2982,9 @@ SCM_DEFINE (scm_truncate_file, "truncate-file", 1, 1, 0,
 
       scm_i_clear_pending_eof (object);
 
-      if (SCM_INPUT_PORT_P (object))
-        scm_end_input_unlocked (object);
-      scm_flush_unlocked (object);
+      if (SCM_INPUT_PORT_P (object) && SCM_PTAB_ENTRY (object)->rw_random)
+        scm_end_input (object);
+      scm_flush (object);
 
       ptob->truncate (object, c_length);
       rv = 0;
@@ -3208,7 +3189,7 @@ static void
 flush_output_port (void *closure, SCM port)
 {
   if (SCM_OPOUTPORTP (port))
-    scm_flush_unlocked (port);
+    scm_flush (port);
 }
 
 SCM_DEFINE (scm_flush_all_ports, "flush-all-ports", 0, 0, 0,

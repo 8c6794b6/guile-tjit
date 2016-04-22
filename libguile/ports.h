@@ -323,10 +323,8 @@ SCM_API SCM scm_fill_input_unlocked (SCM port);
 SCM_INTERNAL size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
 SCM_API SCM scm_drain_input (SCM port);
 SCM_API void scm_end_input (SCM port);
-SCM_API void scm_end_input_unlocked (SCM port);
 SCM_API SCM scm_force_output (SCM port);
 SCM_API void scm_flush (SCM port);
-SCM_API void scm_flush_unlocked (SCM port);
 SCM_INTERNAL SCM scm_port_read_buffer (SCM port);
 SCM_INTERNAL SCM scm_port_write_buffer (SCM port);
 

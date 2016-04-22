@@ -980,7 +980,7 @@ SCM_DEFINE (scm_fsync, "fsync", 1, 0, 0,
 
   if (SCM_OPFPORTP (object))
     {
-      scm_flush_unlocked (object);
+      scm_flush (object);
       fdes = SCM_FPORT_FDES (object);
     }
   else

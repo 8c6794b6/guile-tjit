@@ -246,7 +246,7 @@ SCM_DEFINE (scm_write_string_partial, "write-string/partial", 1, 3, 0,
 	  return scm_from_long (write_len);
 	}
 
-      scm_flush_unlocked (port);
+      scm_flush (port);
       fdes = SCM_FPORT_FDES (port);
     }
   {
