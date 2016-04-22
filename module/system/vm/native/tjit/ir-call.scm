@@ -124,10 +124,10 @@
                      (else
                       (env-entry-ip env)))))
       (when (not (= entry-ip next-ip))
-        (nyi "last ~s to non-entry IP" message)))))
+        (retrace "last ~s to non-entry IP" message)))))
 
 (define-syntax-rule (with-callee-guard proc flag var thunk)
-  ;; Guard to test the procedure value is added, bailout when callee has
+  ;; Add guard to test the procedure value, to bailout when callee has been
   ;; changed. Bytecode programs, primitive programs, foreign programs, ... etc
   ;; uses different constant reference value recorded at compile time. The guard
   ;; first check the type of callee program, and then fetch the runtime value

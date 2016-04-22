@@ -29,6 +29,7 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-9)
+  #:use-module (system vm native debug)
   #:use-module (system vm native tjit parameters)
   #:export (<fragment>
             make-fragment
@@ -178,11 +179,14 @@
               (lp (get-fragment parent-id)))))))
 
 (define (remove-fragment-and-side-traces fragment)
-  "Remove FRAGMENT and its side traces from global cached table."
+  "Remove FRAGMENT and its side traces from global cache."
+  ;; XXX: Remove side traces linked to, but not originated from given fragment.
   (letrec ((go (lambda (fragment)
                  (let lp ((ids (fragment-side-trace-ids fragment)))
                    (if (null? ids)
-                       (tjit-remove-fragment! (fragment-id fragment))
+                       (let ((id (fragment-id fragment)))
+                         (debug 1 ";;; [remove-fragment] removing ~s~%" id)
+                         (tjit-remove-fragment! id))
                        (begin
                          (and=> (get-fragment (car ids)) go)
                          (lp (cdr ids))))))))

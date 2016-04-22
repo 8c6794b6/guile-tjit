@@ -57,6 +57,8 @@
 
 (define (tjitc trace-id bytecode traces parent-ip parent-exit-id linked-ip
                loop? downrec? uprec?)
+  (debug 2 "[tjitc] id=~s (~s:~s) -> ~x~%"
+         trace-id parent-ip parent-exit-id linked-ip)
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0 0)))
       (put-tjit-time-log! trace-id log)))
@@ -84,7 +86,7 @@
          (num-traces-with-same-entry-ip
           (hash-count (lambda (k v)
                         (eq? entry-ip (fragment-entry-ip v)))
-                     (tjit-fragment))))
+                      (tjit-fragment))))
     (define (show-sline)
       (let ((exit-pair (if (< 0 parent-ip)
                            (format #f " (~a:~a)"
@@ -103,6 +105,13 @@
                     (else ""))))
         (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
                 trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
+    (define (too-many-side-traces-starting-with-call? traces)
+      ;; Detecting side trace starting with call bytecode operation. This is
+      ;; likely to be a higher order procedure call.
+      (and (<= 3 num-traces-with-same-entry-ip)
+           (let ((op (car (list-ref (car traces) 0))))
+             (or (eq? op 'call)
+                 (eq? op 'call-label)))))
     (define-syntax dump
       (syntax-rules ()
         ((_ test data exp)
@@ -130,15 +139,12 @@
           (nyi "root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
           (nyi "side trace with type mismatched link"))
-         ((and (<= 3 num-traces-with-same-entry-ip)
-               (let ((op (car (list-ref (car traces) 0))))
-                 (or (eq? op 'call)
-                     (eq? op 'call-label))))
-          ;; Recompile side trace of procedure call. This is likely to be a
-          ;; higher order procedure call.
-          (let ((origin (get-origin-fragment (env-parent-fragment env))))
+         ((too-many-side-traces-starting-with-call? traces)
+          (let* ((origin (get-origin-fragment (env-parent-fragment env)))
+                 (origin-id (fragment-id origin)))
             (remove-fragment-and-side-traces origin)
-            (recompile "trace ~a, side trace with call" (fragment-id origin))))
+            (recompile "too many side traces from trace:~a starting with call"
+                       origin-id)))
          (else
           (unless (tjit-dump-abort? dump-option)
             (dump-sline-and-bytecode implemented?))
