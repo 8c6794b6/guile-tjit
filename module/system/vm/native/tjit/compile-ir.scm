@@ -408,8 +408,8 @@ Currently does nothing, returns the given argument."
           ;; Get the new `nlocals' when side trace ended with one of the call
           ;; or operations containing `ALLOC_FRAME'.
           (let ((nlocals (match op
-                           (('alloc-frame nlocals)
-                            (max nlocals (vector-length locals)))
+                           (('alloc-frame nlocals) nlocals)
+                           (('reset-frame nlocals) nlocals)
                            (('assert-nargs-ee/locals _ nlocals)
                             (+ nlocals (vector-length locals)))
                            (('call _ nlocals) nlocals)
