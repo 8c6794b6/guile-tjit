@@ -321,14 +321,16 @@ SCM_DEFINE (scm_i_port_property, "%port-property", 2, 0, 0,
             "Return the property of @var{port} associated with @var{key}.")
 #define FUNC_NAME s_scm_i_port_property
 {
-  scm_i_pthread_mutex_t *lock;
   SCM result;
+  scm_t_port *pt;
 
   SCM_VALIDATE_OPPORT (1, port);
-  scm_c_lock_port (port, &lock);
-  result = scm_assq_ref (SCM_PORT_GET_INTERNAL (port)->alist, key);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
+
+  pt = SCM_PTAB_ENTRY (port);
+  scm_i_pthread_mutex_lock (pt->lock);
+  result = scm_assq_ref (pt->internal->alist, key);
+  scm_i_pthread_mutex_unlock (pt->lock);
+
   return result;
 }
 #undef FUNC_NAME
@@ -338,15 +340,15 @@ SCM_DEFINE (scm_i_set_port_property_x, "%set-port-property!", 3, 0, 0,
             "Set the property of @var{port} associated with @var{key} to @var{value}.")
 #define FUNC_NAME s_scm_i_set_port_property_x
 {
-  scm_i_pthread_mutex_t *lock;
-  scm_t_port_internal *pti;
+  scm_t_port *pt;
 
   SCM_VALIDATE_OPPORT (1, port);
-  scm_c_lock_port (port, &lock);
-  pti = SCM_PORT_GET_INTERNAL (port);
-  pti->alist = scm_assq_set_x (pti->alist, key, value);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
+
+  pt = SCM_PTAB_ENTRY (port);
+  scm_i_pthread_mutex_lock (pt->lock);
+  pt->internal->alist = scm_assq_set_x (pt->internal->alist, key, value);
+  scm_i_pthread_mutex_unlock (pt->lock);
+
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
