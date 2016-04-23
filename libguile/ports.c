@@ -2037,7 +2037,7 @@ scm_unget_byte (int c, SCM port)
 }
 
 void
-scm_ungetc_unlocked (scm_t_wchar c, SCM port)
+scm_ungetc (scm_t_wchar c, SCM port)
 #define FUNC_NAME "scm_ungetc"
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
@@ -2089,17 +2089,7 @@ scm_ungetc_unlocked (scm_t_wchar c, SCM port)
 #undef FUNC_NAME
 
 void 
-scm_ungetc (scm_t_wchar c, SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_ungetc_unlocked (c, port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-}
-
-void 
-scm_ungets_unlocked (const char *s, int n, SCM port)
+scm_ungets (const char *s, int n, SCM port)
 {
   /* This is simple minded and inefficient, but unreading strings is
    * probably not a common operation, and remember that line and
@@ -2108,17 +2098,7 @@ scm_ungets_unlocked (const char *s, int n, SCM port)
    * Please feel free to write an optimized version!
    */
   while (n--)
-    scm_ungetc_unlocked (s[n], port);
-}
-
-void
-scm_ungets (const char *s, int n, SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_ungets_unlocked (s, n, port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
+    scm_ungetc (s[n], port);
 }
 
 SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
@@ -2202,7 +2182,7 @@ SCM_DEFINE (scm_unread_char, "unread-char", 1, 1, 0,
 
   c = SCM_CHAR (cobj);
 
-  scm_ungetc_unlocked (c, port);
+  scm_ungetc (c, port);
   return cobj;
 }
 #undef FUNC_NAME
@@ -2224,7 +2204,7 @@ SCM_DEFINE (scm_unread_string, "unread-string", 2, 0, 0,
   n = scm_i_string_length (str);
 
   while (n--)
-    scm_ungetc_unlocked (scm_i_string_ref (str, n), port);
+    scm_ungetc (scm_i_string_ref (str, n), port);
   
   return str;
 }

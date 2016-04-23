@@ -381,7 +381,7 @@ flush_ws (SCM port, scm_t_read_opts *opts, const char *eoferr)
 	      }
 	    /* fall through */
 	  default:
-	    scm_ungetc_unlocked (c, port);
+	    scm_ungetc (c, port);
 	    return '#';
 	  }
 	break;
@@ -440,7 +440,7 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   if (terminating_char == c)
     return SCM_EOL;
 
-  scm_ungetc_unlocked (c, port);
+  scm_ungetc (c, port);
   tmp = scm_read_expression (port, opts);
 
   /* Note that it is possible for scm_read_expression to return
@@ -468,7 +468,7 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
                            "in pair: mismatched close paren: ~A",
                            scm_list_1 (SCM_MAKE_CHAR (c)));
 
-      scm_ungetc_unlocked (c, port);
+      scm_ungetc (c, port);
       tmp = scm_read_expression (port, opts);
 
       /* See above note about scm_sym_dot.  */
@@ -593,7 +593,7 @@ skip_intraline_whitespace (SCM port)
     }
   while (c == '\t' || uc_is_general_category (c, UC_SPACE_SEPARATOR));
 
-  scm_ungetc_unlocked (c, port);
+  scm_ungetc (c, port);
 }                                         
 
 /* Read either a double-quoted string or an R7RS-style symbol delimited
@@ -741,7 +741,7 @@ scm_read_number (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   long line = SCM_LINUM (port);
   int column = SCM_COL (port) - 1;
 
-  scm_ungetc_unlocked (chr, port);
+  scm_ungetc (chr, port);
   buffer = read_complete_token (port, opts, local_buffer, sizeof local_buffer,
 				&bytes_read);
 
@@ -772,7 +772,7 @@ scm_read_mixed_case_symbol (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   char local_buffer[READER_BUFFER_SIZE], *buffer;
   SCM str;
 
-  scm_ungetc_unlocked (chr, port);
+  scm_ungetc (chr, port);
   buffer = read_complete_token (port, opts, local_buffer, sizeof local_buffer,
 				&bytes_read);
   if (bytes_read > 0)
@@ -832,8 +832,8 @@ scm_read_number_and_radix (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
       break;
 
     default:
-      scm_ungetc_unlocked (chr, port);
-      scm_ungetc_unlocked ('#', port);
+      scm_ungetc (chr, port);
+      scm_ungetc ('#', port);
       radix = 10;
     }
 
@@ -881,7 +881,7 @@ scm_read_quote (int chr, SCM port, scm_t_read_opts *opts)
 	  p = scm_sym_uq_splicing;
 	else
 	  {
-	    scm_ungetc_unlocked (c, port);
+	    scm_ungetc (c, port);
 	    p = scm_sym_unquote;
 	  }
 	break;
@@ -928,7 +928,7 @@ scm_read_syntax (int chr, SCM port, scm_t_read_opts *opts)
 	  p = sym_unsyntax_splicing;
 	else
 	  {
-	    scm_ungetc_unlocked (c, port);
+	    scm_ungetc (c, port);
 	    p = sym_unsyntax;
 	  }
 	break;
@@ -992,7 +992,7 @@ try_read_ci_chars (SCM port, const char *expected_chars)
         break;
       else if (c_tolower (c) != expected_chars[num_chars_read])
         {
-          scm_ungetc_unlocked (c, port);
+          scm_ungetc (c, port);
           break;
         }
       else
@@ -1004,7 +1004,7 @@ try_read_ci_chars (SCM port, const char *expected_chars)
   else
     {
       while (num_chars_read > 0)
-        scm_ungetc_unlocked (chars_read[--num_chars_read], port);
+        scm_ungetc (chars_read[--num_chars_read], port);
       return 0;
     }
 }
@@ -1228,7 +1228,7 @@ scm_read_array (int c, SCM port, scm_t_read_opts *opts, long line, int column)
           if (c == 'a' && try_read_ci_chars (port, "lse"))
             return SCM_BOOL_F;
           else if (c != EOF)
-            scm_ungetc_unlocked (c, port);
+            scm_ungetc (c, port);
 	  return SCM_BOOL_F;
 	}
       rank = 1;
@@ -1384,7 +1384,7 @@ scm_read_guile_bit_vector (scm_t_wchar chr, SCM port, scm_t_read_opts *opts,
     }
 
   if (chr != EOF)
-    scm_ungetc_unlocked (chr, port);
+    scm_ungetc (chr, port);
 
   return maybe_annotate_source
     (scm_bitvector (scm_reverse_x (s_bits, SCM_EOL)),
@@ -1439,7 +1439,7 @@ scm_read_shebang (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
         name[i++] = c;
       else if (CHAR_IS_DELIMITER (c))
         {
-          scm_ungetc_unlocked (c, port);
+          scm_ungetc (c, port);
           name[i] = '\0';
           if (0 == strcmp ("r6rs", name))
             ;  /* Silently ignore */
@@ -1461,12 +1461,12 @@ scm_read_shebang (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
         }
       else
         {
-          scm_ungetc_unlocked (c, port);
+          scm_ungetc (c, port);
           break;
         }
     }
   while (i > 0)
-    scm_ungetc_unlocked (name[--i], port);
+    scm_ungetc (name[--i], port);
   return scm_read_scsh_block_comment (chr, port);
 }
 
@@ -1518,7 +1518,7 @@ scm_read_commented_expression (scm_t_wchar chr, SCM port,
   if (EOF == c)
     scm_i_input_error ("read_commented_expression", port,
                        "no expression after #; comment", SCM_EOL);
-  scm_ungetc_unlocked (c, port);
+  scm_ungetc (c, port);
   scm_read_expression (port, opts);
   return SCM_UNSPECIFIED;
 }
@@ -1868,7 +1868,7 @@ scm_read_expression (SCM port, scm_t_read_opts *opts)
           int c = flush_ws (port, opts, (char *) NULL);
           if (c == EOF)
             return SCM_EOF_VAL;
-          scm_ungetc_unlocked (c, port);
+          scm_ungetc (c, port);
           line = SCM_LINUM (port);
           column = SCM_COL (port);
         }
@@ -1903,7 +1903,7 @@ scm_read_expression (SCM port, scm_t_read_opts *opts)
           else
             {
               if (chr != EOF)
-                scm_ungetc_unlocked (chr, port);
+                scm_ungetc (chr, port);
               break;
             }
           maybe_annotate_source (expr, port, opts, line, column);
@@ -1937,7 +1937,7 @@ SCM_DEFINE (scm_read, "read", 0, 1, 0,
   c = flush_ws (port, &opts, (char *) NULL);
   if (EOF == c)
     return SCM_EOF_VAL;
-  scm_ungetc_unlocked (c, port);
+  scm_ungetc (c, port);
 
   return (scm_read_expression (port, &opts));
 }

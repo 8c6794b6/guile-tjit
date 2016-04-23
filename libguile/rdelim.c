@@ -85,7 +85,7 @@ SCM_DEFINE (scm_read_delimited_x, "%read-delimited!", 3, 3, 0,
 	  if (scm_i_string_ref (delims, k) == c)
 	    {
 	      if (scm_is_false (gobble))
-		scm_ungetc_unlocked (c, port);
+		scm_ungetc (c, port);
 
 	      return scm_cons (SCM_MAKE_CHAR (c),
 			       scm_from_size_t (j - cstart));
