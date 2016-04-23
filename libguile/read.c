@@ -269,7 +269,7 @@ read_token (SCM port, scm_t_read_opts *opts,
         return 0;
       else if (CHAR_IS_DELIMITER (chr))
         {
-          scm_unget_byte_unlocked (chr, port);
+          scm_unget_byte (chr, port);
           return 0;
         }
       else

@@ -989,9 +989,6 @@ scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handle
 		   strategy);
 }
 
-static void
-scm_i_unget_bytes_unlocked (const unsigned char *buf, size_t len, SCM port);
-
 /* If the next LEN bytes from PORT are equal to those in BYTES, then
    return 1, else return 0.  Leave the port position unchanged.  */
 static int
@@ -1005,7 +1002,7 @@ looking_at_bytes (SCM port, const unsigned char *bytes, int len)
       scm_port_buffer_did_take (pt->read_buf, 1);
       i++;
     }
-  scm_i_unget_bytes_unlocked (bytes, i, port);
+  scm_unget_bytes (bytes, i, port);
   return (i == len);
 }
 
@@ -1983,8 +1980,8 @@ SCM_DEFINE (scm_read_char, "read-char", 0, 1, 0,
 
 
 
-static void
-scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
+void
+scm_unget_bytes (const scm_t_uint8 *buf, size_t len, SCM port)
 #define FUNC_NAME "scm_unget_bytes"
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
@@ -2033,39 +2030,10 @@ scm_i_unget_bytes_unlocked (const scm_t_uint8 *buf, size_t len, SCM port)
 #undef FUNC_NAME
 
 void
-scm_unget_bytes_unlocked (const unsigned char *buf, size_t len, SCM port)
-{
-  scm_i_unget_bytes_unlocked (buf, len, port);
-}
-
-void
-scm_unget_byte_unlocked (int c, SCM port)
-{
-  unsigned char byte = c;
-  scm_i_unget_bytes_unlocked (&byte, 1, port);
-}
-
-void
-scm_unget_bytes (const unsigned char *buf, size_t len, SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  if (len == 0)
-    return;
-  scm_c_lock_port (port, &lock);
-  scm_i_unget_bytes_unlocked (buf, len, port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-}
-
-void 
 scm_unget_byte (int c, SCM port)
 {
   unsigned char byte = c;
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_i_unget_bytes_unlocked (&byte, 1, port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
+  scm_unget_bytes (&byte, 1, port);
 }
 
 void
@@ -2109,7 +2077,7 @@ scm_ungetc_unlocked (scm_t_wchar c, SCM port)
 			"conversion to port encoding failed",
 			SCM_BOOL_F, SCM_MAKE_CHAR (c));
 
-  scm_i_unget_bytes_unlocked ((unsigned char *) result, len, port);
+  scm_unget_bytes ((unsigned char *) result, len, port);
 
   if (SCM_UNLIKELY (result != result_buf))
     free (result);
@@ -2192,7 +2160,7 @@ SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
 
   err = get_codepoint (port, &c, bytes, &len);
 
-  scm_i_unget_bytes_unlocked ((unsigned char *) bytes, len, port);
+  scm_unget_bytes ((unsigned char *) bytes, len, port);
 
   SCM_COL (port) = column;
   SCM_LINUM (port) = line;
