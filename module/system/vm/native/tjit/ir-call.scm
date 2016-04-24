@@ -192,24 +192,26 @@
       `(let ((_ (%scall ,proc)))
          ,(next))))
 
-(define-syntax-rule (scan-tail-call nlocals)
+(define-syntax-rule (scan-tail-call nlocals label?)
   (let* ((stack-size (vector-length locals))
          (proc-sp (- stack-size 1))
          (proc-sp+offset (+ proc-sp (env-sp-offset env))))
-    (set-entry-type! env proc-sp+offset &procedure)
+    (unless label?
+      (set-entry-type! env proc-sp+offset &procedure))
     (set-scan-initial-fields! env)
     (push-scan-sp-offset! env (- nlocals stack-size))))
 
-(define-syntax-rule (ti-tail-call)
+(define-syntax-rule (ti-tail-call label?)
   (let* ((stack-size (vector-length locals))
          (proc/i (+ (- stack-size 1) (current-sp-for-ti))))
-    (set-inferred-type! env proc/i &procedure)))
+    (unless label?
+      (set-inferred-type! env proc/i &procedure))))
 
 (define-scan (tail-call nlocals)
-  (scan-tail-call nlocals))
+  (scan-tail-call nlocals #f))
 
 (define-ti (tail-call nlocals)
-  (ti-tail-call))
+  (ti-tail-call #f))
 
 (define-anf (tail-call nlocals)
   (let* ((stack-size (vector-length locals))
@@ -224,10 +226,10 @@
        ,(with-callee-guard proc/l proc/f proc/v next))))
 
 (define-scan (tail-call-label nlocals label)
-  (scan-tail-call nlocals))
+  (scan-tail-call nlocals #t))
 
 (define-ti (tail-call-label nlocals label)
-  (ti-tail-call))
+  (ti-tail-call #t))
 
 (define-anf (tail-call-label nlocals label)
   (next))
