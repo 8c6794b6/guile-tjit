@@ -289,7 +289,7 @@ tjit_matching_fragment_inner (SCM locals, SCM fragments)
       SCM type_checker, fragment;
       fragment = SCM_CAR (fragments);
       type_checker = SCM_FRAGMENT_TYPE_CHECKER (fragment);
-      if (scm_is_true (scm_call_2 (type_checker, SCM_EOL, locals)))
+      if (scm_is_true (scm_call_1 (type_checker, locals)))
         return fragment;
       else
         fragments = SCM_CDR (fragments);

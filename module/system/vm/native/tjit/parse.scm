@@ -155,7 +155,7 @@ After successufl parse, this procedure will update fields in ENV."
                      (() acc))))
                 (linked-fragment
                  (if linked-ip
-                     (get-root-trace inferred last-locals linked-ip)
+                     (get-root-trace inferred linked-ip)
                      #f))
                 (origin-id (and=> (get-origin-fragment
                                    (env-parent-fragment env))

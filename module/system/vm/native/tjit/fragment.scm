@@ -164,11 +164,11 @@
 (define (get-fragment fragment-id)
   (hashq-ref (tjit-fragment) fragment-id #f))
 
-(define (get-root-trace types locals ip)
+(define (get-root-trace types ip)
   (let lp ((fragments (hashq-ref (tjit-root-trace) ip #f)))
     (match fragments
       ((fragment . fragments)
-       (if ((fragment-type-checker fragment) types locals)
+       (if ((fragment-type-checker fragment) types)
            fragment
            (lp fragments)))
       (_ #f))))
