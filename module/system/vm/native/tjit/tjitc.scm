@@ -141,10 +141,10 @@
           (nyi "side trace with type mismatched link"))
          ((too-many-side-traces-starting-with-call? traces)
           (let* ((origin (get-origin-fragment (env-parent-fragment env)))
-                 (origin-id (fragment-id origin)))
+                 (origin-id (fragment-id origin))
+                 (op (car (list-ref (car traces) 0))))
             (remove-fragment-and-side-traces origin)
-            (recompile "too many side traces from trace:~a starting with call"
-                       origin-id)))
+            (recompile "~a at trace ~a (~x)" op origin-id entry-ip)))
          (else
           (unless (tjit-dump-abort? dump-option)
             (dump-sline-and-bytecode implemented?))

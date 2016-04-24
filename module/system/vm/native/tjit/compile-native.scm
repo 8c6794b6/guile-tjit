@@ -434,7 +434,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      storage
                                      bcode
                                      (env-handle-interrupts? env)
-                                     '()))
+                                     '() '()))
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
        ;; When this trace is a side trace, replace the native code

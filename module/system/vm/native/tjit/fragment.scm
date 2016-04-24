@@ -52,6 +52,7 @@
             fragment-bailout-code
             fragment-handle-interrupts?
             fragment-side-trace-ids set-fragment-side-trace-ids!
+            fragment-linked-root-ids set-fragment-linked-root-ids!
 
             put-fragment!
             get-fragment
@@ -74,7 +75,8 @@
   (%make-fragment id code exit-counts downrec? uprec? type-checker entry-ip
                   parent-id parent-exit-id loop-address loop-locals loop-vars
                   snapshots trampoline end-address gdb-jit-entry storage
-                  bailout-code handle-interrupts? side-trace-ids)
+                  bailout-code handle-interrupts?
+                  side-trace-ids linked-root-ids)
   fragment?
 
   ;; Trace id number.
@@ -131,11 +133,14 @@
   ;; Native code for bailout.
   (bailout-code fragment-bailout-code)
 
-  ;; Flag for handling interrupts
+  ;; Flag for handling interrupts.
   (handle-interrupts? fragment-handle-interrupts?)
 
-  ;; Side trace IDs of this fragment
-  (side-trace-ids fragment-side-trace-ids set-fragment-side-trace-ids!))
+  ;; Side trace IDs of this fragment.
+  (side-trace-ids fragment-side-trace-ids set-fragment-side-trace-ids!)
+
+  ;; Root trace IDs linked via side trace.
+  (linked-root-ids fragment-linked-root-ids set-fragment-linked-root-ids!))
 
 (define make-fragment %make-fragment)
 
@@ -179,15 +184,40 @@
               (lp (get-fragment parent-id)))))))
 
 (define (remove-fragment-and-side-traces fragment)
-  "Remove FRAGMENT and its side traces from global cache."
-  ;; XXX: Remove side traces linked to, but not originated from given fragment.
-  (letrec ((go (lambda (fragment)
-                 (let lp ((ids (fragment-side-trace-ids fragment)))
-                   (if (null? ids)
-                       (let ((id (fragment-id fragment)))
-                         (debug 1 ";;; [remove-fragment] removing ~s~%" id)
-                         (tjit-remove-fragment! id))
-                       (begin
-                         (and=> (get-fragment (car ids)) go)
-                         (lp (cdr ids))))))))
-    (go fragment)))
+  "Removes root trace FRAGMENT.
+
+Removes the FRAGMENT itself, its side traces and linked fragment from global
+cache."
+  (letrec ((cache (tjit-fragment))
+           (root-ip (fragment-entry-ip fragment))
+           (linked-ids (fragment-linked-root-ids fragment))
+           (remove-side-traces-and-self
+            (lambda (fragment)
+              (let lp ((ids (fragment-side-trace-ids fragment)))
+                (if (null? ids)
+                    (let ((id (fragment-id fragment)))
+                      (debug 1 ";;; removing trace ~s~%" id)
+                      (hashq-remove! cache id))
+                    (begin
+                      (and=> (get-fragment (car ids))
+                             remove-side-traces-and-self)
+                      (lp (cdr ids)))))))
+           (remove-root-trace
+            (lambda (fragment)
+              ;; Remove root trace from cache table, and update `root_ip_ref'
+              ;; via C function, then remove left over side traces.
+              (tjit-remove-root-ip! (fragment-entry-ip fragment))
+              (remove-side-traces-and-self fragment)
+
+              ;; Call remove-side-traces-and-self for linked root traces.
+              (let lp ((ids (fragment-linked-root-ids fragment)))
+                (unless (null? ids)
+                  (let ((linked-fragment (get-fragment (car ids))))
+                    (when linked-fragment
+                      (let ((linked-fragment-ip
+                             (fragment-entry-ip linked-fragment)))
+                        (remove-root-trace linked-fragment)
+                        (tjit-remove-root-ip! linked-fragment-ip))))
+                  (lp (cdr ids)))))))
+
+    (remove-root-trace fragment)))

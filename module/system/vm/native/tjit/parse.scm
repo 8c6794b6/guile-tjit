@@ -157,20 +157,24 @@ After successufl parse, this procedure will update fields in ENV."
                  (if linked-ip
                      (get-root-trace inferred last-locals linked-ip)
                      #f))
+                (origin-id (and=> (get-origin-fragment
+                                   (env-parent-fragment env))
+                                  fragment-id))
                 (linking-roots?
                  ;; Detecting root trace linkage by chasing parent id until it
                  ;; reaches to root trace and compare it with linked trace. This
                  ;; loop could be avoided by saving the origin trace id in
                  ;; fragment record type.
-                 (let ((origin-id (and=> (get-origin-fragment
-                                          (env-parent-fragment env))
-                                         fragment-id))
-                       (linked-id (and=> linked-fragment fragment-id)))
+                 (let ((linked-id (and=> linked-fragment fragment-id)))
                    (and origin-id linked-id
                         (not (eq? origin-id linked-id)))))
                 (depth (or (and=> (env-parent-snapshot env)
                                   snapshot-inline-depth)
                            0)))
+           (when linking-roots?
+             (let* ((old-ids (fragment-linked-root-ids linked-fragment))
+                    (new-ids (cons origin-id old-ids)))
+               (set-fragment-linked-root-ids! linked-fragment new-ids)))
            (set-env-linked-fragment! env linked-fragment)
            (set-env-linking-roots! env linking-roots?)
            (set-env-last-sp-offset! env last-sp-offset)

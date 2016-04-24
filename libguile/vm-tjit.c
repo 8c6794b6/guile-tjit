@@ -609,18 +609,11 @@ SCM_DEFINE (scm_tjit_add_root_ip_x, "tjit-add-root-ip!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_tjit_remove_fragment_x, "tjit-remove-fragment!",
-            1, 0, 0, (SCM id), "Remove fragment with ID.")
-#define FUNC_NAME s_scm_tit_remove_fragment_x
+SCM_DEFINE (scm_tjit_remove_root_ip_x, "tjit-remove-root-ip!",
+            1, 0, 0, (SCM ip), "Remove root trace IP.")
+#define FUNC_NAME s_scm_tit_remove_root_ip_x
 {
-  SCM fragment = scm_hashq_ref (tjit_fragment_table, id, SCM_BOOL_F);
-
-  if (scm_is_true (fragment))
-    {
-      scm_hashq_remove_x (tjit_fragment_table, id);
-      root_ip_set (SCM_I_INUM (SCM_FRAGMENT_ENTRY_IP (fragment)), 0);
-    }
-
+  root_ip_set (SCM_I_INUM (ip), 0);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
