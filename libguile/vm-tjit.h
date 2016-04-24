@@ -93,8 +93,6 @@ SCM_API SCM scm_tjit_failed_ip (void);
 
 SCM_API SCM scm_tjit_hot_loop (void);
 SCM_API SCM scm_set_tjit_hot_loop_x (SCM val);
-SCM_API SCM scm_tjit_hot_call (void);
-SCM_API SCM scm_set_tjit_hot_call_x (SCM val);
 SCM_API SCM scm_tjit_hot_exit (void);
 SCM_API SCM scm_set_tjit_hot_exit_x (SCM val);
 SCM_API SCM scm_tjit_max_record (void);

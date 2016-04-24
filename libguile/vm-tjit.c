@@ -124,9 +124,6 @@ static const int op_sizes[256] = {
 /* Number of iterations to decide a hot loop. */
 SCM_TJIT_PARAM (hot_loop, hot-loop, 60)
 
-/* Number of calls to decide a hot procedure call. */
-SCM_TJIT_PARAM (hot_call, hot-call, 12)
-
 /* Number of exits to decide a hot side exit. */
 SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 
