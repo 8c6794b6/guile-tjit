@@ -397,10 +397,9 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
             }
         }
       else if (ip == end_ip)
-        /* XXX: Hot non-recursive procedure call. May worth compiling
-           but currently marked as failure and ignored. */
-        abort_recording (tj, start_ip);
-        /* stop_recording (tj); */
+        /* XXX: Hot procedure call, possibly non-recursive. Worth to
+           compile but currently ignored. */
+        stop_recording (tj);
       else
         record (tj, thread, vp, ip, sp);
       break;
