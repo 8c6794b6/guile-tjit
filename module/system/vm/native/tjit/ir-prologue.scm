@@ -51,28 +51,26 @@
     (set-scan-initial-fields! env)
     (push-scan-sp-offset! env diff)))
 
-;; XXX: br-if-nargs-ne
-;; (define-ir (br-if-nargs-ne (const expected) (const offset))
-;;   (next))
-
-;; XXX: br-if-nargs-lt
-;; (define-ir (br-if-nargs-lt (const expected) (const offset))
-;;   (next))
-
-;; XXX: br-if-nargs-gt
-;; (define-ir (br-if-nargs-gt (const expected) (const offset))
-;;   (next))
-
-;;; XXX: Unless this op was found at entry of down recursion, nothing to do.
+;;; XXX: Unless br-if-{ne,lt,gt} and assert-nargs-{ee,ge,le} ops were found at
+;;; the entry of down recursion, there's nothing to do.
+;;;
 ;;; Detect entry of down recursion, emit assertion in native code.
+
+(define-ir (br-if-nargs-ne (const expected) (const offset))
+  (next))
+
+(define-ir (br-if-nargs-lt (const expected) (const offset))
+  (next))
+
+(define-ir (br-if-nargs-gt (const expected) (const offset))
+  (next))
+
 (define-ir (assert-nargs-ee (const expected))
   (next))
 
-;;; XXX: Same as assert-nargs-ee
 (define-ir (assert-nargs-ge (const expected))
   (next))
 
-;;; XXX: Same as assert-nargs-ee
 (define-ir (assert-nargs-le (const expected))
   (next))
 
