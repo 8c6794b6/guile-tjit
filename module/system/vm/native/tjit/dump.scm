@@ -64,6 +64,7 @@ Statistical times will be constantly @code{#f} unless @code{tjit-dump-time?}
 option was set to true."
   (let* ((hot-loop (tjit-hot-loop))
          (hot-exit (tjit-hot-exit))
+         (hot-call (tjit-hot-call))
          (dump-time (tjit-dump-time? (tjit-dump-option)))
          (total-time (if dump-time 0 #f))
          (init-time (if dump-time 0 #f))
@@ -86,6 +87,7 @@ option was set to true."
        #f))
     (list `(hot-loop . ,hot-loop)
           `(hot-exit . ,hot-exit)
+          `(hot-call . ,hot-call)
           `(num-fragments . ,num-fragments)
           `(init-time . ,init-time)
           `(anf-time . ,anf-time)

@@ -127,6 +127,9 @@ SCM_TJIT_PARAM (hot_loop, hot-loop, 60)
 /* Number of exits to decide a hot side exit. */
 SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 
+/* Number of calls to decide a hot call. */
+SCM_TJIT_PARAM (hot_call, hot-call, 50)
+
 /* Maximum length of traced bytecodes. */
 SCM_TJIT_PARAM (max_record, max-record, 3000)
 
