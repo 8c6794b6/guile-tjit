@@ -226,7 +226,7 @@ returns, current call-num, and current return-num."
              (lp calls acc)))
         (()
          (when (< (tjit-max-inline-depth) acc)
-           (nyi "too many inlined procedures"))
+           (retrace "too many inlined procedures"))
          (+ acc (env-inline-depth env)))))))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
