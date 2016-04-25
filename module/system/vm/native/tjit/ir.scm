@@ -347,14 +347,16 @@ returns, current call-num, and current return-num."
     ((_ (other arg) . rest) (gen-scan-type . rest))))
 
 (define-syntax gen-infer-type
-  (syntax-rules (scm! fixnum! flonum! char! pair! vector! box! struct! string!
-                      u64! f64!)
+  (syntax-rules (scm! fixnum! flonum! fraction! char! pair! vector!
+                      box! struct! string! u64! f64!)
     ((_ (scm! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &scm))
     ((_ (fixnum! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &fixnum))
     ((_ (flonum! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &flonum))
+    ((_ (fraction! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &fraction))
     ((_ (char! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &char))
     ((_ (pair! arg) . rest)

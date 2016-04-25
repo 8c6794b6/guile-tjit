@@ -86,6 +86,7 @@ TESTS = \
 	t-call-label-04.scm \
 	t-div-01.scm \
 	t-div-02.scm \
+	t-div-03.scm \
 	t-escape-01.scm \
 	t-f64-01.scm \
 	t-f64-02.scm \
@@ -265,7 +266,6 @@ TESTS = \
 	t-vector-set-01.scm \
 	t-vector-set-02.scm \
 	t-vector-set-03.scm \
-	x-collatz.scm \
 	x-collatz-q.scm \
 	x-conform.scm \
 	x-cpstak.scm \
