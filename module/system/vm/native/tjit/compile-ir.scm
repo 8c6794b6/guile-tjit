@@ -70,6 +70,16 @@
 
 (define (compile-ir env trace)
   "Compiles TRACE to primops with ENV and TRACE."
+  (define (test-nested-depth elems label)
+    (let lp ((elems elems) (acc 0))
+      (match elems
+        (((_ . #f) . elems)
+         (lp elems (+ acc 1)))
+        (((_ . _) . elems)
+         (lp elems acc))
+        (()
+         (when (< (tjit-max-inline-depth) acc)
+           (retrace "too many nested ~a" label))))))
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (env-id env))))
       (set-tjit-time-log-anf! log (get-internal-run-time))))
@@ -78,6 +88,10 @@
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (env-id env))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
+    (let ((calls (env-calls env))
+          (returns (env-returns env)))
+      (test-nested-depth calls 'calls)
+      (test-nested-depth returns 'returns))
     (let* ((anf (optimize-anf anf))
            (primops (anf->primops anf env snapshot0 vars snapshots)))
       (values snapshots anf primops))))
