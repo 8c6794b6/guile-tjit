@@ -92,6 +92,7 @@
 
             tjit-max-spills
             tjit-max-inline-depth
+            tjit-max-locals
             tjit-dump-option
             tjit-disassembler))
 
@@ -321,6 +322,10 @@ assumes `objdump' executable already installed."
 ;; Maximum depth for inlined procedures.
 (define tjit-max-inline-depth
   (make-parameter 25))
+
+;; Maximum number of local variables in single trace.
+(define tjit-max-locals
+  (make-parameter 180))
 
 ;; Paramter for disassembling compiled native code.
 ;;

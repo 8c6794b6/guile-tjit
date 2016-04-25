@@ -213,7 +213,9 @@ Currently does nothing, returns the given argument."
          (initial-nlocals (vector-length initial-locals))
          (initial-inline-depth (env-inline-depth env))
          (local-indices (env-local-indices env))
-         (vars (make-vars local-indices))
+         (vars (if (< (tjit-max-locals) (length local-indices))
+                   (retrace "too many locals")
+                   (make-vars local-indices)))
          (snapshots (make-hash-table))
          (snapshot-id (if root-trace? 1 0))
          (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
@@ -233,6 +235,7 @@ Currently does nothing, returns the given argument."
          (initial-write-indices (if parent-snapshot
                                     (map car parent-snapshot-locals)
                                     (env-write-indices env))))
+
     (define (initial-snapshot!)
       (let-values (((ret snapshot)
                     (take-snapshot initial-ip 0 initial-locals
