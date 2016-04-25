@@ -63,29 +63,25 @@
       (with-type-guard &pair x/v expr)))
 
 (define-ir (car (scm! dst) (pair src))
-  (let* ((src/v (var-ref src))
-         (thunk (lambda ()
-                  `(let ((,(var-ref dst) (%cref ,src/v 0)))
-                     ,(next)))))
-    (with-pair-guard src src/v (thunk))))
+  (let ((src/v (var-ref src)))
+    (with-pair-guard src src/v
+      `(let ((,(var-ref dst) (%cref ,src/v 0)))
+         ,(next)))))
 
 (define-ir (cdr (scm! dst) (pair src))
-  (let* ((src/v (var-ref src))
-         (thunk (lambda ()
-                  `(let ((,(var-ref dst) (%cref ,src/v 1)))
-                     ,(next)))))
-    (with-pair-guard src src/v (thunk))))
+  (let ((src/v (var-ref src)))
+    (with-pair-guard src src/v
+      `(let ((,(var-ref dst) (%cref ,src/v 1)))
+         ,(next)))))
 
 (define-ir (set-car! (pair dst) (scm src))
-  (let* ((dst/v (var-ref dst))
-         (thunk (lambda ()
-                  `(let ((_ (%cset ,dst/v 0 ,(var-ref src))))
-                     ,(next)))))
-    (with-pair-guard dst dst/v (thunk))))
+  (let ((dst/v (var-ref dst)))
+    (with-pair-guard dst dst/v
+      `(let ((_ (%cset ,dst/v 0 ,(var-ref src))))
+         ,(next)))))
 
 (define-ir (set-cdr! (pair dst) (scm src))
-  (let* ((dst/v (var-ref dst))
-         (thunk (lambda ()
-                  `(let ((_ (%cset ,dst/v 1 ,(var-ref src))))
-                     ,(next)))))
-    (with-pair-guard dst dst/v (thunk))))
+  (let ((dst/v (var-ref dst)))
+    (with-pair-guard dst dst/v
+      `(let ((_ (%cset ,dst/v 1 ,(var-ref src))))
+         ,(next)))))

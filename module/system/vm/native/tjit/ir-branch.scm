@@ -39,13 +39,14 @@
   (syntax-rules ()
     ((_ test invert offset op-size)
      (when (ir-last-op? ir)
-       (let ((jump (if invert
-                       (if test op-size offset)
-                       (if test offset op-size)))
-             (entry-ip (or (and=> (env-linked-fragment env)
-                                  fragment-entry-ip)
-                           (env-entry-ip env))))
-         (when (not (= entry-ip (+ ip (* 4 jump))))
+       (let* ((jump (if invert
+                        (if test op-size offset)
+                        (if test offset op-size)))
+              (entry-ip (or (and=> (env-linked-fragment env)
+                                   fragment-entry-ip)
+                            (env-entry-ip env)))
+              (dest-ip (+ ip (* 4 jump))))
+         (unless (= entry-ip dest-ip)
            (retrace "trace not looping")))))))
 
 (define-syntax define-br-unary
