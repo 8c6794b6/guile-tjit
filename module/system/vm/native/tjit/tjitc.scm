@@ -111,7 +111,9 @@
       (and (<= 3 num-traces-with-same-entry-ip)
            (let ((op (car (list-ref (car traces) 0))))
              (or (eq? op 'call)
-                 (eq? op 'call-label)))))
+                 (eq? op 'call-label)
+                 (eq? op 'tail-call)
+                 (eq? op 'tail-call-label)))))
     (define-syntax dump
       (syntax-rules ()
         ((_ test data exp)
