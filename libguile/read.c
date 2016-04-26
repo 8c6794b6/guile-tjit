@@ -2073,7 +2073,7 @@ scm_i_scan_for_encoding (SCM port)
   if (scm_port_buffer_can_take (buf) == 0)
     {
       /* We can use the read buffer, and thus avoid a seek. */
-      buf = scm_fill_input_unlocked (port);
+      buf = scm_fill_input (port);
       bytes_read = scm_port_buffer_can_take (buf);
       if (bytes_read > SCM_ENCODING_SEARCH_SIZE)
         bytes_read = SCM_ENCODING_SEARCH_SIZE;

@@ -1516,7 +1516,7 @@ scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count)
          buffer directly.  */
       if (to_read < pt->read_buffering)
         {
-          read_buf = scm_fill_input_unlocked (port);
+          read_buf = scm_fill_input (port);
           did_read = scm_port_buffer_take (read_buf, dst_ptr, to_read);
           dst_ptr += did_read;
           to_read -= did_read;
@@ -2310,20 +2310,6 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
 }
 #undef FUNC_NAME
 
-SCM
-scm_fill_input (SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  SCM ret;
-  
-  scm_c_lock_port (port, &lock);
-  ret = scm_fill_input_unlocked (port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-
-  return ret;
-}
-
 /* Move up to READ_LEN bytes from PORT's read buffer into memory
    starting at DEST.  Return the number of bytes moved.  PORT's
    line/column numbers are left unchanged.  */
@@ -2378,11 +2364,9 @@ SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0,
 void
 scm_end_input (SCM port)
 {
-  scm_t_port *pt;
   SCM buf;
   size_t discarded;
 
-  pt = SCM_PTAB_ENTRY (port);
   buf = SCM_PTAB_ENTRY (port)->read_buf;
   discarded = scm_port_buffer_take (buf, NULL, (size_t) -1);
 
@@ -2423,7 +2407,7 @@ scm_flush (SCM port)
 }
 
 SCM
-scm_fill_input_unlocked (SCM port)
+scm_fill_input (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   SCM read_buf = pt->read_buf;

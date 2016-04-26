@@ -474,7 +474,7 @@ SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
 
   SCM_VALIDATE_BINARY_INPUT_PORT (1, port);
 
-  buf = scm_fill_input_unlocked (port);
+  buf = scm_fill_input (port);
   size = scm_port_buffer_can_take (buf);
   if (size == 0)
     {
