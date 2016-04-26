@@ -328,7 +328,6 @@ SCM_API void scm_puts (const char *str_data, SCM port);
 SCM_API void scm_c_write (SCM port, const void *buffer, size_t size);
 SCM_API void scm_c_write_bytes (SCM port, SCM src, size_t start, size_t count);
 SCM_API void scm_lfwrite (const char *ptr, size_t size, SCM port);
-SCM_API void scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port);
 SCM_INTERNAL void scm_lfwrite_substr (SCM str, size_t start, size_t end,
 				      SCM port);
 

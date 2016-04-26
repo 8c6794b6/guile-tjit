@@ -2480,14 +2480,14 @@ void
 scm_putc (char c, SCM port)
 {
   SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
-  scm_lfwrite_unlocked (&c, 1, port);
+  scm_lfwrite (&c, 1, port);
 }
 
 void
 scm_puts (const char *s, SCM port)
 {
   SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
-  scm_lfwrite_unlocked (s, strlen (s), port);
+  scm_lfwrite (s, strlen (s), port);
 }
   
 static void
@@ -2615,7 +2615,7 @@ scm_c_write (SCM port, const void *ptr, size_t size)
  * This function differs from scm_c_write; it updates port line and
  * column, flushing line-buffered ports when appropriate. */
 void
-scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port)
+scm_lfwrite (const char *ptr, size_t size, SCM port)
 {
   int saved_line;
 
@@ -2628,16 +2628,6 @@ scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port)
   /* Handle line buffering.  */
   if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) && saved_line != SCM_LINUM (port))
     scm_flush (port);
-}
-
-void
-scm_lfwrite (const char *ptr, size_t size, SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_lfwrite_unlocked (ptr, size, port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
 }
 
 /* Write STR to PORT from START inclusive to END exclusive.  */

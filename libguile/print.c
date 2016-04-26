@@ -453,7 +453,7 @@ print_extended_symbol (SCM sym, SCM port)
   len = scm_i_symbol_length (sym);
   strategy = PORT_CONVERSION_HANDLER (port);
 
-  scm_lfwrite_unlocked ("#{", 2, port);
+  scm_lfwrite ("#{", 2, port);
 
   for (pos = 0; pos < len; pos++)
     {
@@ -471,13 +471,13 @@ print_extended_symbol (SCM sym, SCM port)
         }
       else
         {
-          scm_lfwrite_unlocked ("\\x", 2, port);
+          scm_lfwrite ("\\x", 2, port);
           scm_intprint (c, 16, port);
           scm_putc (';', port);
         }
     }
 
-  scm_lfwrite_unlocked ("}#", 2, port);
+  scm_lfwrite ("}#", 2, port);
 }
 
 static void
@@ -497,13 +497,13 @@ print_r7rs_extended_symbol (SCM sym, SCM port)
 
       switch (c)
         {
-        case '\a': scm_lfwrite_unlocked ("\\a", 2, port); break;
-        case '\b': scm_lfwrite_unlocked ("\\b", 2, port); break;
-        case '\t': scm_lfwrite_unlocked ("\\t", 2, port); break;
-        case '\n': scm_lfwrite_unlocked ("\\n", 2, port); break;
-        case '\r': scm_lfwrite_unlocked ("\\r", 2, port); break;
-        case '|':  scm_lfwrite_unlocked ("\\|", 2, port); break;
-        case '\\': scm_lfwrite_unlocked ("\\x5c;", 5, port); break;
+        case '\a': scm_lfwrite ("\\a", 2, port); break;
+        case '\b': scm_lfwrite ("\\b", 2, port); break;
+        case '\t': scm_lfwrite ("\\t", 2, port); break;
+        case '\n': scm_lfwrite ("\\n", 2, port); break;
+        case '\r': scm_lfwrite ("\\r", 2, port); break;
+        case '|':  scm_lfwrite ("\\|", 2, port); break;
+        case '\\': scm_lfwrite ("\\x5c;", 5, port); break;
         default:
           if (uc_is_general_category_withtable (c,
                                                 UC_CATEGORY_MASK_L
@@ -520,7 +520,7 @@ print_r7rs_extended_symbol (SCM sym, SCM port)
             }
           else
             {
-              scm_lfwrite_unlocked ("\\x", 2, port);
+              scm_lfwrite ("\\x", 2, port);
               scm_intprint (c, 16, port);
               scm_putc (';', port);
             }
@@ -956,7 +956,7 @@ display_string_as_utf8 (const void *str, int narrow_p, size_t len,
 
       /* INPUT was successfully converted, entirely; print the
 	 result.  */
-      scm_lfwrite_unlocked (utf8_buf, utf8_len, port);
+      scm_lfwrite (utf8_buf, utf8_len, port);
       printed += i - printed;
     }
 
@@ -976,7 +976,7 @@ display_string_as_latin1 (const void *str, int narrow_p, size_t len,
 
   if (narrow_p)
     {
-      scm_lfwrite_unlocked (str, len, port);
+      scm_lfwrite (str, len, port);
       return len;
     }
 
@@ -995,7 +995,7 @@ display_string_as_latin1 (const void *str, int narrow_p, size_t len,
             break;
         }
 
-      scm_lfwrite_unlocked (buf, i, port);
+      scm_lfwrite (buf, i, port);
 
       if (i < sizeof(buf) && printed < len)
         {
@@ -1081,7 +1081,7 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
 	  iconv (id->output_cd, NULL, NULL, NULL, NULL);
 
 	  /* Print the OUTPUT_LEN bytes successfully converted.  */
-	  scm_lfwrite_unlocked (encoded_output, output_len, port);
+	  scm_lfwrite (encoded_output, output_len, port);
 
 	  /* See how many input codepoints these OUTPUT_LEN bytes
 	     corresponds to.  */
@@ -1116,7 +1116,7 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
 	{
 	  /* INPUT was successfully converted, entirely; print the
 	     result.  */
-	  scm_lfwrite_unlocked (encoded_output, output_len, port);
+	  scm_lfwrite (encoded_output, output_len, port);
 	  codepoints_read = i - printed;
 	  printed += codepoints_read;
 	}
@@ -1217,7 +1217,7 @@ write_character_escaped (scm_t_wchar ch, int string_escapes_p, SCM port)
 	  /* Use special escapes for some C0 controls.  */
 	  buf[0] = '\\';
 	  buf[1] = escapes[ch - 0x07];
-	  scm_lfwrite_unlocked (buf, 2, port);
+	  scm_lfwrite (buf, 2, port);
 	}
       else if (!SCM_R6RS_ESCAPES_P)
 	{
@@ -1227,7 +1227,7 @@ write_character_escaped (scm_t_wchar ch, int string_escapes_p, SCM port)
 	      buf[1] = 'x';
 	      buf[2] = hex[ch / 16];
 	      buf[3] = hex[ch % 16];
-	      scm_lfwrite_unlocked (buf, 4, port);
+	      scm_lfwrite (buf, 4, port);
 	    }
 	  else if (ch <= 0xFFFF)
 	    {
@@ -1237,7 +1237,7 @@ write_character_escaped (scm_t_wchar ch, int string_escapes_p, SCM port)
 	      buf[3] = hex[(ch & 0xF00) >> 8];
 	      buf[4] = hex[(ch & 0xF0) >> 4];
 	      buf[5] = hex[(ch & 0xF)];
-	      scm_lfwrite_unlocked (buf, 6, port);
+	      scm_lfwrite (buf, 6, port);
 	    }
 	  else if (ch > 0xFFFF)
 	    {
@@ -1249,7 +1249,7 @@ write_character_escaped (scm_t_wchar ch, int string_escapes_p, SCM port)
 	      buf[5] = hex[(ch & 0xF00) >> 8];
 	      buf[6] = hex[(ch & 0xF0) >> 4];
 	      buf[7] = hex[(ch & 0xF)];
-	      scm_lfwrite_unlocked (buf, 8, port);
+	      scm_lfwrite (buf, 8, port);
 	    }
 	}
       else
@@ -1272,7 +1272,7 @@ write_character_escaped (scm_t_wchar ch, int string_escapes_p, SCM port)
 	  buf[i] = 'x';
 	  i --;
 	  buf[i] = '\\';
-	  scm_lfwrite_unlocked (buf + i, 9 - i, port);
+	  scm_lfwrite (buf + i, 9 - i, port);
 	}
     }
   else
@@ -1376,14 +1376,14 @@ void
 scm_intprint (scm_t_intmax n, int radix, SCM port)
 {
   char num_buf[SCM_INTBUFLEN];
-  scm_lfwrite_unlocked (num_buf, scm_iint2str (n, radix, num_buf), port);
+  scm_lfwrite (num_buf, scm_iint2str (n, radix, num_buf), port);
 }
 
 void 
 scm_uintprint (scm_t_uintmax n, int radix, SCM port)
 {
   char num_buf[SCM_INTBUFLEN];
-  scm_lfwrite_unlocked (num_buf, scm_iuint2str (n, radix, num_buf), port);
+  scm_lfwrite (num_buf, scm_iuint2str (n, radix, num_buf), port);
 }
 
 /* Print an object of unrecognized type.
