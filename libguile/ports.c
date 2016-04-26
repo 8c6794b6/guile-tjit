@@ -2383,11 +2383,8 @@ scm_end_input (SCM port)
   size_t discarded;
 
   pt = SCM_PTAB_ENTRY (port);
-
-  scm_i_pthread_mutex_lock (pt->lock);
   buf = SCM_PTAB_ENTRY (port)->read_buf;
   discarded = scm_port_buffer_take (buf, NULL, (size_t) -1);
-  scm_i_pthread_mutex_unlock (pt->lock);
 
   if (discarded != 0)
     SCM_PORT_DESCRIPTOR (port)->seek (port, -discarded, SEEK_CUR);
