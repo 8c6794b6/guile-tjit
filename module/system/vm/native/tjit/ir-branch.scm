@@ -172,13 +172,42 @@
   (br-binary-scm-scm-body
    a b invert offset eqv? a/l b/l a/v b/v dest
    (let* ((test/l (eqv? a/l b/l))
-          (op (if test/l '%eq '%ne)))
+          (a/t (type-ref a))
+          (b/t (type-ref b))
+          (op (if test/l '%eq '%ne))
+          (thunk (lambda ()
+                   `(let ((_ ,(take-snapshot! ip dest)))
+                      (let ((_ (,op ,a/v ,b/v)))
+                        ,(next))))))
+     (ensure-loop test/l invert offset 3)
+     (cond
+      ((and (eq? &flonum a/t) (eq? &flonum b/t))
+       (thunk))
+      ((eq? &flonum a/t)
+       (with-type-guard &flonum b/v (thunk)))
+      ((eq? &flonum b/t)
+       (with-type-guard &flonum a/v (thunk)))
+      (else
+       (with-type-guard &flonum a/v
+         (with-type-guard &flonum b/v
+           (thunk))))))))
+
+(define-ir (br-if-logtest (scm a) (scm b) (const invert) (const offset))
+  (nyi "br-if-logtest: et=(scm scm) it=(~a ~a)" (type-ref a) (type-ref b)))
+
+(define-ir (br-if-logtest (fixnum a) (fixnum b) (const invert) (const offset))
+  (br-binary-scm-scm-body
+   a b invert offset logtest a/l b/l a/v b/v dest
+   (let* ((test/l (logtest a/l b/l))
+          (op (if test/l '%ne '%eq))
+          (r1 (make-tmpvar 1))
+          (r2 (make-tmpvar 2)))
      (ensure-loop test/l invert offset 3)
      `(let ((_ ,(take-snapshot! ip dest)))
-        (let ((_ (,op ,a/v ,b/v)))
-          ,(next))))))
-
-;; XXX: br-if-logtest
+        (let ((,r1 (%band ,a/v ,b/v)))
+          (let ((,r1 (%band ,r1 ,(lognot 2))))
+            (let ((_ (,op ,r1 0)))
+              ,(next))))))))
 
 (define-syntax define-br-binary-arith-scm-scm
   (syntax-rules ()

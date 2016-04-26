@@ -54,6 +54,7 @@ TESTS = \
 	t-br-if-le-02.scm \
 	t-br-if-=-01.scm \
 	t-br-if-char-01.scm \
+	t-br-if-logtest-01.scm \
 	t-br-if-nargs-ne-01.scm \
 	t-br-if-nargs-lt-01.scm \
 	t-br-if-null-01.scm \
