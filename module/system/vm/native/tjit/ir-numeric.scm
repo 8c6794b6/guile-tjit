@@ -616,6 +616,7 @@
         (idx/v (var-ref idx))
         (src/v (var-ref src))
         (src/t (type-ref src))
+        (r0 (make-tmpvar 0))
         (r1 (make-tmpvar 1))
         (r2 (make-tmpvar 2)))
     (with-vector-guard dst dst/v
@@ -623,29 +624,22 @@
          (let ((,r2 (%cref ,dst/v 0)))
            (let ((,r2 (%rsh ,r2 8)))
              (let ((_ (%lt ,idx/v ,r2)))
-               ,(if (eq? &flonum src/t)
-                    (with-boxing src/t src/v r2
-                      (lambda (boxed)
-                        `(let ((,r1 (%add ,idx/v 1)))
-                           (let ((_ (%cset ,dst/v ,r1 ,boxed)))
-                             ,(next)))))
-                    `(let ((,r1 (%add ,idx/v 1)))
-                       (let ((_ (%cset ,dst/v ,r1 ,src/v)))
-                         ,(next)))))))))))
+               ,(with-boxing src/t src/v r1
+                  (lambda (boxed)
+                    `(let ((,r0 (%add ,idx/v 1)))
+                       (let ((_ (%cset ,dst/v ,r0 ,boxed)))
+                         ,(next))))))))))))
 
 (define-ir (vector-set!/immediate (vector dst) (const idx) (scm src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/t (type-ref src))
-        (r2 (make-tmpvar 2)))
+        (r1 (make-tmpvar 2)))
     (with-vector-guard dst dst/v
-      (if (eq? &flonum src/t)
-          (with-boxing src/t src/v r2
-            (lambda (boxed)
-              `(let ((_ (%cset ,dst/v ,(+ idx 1) ,boxed)))
-                 ,(next))))
-          `(let ((_ (%cset ,dst/v ,(+ idx 1) ,src/v)))
-             ,(next))))))
+      (with-boxing src/t src/v r1
+        (lambda (boxed)
+          `(let ((_ (%cset ,dst/v ,(+ idx 1) ,boxed)))
+             ,(next)))))))
 
 (define-syntax-rule (define-binary-arith-f64-f64 name op)
   (define-ir (name (f64! dst) (f64 a) (f64 b))

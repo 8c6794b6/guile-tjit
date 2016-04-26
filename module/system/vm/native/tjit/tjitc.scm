@@ -105,15 +105,17 @@
                     (else ""))))
         (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
                 trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
-    (define (too-many-side-traces-starting-with-call? traces)
+    (define-syntax too-many-side-traces-starting-with-call?
       ;; Detecting side trace starting with call bytecode operation. This is
       ;; likely to be a higher order procedure call.
-      (and (<= 3 num-traces-with-same-entry-ip)
-           (let ((op (car (list-ref (car traces) 0))))
-             (or (eq? op 'call)
-                 (eq? op 'call-label)
-                 (eq? op 'tail-call)
-                 (eq? op 'tail-call-label)))))
+      (syntax-rules ()
+        ((_ traces)
+         (and (<= 3 num-traces-with-same-entry-ip)
+              (let ((op (car (list-ref (car traces) 0))))
+                (or (eq? op 'call)
+                    (eq? op 'call-label)
+                    (eq? op 'tail-call)
+                    (eq? op 'tail-call-label)))))))
     (define-syntax dump
       (syntax-rules ()
         ((_ test data exp)

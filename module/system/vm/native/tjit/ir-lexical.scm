@@ -102,8 +102,8 @@
   (let* ((src/t (type-ref src))
          (dst/v (var-ref dst))
          (src/v (var-ref src))
-         (r2 (make-tmpvar 2)))
-    (with-boxing src/t src/v r2
+         (r1 (make-tmpvar 1)))
+    (with-boxing src/t src/v r1
       (lambda (tmp)
         `(let ((_ (%cset ,dst/v 1 ,tmp)))
            ,(next))))))
@@ -126,8 +126,8 @@
   (let* ((dst/v (var-ref dst))
          (src/v (var-ref src))
          (src/t (type-ref src))
-         (r2 (make-tmpvar 2)))
-    (with-boxing src/t src/v r2
+         (r1 (make-tmpvar 1)))
+    (with-boxing src/t src/v r1
       (lambda (tmp)
         `(let ((_ (%cset ,dst/v ,(+ 2 idx) ,tmp)))
            ,(next))))))
