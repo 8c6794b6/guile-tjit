@@ -634,7 +634,7 @@
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (src/t (type-ref src))
-        (r1 (make-tmpvar 2)))
+        (r1 (make-tmpvar 1)))
     (with-vector-guard dst dst/v
       (with-boxing src/t src/v r1
         (lambda (boxed)
