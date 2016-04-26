@@ -66,6 +66,16 @@
     `(let ((,dst/v (%rsh ,src/v 2)))
        ,(next))))
 
+(define-ir (scm->u64/truncate (u64! dst) (scm src))
+  (nyi "scm->u64/truncate et=scm it=~a" (type-ref src)))
+
+(define-ir (scm->u64/truncate (u64! dst) (fixnum src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    (with-type-guard &fixnum src/v
+      `(let ((,dst/v (%rsh ,src/v 2)))
+        ,(next)))))
+
 (define-scan (u64->scm dst src)
   (set-entry-type! env (+ src (env-sp-offset env)) &u64)
   (set-scan-initial-fields! env))
@@ -75,8 +85,8 @@
   (let* ((src/l (u64-ref src))
          (sp-offset (env-sp-offset env))
          (type (if (< src/l most-positive-fixnum)
-                            &fixnum
-                            (nyi "u64->scm: src=~a" src/l))))
+                   &fixnum
+                   (nyi "u64->scm: src=~a" src/l))))
     (set-inferred-type! env (+ dst sp-offset) type)))
 
 (define-anf (u64->scm dst src)
@@ -99,7 +109,3 @@
 ;; XXX: load-s64
 
 ;; XXX: current-thread
-
-;; XXX: logsub
-
-;; XXX: scm->u64/truncate
