@@ -2529,8 +2529,8 @@ scm_i_write_unlocked (SCM port, SCM buf)
    scm_c_write writes the requested number of bytes.
 
    Warning: Doesn't update port line and column counts!  */
-static size_t
-scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
+void
+scm_c_write_bytes (SCM port, SCM src, size_t start, size_t count)
 #define FUNC_NAME "scm_c_write_bytes"
 {
   scm_t_port *pt;
@@ -2576,8 +2576,6 @@ scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
 
       scm_i_write_bytes_unlocked (port, src, start, count);
     }
-
-  return count;
 }
 #undef FUNC_NAME
 
@@ -2585,7 +2583,7 @@ scm_c_write_bytes_unlocked (SCM port, SCM src, size_t start, size_t count)
    Used when an application wants to write bytes stored in an area not
    managed by GC.  */
 void
-scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
+scm_c_write (SCM port, const void *ptr, size_t size)
 #define FUNC_NAME "scm_c_write"
 {
   scm_t_port *pt;
@@ -2612,26 +2610,6 @@ scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
 }
 #undef FUNC_NAME
 
-void
-scm_c_write (SCM port, const void *ptr, size_t size)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_c_write_unlocked (port, ptr, size);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-}
-
-void
-scm_c_write_bytes (SCM port, SCM src, size_t start, size_t count)
-{
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_c_write_bytes_unlocked (port, src, start, count);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-}
-
 /* scm_lfwrite
  *
  * This function differs from scm_c_write; it updates port line and
@@ -2641,7 +2619,7 @@ scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port)
 {
   int saved_line;
 
-  scm_c_write_unlocked (port, ptr, size);
+  scm_c_write (port, ptr, size);
 
   saved_line = SCM_LINUM (port);
   for (; size; ptr++, size--)
