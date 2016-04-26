@@ -735,15 +735,15 @@ scm_i_print_array_dimension (scm_t_array_handle *h, int dim, int pos,
   else
     {
       ssize_t i;
-      scm_putc_unlocked ('(', port);
+      scm_putc ('(', port);
       for (i = h->dims[dim].lbnd; i <= h->dims[dim].ubnd;
            i++, pos += h->dims[dim].inc)
         {
           scm_i_print_array_dimension (h, dim+1, pos, port, pstate);
           if (i < h->dims[dim].ubnd)
-            scm_putc_unlocked (' ', port);
+            scm_putc (' ', port);
         }
-      scm_putc_unlocked (')', port);
+      scm_putc (')', port);
     }
   return 1;
 }
@@ -760,7 +760,7 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
 
   scm_array_get_handle (array, &h);
 
-  scm_putc_unlocked ('#', port);
+  scm_putc ('#', port);
   if (SCM_I_ARRAYP (array))
     scm_intprint (h.ndims, 10, port);
   if (h.element_type != SCM_ARRAY_ELEMENT_TYPE_SCM)
@@ -781,12 +781,12 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
       {
 	if (print_lbnds)
 	  {
-	    scm_putc_unlocked ('@', port);
+	    scm_putc ('@', port);
 	    scm_intprint (h.dims[i].lbnd, 10, port);
 	  }
 	if (print_lens)
 	  {
-	    scm_putc_unlocked (':', port);
+	    scm_putc (':', port);
 	    scm_intprint (h.dims[i].ubnd - h.dims[i].lbnd + 1,
 			  10, port);
 	  }
@@ -814,9 +814,9 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
          not really the same as Scheme values since they are boxed and
          can be modified with array-set!, say.
       */
-      scm_putc_unlocked ('(', port);
+      scm_putc ('(', port);
       scm_i_print_array_dimension (&h, 0, 0, port, pstate);
-      scm_putc_unlocked (')', port);
+      scm_putc (')', port);
       return 1;
     }
   else

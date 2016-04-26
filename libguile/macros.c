@@ -53,7 +53,7 @@ macro_print (SCM macro, SCM port, scm_print_state *pstate)
   else
     scm_puts_unlocked ("#<syntax-transformer ", port);
   scm_iprin1 (scm_macro_name (macro), port, pstate);
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
 
   return 1;
 }

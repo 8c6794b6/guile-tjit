@@ -92,7 +92,7 @@ promise_print (SCM exp, SCM port, scm_print_state *pstate)
   SCM_SET_WRITINGP (pstate, 1);
   scm_iprin1 (SCM_PROMISE_DATA (exp), port, pstate);
   SCM_SET_WRITINGP (pstate, writingp);
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
   return !0;
 }
 

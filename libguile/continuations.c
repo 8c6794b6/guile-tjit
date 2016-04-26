@@ -96,7 +96,7 @@ continuation_print (SCM obj, SCM port, scm_print_state *state SCM_UNUSED)
   scm_intprint (continuation->num_stack_items, 10, port);
   scm_puts_unlocked (" @ ", port);
   scm_uintprint (SCM_SMOB_DATA_1 (obj), 16, port);
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
   return 1;
 }
 

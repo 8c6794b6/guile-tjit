@@ -93,7 +93,7 @@ arbiter_print (SCM exp, SCM port, scm_print_state *pstate)
   if (SCM_ARB_LOCKED (exp))
     scm_puts_unlocked ("locked ", port);
   scm_iprin1 (SCM_PACK (SCM_SMOB_DATA (exp)), port, pstate);
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
   return !0;
 }
 

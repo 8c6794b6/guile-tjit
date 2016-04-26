@@ -556,7 +556,7 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 	scm_display (name, port);
       else
 	scm_puts_unlocked (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
-      scm_putc_unlocked (' ', port);
+      scm_putc (' ', port);
       fdes = (SCM_FSTREAM (exp))->fdes;
 
 #if (defined HAVE_TTYNAME) && (defined HAVE_POSIX)
@@ -569,10 +569,10 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
   else
     {
       scm_puts_unlocked (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
-      scm_putc_unlocked (' ', port);
+      scm_putc (' ', port);
       scm_uintprint ((scm_t_bits) SCM_PTAB_ENTRY (exp), 16, port);
     }
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
   return 1;
 }
 

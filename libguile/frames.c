@@ -49,7 +49,7 @@ scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
 
       if (scm_is_true (name))
         {
-          scm_putc_unlocked (' ', port);
+          scm_putc (' ', port);
           scm_write (name, port);
         }
     }

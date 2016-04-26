@@ -108,7 +108,7 @@ srcprops_print (SCM obj, SCM port, scm_print_state *pstate)
   SCM_SET_WRITINGP (pstate, 1);
   scm_iprin1 (scm_srcprops_to_alist (obj), port, pstate);
   SCM_SET_WRITINGP (pstate, writingp);
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
   return 1;
 }
 

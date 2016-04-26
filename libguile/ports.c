@@ -2479,11 +2479,8 @@ SCM_DEFINE (scm_port_write_buffer, "port-write-buffer", 1, 0, 0,
 void
 scm_putc (char c, SCM port)
 {
-  scm_i_pthread_mutex_t *lock;
-  scm_c_lock_port (port, &lock);
-  scm_putc_unlocked (c, port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
+  SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
+  scm_lfwrite_unlocked (&c, 1, port);
 }
 
 void
@@ -3023,9 +3020,9 @@ scm_port_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
   scm_puts_unlocked ("#<", port);
   scm_print_port_mode (exp, port);
   scm_puts_unlocked (type, port);
-  scm_putc_unlocked (' ', port);
+  scm_putc (' ', port);
   scm_uintprint (SCM_CELL_WORD_1 (exp), 16, port);
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
   return 1;
 }
 

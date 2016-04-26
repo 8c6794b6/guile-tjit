@@ -62,7 +62,7 @@ scm_i_print_bitvector (SCM vec, SCM port, scm_print_state *pstate)
     {
       scm_t_uint32 mask = 1;
       for (j = 0; j < 32 && j < bit_len; j++, mask <<= 1)
-	scm_putc_unlocked ((bits[i] & mask)? '1' : '0', port);
+	scm_putc ((bits[i] & mask)? '1' : '0', port);
     }
     
   return 1;

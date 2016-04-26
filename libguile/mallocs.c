@@ -44,9 +44,9 @@ scm_t_bits scm_tc16_malloc;
 static int
 malloc_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts_unlocked("#<malloc ", port);
+  scm_puts_unlocked ("#<malloc ", port);
   scm_uintprint (SCM_SMOB_DATA (exp), 16, port);
-  scm_putc_unlocked('>', port);
+  scm_putc ('>', port);
   return 1;
 }
 

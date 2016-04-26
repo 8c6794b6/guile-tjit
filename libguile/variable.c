@@ -40,7 +40,7 @@ scm_i_variable_print (SCM exp, SCM port, scm_print_state *pstate)
   scm_uintprint (SCM_UNPACK (exp), 16, port);
   scm_puts_unlocked (" value: ", port);
   scm_iprin1 (SCM_VARIABLE_REF (exp), port, pstate);
-  scm_putc_unlocked('>', port);
+  scm_putc ('>', port);
 }
 
 

@@ -136,20 +136,20 @@ hook_print (SCM hook, SCM port, scm_print_state *pstate)
   SCM ls, name;
   scm_puts_unlocked ("#<hook ", port);
   scm_intprint (SCM_HOOK_ARITY (hook), 10, port);
-  scm_putc_unlocked (' ', port);
+  scm_putc (' ', port);
   scm_uintprint (SCM_UNPACK (hook), 16, port);
   ls = SCM_HOOK_PROCEDURES (hook);
   while (scm_is_pair (ls))
     {
-      scm_putc_unlocked (' ', port);
+      scm_putc (' ', port);
       name = scm_procedure_name (SCM_CAR (ls));
       if (scm_is_true (name))
 	scm_iprin1 (name, port, pstate);
       else
-	scm_putc_unlocked ('?', port);
+	scm_putc ('?', port);
       ls = SCM_CDR (ls);
     }
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
   return 1;
 }
 

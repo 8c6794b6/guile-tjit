@@ -166,7 +166,7 @@ do								\
     {								\
       if (pstate->top - pstate->list_offset >= pstate->level)	\
 	{							\
-	  scm_putc_unlocked ('#', port);					\
+	  scm_putc ('#', port);					\
 	  return;						\
 	}							\
     }								\
@@ -310,9 +310,9 @@ print_circref (SCM port, scm_print_state *pstate, SCM ref)
   for (i = pstate->top - 1; 1; --i)
     if (scm_is_eq (PSTATE_STACK_REF(pstate, i), ref))
       break;
-  scm_putc_unlocked ('#', port);
+  scm_putc ('#', port);
   scm_intprint (i - self, 10, port);
-  scm_putc_unlocked ('#', port);
+  scm_putc ('#', port);
 }
 
 /* Print the name of a symbol. */
@@ -473,7 +473,7 @@ print_extended_symbol (SCM sym, SCM port)
         {
           scm_lfwrite_unlocked ("\\x", 2, port);
           scm_intprint (c, 16, port);
-          scm_putc_unlocked (';', port);
+          scm_putc (';', port);
         }
     }
 
@@ -489,7 +489,7 @@ print_r7rs_extended_symbol (SCM sym, SCM port)
   len = scm_i_symbol_length (sym);
   strategy = PORT_CONVERSION_HANDLER (port);
 
-  scm_putc_unlocked ('|', port);
+  scm_putc ('|', port);
 
   for (pos = 0; pos < len; pos++)
     {
@@ -522,13 +522,13 @@ print_r7rs_extended_symbol (SCM sym, SCM port)
             {
               scm_lfwrite_unlocked ("\\x", 2, port);
               scm_intprint (c, 16, port);
-              scm_putc_unlocked (';', port);
+              scm_putc (';', port);
             }
           break;
         }
     }
 
-  scm_putc_unlocked ('|', port);
+  scm_putc ('|', port);
 }
 
 /* FIXME: allow R6RS hex escapes instead of #{...}# or |...|.  */
@@ -602,7 +602,7 @@ print_vector_or_weak_vector (SCM v, size_t len, SCM (*ref) (SCM, size_t),
   for (i = 0; i < last; ++i)
     {
       scm_iprin1 (ref (v, i), port, pstate);
-      scm_putc_unlocked (' ', port);
+      scm_putc (' ', port);
     }
   if (i == last)
     {
@@ -611,7 +611,7 @@ print_vector_or_weak_vector (SCM v, size_t len, SCM (*ref) (SCM, size_t),
     }
   if (cutp)
     scm_puts_unlocked (" ...", port);
-  scm_putc_unlocked (')', port);
+  scm_putc (')', port);
 }
 
 static void
@@ -744,9 +744,9 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	    {
 	      scm_puts_unlocked ("#<uninterned-symbol ", port);
 	      print_symbol (exp, port);
-	      scm_putc_unlocked (' ', port);
+	      scm_putc (' ', port);
 	      scm_uintprint (SCM_UNPACK (exp), 16, port);
-	      scm_putc_unlocked ('>', port);
+	      scm_putc ('>', port);
 	    }
 	  break;
 	case scm_tc7_variable:
@@ -1404,7 +1404,7 @@ scm_ipruk (char *hdr, SCM ptr, SCM port)
     }
   scm_puts_unlocked (" 0x", port);
   scm_uintprint (SCM_UNPACK (ptr), 16, port);
-  scm_putc_unlocked ('>', port);
+  scm_putc ('>', port);
 }
 
 
@@ -1445,7 +1445,7 @@ scm_iprlist (char *hdr, SCM exp, int tlr, SCM port, scm_print_state *pstate)
 	if (scm_is_eq (PSTATE_STACK_REF(pstate, i), exp))
 	  goto circref;
       PUSH_REF (pstate, exp);
-      scm_putc_unlocked (' ', port);
+      scm_putc (' ', port);
       /* CHECK_INTS; */
       scm_iprin1 (SCM_CAR (exp), port, pstate);
     }
@@ -1456,7 +1456,7 @@ scm_iprlist (char *hdr, SCM exp, int tlr, SCM port, scm_print_state *pstate)
     }
 
 end:
-  scm_putc_unlocked (tlr, port);
+  scm_putc (tlr, port);
   pstate->top = floor + 2;
   return;
   
@@ -1485,7 +1485,7 @@ fancy_printing:
 	  }
 	PUSH_REF(pstate, exp);
 	++pstate->list_offset;
-	scm_putc_unlocked (' ', port);
+	scm_putc (' ', port);
 	/* CHECK_INTS; */
 	scm_iprin1 (SCM_CAR (exp), port, pstate);
       }
@@ -1665,7 +1665,7 @@ SCM_DEFINE (scm_newline, "newline", 0, 1, 0,
 
   SCM_VALIDATE_OPORT_VALUE (1, port);
 
-  scm_putc_unlocked ('\n', SCM_COERCE_OUTPORT (port));
+  scm_putc ('\n', SCM_COERCE_OUTPORT (port));
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME

@@ -558,7 +558,7 @@ SCM_DEFINE (scm_put_u8, "put-u8", 2, 0, 0,
   SCM_VALIDATE_BINARY_OUTPUT_PORT (1, port);
   c_octet = scm_to_uint8 (octet);
 
-  scm_putc_unlocked ((char) c_octet, port);
+  scm_putc ((char) c_octet, port);
 
   return SCM_UNSPECIFIED;
 }
