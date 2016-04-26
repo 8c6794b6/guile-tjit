@@ -107,7 +107,7 @@ SCM_API SCM scm_tjit_scheme_engine (void);
 SCM_API SCM scm_set_tjit_scheme_engine_x (SCM n);
 
 SCM_API SCM scm_tjit_increment_id_x (void);
-SCM_API SCM scm_tjit_increment_compilation_failure_x (SCM ip);
+SCM_API SCM scm_tjit_increment_compilation_failure_x (SCM ip, SCM inc);
 SCM_API SCM scm_tjit_add_root_ip_x (SCM ip);
 SCM_API SCM scm_tjit_remove_root_ip_x (SCM ip);
 SCM_API SCM scm_make_negative_pointer (SCM amount);

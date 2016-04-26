@@ -134,7 +134,7 @@ SCM_TJIT_PARAM (hot_call, hot-call, 50)
 SCM_TJIT_PARAM (max_record, max-record, 3000)
 
 /* Maximum count of retries for failed compilation. */
-SCM_TJIT_PARAM (max_retries, max-retries, 2)
+SCM_TJIT_PARAM (max_retries, max-retries, 5)
 
 /* Number of recursive procedure calls to unroll. */
 SCM_TJIT_PARAM (num_unrolls, num-unrolls, 2)
@@ -592,12 +592,12 @@ SCM_DEFINE (scm_tjit_increment_id_x, "tjit-increment-id!", 0, 0, 0,
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_tjit_increment_compilation_failure_x,
-            "tjit-increment-compilation-failure!", 1, 0, 0,
-            (SCM ip), "Increment compilation failure.")
+            "tjit-increment-compilation-failure!", 2, 0, 0,
+            (SCM ip, SCM inc), "Increment compilation failure.")
 #define FUNC_NAME s_scm_tjit_increment_compilation_failure_x
 {
   scm_t_uint32 key = SCM_I_INUM (ip);
-  failed_ip_set (key, failed_ip_ref (key) + 1);
+  failed_ip_set (key, failed_ip_ref (key) + SCM_I_INUM (inc));
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME

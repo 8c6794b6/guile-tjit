@@ -47,7 +47,7 @@
                             (env-entry-ip env)))
               (dest-ip (+ ip (* 4 jump))))
          (unless (= entry-ip dest-ip)
-           (retrace "trace not looping")))))))
+           (break 1 "trace not looping")))))))
 
 (define-syntax define-br-unary
   (syntax-rules ()

@@ -132,7 +132,7 @@
           (dump-sline-and-bytecode #t))
         (cond
          ((not implemented?)
-          (tjit-increment-compilation-failure! entry-ip))
+          (tjit-increment-compilation-failure! entry-ip 3))
          (uprec?
           (nyi "up recursion"))
          (downrec?
@@ -142,7 +142,7 @@
          ((and (not parent-snapshot) (not (zero? (env-last-sp-offset env))))
           (nyi "root trace with stack pointer shift"))
          ((and parent-snapshot (not (env-linked-fragment env)))
-          (nyi "side trace with type mismatched link"))
+          (break 2 "side trace with type mismatched link"))
          ((too-many-side-traces-starting-with-call? traces)
           (let* ((origin (get-origin-fragment (env-parent-fragment env)))
                  (origin-id (fragment-id origin))

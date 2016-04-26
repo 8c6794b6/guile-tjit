@@ -35,7 +35,7 @@
   #:export (tjitc-errors
             call-with-tjitc-error-handler
             with-tjitc-error-handler
-            failure retrace recompile nyi))
+            nyi break recompile failure))
 
 ;;;
 ;;; Handler
@@ -53,21 +53,21 @@
 (define (call-with-tjitc-error-handler ip thunk)
   (call-with-prompt *tjitc-error-prompt-tag*
     thunk
-    (lambda (k kind name fmt . args)
+    (lambda (k kind meta fmt . args)
       (case kind
         ((nyi)
          (debug 1 "NYI: ~a~%" (apply format #f fmt args))
-         (tjit-increment-compilation-failure! ip))
-        ((retrace)
-         (debug 1 "RETRACE: ~a~%" (apply format #f fmt args))
-         (tjit-increment-compilation-failure! ip))
+         (tjit-increment-compilation-failure! ip 3))
+        ((break)
+         (debug 1 "BREAK: ~a~%" (apply format #f fmt args))
+         (tjit-increment-compilation-failure! ip meta))
         ((recompile)
          (debug 1 "RECOMPILE: ~a~%" (apply format #f fmt args)))
         ((failure)
          (let ((msg (apply format #f fmt args)))
-           (debug 0 "~a: ~a ~a~%" (red "FAILURE") name msg)
-           (tjit-increment-compilation-failure! ip)
-           (hashq-set! (tjitc-errors) ip (cons name msg))))))))
+           (debug 0 "~a: ~a ~a~%" (red "FAILURE") meta msg)
+           (tjit-increment-compilation-failure! ip 5)
+           (hashq-set! (tjitc-errors) ip (cons meta msg))))))))
 
 (define-syntax with-tjitc-error-handler
   (syntax-rules ()
@@ -83,14 +83,14 @@
 (define-syntax-rule (make-tjitc-error kind name fmt args)
   (apply abort-to-prompt *tjitc-error-prompt-tag* kind name fmt args))
 
-(define (failure name fmt . args)
-  (make-tjitc-error 'failure name fmt args))
+(define (nyi fmt . args)
+  (make-tjitc-error 'nyi #f fmt args))
 
-(define (retrace fmt . args)
-  (make-tjitc-error 'retrace #f fmt args))
+(define (break increment fmt . args)
+  (make-tjitc-error 'break increment fmt args))
 
 (define (recompile fmt . args)
   (make-tjitc-error 'recompile #f fmt args))
 
-(define (nyi fmt . args)
-  (make-tjitc-error 'nyi #f fmt args))
+(define (failure name fmt . args)
+  (make-tjitc-error 'failure name fmt args))

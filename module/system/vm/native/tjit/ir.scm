@@ -226,7 +226,7 @@ returns, current call-num, and current return-num."
              (lp calls acc)))
         (()
          (when (< (tjit-max-inline-depth) acc)
-           (retrace "too many inlined procedures"))
+           (break 5 "too many inlined procedures"))
          (+ acc (env-inline-depth env)))))))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
@@ -291,7 +291,7 @@ returns, current call-num, and current return-num."
        (lambda ()
          (when (and (not (env-parent-snapshot env))
                     (< 0 (current-fp-offset)))
-           (nyi "root trace with up-frame load"))
+           (break 3 "root trace with up-frame load"))
          (load-up-frame))))))
 
 (define-syntax-rule (with-frame-ref var type idx next . args)

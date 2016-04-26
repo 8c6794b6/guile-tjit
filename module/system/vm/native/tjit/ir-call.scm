@@ -124,7 +124,7 @@
                      (else
                       (env-entry-ip env)))))
       (when (not (= entry-ip next-ip))
-        (retrace "last ~s to non-entry IP" message)))))
+        (break 1 "last ~s to non-entry IP" message)))))
 
 (define-syntax-rule (with-callee-guard proc flag var thunk)
   ;; Add guard to test the procedure value, to bailout when callee has been

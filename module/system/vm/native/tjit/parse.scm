@@ -105,10 +105,13 @@ After successufl parse, this procedure will update fields in ENV."
     ;; before `call', snapshot will recover a frame higher than the one used to
     ;; enter the native call.
     ;;
-    (define-syntax-rule (nyi)
-      (begin
-        (debug 1 "NYI: ~a~%" (car op))
-        #f))
+    (define %nyi
+      (let ((verbosity (lightning-verbosity)))
+        (if (and (number? verbosity) (<= 1 verbosity))
+            (lambda ()
+              (debug 1 "NYI: ~a~%" (car op))
+              #f)
+            nyi)))
     (debug 2 ";;; [parse] call=~a return=~a op=~a~%"
            (env-call-num env) (env-return-num env) op)
     (match (hashq-ref *scan-procedures* (car op))
@@ -119,8 +122,8 @@ After successufl parse, this procedure will update fields in ENV."
             (if (apply test (list op locals))
                 (apply work env ip dl locals (cdr op))
                 (lp procs)))
-           (_ (nyi)))))
-      (_ (nyi))))
+           (_ (%nyi)))))
+      (_ (%nyi))))
   (define (go)
     (let lp ((acc '()) (offset 0) (traces (reverse! traces))
              (so-far-so-good? #t))
