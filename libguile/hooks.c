@@ -134,7 +134,7 @@ static int
 hook_print (SCM hook, SCM port, scm_print_state *pstate)
 {
   SCM ls, name;
-  scm_puts_unlocked ("#<hook ", port);
+  scm_puts ("#<hook ", port);
   scm_intprint (SCM_HOOK_ARITY (hook), 10, port);
   scm_putc (' ', port);
   scm_uintprint (SCM_UNPACK (hook), 16, port);

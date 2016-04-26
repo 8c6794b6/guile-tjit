@@ -86,16 +86,16 @@ guardian_print (SCM guardian, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   t_guardian *g = GUARDIAN_DATA (guardian);
   
-  scm_puts_unlocked ("#<guardian ", port);
+  scm_puts ("#<guardian ", port);
   scm_uintprint ((scm_t_bits) g, 16, port);
 
-  scm_puts_unlocked (" (reachable: ", port);
+  scm_puts (" (reachable: ", port);
   scm_display (scm_from_uint (g->live), port);
-  scm_puts_unlocked (" unreachable: ", port);
+  scm_puts (" unreachable: ", port);
   scm_display (scm_length (g->zombies), port);
-  scm_puts_unlocked (")", port);
+  scm_puts (")", port);
 
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
 
   return 1;
 }

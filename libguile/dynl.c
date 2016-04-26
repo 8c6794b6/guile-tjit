@@ -229,10 +229,10 @@ scm_t_bits scm_tc16_dynamic_obj;
 static int
 dynl_obj_print (SCM exp, SCM port, scm_print_state *pstate)
 {
-  scm_puts_unlocked ("#<dynamic-object ", port);
+  scm_puts ("#<dynamic-object ", port);
   scm_iprin1 (DYNL_FILENAME (exp), port, pstate);
   if (DYNL_HANDLE (exp) == NULL)
-    scm_puts_unlocked (" (unlinked)", port);
+    scm_puts (" (unlinked)", port);
   scm_putc ('>', port);
   return 1;
 }

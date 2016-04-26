@@ -325,7 +325,6 @@ SCM_INTERNAL SCM scm_port_write_buffer (SCM port);
 /* Output.  */
 SCM_API void scm_putc (char c, SCM port);
 SCM_API void scm_puts (const char *str_data, SCM port);
-SCM_INLINE void scm_puts_unlocked (const char *str_data, SCM port);
 SCM_API void scm_c_write (SCM port, const void *buffer, size_t size);
 SCM_API void scm_c_write_unlocked (SCM port, const void *buffer, size_t size);
 SCM_API void scm_c_write_bytes (SCM port, SCM src, size_t start, size_t count);
@@ -393,13 +392,6 @@ scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
     }
   else
     return 0;
-}
-
-SCM_INLINE_IMPLEMENTATION void
-scm_puts_unlocked (const char *s, SCM port)
-{
-  SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
-  scm_lfwrite_unlocked (s, strlen (s), port);
 }
 #endif  /* SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES */
 

@@ -313,7 +313,7 @@ SCM_DEFINE (scm_set_pointer_finalizer_x, "set-pointer-finalizer!", 2, 0, 0,
 void
 scm_i_pointer_print (SCM pointer, SCM port, scm_print_state *pstate)
 {
-  scm_puts_unlocked ("#<pointer 0x", port);
+  scm_puts ("#<pointer 0x", port);
   scm_uintprint (scm_to_uintptr_t (scm_pointer_address (pointer)), 16, port);
   scm_putc ('>', port);
 }

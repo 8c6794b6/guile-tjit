@@ -103,20 +103,20 @@ scm_i_program_print (SCM program, SCM port, scm_print_state *pstate)
   if (SCM_PROGRAM_IS_CONTINUATION (program))
     {
       /* twingliness */
-      scm_puts_unlocked ("#<continuation ", port);
+      scm_puts ("#<continuation ", port);
       scm_uintprint (SCM_UNPACK (program), 16, port);
       scm_putc ('>', port);
     }
   else if (SCM_PROGRAM_IS_PARTIAL_CONTINUATION (program))
     {
       /* twingliness */
-      scm_puts_unlocked ("#<partial-continuation ", port);
+      scm_puts ("#<partial-continuation ", port);
       scm_uintprint (SCM_UNPACK (program), 16, port);
       scm_putc ('>', port);
     }
   else if (scm_is_false (write_program) || print_error)
     {
-      scm_puts_unlocked ("#<program ", port);
+      scm_puts ("#<program ", port);
       scm_uintprint (SCM_UNPACK (program), 16, port);
       scm_putc (' ', port);
       scm_uintprint ((scm_t_uintptr) SCM_PROGRAM_CODE (program), 16, port);

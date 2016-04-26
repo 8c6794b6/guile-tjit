@@ -264,11 +264,11 @@ thread_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
   else
     id = u.um;
 
-  scm_puts_unlocked ("#<thread ", port);
+  scm_puts ("#<thread ", port);
   scm_uintprint (id, 10, port);
-  scm_puts_unlocked (" (", port);
+  scm_puts (" (", port);
   scm_uintprint ((scm_t_bits)t, 16, port);
-  scm_puts_unlocked (")>", port);
+  scm_puts (")>", port);
   return 1;
 }
 
@@ -1197,9 +1197,9 @@ static int
 fat_mutex_print (SCM mx, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   fat_mutex *m = SCM_MUTEX_DATA (mx);
-  scm_puts_unlocked ("#<mutex ", port);
+  scm_puts ("#<mutex ", port);
   scm_uintprint ((scm_t_bits)m, 16, port);
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
   return 1;
 }
 
@@ -1658,9 +1658,9 @@ static int
 fat_cond_print (SCM cv, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   fat_cond *c = SCM_CONDVAR_DATA (cv);
-  scm_puts_unlocked ("#<condition-variable ", port);
+  scm_puts ("#<condition-variable ", port);
   scm_uintprint ((scm_t_bits)c, 16, port);
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
   return 1;
 }
 

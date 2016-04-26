@@ -89,9 +89,9 @@ static scm_t_bits scm_tc16_arbiter;
 static int 
 arbiter_print (SCM exp, SCM port, scm_print_state *pstate)
 {
-  scm_puts_unlocked ("#<arbiter ", port);
+  scm_puts ("#<arbiter ", port);
   if (SCM_ARB_LOCKED (exp))
-    scm_puts_unlocked ("locked ", port);
+    scm_puts ("locked ", port);
   scm_iprin1 (SCM_PACK (SCM_SMOB_DATA (exp)), port, pstate);
   scm_putc ('>', port);
   return !0;

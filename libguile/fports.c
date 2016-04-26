@@ -546,7 +546,7 @@ SCM_DEFINE (scm_adjust_port_revealed_x, "adjust-port-revealed!", 2, 0, 0,
 static int 
 fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts_unlocked ("#<", port);
+  scm_puts ("#<", port);
   scm_print_port_mode (exp, port);    
   if (SCM_OPFPORTP (exp))
     {
@@ -555,7 +555,7 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
       if (scm_is_string (name) || scm_is_symbol (name))
 	scm_display (name, port);
       else
-	scm_puts_unlocked (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
+	scm_puts (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
       scm_putc (' ', port);
       fdes = (SCM_FSTREAM (exp))->fdes;
 
@@ -568,7 +568,7 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
     }
   else
     {
-      scm_puts_unlocked (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
+      scm_puts (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
       scm_putc (' ', port);
       scm_uintprint ((scm_t_bits) SCM_PTAB_ENTRY (exp), 16, port);
     }

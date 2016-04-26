@@ -57,7 +57,7 @@ scm_i_print_bitvector (SCM vec, SCM port, scm_print_state *pstate)
   scm_t_uint32 *bits = BITVECTOR_BITS (vec);
   size_t i, j;
 
-  scm_puts_unlocked ("#*", port);
+  scm_puts ("#*", port);
   for (i = 0; i < word_len; i++, bit_len -= 32)
     {
       scm_t_uint32 mask = 1;

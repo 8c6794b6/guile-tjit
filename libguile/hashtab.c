@@ -168,14 +168,14 @@ scm_i_rehash (SCM table,
 void
 scm_i_hashtable_print (SCM exp, SCM port, scm_print_state *pstate)
 {
-  scm_puts_unlocked ("#<hash-table ", port);
+  scm_puts ("#<hash-table ", port);
   scm_uintprint (SCM_UNPACK (exp), 16, port);
   scm_putc (' ', port);
   scm_uintprint (SCM_HASHTABLE_N_ITEMS (exp), 10, port);
   scm_putc ('/', port);
   scm_uintprint (SCM_SIMPLE_VECTOR_LENGTH (SCM_HASHTABLE_VECTOR (exp)),
 		 10, port);
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
 }
 
 

@@ -58,11 +58,11 @@ scm_stack_report ()
   scm_uintprint ((scm_stack_size (thread->continuation_base) 
 		  * sizeof (SCM_STACKITEM)),
 		 16, port);
-  scm_puts_unlocked (" of stack: 0x", port);
+  scm_puts (" of stack: 0x", port);
   scm_uintprint ((scm_t_bits) thread->continuation_base, 16, port);
-  scm_puts_unlocked (" - 0x", port);
+  scm_puts (" - 0x", port);
   scm_uintprint ((scm_t_bits) &stack, 16, port);
-  scm_puts_unlocked ("\n", port);
+  scm_puts ("\n", port);
 }
 
 

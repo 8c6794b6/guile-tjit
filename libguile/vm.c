@@ -106,9 +106,9 @@ vm_restore_sp (struct scm_vm *vp, union scm_vm_stack_element *new_sp)
 void
 scm_i_vm_cont_print (SCM x, SCM port, scm_print_state *pstate)
 {
-  scm_puts_unlocked ("#<vm-continuation ", port);
+  scm_puts ("#<vm-continuation ", port);
   scm_uintprint (SCM_UNPACK (x), 16, port);
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
 }
 
 int

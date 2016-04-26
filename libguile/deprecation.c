@@ -83,7 +83,7 @@ scm_c_issue_deprecation_warning (const char *msg)
             fprintf (stderr, "%s\n", msg);
           else
             {
-              scm_puts_unlocked (msg, scm_current_warning_port ());
+              scm_puts (msg, scm_current_warning_port ());
               scm_newline (scm_current_warning_port ());
             }
         }

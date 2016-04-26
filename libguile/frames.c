@@ -41,7 +41,7 @@ scm_c_make_frame (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
 void
 scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
 {
-  scm_puts_unlocked ("#<frame ", port);
+  scm_puts ("#<frame ", port);
   scm_uintprint (SCM_UNPACK (frame), 16, port);
   if (scm_module_system_booted_p)
     {
@@ -54,7 +54,7 @@ scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
         }
     }
   /* Don't write args, they can be ridiculously long. */
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
 }
 
 static union scm_vm_stack_element*

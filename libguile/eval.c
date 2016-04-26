@@ -920,7 +920,7 @@ static int
 boot_closure_print (SCM closure, SCM port, scm_print_state *pstate)
 {
   SCM args;
-  scm_puts_unlocked ("#<boot-closure ", port);
+  scm_puts ("#<boot-closure ", port);
   scm_uintprint (SCM_UNPACK (closure), 16, port);
   scm_putc (' ', port);
   args = scm_make_list (scm_from_int (BOOT_CLOSURE_NUM_REQUIRED_ARGS (closure)),

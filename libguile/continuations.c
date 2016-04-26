@@ -92,9 +92,9 @@ continuation_print (SCM obj, SCM port, scm_print_state *state SCM_UNUSED)
 {
   scm_t_contregs *continuation = SCM_CONTREGS (obj);
 
-  scm_puts_unlocked ("#<continuation ", port);
+  scm_puts ("#<continuation ", port);
   scm_intprint (continuation->num_stack_items, 10, port);
-  scm_puts_unlocked (" @ ", port);
+  scm_puts (" @ ", port);
   scm_uintprint (SCM_SMOB_DATA_1 (obj), 16, port);
   scm_putc ('>', port);
   return 1;
@@ -404,7 +404,7 @@ print_exception_and_backtrace (SCM port, SCM tag, SCM args)
 
   if (should_print_backtrace (tag, stack))
     {
-      scm_puts_unlocked ("Backtrace:\n", port);
+      scm_puts ("Backtrace:\n", port);
       scm_display_backtrace_with_highlights (stack, port,
                                              SCM_BOOL_F, SCM_BOOL_F,
                                              SCM_EOL);

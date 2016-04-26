@@ -58,9 +58,9 @@ static SCM
 boot_print_exception (SCM port, SCM frame, SCM key, SCM args)
 #define FUNC_NAME "boot-print-exception"
 {
-  scm_puts_unlocked ("Throw to key ", port);
+  scm_puts ("Throw to key ", port);
   scm_write (key, port);
-  scm_puts_unlocked (" with args ", port);
+  scm_puts (" with args ", port);
   scm_write (args, port);
   return SCM_UNSPECIFIED;
 }
@@ -253,7 +253,7 @@ error_during_backtrace (void *data, SCM tag, SCM throw_args)
 {
   SCM port = SCM_PACK_POINTER (data);
   
-  scm_puts_unlocked ("Exception thrown while printing backtrace:\n", port);
+  scm_puts ("Exception thrown while printing backtrace:\n", port);
   scm_print_exception (port, SCM_BOOL_F, tag, throw_args);
 
   return SCM_UNSPECIFIED;
@@ -311,7 +311,7 @@ SCM_DEFINE (scm_backtrace_with_highlights, "backtrace", 0, 1, 0,
     highlights = SCM_EOL;
 
   scm_newline (port);
-  scm_puts_unlocked ("Backtrace:\n", port);
+  scm_puts ("Backtrace:\n", port);
   scm_display_backtrace_with_highlights (stack, port, SCM_BOOL_F, SCM_BOOL_F,
                                          highlights);
   scm_newline (port);

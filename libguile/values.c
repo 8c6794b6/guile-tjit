@@ -60,9 +60,9 @@ print_values (SCM obj, SCM pwps)
   SCM port = SCM_PORT_WITH_PS_PORT (pwps);
   scm_print_state *ps = SCM_PRINT_STATE (SCM_PORT_WITH_PS_PS (pwps));
 
-  scm_puts_unlocked ("#<values ", port);
+  scm_puts ("#<values ", port);
   scm_iprin1 (values, port, ps);
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
 
   return SCM_UNSPECIFIED;
 }

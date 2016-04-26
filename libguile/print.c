@@ -566,7 +566,7 @@ static void iprin1 (SCM exp, SCM port, scm_print_state *pstate);
         scm_intprint (i, 8, port);              \
       else                                      \
         {                                       \
-          scm_puts_unlocked ("x", port);                 \
+          scm_puts ("x", port);                 \
           scm_intprint (i, 16, port);           \
         }                                       \
     }                                           \
@@ -610,7 +610,7 @@ print_vector_or_weak_vector (SCM v, size_t len, SCM (*ref) (SCM, size_t),
       scm_iprin1 (ref (v, i), port, pstate);
     }
   if (cutp)
-    scm_puts_unlocked (" ...", port);
+    scm_puts (" ...", port);
   scm_putc (')', port);
 }
 
@@ -648,7 +648,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
       else if (SCM_IFLAGP (exp)
 	       && ((size_t) SCM_IFLAGNUM (exp) < (sizeof iflagnames / sizeof (char *))))
         {
-          scm_puts_unlocked (iflagnames [SCM_IFLAGNUM (exp)], port);
+          scm_puts (iflagnames [SCM_IFLAGNUM (exp)], port);
         }
       else
 	{
@@ -742,7 +742,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	    }
 	  else
 	    {
-	      scm_puts_unlocked ("#<uninterned-symbol ", port);
+	      scm_puts ("#<uninterned-symbol ", port);
 	      print_symbol (exp, port);
 	      scm_putc (' ', port);
 	      scm_uintprint (SCM_UNPACK (exp), 16, port);
@@ -777,7 +777,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	  scm_i_frame_print (exp, port, pstate);
 	  break;
         case scm_tc7_keyword:
-          scm_puts_unlocked ("#:", port);
+          scm_puts ("#:", port);
           scm_iprin1 (scm_keyword_to_symbol (exp), port, pstate);
           break;
 	case scm_tc7_vm_cont:
@@ -796,14 +796,14 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	  break;
 	case scm_tc7_wvect:
 	  ENTER_NESTED_DATA (pstate, exp, circref);
-          scm_puts_unlocked ("#w(", port);
+          scm_puts ("#w(", port);
           print_vector_or_weak_vector (exp, scm_c_weak_vector_length (exp),
                                        scm_c_weak_vector_ref, port, pstate);
 	  EXIT_NESTED_DATA (pstate);
 	  break;
 	case scm_tc7_vector:
 	  ENTER_NESTED_DATA (pstate, exp, circref);
-	  scm_puts_unlocked ("#(", port);
+	  scm_puts ("#(", port);
           print_vector_or_weak_vector (exp, SCM_SIMPLE_VECTOR_LENGTH (exp),
                                        scm_c_vector_ref, port, pstate);
 	  EXIT_NESTED_DATA (pstate);
@@ -1282,7 +1282,7 @@ write_character_escaped (scm_t_wchar ch, int string_escapes_p, SCM port)
 
       name = scm_i_charname (SCM_MAKE_CHAR (ch));
       if (name != NULL)
-	scm_puts_unlocked (name, port);
+	scm_puts (name, port);
       else
 	PRINT_CHAR_ESCAPE (ch, port);
     }
@@ -1392,17 +1392,17 @@ scm_uintprint (scm_t_uintmax n, int radix, SCM port)
 void 
 scm_ipruk (char *hdr, SCM ptr, SCM port)
 {
-  scm_puts_unlocked ("#<unknown-", port);
-  scm_puts_unlocked (hdr, port);
+  scm_puts ("#<unknown-", port);
+  scm_puts (hdr, port);
   if (1) /* (scm_in_heap_p (ptr)) */ /* FIXME */
     {
-      scm_puts_unlocked (" (0x", port);
+      scm_puts (" (0x", port);
       scm_uintprint (SCM_CELL_WORD_0 (ptr), 16, port);
-      scm_puts_unlocked (" . 0x", port);
+      scm_puts (" . 0x", port);
       scm_uintprint (SCM_CELL_WORD_1 (ptr), 16, port);
-      scm_puts_unlocked (") @", port);
+      scm_puts (") @", port);
     }
-  scm_puts_unlocked (" 0x", port);
+  scm_puts (" 0x", port);
   scm_uintprint (SCM_UNPACK (ptr), 16, port);
   scm_putc ('>', port);
 }
@@ -1415,7 +1415,7 @@ scm_iprlist (char *hdr, SCM exp, int tlr, SCM port, scm_print_state *pstate)
 {
   register SCM hare, tortoise;
   long floor = pstate->top - 2;
-  scm_puts_unlocked (hdr, port);
+  scm_puts (hdr, port);
   /* CHECK_INTS; */
   if (pstate->fancyp)
     goto fancy_printing;
@@ -1451,7 +1451,7 @@ scm_iprlist (char *hdr, SCM exp, int tlr, SCM port, scm_print_state *pstate)
     }
   if (!SCM_NULL_OR_NIL_P (exp))
     {
-      scm_puts_unlocked (" . ", port);
+      scm_puts (" . ", port);
       scm_iprin1 (exp, port, pstate);
     }
 
@@ -1477,7 +1477,7 @@ fancy_printing:
 	  {
 	    if (n == 0)
 	      {
-		scm_puts_unlocked (" ...", port);
+		scm_puts (" ...", port);
 		goto skip_tail;
 	      }
 	    else
@@ -1492,7 +1492,7 @@ fancy_printing:
   }
   if (!SCM_NULL_OR_NIL_P (exp))
     {
-      scm_puts_unlocked (" . ", port);
+      scm_puts (" . ", port);
       scm_iprin1 (exp, port, pstate);
     }
 skip_tail:
@@ -1503,7 +1503,7 @@ fancy_circref:
   pstate->list_offset -= pstate->top - floor - 2;
   
 circref:
-  scm_puts_unlocked (" . ", port);
+  scm_puts (" . ", port);
   print_circref (port, pstate, exp);
   goto end;
 }

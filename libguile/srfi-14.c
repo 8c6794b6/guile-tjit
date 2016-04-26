@@ -597,27 +597,27 @@ charset_print (SCM charset, SCM port, scm_print_state *pstate SCM_UNUSED)
 
   p = SCM_CHARSET_DATA (charset);
 
-  scm_puts_unlocked ("#<charset {", port);
+  scm_puts ("#<charset {", port);
   for (i = 0; i < p->len; i++)
     {
       if (first)
         first = 0;
       else
-        scm_puts_unlocked (" ", port);
+        scm_puts (" ", port);
       scm_write (SCM_MAKE_CHAR (p->ranges[i].lo), port);
       if (p->ranges[i].lo != p->ranges[i].hi)
         {
-          scm_puts_unlocked ("..", port);
+          scm_puts ("..", port);
           scm_write (SCM_MAKE_CHAR (p->ranges[i].hi), port);
         }
       if (i >= max_ranges_to_print)
         {
           /* Too many to print here.  Quit early.  */
-          scm_puts_unlocked (" ...", port);
+          scm_puts (" ...", port);
           break;
         }
     }
-  scm_puts_unlocked ("}>", port);
+  scm_puts ("}>", port);
   return 1;
 }
 
@@ -630,16 +630,16 @@ charset_cursor_print (SCM cursor, SCM port,
 
   cur = (scm_t_char_set_cursor *) SCM_SMOB_DATA (cursor);
 
-  scm_puts_unlocked ("#<charset-cursor ", port);
+  scm_puts ("#<charset-cursor ", port);
   if (cur->range == (size_t) (-1))
-    scm_puts_unlocked ("(empty)", port);
+    scm_puts ("(empty)", port);
   else
     {
       scm_write (scm_from_size_t (cur->range), port);
-      scm_puts_unlocked (":", port);
+      scm_puts (":", port);
       scm_write (scm_from_int32 (cur->n), port);
     }
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
   return 1;
 }
 

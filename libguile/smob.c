@@ -105,8 +105,8 @@ int
 scm_smob_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   long n = SCM_SMOBNUM (exp);
-  scm_puts_unlocked ("#<", port);
-  scm_puts_unlocked (SCM_SMOBNAME (n) ? SCM_SMOBNAME (n) : "smob", port);
+  scm_puts ("#<", port);
+  scm_puts (SCM_SMOBNAME (n) ? SCM_SMOBNAME (n) : "smob", port);
   scm_putc (' ', port);
   if (scm_smobs[n].size)
     scm_uintprint (SCM_CELL_WORD_1 (exp), 16, port);

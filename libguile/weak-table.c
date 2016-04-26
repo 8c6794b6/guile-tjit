@@ -790,12 +790,12 @@ make_weak_table (unsigned long k, scm_t_weak_table_kind kind)
 void
 scm_i_weak_table_print (SCM exp, SCM port, scm_print_state *pstate)
 {
-  scm_puts_unlocked ("#<", port);
-  scm_puts_unlocked ("weak-table ", port);
+  scm_puts ("#<", port);
+  scm_puts ("weak-table ", port);
   scm_uintprint (SCM_WEAK_TABLE (exp)->n_items, 10, port);
   scm_putc ('/', port);
   scm_uintprint (SCM_WEAK_TABLE (exp)->size, 10, port);
-  scm_puts_unlocked (">", port);
+  scm_puts (">", port);
 }
 
 static void

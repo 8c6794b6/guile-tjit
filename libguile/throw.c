@@ -527,7 +527,7 @@ handler_message (void *handler_data, SCM tag, SCM args)
 
   if (should_print_backtrace (tag, stack))
     {
-      scm_puts_unlocked ("Backtrace:\n", p);
+      scm_puts ("Backtrace:\n", p);
       scm_display_backtrace_with_highlights (stack, p,
                                              SCM_BOOL_F, SCM_BOOL_F,
                                              SCM_EOL);
