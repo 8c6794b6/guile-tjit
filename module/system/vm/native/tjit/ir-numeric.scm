@@ -508,9 +508,38 @@
 (define-binary-arith-fx-fx rem %rem #t)
 
 ;; XXX: ash
-;; XXX: logand
-;; XXX: logior
+
+(define-syntax-rule (define-binary-bitwise-arith name dst/v a/v b/v exp)
+  (begin
+    (define-nyi-binary-scm-scm name)
+    (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
+      (let* ((dst/v (var-ref dst))
+             (a/v (var-ref a))
+             (b/v (var-ref b))
+             (a/t (type-ref a))
+             (b/t (type-ref b)))
+        (cond
+         ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
+          exp)
+         ((eq? &fixnum a/t)
+          (with-type-guard &fixnum b/v exp))
+         ((eq? &fixnum b/t)
+          (with-type-guard &fixnum a/v exp))
+         (else
+          (with-type-guard &fixnum a/v
+            (with-type-guard &fixnum b/v
+              exp))))))))
+
+(define-binary-bitwise-arith logand dst/v a/v b/v
+  `(let ((,dst/v (%band ,a/v ,b/v)))
+     ,(next)))
+
+(define-binary-bitwise-arith logior dst/v a/v b/v
+  `(let ((,dst/v (%bor ,a/v ,b/v)))
+     ,(next)))
+
 ;; XXX: logxor
+;; XXX: logsub
 
 (define-syntax-rule (with-vector-guard x x/v expr)
   (if (eq? &vector (type-ref x))
@@ -645,9 +674,9 @@
 (define-binary-arith-u64-u64 uadd %add)
 (define-binary-arith-u64-u64 usub %sub)
 (define-binary-arith-u64-u64 umul %mul)
+(define-binary-arith-u64-u64 ulogand %band)
+(define-binary-arith-u64-u64 ulogior %bor)
 
-;; XXX: ulogand
-;; XXX: ulogior
 ;; XXX: ulogsub
 
 ;; XXX: ursh

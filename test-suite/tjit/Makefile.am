@@ -114,6 +114,8 @@ TESTS = \
 	t-free-ref-05.scm \
 	t-guard-01.scm \
 	t-load-f64-01.scm \
+	t-logand-01.scm \
+	t-logior-01.scm \
 	t-make-closure-01.scm \
 	t-make-long-long-immediate-01.scm \
 	t-make-vector-01.scm \
@@ -258,6 +260,8 @@ TESTS = \
 	t-u64-01.scm \
 	t-u64-02.scm \
 	t-uadd-01.scm \
+	t-ulogand-01.scm \
+	t-ulogior-01.scm \
 	t-umul-01.scm \
 	t-usub-01.scm \
 	t-vector-length-01.scm \
