@@ -57,31 +57,26 @@
                 `(let ((,dst/v (%cell ,x/boxed ,y/boxed)))
                    ,(next)))))))))
 
-(define-syntax-rule (with-pair-guard x x/v expr)
-  (if (eq? &pair (type-ref x))
-      expr
-      (with-type-guard &pair x/v expr)))
-
 (define-ir (car (scm! dst) (pair src))
   (let ((src/v (var-ref src)))
-    (with-pair-guard src src/v
+    (with-type-guard &pair src
       `(let ((,(var-ref dst) (%cref ,src/v 0)))
          ,(next)))))
 
 (define-ir (cdr (scm! dst) (pair src))
   (let ((src/v (var-ref src)))
-    (with-pair-guard src src/v
+    (with-type-guard &pair src
       `(let ((,(var-ref dst) (%cref ,src/v 1)))
          ,(next)))))
 
 (define-ir (set-car! (pair dst) (scm src))
   (let ((dst/v (var-ref dst)))
-    (with-pair-guard dst dst/v
+    (with-type-guard &pair dst
       `(let ((_ (%cset ,dst/v 0 ,(var-ref src))))
          ,(next)))))
 
 (define-ir (set-cdr! (pair dst) (scm src))
   (let ((dst/v (var-ref dst)))
-    (with-pair-guard dst dst/v
+    (with-type-guard &pair dst
       `(let ((_ (%cset ,dst/v 1 ,(var-ref src))))
          ,(next)))))

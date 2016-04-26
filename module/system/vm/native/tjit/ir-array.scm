@@ -43,9 +43,10 @@
         (src/v (var-ref src))
         (idx/v (var-ref idx))
         (tmp (make-tmpvar 2)))
-    `(let ((,tmp (%cref ,src/v 2)))
-       (let ((,dst/v (%u8ref ,tmp ,idx/v)))
-         ,(next)))))
+    (with-type-guard &bytevector src
+      `(let ((,tmp (%cref ,src/v 2)))
+        (let ((,dst/v (%u8ref ,tmp ,idx/v)))
+          ,(next))))))
 
 ;; XXX: bv-s8-ref
 ;; XXX: bv-u16-ref
@@ -64,9 +65,10 @@
         (src/v (var-ref src))
         (tmp1 (make-tmpvar 1))
         (tmp2 (make-tmpvar 2)))
-    `(let ((,tmp2 (%cref ,dst/v 2)))
-       (let ((_ (%u8set ,tmp2 ,idx/v ,src/v)))
-         ,(next)))))
+    (with-type-guard &bytevector dst
+      `(let ((,tmp2 (%cref ,dst/v 2)))
+        (let ((_ (%u8set ,tmp2 ,idx/v ,src/v)))
+          ,(next))))))
 
 ;; XXX: bv-s8-set!
 ;; XXX: bv-u16-set!
@@ -81,5 +83,6 @@
 (define-ir (bv-length (u64! dst) (bytevector src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
-    `(let ((,dst/v (%cref ,src/v 1)))
-       ,(next))))
+    (with-type-guard &bytevector src
+      `(let ((,dst/v (%cref ,src/v 1)))
+        ,(next)))))

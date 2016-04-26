@@ -72,7 +72,7 @@
 (define-ir (scm->u64/truncate (u64! dst) (fixnum src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
-    (with-type-guard &fixnum src/v
+    (with-type-guard &fixnum src
       `(let ((,dst/v (%rsh ,src/v 2)))
         ,(next)))))
 

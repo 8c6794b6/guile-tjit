@@ -62,6 +62,7 @@
             type-ref
             with-boxing
             with-type-guard
+            with-type-guard-always
             current-sp-offset
             current-sp-for-ti
             current-fp-offset
@@ -541,8 +542,15 @@ index referenced by dst, a, and b values at runtime."
     (proc var))))
 
 (define-syntax-rule (with-type-guard type src expr)
+  (if (eq? type (type-ref src))
+      expr
+      `(let ((_ ,(take-snapshot! ip 0)))
+         (let ((_ (%typeq ,(var-ref src) ,type)))
+           ,expr))))
+
+(define-syntax-rule (with-type-guard-always type src expr)
   `(let ((_ ,(take-snapshot! ip 0)))
-     (let ((_ (%typeq ,src ,type)))
+     (let ((_ (%typeq ,(var-ref src) ,type)))
        ,expr)))
 
 

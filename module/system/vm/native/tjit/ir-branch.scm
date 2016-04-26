@@ -175,22 +175,35 @@
           (a/t (type-ref a))
           (b/t (type-ref b))
           (op (if test/l '%eq '%ne))
-          (thunk (lambda ()
-                   `(let ((_ ,(take-snapshot! ip dest)))
-                      (let ((_ (,op ,a/v ,b/v)))
-                        ,(next))))))
+          (f1 (make-tmpvar/f 1))
+          (f2 (make-tmpvar/f 2))
+          (emit-next (lambda (x y)
+                       `(let ((_ ,(take-snapshot! ip dest)))
+                          (let ((_ (,op ,x ,y)))
+                            ,(next))))))
      (ensure-loop test/l invert offset 3)
+
+     ;; When inferred type is not flonum, add guard and unbox from SCM value.
      (cond
       ((and (eq? &flonum a/t) (eq? &flonum b/t))
-       (thunk))
-      ((eq? &flonum a/t)
-       (with-type-guard &flonum b/v (thunk)))
-      ((eq? &flonum b/t)
-       (with-type-guard &flonum a/v (thunk)))
+       (emit-next a/v b/v))
+      ((and (eq? &flonum a/t) (eq? &scm b/t))
+       (with-type-guard-always &flonum b
+         `(let ((,f1 (%cref/f ,a/v 2)))
+            ,(emit-next f1 b/v))))
+      ((and (eq? &scm a/t) (eq? &flonum b/t))
+       (with-type-guard-always &flonum a
+         `(let ((,f2 (%cref/f ,b/v 2)))
+            ,(emit-next a/v f2))))
+      ((and (eq? &scm a/t) (eq? &scm b/t))
+       (with-type-guard-always &flonum a
+         (with-type-guard-always &flonum b
+           `(let ((,f1 (%cref/f ,a/v 2)))
+              (let ((,f2 (%cref/f ,b/v 2)))
+                ,(emit-next f1 f2))))))
       (else
-       (with-type-guard &flonum a/v
-         (with-type-guard &flonum b/v
-           (thunk))))))))
+       (nyi "br-if-eqv: et=(flonum flonum) it=(~a ~a)"
+            (pretty-type a/t) (pretty-type b/t)))))))
 
 (define-ir (br-if-logtest (scm a) (scm b) (const invert) (const offset))
   (nyi "br-if-logtest: et=(scm scm) it=(~a ~a)" (type-ref a) (type-ref b)))
@@ -228,20 +241,11 @@
                                   (let ((_ (,op ,va ,vb)))
                                     ,(next))))))
             (ensure-loop (op-scm ra rb) invert offset 3)
-            (cond
-             ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
-              (next-thunk))
-             ((and (eq? &scm a/t) (eq? &fixnum b/t))
-              (with-type-guard &fixnum va (next-thunk)))
-             ((and (eq? &fixnum a/t) (eq? &scm b/t))
-              (with-type-guard &fixnum vb (next-thunk)))
-             ((and (eq? &scm a/t) (eq? &scm b/t))
-              (with-type-guard &fixnum va
-                (with-type-guard &fixnum vb
-                  (next-thunk))))
-             (else
-              (nyi "~s: et=(fixnum fixnum) it=(~a ~a)" 'name (pretty-type a/t)
-                   (pretty-type b/t)))))))
+            (with-type-guard &fixnum a
+              (with-type-guard &fixnum b
+                `(let ((_ ,(take-snapshot! ip dest)))
+                   (let ((_ (,op ,va ,vb)))
+                     ,(next))))))))
        (define-ir (name (flonum a) (fixnum b) (const invert) (const offset))
          (br-binary-scm-scm-body
           a b invert offset op-scm a/l b/l a/v b/v dest
@@ -250,61 +254,55 @@
                  (f2 (make-tmpvar/f 2))
                  (a/t (type-ref a))
                  (b/t (type-ref b))
-                 (next-thunk
-                  (lambda ()
+                 (emit-next
+                  (lambda (unboxed)
                     `(let ((_ ,(take-snapshot! ip dest)))
                        (let ((,r2 (%rsh ,b/v 2)))
                          (let ((,f2 (%i2d ,r2)))
-                           (let ((_ (,op ,a/v ,f2)))
+                           (let ((_ (,op ,unboxed ,f2)))
                              ,(next))))))))
             (ensure-loop (op-scm a/l b/l) invert offset 3)
             (cond
-             ((and (eq? &flonum a/t) (eq? &fixnum b/t))
-              (next-thunk))
-             ((and (eq? &flonum a/t) (eq? &scm b/t))
-              (with-type-guard &fixnum b/v (next-thunk)))
-             ((and (eq? &scm a/t) (eq? &fixnum b/t))
-              (with-type-guard &flonum a/v (next-thunk)))
-             ((and (eq? &scm a/t) (eq? &scm b/t))
-              (with-type-guard &flonum a/v
-                (with-type-guard &fixnum b/v
-                  (next-thunk))))
+             ((eq? &flonum a/t)
+              (with-type-guard &fixnum b
+                (emit-next a/v)))
+             ((eq? &scm a/t)
+              (with-type-guard &flonum a
+                (with-type-guard &fixnum b
+                  `(let ((,f2 (%cref/f ,a/v 2)))
+                     ,(emit-next f2)))))
              (else
               (nyi "~s" 'name))))))
        (define-ir (name (flonum a) (flonum b) (const invert) (const offset))
          (br-binary-scm-scm-body
           a b invert offset op-scm ra rb va vb dest
-          (let ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
-                (a/t (type-ref a))
-                (b/t (type-ref b))
-                (f1 (make-tmpvar/f 1))
-                (f2 (make-tmpvar/f 2)))
+          (let* ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
+                 (a/t (type-ref a))
+                 (b/t (type-ref b))
+                 (f1 (make-tmpvar/f 1))
+                 (f2 (make-tmpvar/f 2))
+                 (emit-next (lambda (x y)
+                              `(let ((_ (,op ,x ,y)))
+                                 ,(next)))))
             (ensure-loop (op-scm ra rb) invert offset 3)
             (cond
              ((and (eq? &flonum a/t) (eq? &flonum b/t))
               `(let ((_ ,(take-snapshot! ip dest)))
-                 (let ((_ (,op ,va ,vb)))
-                   ,(next))))
+                 ,(emit-next va vb)))
              ((and (eq? &flonum a/t) (eq? &scm b/t))
-              (with-type-guard &flonum vb
-                `(let ((_ ,(take-snapshot! ip dest)))
-                   (let ((,f2 (%cref/f ,vb 2)))
-                     (let ((_ (,op ,va ,f2)))
-                       ,(next))))))
+              (with-type-guard-always &flonum b
+                `(let ((,f2 (%cref/f ,vb 2)))
+                   ,(emit-next va f2))))
              ((and (eq? &scm a/t) (eq? &flonum b/t))
-              (with-type-guard &flonum va
-                `(let ((_ ,(take-snapshot! ip dest)))
-                   (let ((,f2 (%cref/f ,va 2)))
-                     (let ((_ (,op ,f2 ,vb)))
-                       ,(next))))))
+              (with-type-guard-always &flonum a
+                `(let ((,f2 (%cref/f ,va 2)))
+                   ,(emit-next f2 vb))))
              ((and (eq? &scm a/t) (eq? &scm b/t))
-              (with-type-guard &flonum va
-                (with-type-guard &flonum vb
-                  `(let ((_ ,(take-snapshot! ip dest)))
-                     (let ((,f1 (%cref/f ,va 2)))
-                       (let ((,f2 (%cref/f ,vb 2)))
-                         (let ((_ (,op ,f1 ,f2)))
-                           ,(next))))))))
+              (with-type-guard-always &flonum a
+                (with-type-guard-always &flonum b
+                  `(let ((,f1 (%cref/f ,va 2)))
+                     (let ((,f2 (%cref/f ,vb 2)))
+                       ,(emit-next f1 f2))))))
              (else
               (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                    (pretty-type a/t) (pretty-type b/t)))))))))))
@@ -350,12 +348,11 @@
                    (let ((_ (,op ,f2 ,b/v)))
                      ,(next)))))
              ((eq? &scm b/t)
-              (with-type-guard &flonum b/v
-                `(let ((_ ,(take-snapshot! ip dest)))
-                   (let ((,f1 (%i2d ,a/v)))
-                     (let ((,f2 (%cref/f ,b/v 2)))
-                       (let ((_ (,op ,f1 ,f2)))
-                         ,(next)))))))
+              (with-type-guard-always &flonum b
+                `(let ((,f1 (%i2d ,a/v)))
+                   (let ((,f2 (%cref/f ,b/v 2)))
+                     (let ((_ (,op ,f1 ,f2)))
+                       ,(next))))))
              (else
               (nyi "~s: et=(u64 flonum) it=(u64 ~a)" 'name
                    (pretty-type (type-ref b))))))))
@@ -364,21 +361,13 @@
           a b invert offset op-scm ra rb va vb dest
           (let* ((r2 (make-tmpvar 2))
                  (b/t (type-ref b))
-                 (op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
-                 (next-thunk
-                  (lambda ()
-                    `(let ((_ ,(take-snapshot! ip dest)))
-                       (let ((,r2 (%rsh ,vb 2)))
-                         (let ((_ (,op ,va ,r2)))
-                           ,(next)))))))
+                 (op (if (op-scm ra rb) 'op-fx-t 'op-fx-f)))
             (ensure-loop (op-scm ra rb) invert offset 3)
-            (cond
-             ((eq? &fixnum b/t)
-              (next-thunk))
-             ((eq? &scm b/t)
-              (with-type-guard &fixnum vb (next-thunk)))
-             (else
-              (nyi "~s: et=fixnum it=~a" 'name (pretty-type b/t)))))))))))
+            (with-type-guard &fixnum b
+              `(let ((_ ,(take-snapshot! ip dest)))
+                 (let ((,r2 (%rsh ,vb 2)))
+                   (let ((_ (,op ,va ,r2)))
+                     ,(next))))))))))))
 
 (define-br-binary-arith-u64-scm br-if-u64-=-scm = %eq %ne %eq %ne)
 (define-br-binary-arith-u64-scm br-if-u64-<-scm < %lt %ge %flt %fge)

@@ -33,15 +33,10 @@
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
 
-(define-syntax-rule (with-string-guard x x/v expr)
-  (if (eq? &string (type-ref x))
-      expr
-      (with-type-guard &string x/v expr)))
-
 (define-ir (string-length (u64! dst) (string src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
-    (with-string-guard src src/v
+    (with-type-guard &string src
       `(let ((,dst/v (%cref ,src/v 3)))
          ,(next)))))
 
@@ -51,7 +46,7 @@
         (src/v (var-ref src))
         (idx/v (var-ref idx))
         (r2 (make-tmpvar 2)))
-    (with-string-guard src src/v
+    (with-type-guard &string src
       `(let ((,r2 (%lsh ,idx/v 2)))
          (let ((,r2 (%add ,r2 2)))
            (let ((_ (%carg ,r2)))
@@ -62,7 +57,7 @@
 (define-ir (string->number (scm! dst) (string src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
-    (with-string-guard src src/v
+    (with-type-guard &string src
       `(let ((_ (%carg #x904)))
          (let ((_ (%carg ,src/v)))
            (let ((,dst/v (%ccall ,(object-address string->number))))
@@ -71,7 +66,7 @@
 (define-ir (string->symbol (scm! dst) (string src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
-    (with-string-guard src src/v
+    (with-type-guard &string src
       `(let ((_ (%carg ,src/v)))
          (let ((,dst/v (%ccall ,(object-address string->symbol))))
            ,(next))))))

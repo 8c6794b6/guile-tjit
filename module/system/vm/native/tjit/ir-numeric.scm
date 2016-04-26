@@ -43,7 +43,6 @@
        (scm-ref a) (pretty-type (type-ref a))
        (scm-ref b) (pretty-type (type-ref b))))
 
-
 ;; Definition order matters, define general types first, then follows
 ;; more specific types.
 (define-syntax-rule (define-add-sub-scm-scm name op-fx1 op-fx2 op-fl)
@@ -53,27 +52,12 @@
     (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
       (let* ((dst/v (var-ref dst))
              (a/v (var-ref a))
-             (b/v (var-ref b))
-             (a/t (type-ref a))
-             (b/t (type-ref b))
-             (next-thunk
-              (lambda ()
-                `(let ((,dst/v (op-fx1 ,a/v ,b/v)))
-                   (let ((,dst/v (op-fx2 ,dst/v 2)))
-                     ,(next))))))
-        (cond
-         ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
-          (next-thunk))
-         ((and (eq? &scm a/t) (eq? &fixnum b/t))
-          (with-type-guard &fixnum a/v (next-thunk)))
-         ((and (eq? &fixnum a/t) (eq? &scm b/t))
-          (with-type-guard &fixnum b/v (next-thunk)))
-         ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-type-guard &fixnum a/v
-            (with-type-guard &fixnum b/v
-              (next-thunk))))
-         (else
-          (nyi-binary 'name 'fixnum 'fixnum a b)))))
+             (b/v (var-ref b)))
+        (with-type-guard &fixnum a
+          (with-type-guard &fixnum b
+            `(let ((,dst/v (op-fx1 ,a/v ,b/v)))
+               (let ((,dst/v (op-fx2 ,dst/v 2)))
+                 ,(next)))))))
     (define-ir (name (flonum! dst) (flonum a) (fraction b))
       (let* ((dst/v (var-ref dst))
              (a/v (var-ref a))
@@ -82,22 +66,20 @@
              (b/t (type-ref b))
              (r2 (make-tmpvar 2))
              (f1 (make-tmpvar/f 1))
-             (f2 (make-tmpvar/f 2))
-             (thunk (lambda ()
-                      `(let ((,r2 (%cref ,b/v 1)))
-                         (let ((,r2 (%rsh ,r2 2)))
-                           (let ((,f1 (%i2d ,r2)))
-                             (let ((,r2 (%cref ,b/v 2)))
-                               (let ((,r2 (%rsh ,r2 2)))
-                                 (let ((,f2 (%i2d ,r2)))
-                                   (let ((,f2 (%fdiv ,f1 ,f2)))
-                                     (let ((,dst/v (op-fl ,a/v ,f2)))
-                                       ,(next))))))))))))
+             (f2 (make-tmpvar/f 2)))
         (cond
-         ((and (eq? &flonum a/t) (eq? &fraction b/t))
-          (with-type-guard &fraction b/v (thunk)))
-         ((and (eq? &flonum a/t) (eq? &scm b/t))
-          (with-type-guard &fraction b/v (thunk)))
+         ((and (eq? &flonum a/t)
+               (or (eq? &scm b/t) (eq? &fraction b/t)))
+          (with-type-guard-always &fraction b
+            `(let ((,r2 (%cref ,b/v 1)))
+               (let ((,r2 (%rsh ,r2 2)))
+                 (let ((,f1 (%i2d ,r2)))
+                   (let ((,r2 (%cref ,b/v 2)))
+                     (let ((,r2 (%rsh ,r2 2)))
+                       (let ((,f2 (%i2d ,r2)))
+                         (let ((,f2 (%fdiv ,f1 ,f2)))
+                           (let ((,dst/v (op-fl ,a/v ,f2)))
+                             ,(next)))))))))))
          (else
           (nyi-binary 'name 'flonum 'fraction a b)))))
     (define-ir (name (flonum! dst) (fraction a) (flonum b))
@@ -108,55 +90,45 @@
              (b/t (type-ref b))
              (r2 (make-tmpvar 2))
              (f1 (make-tmpvar/f 1))
-             (f2 (make-tmpvar/f 2))
-             (thunk (lambda ()
-                      `(let ((,r2 (%cref ,a/v 1)))
-                         (let ((,r2 (%rsh ,r2 2)))
-                           (let ((,f1 (%i2d ,r2)))
-                             (let ((,r2 (%cref ,a/v 2)))
-                               (let ((,r2 (%rsh ,r2 2)))
-                                 (let ((,f2 (%i2d ,r2)))
-                                   (let ((,f2 (%fdiv ,f1 ,f2)))
-                                     (let ((,dst/v (op-fl ,f2 ,b/v)))
-                                       ,(next))))))))))))
+             (f2 (make-tmpvar/f 2)))
         (cond
-         ((and (eq? &fraction a/t) (eq? &flonum b/t))
-          (with-type-guard &fraction a/v (thunk)))
-         ((and (eq? &scm a/t) (eq? &flonum b/t))
-          (with-type-guard &fraction a/v (thunk)))
+         ((and (or (eq? &scm a/t) (eq? &fraction a/t))
+               (eq? &flonum b/t))
+          (with-type-guard-always &fraction a
+            `(let ((,r2 (%cref ,a/v 1)))
+               (let ((,r2 (%rsh ,r2 2)))
+                 (let ((,f1 (%i2d ,r2)))
+                   (let ((,r2 (%cref ,a/v 2)))
+                     (let ((,r2 (%rsh ,r2 2)))
+                       (let ((,f2 (%i2d ,r2)))
+                         (let ((,f2 (%fdiv ,f1 ,f2)))
+                           (let ((,dst/v (op-fl ,f2 ,b/v)))
+                             ,(next)))))))))))
          (else
           (nyi-binary 'name 'fraction 'flonum a b)))))
     (define-ir (name (flonum! dst) (fixnum a) (flonum b))
       (let* ((dst/v (var-ref dst))
              (a/v (var-ref a))
              (b/v (var-ref b))
-             (a/t (type-ref a))
              (b/t (type-ref b))
              (r2 (make-tmpvar 2))
              (f1 (make-tmpvar/f 1))
-             (f2 (make-tmpvar/f 2))
-             (thunk-a (lambda ()
-                        `(let ((,r2 (%rsh ,a/v 2)))
-                           (let ((,f2 (%i2d ,r2)))
-                             (let ((,dst/v (op-fl ,f2 ,b/v)))
-                               ,(next))))))
-             (thunk-b (lambda ()
-                        `(let ((,r2 (%rsh ,a/v 2)))
-                           (let ((,f1 (%i2d ,r2)))
-                             (let ((,f2 (%cref/f ,b/v 2)))
-                               (let ((,dst/v (op-fl ,f1 ,f2)))
-                                 ,(next))))))))
+             (f2 (make-tmpvar/f 2)))
         (cond
-         ((and (eq? &fixnum a/t) (eq? &flonum b/t))
-          (thunk-a))
-         ((and (eq? &scm a/t) (eq? &flonum b/t))
-          (with-type-guard &fixnum a/v (thunk-a)))
-         ((and (eq? &fixnum a/t) (eq? &scm b/t))
-          (with-type-guard &flonum b/v (thunk-b)))
-         ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-type-guard &fixnum a/v
-            (with-type-guard &flonum b/v
-              (thunk-b))))
+         ((eq? &flonum b/t)
+          (with-type-guard &fixnum a
+            `(let ((,r2 (%rsh ,a/v 2)))
+               (let ((,f2 (%i2d ,r2)))
+                 (let ((,dst/v (op-fl ,f2 ,b/v)))
+                   ,(next))))))
+         ((eq? &scm b/t)
+          (with-type-guard &fixnum a
+            (with-type-guard-always &flonum b
+              `(let ((,r2 (%rsh ,a/v 2)))
+                 (let ((,f1 (%i2d ,r2)))
+                   (let ((,f2 (%cref/f ,b/v 2)))
+                     (let ((,dst/v (op-fl ,f1 ,f2)))
+                       ,(next))))))))
          (else
           (nyi-binary 'name 'fixnum 'flonum a b)))))
     (define-ir (name (flonum! dst) (flonum a) (fixnum b))
@@ -164,32 +136,24 @@
              (a/v (var-ref a))
              (b/v (var-ref b))
              (a/t (type-ref a))
-             (b/t (type-ref b))
              (r2 (make-tmpvar 2))
              (f1 (make-tmpvar/f 1))
-             (f2 (make-tmpvar/f 2))
-             (thunk-a (lambda ()
-                        `(let ((,r2 (%rsh ,b/v 2)))
-                           (let ((,f2 (%i2d ,r2)))
-                             (let ((,dst/v (op-fl ,a/v ,f2)))
-                               ,(next))))))
-             (thunk-b (lambda ()
-                        `(let ((,f1 (%cref/f ,a/v 2)))
-                           (let ((,r2 (%rsh ,b/v 2)))
-                             (let ((,f2 (%i2d ,r2)))
-                               (let ((,dst/v (op-fl ,f1 ,f2)))
-                                 ,(next))))))))
+             (f2 (make-tmpvar/f 2)))
         (cond
-         ((and (eq? &flonum a/t) (eq? &fixnum b/t))
-          (thunk-a))
-         ((and (eq? &flonum a/t) (eq? &scm b/t))
-          (with-type-guard &fixnum b/v (thunk-a)))
-         ((and (eq? &scm a/t) (eq? &fixnum b/t))
-          (with-type-guard &flonum a/v (thunk-b)))
-         ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-type-guard &flonum a/v
-            (with-type-guard &fixnum b/v
-              (thunk-b))))
+         ((eq? &flonum a/t)
+          (with-type-guard &fixnum b
+            `(let ((,r2 (%rsh ,b/v 2)))
+               (let ((,f2 (%i2d ,r2)))
+                 (let ((,dst/v (op-fl ,a/v ,f2)))
+                   ,(next))))))
+         ((eq? &scm a/t)
+          (with-type-guard-always &flonum a
+            (with-type-guard &fixnum b
+              `(let ((,f1 (%cref/f ,a/v 2)))
+                 (let ((,r2 (%rsh ,b/v 2)))
+                   (let ((,f2 (%i2d ,r2)))
+                     (let ((,dst/v (op-fl ,f1 ,f2)))
+                       ,(next))))))))
          (else
           (nyi-binary 'name 'flonum 'fixnum a b)))))
     (define-ir (name (flonum! dst) (flonum a) (flonum b))
@@ -206,24 +170,24 @@
           `(let ((,dst/v (op-fl ,a/v ,b/v)))
              ,(next)))
          ((and (eq? &scm a/t) (eq? &flonum b/t))
-          (with-type-guard &flonum a/v
+          (with-type-guard-always &flonum a
             `(let ((,f2 (%cref/f ,a/v 2)))
                (let ((,dst/v (op-fl ,f2 ,b/v)))
                  ,(next)))))
          ((and (eq? &flonum a/t) (eq? &fixnum b/t))
-          (with-type-guard &fixnum b/v
+          (with-type-guard-always &fixnum b
             `(let ((,r2 (%rsh ,b/v 2)))
                (let ((,f2 (%i2d ,r2)))
                  (let ((,dst/v (op-fl ,a/v ,f2)))
                    ,(next))))))
          ((and (eq? &flonum a/t) (eq? &scm b/t))
-          (with-type-guard &flonum b/v
+          (with-type-guard-always &flonum b
             `(let ((,f2 (%cref/f ,b/v 2)))
                (let ((,dst/v (op-fl ,a/v ,f2)))
                  ,(next)))))
          ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-type-guard &flonum a/v
-            (with-type-guard &flonum b/v
+          (with-type-guard-always &flonum a
+            (with-type-guard-always &flonum b
               `(let ((,f1 (%cref/f ,a/v 2)))
                  (let ((,f2 (%cref/f ,b/v 2)))
                    (let ((,dst/v (op-fl ,f1 ,f2)))
@@ -236,20 +200,9 @@
     (define-ir (name (scm! dst) (scm src) (const imm))
       (nyi-unary 'name 'scm src))
     (define-ir (name (fixnum! dst) (fixnum src) (const imm))
-      (let* ((src/t (type-ref src))
-             (src/v (var-ref src))
-             (dst/v (var-ref dst))
-             (next-thunk
-              (lambda ()
-                `(let ((,dst/v (op-fx ,src/v ,(* imm 4))))
-                   ,(next)))))
-        (cond
-         ((eq? &fixnum src/t)
-          (next-thunk))
-         ((eq? &scm src/t)
-          (with-type-guard &fixnum src/v (next-thunk)))
-         (else
-          (nyi-unary 'name 'fixnum src)))))))
+      (with-type-guard &fixnum src
+        `(let ((,(var-ref dst) (op-fx ,(var-ref src) ,(* imm 4))))
+           ,(next))))))
 
 (define-add-sub-scm-scm add %add %sub %fadd)
 (define-add-sub-scm-imm add/immediate %add)
@@ -282,13 +235,14 @@
                                          (let ((,dst/v (op-fl ,unboxed ,f2)))
                                            ,(next))))))))))))
         (cond
-         ((and (eq? &flonum a/t) (eq? &fraction b/t))
-          (with-type-guard &fraction b/v (emit-next a/v)))
-         ((and (eq? &flonum a/t) (eq? &scm b/t))
-          (with-type-guard &fraction b/v (emit-next a/v)))
-         ((and (eq? &scm a/t) (eq? &fraction b/t))
-          (with-type-guard &fraction b/v
-            (with-type-guard &flonum a/v
+         ((and (eq? &flonum a/t)
+               (or (eq? &scm b/t) (eq? &fraction b/t)))
+          (with-type-guard-always &fraction b
+            (emit-next a/v)))
+         ((and (eq? &scm a/t)
+               (or (eq? &scm b/t) (eq? &fraction b/t)))
+          (with-type-guard-always &fraction b
+            (with-type-guard-always &flonum a
               `(let ((,f0 (%cref/f ,a/v 2)))
                  ,(emit-next f0)))))
          (else
@@ -315,13 +269,14 @@
                                          (let ((,dst/v (op-fl ,f2 ,unboxed)))
                                            ,(next))))))))))))
         (cond
-         ((and (eq? &fraction a/t) (eq? &flonum b/t))
-          (with-type-guard &fraction a/v (emit-next b/v)))
-         ((and (eq? &scm a/t) (eq? &flonum b/t))
-          (with-type-guard &fraction a/v (emit-next b/v)))
-         ((and (eq? &scm a/t) (eq? &flonum b/t))
-          (with-type-guard &fraction a/v
-            (with-type-guard &flonum b/v
+         ((and (or (eq? &scm a/t) (eq? &fraction a/t))
+               (eq? &flonum b/t))
+          (with-type-guard-always &fraction a
+            (emit-next b/v)))
+         ((and (or (eq? &scm a/t) (eq? &fraction a/t))
+               (eq? &scm b/t))
+          (with-type-guard-always &fraction a
+            (with-type-guard-always &flonum b
               `(let ((,f0 (%cref/f a/v 2)))
                  ,(emit-next f0)))))
          (else
@@ -334,30 +289,22 @@
              (f1 (make-tmpvar/f 1))
              (f2 (make-tmpvar/f 2))
              (a/t (type-ref a))
-             (b/t (type-ref b))
-             (thunk-a (lambda ()
-                        `(let ((,r2 (%rsh ,b/v 2)))
-                           (let ((,f2 (%i2d ,r2)))
-                             (let ((,dst/v (op-fl ,a/v ,f2)))
-                               ,(next))))))
-
-             (thunk-b (lambda ()
-                        `(let ((,f1 (%cref/f ,a/v 2)))
-                           (let ((,r2 (%rsh ,b/v 2)))
-                             (let ((,f2 (%i2d ,r2)))
-                               (let ((,dst/v (op-fl ,f1 ,f2)))
-                                 ,(next))))))))
+             (b/t (type-ref b)))
         (cond
-         ((and (eq? &flonum a/t) (eq? &fixnum b/t))
-          (thunk-a))
-         ((and (eq? &flonum a/t) (eq? &scm b/t))
-          (with-type-guard &fixnum b/v (thunk-a)))
-         ((and (eq? &scm a/t) (eq? &fixnum b/t))
-          (with-type-guard &flonum a/v (thunk-b)))
-         ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-type-guard &flonum a/v
-            (with-type-guard &fixnum b/v
-              (thunk-b))))
+         ((eq? &flonum a/t)
+          (with-type-guard &fixnum b
+            `(let ((,r2 (%rsh ,b/v 2)))
+               (let ((,f2 (%i2d ,r2)))
+                 (let ((,dst/v (op-fl ,a/v ,f2)))
+                   ,(next))))))
+         ((eq? &scm a/t)
+          (with-type-guard &flonum a
+            (with-type-guard &fixnum b
+              `(let ((,f1 (%cref/f ,a/v 2)))
+                 (let ((,r2 (%rsh ,b/v 2)))
+                   (let ((,f2 (%i2d ,r2)))
+                     (let ((,dst/v (op-fl ,f1 ,f2)))
+                       ,(next))))))))
          (else
           (nyi-binary 'name 'flonum 'fixnum a b)))))
     (define-ir (name (flonum! dst) (fixnum a) (flonum b))
@@ -368,29 +315,22 @@
              (f1 (make-tmpvar/f 1))
              (f2 (make-tmpvar/f 2))
              (a/t (type-ref a))
-             (b/t (type-ref b))
-             (thunk-a (lambda ()
-                        `(let ((,r2 (%rsh ,a/v 2)))
-                           (let ((,f2 (%i2d ,r2)))
-                             (let ((,dst/v (op-fl ,f2 ,b/v)))
-                               ,(next))))))
-             (thunk-b (lambda ()
-                        `(let ((,r2 (%rsh ,a/v 2)))
-                           (let ((,f1 (%i2d ,r2)))
-                             (let ((,f2 (%cref/f ,b/v 2)))
-                               (let ((,dst/v (op-fl ,f1 ,f2)))
-                                 ,(next))))))))
+             (b/t (type-ref b)))
         (cond
-         ((and (eq? &fixnum a/t) (eq? &flonum b/t))
-          (thunk-a))
-         ((and (eq? &fixnum a/t) (eq? &scm b/t))
-          (with-type-guard &flonum b/v (thunk-b)))
-         ((and (eq? &scm a/t) (eq? &flonum b/t))
-          (with-type-guard &fixnum a/v (thunk-a)))
-         ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-type-guard &fixnum a/v
-            (with-type-guard &flonum b/v
-              (thunk-b))))
+         ((eq? &flonum b/t)
+          (with-type-guard &fixnum a
+            `(let ((,r2 (%rsh ,a/v 2)))
+               (let ((,f2 (%i2d ,r2)))
+                 (let ((,dst/v (op-fl ,f2 ,b/v)))
+                   ,(next))))))
+         ((eq? &scm b/t)
+          (with-type-guard &fixnum a
+            (with-type-guard &flonum b
+              `(let ((,r2 (%rsh ,a/v 2)))
+                 (let ((,f1 (%i2d ,r2)))
+                   (let ((,f2 (%cref/f ,b/v 2)))
+                     (let ((,dst/v (op-fl ,f1 ,f2)))
+                       ,(next))))))))
          (else
           (nyi-binary 'name 'fixnum 'flonum a b)))))
     (define-ir (name (flonum! dst) (flonum a) (flonum b))
@@ -406,18 +346,18 @@
           `(let ((,dst/v (op-fl ,a/v ,b/v)))
              ,(next)))
          ((and (eq? &flonum a/t) (eq? &scm b/t))
-          (with-type-guard &flonum b/v
+          (with-type-guard-always &flonum b
             `(let ((,f2 (%cref/f ,b/v 2)))
                (let ((,dst/v (op-fl ,a/v ,f2)))
                  ,(next)))))
          ((and (eq? &scm a/t) (eq? &flonum b/t))
-          (with-type-guard &flonum a/v
+          (with-type-guard-always &flonum a
             `(let ((,f1 (%cref/f ,a/v 2)))
                (let ((,dst/v (op-fl ,f1 ,b/v)))
                  ,(next)))))
          ((and (eq? &scm a/t) (eq? &scm b/t))
-          (with-type-guard &flonum a/v
-            (with-type-guard &flonum b/v
+          (with-type-guard-always &flonum a
+            (with-type-guard-always &flonum b
               `(let ((,f1 (%cref/f ,a/v 2)))
                  (let ((,f2 (%cref/f ,b/v 2)))
                    (let ((,dst/v (op-fl ,f1 ,f2)))
@@ -435,28 +375,16 @@
          (a/v (var-ref a))
          (b/v (var-ref b))
          (r1 (make-tmpvar 1))
-         (r2 (make-tmpvar 2))
-         (next-thunk (lambda ()
-                       `(let ((_ ,(take-snapshot! ip 0)))
-                          (let ((,r1 (%rsh ,a/v 2)))
-                            (let ((,r2 (%rsh ,b/v 2)))
-                              (let ((,dst/v (%div ,r1 ,r2)))
-                                ,(next))))))))
+         (r2 (make-tmpvar 2)))
     (when (env-parent-snapshot env)
       (set-env-save-volatiles! env #t))
-    (cond
-     ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
-      (next-thunk))
-     ((and (eq? &scm a/t) (eq? &fixnum b/t))
-      (with-type-guard &fixnum a/v (next-thunk)))
-     ((and (eq? &fixnum a/t) (eq? &scm b/t))
-      (with-type-guard &fixnum b/v (next-thunk)))
-     ((and (eq? &scm a/t) (eq? &scm b/t))
-      (with-type-guard &fixnum a/v
-        (with-type-guard &fixnum b/v
-          (next-thunk))))
-     (else
-      (nyi-binary 'div 'fixnum 'fixnum a b)))))
+    (with-type-guard &fixnum a
+      (with-type-guard &fixnum b
+        `(let ((_ ,(take-snapshot! ip 0)))
+           (let ((,r1 (%rsh ,a/v 2)))
+             (let ((,r2 (%rsh ,b/v 2)))
+               (let ((,dst/v (%div ,r1 ,r2)))
+                 ,(next)))))))))
 
 ;; Primitive %mod, %quo, and %rem may use volatile register. Setting
 ;; `env-save-volatiles?' flag to true.
@@ -465,34 +393,19 @@
     (let* ((dst/v (var-ref dst))
            (a/v (var-ref a))
            (b/v (var-ref b))
-           (a/t (type-ref a))
-           (b/t (type-ref b))
            (r1 (make-tmpvar 1))
-           (r2 (make-tmpvar 2))
-           (next-thunk
-            (lambda ()
-              `(let ((,r2 (%rsh ,a/v 2)))
-                 (let ((,r1 (%rsh ,b/v 2)))
-                   (let ((,r2 (op ,r2 ,r1)))
-                     (let ((,r2 (%lsh ,r2 2)))
-                       (let ((,dst/v (%add ,r2 2)))
-                         ,(next)))))))))
+           (r2 (make-tmpvar 2)))
       (when (and save-volatile?
                  (env-parent-snapshot env))
         (set-env-save-volatiles! env #t))
-      (cond
-       ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
-        (next-thunk))
-       ((and (eq? &scm a/t) (eq? &fixnum b/t))
-        (with-type-guard &fixnum a/v (next-thunk)))
-       ((and (eq? &fixnum a/t) (eq? &scm b/t))
-        (with-type-guard &fixnum b/v (next-thunk)))
-       ((and (eq? &scm a/t) (eq? &scm b/t))
-        (with-type-guard &fixnum a/v
-          (with-type-guard &fixnum b/v
-            (next-thunk))))
-       (else
-        (nyi-binary 'name 'fixnum 'fixnum a b))))))
+      (with-type-guard &fixnum a
+        (with-type-guard &fixnum b
+          `(let ((,r2 (%rsh ,a/v 2)))
+             (let ((,r1 (%rsh ,b/v 2)))
+               (let ((,r2 (op ,r2 ,r1)))
+                 (let ((,r2 (%lsh ,r2 2)))
+                   (let ((,dst/v (%add ,r2 2)))
+                     ,(next)))))))))))
 
 (define-syntax-rule (define-nyi-binary-scm-scm name)
   (define-ir (name (scm! dst) (scm a) (scm b))
@@ -515,20 +428,10 @@
     (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
       (let* ((dst/v (var-ref dst))
              (a/v (var-ref a))
-             (b/v (var-ref b))
-             (a/t (type-ref a))
-             (b/t (type-ref b)))
-        (cond
-         ((and (eq? &fixnum a/t) (eq? &fixnum b/t))
-          exp)
-         ((eq? &fixnum a/t)
-          (with-type-guard &fixnum b/v exp))
-         ((eq? &fixnum b/t)
-          (with-type-guard &fixnum a/v exp))
-         (else
-          (with-type-guard &fixnum a/v
-            (with-type-guard &fixnum b/v
-              exp))))))))
+             (b/v (var-ref b)))
+        (with-type-guard &fixnum a
+          (with-type-guard &fixnum b
+            exp))))))
 
 (define-binary-bitwise-arith logand dst/v a/v b/v
   `(let ((,dst/v (%band ,a/v ,b/v)))
@@ -540,11 +443,6 @@
 
 ;; XXX: logxor
 ;; XXX: logsub
-
-(define-syntax-rule (with-vector-guard x x/v expr)
-  (if (eq? &vector (type-ref x))
-      expr
-      (with-type-guard &vector x/v expr)))
 
 (define-interrupt-ir (make-vector (vector! dst) (u64 len) (scm ini))
   (let ((dst/v (var-ref dst))
@@ -584,7 +482,7 @@
 (define-ir (vector-length (u64! dst) (vector src))
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src)))
-    (with-vector-guard src src/v
+    (with-type-guard &vector src
       `(let ((,dst/v (%cref ,src/v 0)))
          (let ((,dst/v (%rsh ,dst/v 8)))
            ,(next))))))
@@ -594,7 +492,7 @@
         (src/v (var-ref src))
         (idx/v (var-ref idx))
         (r2 (make-tmpvar 2)))
-    (with-vector-guard src src/v
+    (with-type-guard &vector src
       `(let ((_ ,(take-snapshot! ip 0)))
          (let ((,r2 (%cref ,src/v 0)))
            (let ((,r2 (%rsh ,r2 8)))
@@ -607,7 +505,7 @@
   (let ((dst/v (var-ref dst))
         (src/v (var-ref src))
         (r2 (make-tmpvar 2)))
-    (with-vector-guard src src/v
+    (with-type-guard &vector src
       `(let ((,dst/v (%cref ,src/v ,(+ idx 1))))
          ,(next)))))
 
@@ -619,7 +517,7 @@
         (r0 (make-tmpvar 0))
         (r1 (make-tmpvar 1))
         (r2 (make-tmpvar 2)))
-    (with-vector-guard dst dst/v
+    (with-type-guard &vector dst
       `(let ((_ ,(take-snapshot! ip 0)))
          (let ((,r2 (%cref ,dst/v 0)))
            (let ((,r2 (%rsh ,r2 8)))
@@ -635,7 +533,7 @@
         (src/v (var-ref src))
         (src/t (type-ref src))
         (r1 (make-tmpvar 1)))
-    (with-vector-guard dst dst/v
+    (with-type-guard &vector dst
       (with-boxing src/t src/v r1
         (lambda (boxed)
           `(let ((_ (%cset ,dst/v ,(+ idx 1) ,boxed)))
