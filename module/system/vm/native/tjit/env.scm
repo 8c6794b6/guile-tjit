@@ -66,13 +66,16 @@
             env-returns set-env-returns!
             env-inline-depth set-env-inline-depth!
             env-save-volatiles? set-env-save-volatiles!
+            env-applied-guards
 
             increment-env-call-return-num!
             add-env-call!
             add-env-return!
             env-local-indices
             set-entry-type!
-            set-inferred-type!))
+            set-inferred-type!
+            applied-guard
+            set-applied-guard!))
 
 
 ;; Data type to contain environment.
@@ -86,7 +89,8 @@
              sp-offsets fp-offsets sp-offset fp-offset last-sp-offset
              write-indices read-indices write-buf live-indices
              entry-types inferred-types
-             call-num return-num calls returns inline-depth)
+             call-num return-num calls returns inline-depth
+             applied-guards)
   env?
 
   ;; Trace ID of this compilation.
@@ -189,7 +193,10 @@
   (returns env-returns set-env-returns!)
 
   ;; Depth of calls and returns.
-  (inline-depth env-inline-depth set-env-inline-depth!))
+  (inline-depth env-inline-depth set-env-inline-depth!)
+
+  ;; Applied guards.
+  (applied-guards env-applied-guards))
 
 (define (make-env id entry-ip linked-ip
                   parent-exit-id parent-fragment parent-snapshot
@@ -203,7 +210,7 @@
              #f #f #f #f #f '() '() sp-offset fp-offset 0
              write-indices '() (list write-indices) live-indices
              '() (copy-tree types-from-parent)
-             0 0 '() '() inline-depth))
+             0 0 '() '() inline-depth (make-hash-table)))
 
 (define (env-local-indices env)
   (sort (delete-duplicates (append (env-write-indices env)
@@ -277,4 +284,11 @@ inline depth by one."
 (define (set-inferred-type! env n t)
   (let* ((inferred (env-inferred-types env))
          (inferred (assq-set! inferred n t)))
+    (hashq-remove! (env-applied-guards env) n)
     (set-env-inferred-types! env inferred)))
+
+(define (applied-guard env n)
+  (hashq-ref (env-applied-guards env) n))
+
+(define (set-applied-guard! env n type)
+  (hashq-set! (env-applied-guards env) n type))

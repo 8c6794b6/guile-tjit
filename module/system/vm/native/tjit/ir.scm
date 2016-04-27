@@ -542,11 +542,14 @@ index referenced by dst, a, and b values at runtime."
     (proc var))))
 
 (define-syntax-rule (with-type-guard type src expr)
-  (if (eq? type (type-ref src))
+  (if (or (eq? type (type-ref src))
+          (eq? type (applied-guard env src)))
       expr
-      `(let ((_ ,(take-snapshot! ip 0)))
-         (let ((_ (%typeq ,(var-ref src) ,type)))
-           ,expr))))
+      (begin
+        (set-applied-guard! env src type)
+        `(let ((_ ,(take-snapshot! ip 0)))
+           (let ((_ (%typeq ,(var-ref src) ,type)))
+             ,expr)))))
 
 (define-syntax-rule (with-type-guard-always type src expr)
   `(let ((_ ,(take-snapshot! ip 0)))
