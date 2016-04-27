@@ -266,7 +266,7 @@ Currently does nothing, returns the given argument."
                                                         initial-nlocals))
                       (ir (make-ir snapshots snapshot-id vars
                                    min-sp-offset max-sp-offset
-                                   0 #f)))
+                                   0 #f #f)))
                  (set-env-sp-offset! env env-sp-offset)
                  (set-env-fp-offset! env env-fp-offset)
                  (trace->anf env ir trace)))))

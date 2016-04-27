@@ -204,6 +204,8 @@
        (else #f)))
     (define (assign-term term acc)
       (match term
+        (('let (('_ '_)) term1)
+         (assign-term term1 acc))
         (('let (('_ ('%snap id . args))) term1)
          (let* ((regs (map ref args))
                 (prim `(%snap ,id ,@regs)))

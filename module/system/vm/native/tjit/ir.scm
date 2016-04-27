@@ -97,7 +97,7 @@
 
 (define-record-type <ir>
   (make-ir snapshots snapshot-id vars min-sp-offset max-sp-offset
-           bytecode-index last-op?)
+           bytecode-index last-op? cached-snapshot)
   ir?
 
   ;; Hash table containing snapshots.
@@ -119,7 +119,10 @@
   (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
 
   ;; Flag for last recorded operation.
-  (last-op? ir-last-op? set-ir-last-op!))
+  (last-op? ir-last-op? set-ir-last-op!)
+
+  ;; Cached snapshot.
+  (cached-snapshot ir-cached-snapshot set-ir-cached-snapshot!))
 
 
 ;;;
@@ -516,21 +519,28 @@ index referenced by dst, a, and b values at runtime."
     ((_ ip dst-offset)
      (take-snapshot! ip dst-offset #f))
     ((_ ip dst-offset refill?)
-     (let-values (((ret snapshot)
-                   (take-snapshot ip dst-offset locals (ir-vars ir)
-                                  (if (env-parent-snapshot env)
-                                      (vector-ref (env-write-buf env)
-                                                  (ir-bytecode-index ir))
-                                      (env-write-indices env))
-                                  (ir-snapshot-id ir)
-                                  (current-sp-offset) (current-fp-offset)
-                                  (ir-min-sp-offset ir) (ir-max-sp-offset ir)
-                                  (current-inline-depth env) env
-                                  refill?)))
-       (let ((old-id (ir-snapshot-id ir)))
-         (hashq-set! (ir-snapshots ir) old-id snapshot)
-         (set-ir-snapshot-id! ir (+ old-id 1)))
-       ret))))
+     ;; Compare IP of cached snapshot. Reuse it if the IP was same with current
+     ;; IP. Take a new snapshot and increment snapshot ID if not.
+     (if (eq? ip (and=> (ir-cached-snapshot ir) snapshot-ip))
+         '_
+         (let-values (((ret snapshot)
+                       (take-snapshot ip dst-offset locals (ir-vars ir)
+                                      (if (env-parent-snapshot env)
+                                          (vector-ref (env-write-buf env)
+                                                      (ir-bytecode-index ir))
+                                          (env-write-indices env))
+                                      (ir-snapshot-id ir)
+                                      (current-sp-offset)
+                                      (current-fp-offset)
+                                      (ir-min-sp-offset ir)
+                                      (ir-max-sp-offset ir)
+                                      (current-inline-depth env) env
+                                      refill?)))
+           (let ((old-id (ir-snapshot-id ir)))
+             (hashq-set! (ir-snapshots ir) old-id snapshot)
+             (set-ir-snapshot-id! ir (+ old-id 1))
+             (set-ir-cached-snapshot! ir snapshot))
+           ret)))))
 
 (define-syntax-rule (with-boxing type var tmp proc)
   (cond
@@ -546,7 +556,7 @@ index referenced by dst, a, and b values at runtime."
           (eq? type (applied-guard env src)))
       expr
       (begin
-        (set-applied-guard! env src type)
+        (set-applied-guard! env (+ src (current-sp-offset)) type)
         `(let ((_ ,(take-snapshot! ip 0)))
            (let ((_ (%typeq ,(var-ref src) ,type)))
              ,expr)))))
