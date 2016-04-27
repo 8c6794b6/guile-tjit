@@ -1527,11 +1527,7 @@ scm_write (SCM obj, SCM port)
     port = scm_current_output_port ();
 
   SCM_ASSERT (scm_valid_oport_value_p (port), port, SCM_ARG2, s_write);
-
-  scm_dynwind_begin (0);
-  scm_dynwind_lock_port (SCM_COERCE_OUTPORT (port));
   scm_prin1 (obj, port, 1);
-  scm_dynwind_end ();
 
   return SCM_UNSPECIFIED;
 }
@@ -1546,11 +1542,7 @@ scm_display (SCM obj, SCM port)
     port = scm_current_output_port ();
 
   SCM_ASSERT (scm_valid_oport_value_p (port), port, SCM_ARG2, s_display);
-
-  scm_dynwind_begin (0);
-  scm_dynwind_lock_port (SCM_COERCE_OUTPORT (port));
   scm_prin1 (obj, port, 0);
-  scm_dynwind_end ();
 
   return SCM_UNSPECIFIED;
 }
