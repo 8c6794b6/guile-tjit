@@ -171,15 +171,15 @@ Currently does nothing, returns the given argument."
                           n initial-sp-offset (pretty-type parent-type)
                           (pretty-type snapshot-type))
                    (and (env-parent-snapshot env)
-                        (memq var live-vars-in-parent)
-                        (or (and parent-type
-                                 snapshot-type
-                                 (eq? parent-type snapshot-type))
-                            (or (dynamic-link? parent-type)
-                                (return-address? parent-type))
-                            (and (<= 0 initial-sp-offset)
-                                 (< n 0))
-                            (not (memq n (env-read-indices env)))))))
+                        (or (not (memq n (env-read-indices env)))
+                            (and (memq var live-vars-in-parent)
+                                 (or (and parent-type
+                                          snapshot-type
+                                          (eq? parent-type snapshot-type))
+                                     (or (dynamic-link? parent-type)
+                                         (return-address? parent-type))
+                                     (and (<= 0 initial-sp-offset)
+                                          (< n 0))))))))
              (lp vars))
             (else
              (let ((guard (assq-ref (env-entry-types env) n))
