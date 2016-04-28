@@ -71,6 +71,7 @@
             tjit-dump-ncode?
             tjit-dump-jitc?
             tjit-dump-anf?
+            tjit-dump-snapshot?
             tjit-dump-time?
             tjit-dump-verbose?
             tjit-dump-exit?
@@ -106,7 +107,8 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode dwarf ops jitc locals ncode anf time exit)
+  (make-tjit-dump abort bytecode dwarf ops jitc locals ncode anf snapshot
+                  time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
@@ -116,12 +118,13 @@
   (locals tjit-dump-verbose? set-tjit-dump-verbose!)
   (ncode tjit-dump-ncode? set-tjit-dump-ncode!)
   (anf tjit-dump-anf? set-tjit-dump-anf!)
+  (snapshot tjit-dump-snapshot? set-tjit-dump-snapshot!)
   (time tjit-dump-time? set-tjit-dump-time!)
   (exit tjit-dump-exit? set-tjit-dump-exit!))
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f #f #f #f #f #f #f #f #f))
+  (make-tjit-dump #f #f #f #f #f #f #f #f #f #f #f))
 
 (define (parse-tjit-dump-flags str)
   "Parse dump flags in string STR and return <tjit-dump> data.
@@ -140,7 +143,9 @@ Flags are:
 
 - 'o': Dump primitive operations.
 
-- 's': Dump ANF IR.
+- 'i': Dump ANF IR.
+
+- 's': Dump snapshot when dumping primitive operations.
 
 - 't': Take elapsed time spent in native compilation.
 
@@ -170,7 +175,8 @@ fields to @code{#f}."
                (#\j set-tjit-dump-jitc!)
                (#\n set-tjit-dump-ncode!)
                (#\o set-tjit-dump-ops!)
-               (#\s set-tjit-dump-anf!)
+               (#\i set-tjit-dump-anf!)
+               (#\s set-tjit-dump-snapshot!)
                (#\t set-tjit-dump-time!)
                (#\v set-tjit-dump-verbose!)
                (#\x set-tjit-dump-exit!))))))

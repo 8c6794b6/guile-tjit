@@ -248,7 +248,9 @@ option was set to true."
           code ip live-indices inline-depth)
        (format #t "----     [snap~3,,,' @a] ~a:~a:~a:~a ~a~%"
                id sp-offset fp-offset nlocals inline-depth
-               (pretty-locals locals variables)))
+               (if (tjit-dump-snapshot? (tjit-dump-option))
+                   (pretty-locals locals variables)
+                   "")))
       (_
        (format #t "----     NOT-A-SNAPSHOT~%"))))
   (define (dump-one idx op)
