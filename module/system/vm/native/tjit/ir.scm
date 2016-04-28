@@ -271,7 +271,8 @@ returns, current call-num, and current return-num."
                    (((n . var) . vars)
                     (cond
                      ((or (skip-var? var)
-                          (memq n live-indices))
+                          (memq n live-indices)
+                          (not (memq n (env-read-indices env))))
                       (lp vars loaded))
                      ((< min-local-index n max-local-index)
                       (let* ((t (assq-ref (env-entry-types env) n))
