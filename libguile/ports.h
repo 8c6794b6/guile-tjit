@@ -84,9 +84,6 @@ typedef struct
   /* Link back to the port object.  */
   SCM port;
 
-  /* A recursive lock for this port.  */
-  scm_i_pthread_mutex_t *lock;
-
   /* Pointer to internal-only port structure. */
   struct scm_port_internal *internal;
 
@@ -289,11 +286,6 @@ SCM_API SCM scm_set_port_encoding_x (SCM port, SCM encoding);
 SCM_API SCM scm_port_conversion_strategy (SCM port);
 SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
 
-/* Acquiring and releasing the port lock.  */
-SCM_API void scm_dynwind_lock_port (SCM port);
-SCM_INLINE int scm_c_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
-SCM_INLINE int scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
-
 /* Input.  */
 SCM_API int scm_get_byte_or_eof (SCM port);
 SCM_API int scm_peek_byte_or_eof (SCM port);
@@ -362,36 +354,6 @@ SCM_API SCM scm_sys_make_void_port (SCM mode);
 /* Initialization.  */
 SCM_INTERNAL void scm_init_ports (void);
 
-
-/* Inline function implementations.  */
-
-#if SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES
-SCM_INLINE_IMPLEMENTATION int
-scm_c_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
-{
-  *lock = SCM_PTAB_ENTRY (port)->lock;
-
-  if (*lock)
-    return scm_i_pthread_mutex_lock (*lock);
-  else
-    return 0;
-}
-
-SCM_INLINE_IMPLEMENTATION int
-scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
-{
-  *lock = SCM_PTAB_ENTRY (port)->lock;
-  if (*lock)
-    {
-      int ret = scm_i_pthread_mutex_trylock (*lock);
-      if (ret != 0)
-        *lock = NULL;
-      return ret;
-    }
-  else
-    return 0;
-}
-#endif  /* SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES */
 
 #endif  /* SCM_PORTS_H */
 
