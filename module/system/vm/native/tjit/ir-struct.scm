@@ -38,10 +38,11 @@
 ;;   (let ((dst/v (var-ref dst))
 ;;         (src/v (var-ref src))
 ;;         (r2 (make-tmpvar 2)))
-;;     `(let ((,r2 (%cref ,src/v 0)))
-;;        (let ((,r2 (%sub ,r2 1)))
-;;          (let ((,dst/v (%cref ,r2 2)))
-;;            ,(next))))))
+;;     (with-type-guard &struct src
+;;       `(let ((,r2 (%cref ,src/v 0)))
+;;          (let ((,r2 (%sub ,r2 1)))
+;;            (let ((,dst/v (%cref ,r2 2)))
+;;              ,(next)))))))
 
 ;; XXX: allocate-struct
 ;; XXX: struct-ref
@@ -62,17 +63,19 @@
 ;;   (let ((dst/v (var-ref dst))
 ;;         (src/v (var-ref src))
 ;;         (r2 (make-tmpvar 2)))
-;;     `(let ((,r2 (%cref ,src/v 1)))
-;;        (let ((,dst/v (%cref ,r2 ,idx)))
-;;          ,(next)))))
+;;     (with-type-guard &struct src
+;;       `(let ((,r2 (%cref ,src/v 1)))
+;;         (let ((,dst/v (%cref ,r2 ,idx)))
+;;           ,(next))))))
 
 ;; XXX: struct-set!/immediate
 ;; (define-ir (struct-set!/immediate (struct dst) (const idx) (scm src))
 ;;   (let ((dst/v (var-ref dst))
 ;;         (src/v (var-ref src))
 ;;         (r2 (make-tmpvar 2)))
-;;     `(let ((,r2 (%cref ,dst/v 1)))
-;;        (let ((_ (%cset ,r2 ,idx ,src/v)))
-;;          ,(next)))))
+;;     (with-type-guard &struct dst
+;;       `(let ((,r2 (%cref ,dst/v 1)))
+;;         (let ((_ (%cset ,r2 ,idx ,src/v)))
+;;           ,(next))))))
 
 ;; XXX: class-of

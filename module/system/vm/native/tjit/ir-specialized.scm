@@ -107,7 +107,21 @@
 ;; XXX: continuation-call
 ;; XXX: compose-continuation
 ;; XXX: tail-apply
+
 ;; XXX: call/cc
+;; (define-ir (call/cc)
+;;   (let ((cont/v (var-ref 0))
+;;         (dst/v (var-ref 1))
+;;         (cont/l (scm-ref 0))
+;;         (r2 (make-tmpvar 2)))
+;;     (debug 0 ";;; [IR] call/cc, cont/l=~a program-code=~x~%"
+;;            cont/l (program-code cont/l))
+;;     `(let ((,r2 (%cref ,cont/v 1)))
+;;        (let ((_ (%eq ,r2 ,(program-code cont/l))))
+;;          (let ((,dst/v ,cont/v))
+;;            (let ((,cont/v (%call-the-primitive-capturing-continuation)))
+;;              ,(next)))))))
+
 ;; XXX: abort
 
 (define-ir (builtin-ref (scm! dst) (const idx))
