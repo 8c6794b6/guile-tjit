@@ -2124,17 +2124,29 @@ SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
 	    "sequence when the error is raised.\n")
 #define FUNC_NAME s_scm_peek_char
 {
-  int err;
+  int first_byte, err;
   SCM result;
   scm_t_wchar c;
   char bytes[SCM_MBCHAR_BUF_SIZE];
   long column, line;
   size_t len = 0;
+  scm_t_port_internal *pti;
 
   if (SCM_UNBNDP (port))
     port = scm_current_input_port ();
   SCM_VALIDATE_OPINPORT (1, port);
+  pti = SCM_PORT_GET_INTERNAL (port);
 
+  /* First, a couple fast paths.  */
+  first_byte = peek_byte_or_eof (port);
+  if (first_byte == EOF)
+    return SCM_EOF_VAL;
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+    return SCM_MAKE_CHAR (first_byte);
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8 && first_byte < 0x80)
+    return SCM_MAKE_CHAR (first_byte);
+
+  /* Now the slow paths.  */
   column = SCM_COL (port);
   line = SCM_LINUM (port);
 
