@@ -654,7 +654,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 2);
+      /* VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 2); */
+      NEXT (0);
     }
 
   /* call-label proc:24 _:8 nlocals:24 label:32
@@ -692,7 +693,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 3);
+      /* VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 3); */
+      NEXT (0);
     }
 
   /* tail-call nlocals:24
