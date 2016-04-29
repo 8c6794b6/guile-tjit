@@ -95,8 +95,8 @@
           (if (< n (- stack-size 1))
               (let ((n/v (var-ref n))
                     (n/l (scm-ref n))
-                    (r2 (make-tmpvar 2)))
-                (with-boxing (type-ref n) n/v r2
+                    (r1 (make-tmpvar 2)))
+                (with-boxing (type-ref n) n/v r1
                   (lambda (boxed)
                     `(let ((_ (%carg ,boxed)))
                        ,(lp (+ n 1))))))
