@@ -66,6 +66,11 @@
     ;; item type of the returned value is always `scm'.
     (set-inferred-type! env (- proc-offset 1) &scm)))
 
+;; XXX: Inline known subroutines.
+;;
+;; For instance, C function `scm_cons' could be replaced with `%cell'
+;; primitive. Compare the program code at runtime, add guard, and replace with
+;; inlined alternative.
 (define-anf (subr-call)
   (let* ((stack-size (vector-length locals))
          (dst/v (var-ref (- stack-size 2)))
@@ -116,11 +121,14 @@
 ;;         (r2 (make-tmpvar 2)))
 ;;     (debug 0 ";;; [IR] call/cc, cont/l=~a program-code=~x~%"
 ;;            cont/l (program-code cont/l))
-;;     `(let ((,r2 (%cref ,cont/v 1)))
-;;        (let ((_ (%eq ,r2 ,(program-code cont/l))))
-;;          (let ((,dst/v ,cont/v))
-;;            (let ((,cont/v (%call-the-primitive-capturing-continuation)))
-;;              ,(next)))))))
+;;     `(let ((_ ,(take-snapshot! ip 0)))
+;;        (let ((,r2 (%cref ,cont/v 1)))
+;;          (let ((_ (%eq ,r2 ,(program-code cont/l))))
+;;            (let ((,r2 (%cont)))
+;;              (let ((_ (%ne ,r2 #x904)))
+;;                (let ((,dst/v ,cont/v))
+;;                  (let ((,cont/v ,r2))
+;;                    ,(next))))))))))
 
 ;; XXX: abort
 

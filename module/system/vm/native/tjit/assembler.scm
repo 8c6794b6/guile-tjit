@@ -238,6 +238,9 @@
 (define %scm-inline-words
   (dynamic-pointer "scm_do_inline_words" (dynamic-link)))
 
+(define %scm-make-continuation
+  (dynamic-pointer "scm_do_make_continuation" (dynamic-link)))
+
 (define %scm-eqv
   (dynamic-pointer "scm_eqv_p" (dynamic-link)))
 
@@ -1618,3 +1621,17 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 (define-native (%move (int dst) (int src))
   (move dst src))
+
+(define-native (%cont (int dst))
+  (let ((volatiles (asm-volatiles asm)))
+    (for-each store-volatile volatiles)
+    (jit-prepare)
+    (jit-pushargr %thread)
+    (load-vp r0)
+    (jit-pushargr r0)
+    (jit-calli %scm-make-continuation)
+    (retval-to-reg-or-mem dst)
+    (for-each (lambda (reg)
+                (unless (equal? reg dst)
+                  (load-volatile reg)))
+              volatiles)))

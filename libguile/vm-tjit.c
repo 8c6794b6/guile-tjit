@@ -740,6 +740,23 @@ scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
   return scm_inline_words (thread, car, n_words);
 }
 
+SCM
+scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp)
+{
+  SCM vm_cont;
+  int first;
+
+  vm_cont = scm_i_vm_capture_stack (vp->stack_top,
+                                    SCM_FRAME_DYNAMIC_LINK (vp->fp),
+                                    SCM_FRAME_PREVIOUS_SP (vp->fp),
+                                    SCM_FRAME_RETURN_ADDRESS (vp->fp),
+                                    scm_dynstack_capture_all (&thread->dynstack),
+                                    0);
+
+  /* XXX: Return the contents of `first'. */
+  return scm_i_make_continuation (&first, vp, vm_cont);
+}
+
 void
 scm_do_vm_expand_stack (struct scm_vm *vp, union scm_vm_stack_element *new_sp)
 {
