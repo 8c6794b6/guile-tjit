@@ -418,6 +418,9 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
               ++(tj->nunrolled);
             }
         }
+      else if (ip == end_ip)
+        /* XXX: Hot procedure return, possibly non-recursive. */
+        stop_recording (tj);
       else
         record (tj, thread, vp, ip, sp);
       break;
