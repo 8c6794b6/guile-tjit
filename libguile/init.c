@@ -430,9 +430,9 @@ scm_i_init_guile (void *base)
   scm_init_control ();            /* requires fluids */
   scm_init_feature ();
   scm_init_backtrace ();
+  scm_init_ports ();
   scm_init_fports ();
   scm_init_strports ();
-  scm_init_ports ();
   scm_init_hash ();
   scm_init_hashtab ();
   scm_init_deprecation ();
