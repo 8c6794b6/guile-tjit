@@ -258,11 +258,20 @@ scm_make_port_type (char *name,
 
 static SCM
 trampoline_to_c_read (SCM port, SCM dst, SCM start, SCM count)
+#define FUNC_NAME "port-read"
 {
+  size_t c_start, c_count;
+
+  SCM_VALIDATE_OPPORT (1, port);
+  c_start = scm_to_size_t (start);
+  c_count = scm_to_size_t (count);
+  SCM_ASSERT_RANGE (2, start, start <= count);
+  SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (dst));
+
   return scm_from_size_t
-    (SCM_PORT_DESCRIPTOR (port)->c_read
-     (port, dst, scm_to_size_t (start), scm_to_size_t (count)));
+    (SCM_PORT_DESCRIPTOR (port)->c_read (port, dst, c_start, c_count));
 }
+#undef FUNC_NAME
 
 static size_t
 trampoline_to_scm_read (SCM port, SCM dst, size_t start, size_t count)
@@ -274,11 +283,20 @@ trampoline_to_scm_read (SCM port, SCM dst, size_t start, size_t count)
 
 static SCM
 trampoline_to_c_write (SCM port, SCM src, SCM start, SCM count)
+#define FUNC_NAME "port-write"
 {
+  size_t c_start, c_count;
+
+  SCM_VALIDATE_OPPORT (1, port);
+  c_start = scm_to_size_t (start);
+  c_count = scm_to_size_t (count);
+  SCM_ASSERT_RANGE (2, start, c_start <= c_count);
+  SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (src));
+
   return scm_from_size_t
-    (SCM_PORT_DESCRIPTOR (port)->c_write
-     (port, src, scm_to_size_t (start), scm_to_size_t (count)));
+    (SCM_PORT_DESCRIPTOR (port)->c_write (port, src, c_start, c_count));
 }
+#undef FUNC_NAME
 
 static size_t
 trampoline_to_scm_write (SCM port, SCM src, size_t start, size_t count)
@@ -2457,43 +2475,75 @@ scm_fill_input (SCM port)
   return read_buf;
 }
 
+SCM_DEFINE (scm_port_random_access_p, "port-random-access?", 1, 0, 0,
+            (SCM port),
+	    "Return true if the port is random-access, or false otherwise.")
+#define FUNC_NAME s_scm_port_random_access_p
+{
+  SCM_VALIDATE_OPPORT (1, port);
+  return scm_from_bool (SCM_PTAB_ENTRY (port)->rw_random);
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_port_read_buffering, "port-read-buffering", 1, 0, 0,
+            (SCM port),
+	    "Return the amount of read buffering on a port, in bytes.")
+#define FUNC_NAME s_scm_port_read_buffering
+{
+  SCM_VALIDATE_OPINPORT (1, port);
+  return scm_from_size_t (SCM_PTAB_ENTRY (port)->read_buffering);
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_set_port_read_buffer_x, "set-port-read-buffer!", 2, 0, 0,
+            (SCM port, SCM buf),
+	    "Reset the read buffer on an input port.")
+#define FUNC_NAME s_scm_set_port_read_buffer_x
+{
+  SCM_VALIDATE_OPINPORT (1, port);
+  SCM_ASSERT_TYPE (scm_is_vector (buf) && scm_c_vector_length (buf) >= 4,
+                   buf, 2, FUNC_NAME, "port buffer");
+  SCM_PTAB_ENTRY (port)->read_buf = buf;
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_port_read, "port-read", 1, 0, 0, (SCM port),
+	    "Return the read function for an input port.")
+#define FUNC_NAME s_scm_port_read
+{
+  SCM_VALIDATE_OPINPORT (1, port);
+  return SCM_PORT_DESCRIPTOR (port)->scm_read;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_port_write, "port-write", 1, 0, 0,
+            (SCM port),
+	    "Return the write function for an output port.")
+#define FUNC_NAME s_scm_port_write
+{
+  SCM_VALIDATE_OPOUTPORT (1, port);
+  return SCM_PORT_DESCRIPTOR (port)->scm_write;
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_port_read_buffer, "port-read-buffer", 1, 0, 0,
             (SCM port),
-	    "Return the read buffer for a port.  If the port is\n"
-            "random-access, its write buffer, if any, will be flushed\n"
-            "if needed.")
+	    "Return the read buffer for a port.")
 #define FUNC_NAME s_scm_port_read_buffer
 {
-  scm_t_port *pt;
-
-  SCM_VALIDATE_OPINPORT (1, port);
-
-  pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->rw_random)
-    scm_flush (pt->port);
-
-  return pt->read_buf;
+  SCM_VALIDATE_OPPORT (1, port);
+  return SCM_PTAB_ENTRY (port)->read_buf;
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_port_write_buffer, "port-write-buffer", 1, 0, 0,
             (SCM port),
-	    "Return the write buffer for a port.  If the port is\n"
-            "random-access, its read buffer, if any, will be discarded\n"
-            "if needed.")
+	    "Return the write buffer for a port.")
 #define FUNC_NAME s_scm_port_write_buffer
 {
-  scm_t_port *pt;
-
-  SCM_VALIDATE_OPOUTPORT (1, port);
-
-  pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->rw_random)
-    scm_end_input (pt->port);
-
-  return pt->write_buf;
+  SCM_VALIDATE_OPPORT (1, port);
+  return SCM_PTAB_ENTRY (port)->write_buf;
 }
 #undef FUNC_NAME
 

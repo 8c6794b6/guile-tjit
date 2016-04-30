@@ -26,6 +26,7 @@
 
 
 (define-module (ice-9 ports)
+  #:use-module (rnrs bytevectors)
   #:export (;; Definitions from ports.c.
             %port-property
             %set-port-property!
@@ -150,6 +151,88 @@
                 "scm_init_ice_9_fports")
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_ice_9_ioext")
+
+
+
+(define-syntax-rule (port-buffer-bytevector buf) (vector-ref buf 0))
+(define-syntax-rule (port-buffer-cur buf) (vector-ref buf 1))
+(define-syntax-rule (port-buffer-end buf) (vector-ref buf 2))
+(define-syntax-rule (port-buffer-has-eof? buf) (vector-ref buf 3))
+
+(define-syntax-rule (set-port-buffer-cur! buf cur)
+  (vector-set! buf 1 cur))
+(define-syntax-rule (set-port-buffer-end! buf end)
+  (vector-set! buf 2 end))
+(define-syntax-rule (set-port-buffer-has-eof?! buf has-eof?)
+  (vector-set! buf 3 has-eof?))
+
+(define (make-port-buffer size)
+  (vector (make-bytevector size 0) 0 0 #f))
+
+(define (write-bytes port src start count)
+  (let ((written ((port-write port) port src start count)))
+    (unless (<= 0 written count)
+      (error "bad return from port write function" written))
+    (when (< written count)
+      (write-bytes port src (+ start written) (- count written)))))
+
+(define (flush-output port)
+  (let* ((buf (port-write-buffer port))
+         (cur (port-buffer-cur buf))
+         (end (port-buffer-end buf)))
+    (when (< cur end)
+      ;; Update cursors before attempting to write, assuming that I/O
+      ;; errors are sticky.  That way if the write throws an error,
+      ;; causing the computation to abort, and possibly causing the port
+      ;; to be collected by GC when it's open, any subsequent close-port
+      ;; or force-output won't signal *another* error.
+      (set-port-buffer-cur! buf 0)
+      (set-port-buffer-end! buf 0)
+      (write-bytes port (port-buffer-bytevector buf) cur (- end cur)))))
+
+(define (read-bytes port dst start count)
+  (let ((read ((port-read port) port dst start count)))
+    (unless (<= 0 read count)
+      (error "bad return from port read function" read))
+    read))
+
+(define (fill-input port)
+  (let ((buf (port-read-buffer port)))
+    (cond
+     ((or (< (port-buffer-cur buf) (port-buffer-end buf))
+          (port-buffer-has-eof? buf))
+      buf)
+     (else
+      (unless (input-port? port)
+        (error "not an input port" port))
+      (when (port-random-access? port)
+        (flush-output port))
+      (let* ((read-buffering (port-read-buffering port))
+             (buf (if (= (bytevector-length (port-buffer-bytevector buf))
+                         read-buffering)
+                      buf
+                      (let ((buf (make-port-buffer read-buffering)))
+                        (set-port-read-buffer! port buf)
+                        buf)))
+             (bv (port-buffer-bytevector buf))
+             (start (port-buffer-end buf))
+             (count (- (bytevector-length bv) start))
+             (read (read-bytes port bv start count)))
+        (set-port-buffer-end! buf (+ start read))
+        (set-port-buffer-has-eof?! buf (zero? count))
+        buf)))))
+
+(define (peek-byte port)
+  (let* ((buf (port-read-buffer port))
+         (cur (port-buffer-cur buf)))
+    (if (< cur (port-buffer-end buf))
+        (bytevector-u8-ref (port-buffer-bytevector buf) cur)
+        (let* ((buf (fill-input port))
+               (cur (port-buffer-cur buf)))
+          (if (< cur (port-buffer-end buf))
+              (bytevector-u8-ref (port-buffer-bytevector buf) cur)
+              the-eof-object)))))
+
 
 
 
