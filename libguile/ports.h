@@ -181,8 +181,11 @@ typedef struct scm_t_ptob_descriptor
   char *name;
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
 
-  size_t (*read) (SCM port, SCM dst, size_t start, size_t count);
-  size_t (*write) (SCM port, SCM src, size_t start, size_t count);
+  size_t (*c_read) (SCM port, SCM dst, size_t start, size_t count);
+  size_t (*c_write) (SCM port, SCM src, size_t start, size_t count);
+  SCM scm_read;
+  SCM scm_write;
+
   scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
   void (*close) (SCM port);
 
@@ -209,6 +212,8 @@ SCM_API scm_t_bits scm_make_port_type
 	(char *name,
          size_t (*read) (SCM port, SCM dst, size_t start, size_t count),
          size_t (*write) (SCM port, SCM src, size_t start, size_t count));
+SCM_API void scm_set_port_scm_read (scm_t_bits tc, SCM read);
+SCM_API void scm_set_port_scm_write (scm_t_bits tc, SCM write);
 SCM_API void scm_set_port_print (scm_t_bits tc,
 				 int (*print) (SCM exp,
 					       SCM port,

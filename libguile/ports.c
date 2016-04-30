@@ -224,8 +224,8 @@ scm_c_port_type_add_x (scm_t_ptob_descriptor *desc)
   return ret;
 }
 
-/* Default buffer size.  Used if the port type won't supply a value.  */
-static const size_t default_buffer_size = 1024;
+static SCM trampoline_to_c_read_subr;
+static SCM trampoline_to_c_write_subr;
 
 scm_t_bits
 scm_make_port_type (char *name,
@@ -242,8 +242,10 @@ scm_make_port_type (char *name,
 
   desc->name = name;
   desc->print = scm_port_print;
-  desc->read = read;
-  desc->write = write;
+  desc->c_read = read;
+  desc->c_write = write;
+  desc->scm_read = read ? trampoline_to_c_read_subr : SCM_BOOL_F;
+  desc->scm_write = write ? trampoline_to_c_write_subr : SCM_BOOL_F;
 
   ptobnum = scm_c_port_type_add_x (desc);
 
@@ -252,6 +254,54 @@ scm_make_port_type (char *name,
     scm_make_port_classes (ptobnum, name);
 
   return scm_tc7_port + ptobnum * 256;
+}
+
+static SCM
+trampoline_to_c_read (SCM port, SCM dst, SCM start, SCM count)
+{
+  return scm_from_size_t
+    (SCM_PORT_DESCRIPTOR (port)->c_read
+     (port, dst, scm_to_size_t (start), scm_to_size_t (count)));
+}
+
+static size_t
+trampoline_to_scm_read (SCM port, SCM dst, size_t start, size_t count)
+{
+  return scm_to_size_t
+    (scm_call_4 (SCM_PORT_DESCRIPTOR (port)->scm_read, port, dst,
+                 scm_from_size_t (start), scm_from_size_t (count)));
+}
+
+static SCM
+trampoline_to_c_write (SCM port, SCM src, SCM start, SCM count)
+{
+  return scm_from_size_t
+    (SCM_PORT_DESCRIPTOR (port)->c_write
+     (port, src, scm_to_size_t (start), scm_to_size_t (count)));
+}
+
+static size_t
+trampoline_to_scm_write (SCM port, SCM src, size_t start, size_t count)
+{
+  return scm_to_size_t
+    (scm_call_4 (SCM_PORT_DESCRIPTOR (port)->scm_write, port, src,
+                 scm_from_size_t (start), scm_from_size_t (count)));
+}
+
+void
+scm_set_port_scm_read (scm_t_bits tc, SCM read)
+{
+  scm_t_ptob_descriptor *desc = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
+  desc->scm_read = read;
+  desc->c_read = trampoline_to_scm_read;
+}
+
+void
+scm_set_port_scm_write (scm_t_bits tc, SCM write)
+{
+  scm_t_ptob_descriptor *desc = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
+  desc->scm_write = write;
+  desc->c_write = trampoline_to_scm_write;
 }
 
 void
@@ -636,6 +686,9 @@ finalize_port (void *ptr, void *data)
 
 
 
+
+/* Default buffer size.  Used if the port type won't supply a value.  */
+static const size_t default_buffer_size = 1024;
 
 static void
 initialize_port_buffers (SCM port)
@@ -1417,7 +1470,7 @@ scm_i_read_bytes (SCM port, SCM dst, size_t start, size_t count)
   assert (count <= SCM_BYTEVECTOR_LENGTH (dst));
   assert (start + count <= SCM_BYTEVECTOR_LENGTH (dst));
 
-  filled = ptob->read (port, dst, start, count);
+  filled = ptob->c_read (port, dst, start, count);
 
   assert (filled <= count);
 
@@ -2473,7 +2526,7 @@ scm_i_write_bytes (SCM port, SCM src, size_t start, size_t count)
   assert (start + count <= SCM_BYTEVECTOR_LENGTH (src));
 
   do
-    written += ptob->write (port, src, start + written, count - written);
+    written += ptob->c_write (port, src, start + written, count - written);
   while (written < count);
 
   assert (written == count);
@@ -3108,6 +3161,13 @@ scm_init_ice_9_ports (void)
 void
 scm_init_ports (void)
 {
+  trampoline_to_c_read_subr =
+    scm_c_make_gsubr ("port-read", 4, 0, 0,
+                      (scm_t_subr) trampoline_to_c_read);
+  trampoline_to_c_write_subr =
+    scm_c_make_gsubr ("port-write", 4, 0, 0,
+                      (scm_t_subr) trampoline_to_c_write);
+
   scm_tc16_void_port = scm_make_port_type ("void", void_port_read,
 					   void_port_write);
 
