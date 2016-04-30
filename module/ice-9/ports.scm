@@ -461,8 +461,6 @@ written into the port is returned."
   (call-with-output-string
    (lambda (p) (with-error-to-port p thunk))))
 
-(define the-eof-object (call-with-input-string "" (lambda (p) (read-char p))))
-
 (define (inherit-print-state old-port new-port)
   (if (get-print-state old-port)
       (port-with-print-state new-port (get-print-state old-port))

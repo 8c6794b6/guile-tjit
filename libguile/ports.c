@@ -3145,13 +3145,13 @@ scm_init_ice_9_ports (void)
 {
 #include "libguile/ports.x"
 
+  scm_c_define ("the-eof-object", SCM_EOF_VAL);
+
   /* lseek() symbols.  */
   scm_c_define ("SEEK_SET", scm_from_int (SEEK_SET));
   scm_c_define ("SEEK_CUR", scm_from_int (SEEK_CUR));
   scm_c_define ("SEEK_END", scm_from_int (SEEK_END));
 
-  /* These bindings are used when boot-9 turns `current-input-port' et
-     al into parameters.  They are then removed from the guile module.  */
   scm_c_define ("%current-input-port-fluid", cur_inport_fluid);
   scm_c_define ("%current-output-port-fluid", cur_outport_fluid);
   scm_c_define ("%current-error-port-fluid", cur_errport_fluid);
