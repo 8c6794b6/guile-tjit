@@ -347,7 +347,8 @@ Currently does nothing, returns the given argument."
          (last-fp-offset (let* ((fp-offsets (env-fp-offsets env))
                                 (i (- (vector-length fp-offsets) 1)))
                            (vector-ref fp-offsets i)))
-         (initial-inline-depth (env-inline-depth env)))
+         (initial-inline-depth (env-inline-depth env))
+         (root-trace? (not (env-parent-snapshot env))))
     (define (entry-snapshot! ip locals sp-offset min-sp nlocals)
       (let-values (((ret snapshot)
                     (take-snapshot ip 0 locals (ir-vars ir)
@@ -360,6 +361,18 @@ Currently does nothing, returns the given argument."
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
+    (define (nlocals-from-op op)
+      ;; Get the new `nlocals' when side trace ended with one of the call
+      ;; or operations containing `ALLOC_FRAME'. Otherwise false.
+      (match op
+        (('alloc-frame nlocals) nlocals)
+        (('reset-frame nlocals) nlocals)
+        (('assert-nargs-ee/locals expected nlocals) (+ nlocals expected))
+        (('call _ nlocals) nlocals)
+        (('call-label _ nlocals _) nlocals)
+        (('tail-call nlocals) nlocals)
+        (('tail-call-label nlocals _) nlocals)
+        (_ #f)))
     (define (gen-last-op op ip locals)
       ;; Last operation is wrapped in a thunk, to assign snapshot ID in last
       ;; expression after taking snapshots from various works defined in `ir-*'
@@ -417,26 +430,25 @@ Currently does nothing, returns the given argument."
        ;;    (_
        ;;     (nyi "uprec with last op ~a" op))))
 
-       ((not (env-parent-snapshot env)) ; Root trace
-        (lambda ()
-          `(loop ,@(reverse (map cdr (ir-vars ir))))))
+       (root-trace?
+        (cond
+         ((< last-sp-offset 0)
+          (lambda ()
+            `(let ((_ ,(entry-snapshot! *ip-key-downrec* locals last-sp-offset
+                                        (ir-min-sp-offset ir)
+                                        (nlocals-from-op op))))
+               (loop ,@(reverse (map cdr (ir-vars ir)))))))
+         ((zero? last-sp-offset)
+          (lambda ()
+            `(loop ,@(reverse (map cdr (ir-vars ir))))))
+         (else
+          (nyi "root trace with up SP shift"))))
        (else                            ; Side trace
         (lambda ()
-          ;; Get the new `nlocals' when side trace ended with one of the call
-          ;; or operations containing `ALLOC_FRAME'.
-          (let ((nlocals (match op
-                           (('alloc-frame nlocals) nlocals)
-                           (('reset-frame nlocals) nlocals)
-                           (('assert-nargs-ee/locals _ nlocals)
-                            (+ nlocals (vector-length locals)))
-                           (('call _ nlocals) nlocals)
-                           (('call-label _ nlocals _) nlocals)
-                           (('tail-call nlocals) nlocals)
-                           (('tail-call-label nlocals _) nlocals)
-                           (_ #f))))
-            `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
-                                        (ir-min-sp-offset ir) nlocals)))
-               _))))))
+          `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
+                                      (ir-min-sp-offset ir)
+                                      (nlocals-from-op op))))
+             _)))))
     (define (gen-next ir ip dl locals op rest)
       (lambda ()
         (let* ((old-index (ir-bytecode-index ir))

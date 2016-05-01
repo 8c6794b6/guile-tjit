@@ -542,6 +542,9 @@ DST-TYPES, and SRC-TYPES are local index number."
                  ;;  (compile-uprec tj asm snapshot (tj-loop-locals tj)
                  ;;                 (env-loop-vars env))
                  ;;  (lp ops acc))
+                 ((snapshot-downrec? snapshot)
+                  (compile-downrec env asm args snapshot storage)
+                  (lp ops acc))
                  ((snapshot-link? snapshot)
                   (compile-link env asm args snapshot storage)
                   (lp ops acc))
@@ -754,6 +757,41 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (jumpi (fragment-loop-address linked-fragment))))))))))
     (_
      (failure 'compile-link "not a snapshot ~s" snapshot))))
+
+(define (compile-downrec env %asm args snapshot storage)
+  (debug 2 ";;; [compile-downrec] args=~a~%" args)
+  (debug 2 ";;; [compile-downrec] env-loop-vars=~a~%" (env-loop-vars env))
+  (debug 2 ";;; [compile-downrec] env-loop-locals=~a~%" (env-loop-locals env))
+  (let ((src-var-table (make-hash-table)))
+    (syntax-parameterize ((asm (identifier-syntax %asm)))
+      (match snapshot
+        (($ $snapshot id sp-offset fp-offset nlocals locals vars)
+         (debug 2 ";;; [compile-downrec] sp-offset=~a~%" sp-offset)
+         (debug 2 ";;; [compile-downrec] nlocals=~a~%" nlocals)
+         (let lp ((locals locals) (vars vars))
+           (match (cons locals vars)
+             ((((n . t) . locals) . (v . vars))
+              (debug 2 ";;; [compile-downrec] n=~a:~a:~a~%" n
+                     (pretty-type t)
+                     (physical-name v))
+              (hashq-set! src-var-table n v)
+              (store-frame n t v)
+              (lp locals vars))
+             ((())
+              (let lp ((loop-locals (env-loop-locals env))
+                       (loop-vars (reverse (env-loop-vars env))))
+                (match (cons loop-locals loop-vars)
+                  ((((n . t) . loop-locals) . (v . loop-vars))
+                   (and=> (hashq-ref src-var-table (+ n sp-offset))
+                          (lambda (src)
+                            (let ((dst (hashq-ref storage v)))
+                              (move dst src))))
+                   (lp loop-locals loop-vars))
+                  (_
+                   (shift-sp %asm sp-offset)
+                   (shift-fp nlocals))))))))
+        (_
+         (failure 'compile-downrec "not a snapshot ~a" snapshot))))))
 
 ;; XXX: Incomplete
 ;; (define (compile-downrec tj asm loop? snapshot initial-nlocals dsts)

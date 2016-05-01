@@ -105,17 +105,20 @@
                     (else ""))))
         (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
                 trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
+    (define-syntax call-op?
+      (syntax-rules ()
+        ((_ op)
+         (or (eq? op 'call)
+             (eq? op 'call-label)
+             (eq? op 'tail-call)
+             (eq? op 'tail-call-label)))))
     (define-syntax too-many-side-traces-starting-with-call?
       ;; Detecting side trace starting with call bytecode operation. This is
       ;; likely to be a higher order procedure call.
       (syntax-rules ()
-        ((_ traces)
+        ((_ op)
          (and (<= 3 num-traces-with-same-entry-ip)
-              (let ((op (car (list-ref (car traces) 0))))
-                (or (eq? op 'call)
-                    (eq? op 'call-label)
-                    (eq? op 'tail-call)
-                    (eq? op 'tail-call-label)))))))
+              (call-op? op)))))
     (define-syntax dump
       (syntax-rules ()
         ((_ test data exp)
@@ -128,6 +131,12 @@
         (define (dump-sline-and-bytecode test)
           (dump tjit-dump-jitc? test (show-sline))
           (dump tjit-dump-bytecode? test (dump-bytecode trace-id traces)))
+        (define last-op
+          (and (pair? traces)
+               (car (car (last traces)))))
+        (define first-op
+          (and (pair? traces)
+               (car (car (car traces)))))
         (when (tjit-dump-abort? dump-option)
           (dump-sline-and-bytecode #t))
         (cond
@@ -139,16 +148,17 @@
           (nyi "down recursion"))
          ((and (not parent-snapshot) (not loop?))
           (nyi "loop-less root trace"))
-         ((and (not parent-snapshot) (not (zero? (env-last-sp-offset env))))
-          (nyi "root trace with stack pointer shift"))
+         ((and (not parent-snapshot)
+               (not (zero? (env-last-sp-offset env)))
+               (not (call-op? last-op)))
+          (nyi "root trace with SP shift, last op `~a'" last-op))
          ((and parent-snapshot (not (env-linked-fragment env)))
           (break 2 "side trace with type mismatched link"))
-         ((too-many-side-traces-starting-with-call? traces)
+         ((too-many-side-traces-starting-with-call? first-op)
           (let* ((origin (get-origin-fragment (env-parent-fragment env)))
-                 (origin-id (fragment-id origin))
-                 (op (car (list-ref (car traces) 0))))
+                 (origin-id (fragment-id origin)))
             (remove-fragment-and-side-traces origin)
-            (recompile "~a at trace ~a (~x)" op origin-id entry-ip)))
+            (recompile "~a at trace ~a (~x)" first-op origin-id entry-ip)))
          (else
           (unless (tjit-dump-abort? dump-option)
             (dump-sline-and-bytecode implemented?))
