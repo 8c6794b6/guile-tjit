@@ -715,9 +715,6 @@ DST-TYPES, and SRC-TYPES are local index number."
             (ref-table (make-hash-table))
             (linked-snapshots (fragment-snapshots linked-fragment))
             (linked-snap1 (hashq-ref linked-snapshots 1))
-            (parent-snapshot (env-parent-snapshot env))
-            (parent-sp-offset (snapshot-sp-offset parent-snapshot))
-            (parent-depth (snapshot-inline-depth parent-snapshot))
             (my-depth (snapshot-inline-depth snapshot)))
 
        (let lp ((loop-locals loop-locals)
