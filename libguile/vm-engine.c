@@ -224,14 +224,14 @@
     else                                                                \
       NEXT (n);                                                         \
   } while (0)
-#  define VM_TJIT_CALL(old_ip)                                          \
-  do {                                                                  \
-    if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
-      SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),             \
-                      SCM_TJIT_TRACE_CALL, tjit_hot_call);              \
-    else                                                                \
-      NEXT (0);                                                         \
-  } while (0)
+/* #  define VM_TJIT_CALL(old_ip)                                          \ */
+/*   do {                                                                  \ */
+/*     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \ */
+/*       SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),             \ */
+/*                       SCM_TJIT_TRACE_CALL, tjit_hot_call);              \ */
+/*     else                                                                \ */
+/*       NEXT (0);                                                         \ */
+/*   } while (0) */
 #  define VM_TJIT_TAIL_CALL(old_ip)                                     \
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
@@ -654,8 +654,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      /* VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 2); */
-      NEXT (0);
+      VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 2);
     }
 
   /* call-label proc:24 _:8 nlocals:24 label:32
@@ -693,8 +692,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      /* VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 3); */
-      NEXT (0);
+      VM_TJIT_CALL (SCM_FRAME_RETURN_ADDRESS (vp->fp) - 3);
     }
 
   /* tail-call nlocals:24
