@@ -373,12 +373,6 @@ scm_set_port_get_natural_buffer_sizes
 }
 
 static void
-scm_i_set_pending_eof (SCM port)
-{
-  scm_port_buffer_set_has_eof_p (SCM_PTAB_ENTRY (port)->read_buf, SCM_BOOL_T);
-}
-
-static void
 scm_i_clear_pending_eof (SCM port)
 {
   scm_port_buffer_set_has_eof_p (SCM_PTAB_ENTRY (port)->read_buf, SCM_BOOL_F);
@@ -1664,166 +1658,128 @@ utf8_to_codepoint (const scm_t_uint8 *utf8_buf, size_t size)
   return codepoint;
 }
 
-/* Read a UTF-8 sequence from PORT.  On success, return 0 and set
-   *CODEPOINT to the codepoint that was read, fill BUF with its UTF-8
-   representation, and set *LEN to the length in bytes.  Return
-   `EILSEQ' on error.  */
+/* Peek a UTF-8 sequence from PORT.  On success, return 0, set
+   *CODEPOINT to the codepoint that was read, and set *LEN to the length
+   in bytes.  Return `EILSEQ' on error, setting *LEN to the shortest
+   prefix that cannot begin a valid UTF-8 sequence.  */
 static int
-get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
-		    scm_t_uint8 buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
+peek_utf8_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
 {
-#define ASSERT_NOT_EOF(b)			\
-  if (SCM_UNLIKELY ((b) == EOF))		\
-    goto invalid_seq
-#define CONSUME_PEEKED_BYTE()				\
-  scm_port_buffer_did_take (pt->read_buf, 1)
+  int first_byte;
 
-  int byte;
-  scm_t_port *pt;
-
-  *len = 0;
-  pt = SCM_PTAB_ENTRY (port);
-
-  byte = get_byte_or_eof (port);
-  if (byte == EOF)
+  first_byte = peek_byte_or_eof (port);
+  if (first_byte == EOF)
     {
       *codepoint = EOF;
       return 0;
     }
-
-  buf[0] = (scm_t_uint8) byte;
-  *len = 1;
-
-  if (buf[0] <= 0x7f)
-    /* 1-byte form.  */
-    *codepoint = buf[0];
-  else if (buf[0] >= 0xc2 && buf[0] <= 0xdf)
+  else if (first_byte < 0x80)
     {
-      /* 2-byte form.  */
-      byte = peek_byte_or_eof (port);
-      ASSERT_NOT_EOF (byte);
-
-      if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
-	goto invalid_seq;
-
-      CONSUME_PEEKED_BYTE ();
-      buf[1] = (scm_t_uint8) byte;
-      *len = 2;
-
-      *codepoint = ((scm_t_wchar) buf[0] & 0x1f) << 6UL
-	| (buf[1] & 0x3f);
+      *codepoint = first_byte;
+      *len = 1;
+      return 0;
     }
-  else if ((buf[0] & 0xf0) == 0xe0)
+  else if (first_byte >= 0xc2 && first_byte <= 0xdf)
     {
-      /* 3-byte form.  */
-      byte = peek_byte_or_eof (port);
-      ASSERT_NOT_EOF (byte);
+      SCM read_buf = scm_fill_input (port, 2);
+      size_t can_take = scm_port_buffer_can_take (read_buf);
+      const scm_t_uint8 *ptr = scm_port_buffer_take_pointer (read_buf);
 
-      if (SCM_UNLIKELY ((byte & 0xc0) != 0x80
-			|| (buf[0] == 0xe0 && byte < 0xa0)
-			|| (buf[0] == 0xed && byte > 0x9f)))
-	goto invalid_seq;
+      if (can_take < 2 || (ptr[1] & 0xc0) != 0x80)
+        {
+          *len = 1;
+          return EILSEQ;
+        }
 
-      CONSUME_PEEKED_BYTE ();
-      buf[1] = (scm_t_uint8) byte;
+      *codepoint = (first_byte & 0x1f) << 6UL | (ptr[1] & 0x3f);
       *len = 2;
-
-      byte = peek_byte_or_eof (port);
-      ASSERT_NOT_EOF (byte);
-
-      if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
-	goto invalid_seq;
-
-      CONSUME_PEEKED_BYTE ();
-      buf[2] = (scm_t_uint8) byte;
-      *len = 3;
-
-      *codepoint = ((scm_t_wchar) buf[0] & 0x0f) << 12UL
-	| ((scm_t_wchar) buf[1] & 0x3f) << 6UL
-	| (buf[2] & 0x3f);
+      return 0;
     }
-  else if (buf[0] >= 0xf0 && buf[0] <= 0xf4)
+  else if ((first_byte & 0xf0) == 0xe0)
     {
-      /* 4-byte form.  */
-      byte = peek_byte_or_eof (port);
-      ASSERT_NOT_EOF (byte);
+      SCM read_buf = scm_fill_input (port, 3);
+      size_t can_take = scm_port_buffer_can_take (read_buf);
+      const scm_t_uint8 *ptr = scm_port_buffer_take_pointer (read_buf);
 
-      if (SCM_UNLIKELY (((byte & 0xc0) != 0x80)
-			|| (buf[0] == 0xf0 && byte < 0x90)
-			|| (buf[0] == 0xf4 && byte > 0x8f)))
-	goto invalid_seq;
+      if (can_take < 2 || (ptr[1] & 0xc0) != 0x80
+          || (ptr[0] == 0xe0 && ptr[1] < 0xa0)
+          || (ptr[0] == 0xed && ptr[1] > 0x9f))
+        {
+          *len = 1;
+          return EILSEQ;
+        }
 
-      CONSUME_PEEKED_BYTE ();
-      buf[1] = (scm_t_uint8) byte;
-      *len = 2;
+      if (can_take < 3 || (ptr[2] & 0xc0) != 0x80)
+        {
+          *len = 2;
+          return EILSEQ;
+        }
 
-      byte = peek_byte_or_eof (port);
-      ASSERT_NOT_EOF (byte);
-
-      if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
-	goto invalid_seq;
-
-      CONSUME_PEEKED_BYTE ();
-      buf[2] = (scm_t_uint8) byte;
+      *codepoint = ((scm_t_wchar) ptr[0] & 0x0f) << 12UL
+	| ((scm_t_wchar) ptr[1] & 0x3f) << 6UL
+	| (ptr[2] & 0x3f);
       *len = 3;
+      return 0;
+    }
+  else if (first_byte >= 0xf0 && first_byte <= 0xf4)
+    {
+      SCM read_buf = scm_fill_input (port, 4);
+      size_t can_take = scm_port_buffer_can_take (read_buf);
+      const scm_t_uint8 *ptr = scm_port_buffer_take_pointer (read_buf);
 
-      byte = peek_byte_or_eof (port);
-      ASSERT_NOT_EOF (byte);
+      if (can_take < 2 || (ptr[1] & 0xc0) != 0x80
+          || (ptr[0] == 0xf0 && ptr[1] < 0x90)
+          || (ptr[0] == 0xf4 && ptr[1] > 0x8f))
+        {
+          *len = 1;
+          return EILSEQ;
+        }
 
-      if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
-	goto invalid_seq;
+      if (can_take < 3 || (ptr[2] & 0xc0) != 0x80)
+        {
+          *len = 2;
+          return EILSEQ;
+        }
 
-      CONSUME_PEEKED_BYTE ();
-      buf[3] = (scm_t_uint8) byte;
+      if (can_take < 4 || (ptr[3] & 0xc0) != 0x80)
+        {
+          *len = 3;
+          return EILSEQ;
+        }
+
+      *codepoint = ((scm_t_wchar) ptr[0] & 0x07) << 18UL
+	| ((scm_t_wchar) ptr[1] & 0x3f) << 12UL
+	| ((scm_t_wchar) ptr[2] & 0x3f) << 6UL
+	| (ptr[3] & 0x3f);
       *len = 4;
-
-      *codepoint = ((scm_t_wchar) buf[0] & 0x07) << 18UL
-	| ((scm_t_wchar) buf[1] & 0x3f) << 12UL
-	| ((scm_t_wchar) buf[2] & 0x3f) << 6UL
-	| (buf[3] & 0x3f);
+      return 0;
     }
-  else
-    goto invalid_seq;
-
-  return 0;
-
- invalid_seq:
-  /* Here we could choose the consume the faulty byte when it's not a
-     valid starting byte, but it's not a requirement.  What Section 3.9
-     of Unicode 6.0.0 mandates, though, is to not consume a byte that
-     would otherwise be a valid starting byte.  */
-
-  return EILSEQ;
-
-#undef CONSUME_PEEKED_BYTE
-#undef ASSERT_NOT_EOF
-}
-
-/* Read an ISO-8859-1 codepoint (a byte) from PORT.  On success, return
-   0 and set *CODEPOINT to the codepoint that was read, fill BUF with
-   its UTF-8 representation, and set *LEN to the length in bytes.
-   Return `EILSEQ' on error.  */
-static int
-get_latin1_codepoint (SCM port, scm_t_wchar *codepoint,
-                      char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
-{
-  *codepoint = get_byte_or_eof (port);
-
-  if (*codepoint == EOF)
-    *len = 0;
   else
     {
       *len = 1;
-      buf[0] = *codepoint;
+      return EILSEQ;
     }
+}
+
+/* Peek an ISO-8859-1 codepoint (a byte) from PORT.  On success, return
+   0, set *CODEPOINT to the codepoint that was peeked, and set *LEN to
+   the length in bytes.  No encoding error is possible.  */
+static int
+peek_latin1_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
+{
+  *codepoint = peek_byte_or_eof (port);
+  if (*codepoint == EOF)
+    *len = 0;
+  else
+    *len = 1;
   return 0;
 }
 
-/* Likewise, read a byte sequence from PORT, passing it through its
-   input conversion descriptor.  */
+/* Peek a codepoint from PORT, decoding it through iconv.  On success,
+   return 0, set *CODEPOINT to the codepoint that was peeked, and set
+   *LEN to the length in bytes.  Return `EILSEQ' on decoding error.  */
 static int
-get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
-		     char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
+peek_iconv_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
 {
   scm_t_iconv_descriptors *id;
   scm_t_uint8 utf8_buf[SCM_MBCHAR_BUF_SIZE];
@@ -1833,40 +1789,38 @@ get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
 
   for (;;)
     {
-      int byte_read;
+      SCM read_buf;
       char *input, *output;
       size_t input_left, output_left, done;
 
-      byte_read = get_byte_or_eof (port);
-      if (SCM_UNLIKELY (byte_read == EOF))
+      read_buf = scm_fill_input (port, input_size + 1);
+      if (scm_port_buffer_can_take (read_buf) <= input_size)
 	{
-          if (SCM_LIKELY (input_size == 0))
+          if (input_size == 0)
+            /* Normal EOF.  */
             {
               *codepoint = (scm_t_wchar) EOF;
-              *len = input_size;
+              *len = 0;
               return 0;
             }
           else
-            {
-              /* EOF found in the middle of a multibyte character. */
-              scm_i_set_pending_eof (port);
-              return EILSEQ;
-            }
+            /* EOF found in the middle of a multibyte character. */
+            return EILSEQ;
 	}
 
-      buf[input_size++] = byte_read;
-
-      input = buf;
+      input_size++;
+      input = (char *) scm_port_buffer_take_pointer (read_buf);
       input_left = input_size;
       output = (char *) utf8_buf;
       output_left = sizeof (utf8_buf);
 
+      /* FIXME: locking!  */
       done = iconv (id->input_cd, &input, &input_left, &output, &output_left);
 
       if (done == (size_t) -1)
 	{
 	  int err = errno;
-	  if (SCM_LIKELY (err == EINVAL))
+	  if (err == EINVAL)
             /* The input byte sequence did not form a complete
                character.  Read another byte and try again. */
             continue;
@@ -1876,47 +1830,38 @@ get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
       else
         {
           size_t output_size = sizeof (utf8_buf) - output_left;
-          if (SCM_LIKELY (output_size > 0))
-            {
-              /* iconv generated output.  Convert the UTF8_BUF sequence
-                 to a Unicode code point.  */
-              *codepoint = utf8_to_codepoint (utf8_buf, output_size);
-              *len = input_size;
-              return 0;
-            }
-          else
-            {
-              /* iconv consumed some bytes without producing any output.
-                 Most likely this means that a Unicode byte-order mark
-                 (BOM) was consumed, which should not be included in the
-                 returned buf.  Shift any remaining bytes to the beginning
-                 of buf, and continue the loop. */
-              memmove (buf, input, input_left);
-              input_size = input_left;
-              continue;
-            }
+          if (output_size == 0)
+            /* iconv consumed some bytes without producing any output.
+               Most likely this means that a Unicode byte-order mark
+               (BOM) was consumed.  In any case, keep going until we get
+               output.  */
+            continue;
+
+          /* iconv generated output.  Convert the UTF8_BUF sequence
+             to a Unicode code point.  */
+          *codepoint = utf8_to_codepoint (utf8_buf, output_size);
+          *len = input_size;
+          return 0;
         }
     }
 }
 
-/* Read a codepoint from PORT and return it in *CODEPOINT.  Fill BUF
-   with the byte representation of the codepoint in PORT's encoding, and
-   set *LEN to the length in bytes of that representation.  Return 0 on
-   success and an errno value on error.  */
+/* Peek a codepoint from PORT and return it in *CODEPOINT.  Set *LEN to
+   the length in bytes of that representation.  Return 0 on success and
+   an errno value on error.  */
 static SCM_C_INLINE int
-get_codepoint (SCM port, scm_t_wchar *codepoint,
-	       char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
+peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
 {
   int err;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
   if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
-    err = get_utf8_codepoint (port, codepoint, (scm_t_uint8 *) buf, len);
+    err = peek_utf8_codepoint (port, codepoint, len);
   else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
-    err = get_latin1_codepoint (port, codepoint, buf, len);
+    err = peek_latin1_codepoint (port, codepoint, len);
   else
-    err = get_iconv_codepoint (port, codepoint, buf, len);
+    err = peek_iconv_codepoint (port, codepoint, len);
 
   if (SCM_LIKELY (err == 0))
     {
@@ -1934,17 +1879,38 @@ get_codepoint (SCM port, scm_t_wchar *codepoint,
                && (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8
                    || strcmp (pt->encoding, "UTF-16") == 0
                    || strcmp (pt->encoding, "UTF-32") == 0)))
-            return get_codepoint (port, codepoint, buf, len);
+            {
+              scm_port_buffer_did_take (pt->read_buf, *len);
+              return peek_codepoint (port, codepoint, len);
+            }
         }
-      update_port_lf (*codepoint, port);
     }
   else if (pt->ilseq_handler == SCM_ICONVEH_QUESTION_MARK)
     {
       *codepoint = '?';
       err = 0;
-      update_port_lf (*codepoint, port);
     }
 
+  return err;
+}
+
+static SCM_C_INLINE int
+get_codepoint (SCM port, scm_t_wchar *codepoint)
+{
+  int err;
+  size_t len = 0;
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+
+  err = peek_codepoint (port, codepoint, &len);
+  scm_port_buffer_did_take (pt->read_buf, len);
+  if (err != 0 && pt->ilseq_handler == SCM_ICONVEH_QUESTION_MARK)
+    {
+      *codepoint = '?';
+      err = 0;
+    }
+  if (*codepoint == EOF)
+    scm_i_clear_pending_eof (port);
+  update_port_lf (*codepoint, port);
   return err;
 }
 
@@ -1954,11 +1920,9 @@ scm_getc (SCM port)
 #define FUNC_NAME "scm_getc"
 {
   int err;
-  size_t len;
   scm_t_wchar codepoint;
-  char buf[SCM_MBCHAR_BUF_SIZE];
 
-  err = get_codepoint (port, &codepoint, buf, &len);
+  err = get_codepoint (port, &codepoint);
   if (SCM_UNLIKELY (err != 0))
     /* At this point PORT should point past the invalid encoding, as per
        R6RS-lib Section 8.2.4.  */
@@ -2141,55 +2105,22 @@ SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
 	    "sequence when the error is raised.\n")
 #define FUNC_NAME s_scm_peek_char
 {
-  int first_byte, err;
-  SCM result;
+  int err;
   scm_t_wchar c;
-  char bytes[SCM_MBCHAR_BUF_SIZE];
-  long column, line;
   size_t len = 0;
-  scm_t_port_internal *pti;
 
   if (SCM_UNBNDP (port))
     port = scm_current_input_port ();
   SCM_VALIDATE_OPINPORT (1, port);
-  pti = SCM_PORT_GET_INTERNAL (port);
 
-  /* First, a couple fast paths.  */
-  first_byte = peek_byte_or_eof (port);
-  if (first_byte == EOF)
-    return SCM_EOF_VAL;
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
-    return SCM_MAKE_CHAR (first_byte);
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8 && first_byte < 0x80)
-    return SCM_MAKE_CHAR (first_byte);
+  err = peek_codepoint (port, &c, &len);
 
-  /* Now the slow paths.  */
-  column = SCM_COL (port);
-  line = SCM_LINUM (port);
+  if (err == 0)
+    return c == EOF ? SCM_EOF_VAL : SCM_MAKE_CHAR (c);
 
-  err = get_codepoint (port, &c, bytes, &len);
-
-  scm_unget_bytes ((unsigned char *) bytes, len, port);
-
-  SCM_COL (port) = column;
-  SCM_LINUM (port) = line;
-
-  if (SCM_UNLIKELY (err != 0))
-    {
-      scm_decoding_error (FUNC_NAME, err, "input decoding error", port);
-
-      /* Shouldn't happen since `catch' always aborts to prompt.  */
-      result = SCM_BOOL_F;
-    }
-  else if (c == EOF)
-    {
-      scm_i_set_pending_eof (port);
-      result = SCM_EOF_VAL;
-    }
-  else
-    result = SCM_MAKE_CHAR (c);
-
-  return result;
+  scm_decoding_error (FUNC_NAME, err, "input decoding error", port);
+  /* Not reached.  */
+  return SCM_BOOL_F;
 }
 #undef FUNC_NAME
 
