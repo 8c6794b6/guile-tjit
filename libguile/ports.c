@@ -1414,7 +1414,7 @@ get_byte_or_eof (SCM port)
       return ret;
     }
 
-  buf = scm_fill_input (port);
+  buf = scm_fill_input (port, 0);
   buf_bv = scm_port_buffer_bytevector (buf);
   buf_cur = scm_port_buffer_cur (buf);
   buf_end = scm_port_buffer_end (buf);
@@ -1453,7 +1453,7 @@ peek_byte_or_eof (SCM port)
       return ret;
     }
 
-  buf = scm_fill_input (port);
+  buf = scm_fill_input (port, 0);
   buf_bv = scm_port_buffer_bytevector (buf);
   buf_cur = scm_port_buffer_cur (buf);
   buf_end = scm_port_buffer_end (buf);
@@ -1495,21 +1495,6 @@ scm_i_read_bytes (SCM port, SCM dst, size_t start, size_t count)
   return filled;
 }
 
-/* scm_i_read is used internally to add bytes to the given port
-   buffer.  If the number of available bytes in the buffer does not
-   increase after a call to scm_i_read, that indicates EOF.  */
-static void
-scm_i_read (SCM port, SCM buf)
-{
-  size_t count;
-
-  count = scm_i_read_bytes (port, scm_port_buffer_bytevector (buf),
-                            scm_to_size_t (scm_port_buffer_end (buf)),
-                            scm_port_buffer_can_put (buf));
-  scm_port_buffer_did_put (buf, count);
-  scm_port_buffer_set_has_eof_p (buf, scm_from_bool (count == 0));
-}
-
 /* Used by an application to read arbitrary number of bytes from an SCM
    port.  Same semantics as libc read, except that scm_c_read_bytes only
    returns less than SIZE bytes if at end-of-file.
@@ -1548,7 +1533,7 @@ scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count)
          buffer directly.  */
       if (to_read < pt->read_buffering)
         {
-          read_buf = scm_fill_input (port);
+          read_buf = scm_fill_input (port, 0);
           did_read = scm_port_buffer_take (read_buf, dst_ptr, to_read);
           dst_ptr += did_read;
           to_read -= did_read;
@@ -1598,7 +1583,7 @@ scm_c_read (SCM port, void *buffer, size_t size)
   while (copied < size)
     {
       size_t count;
-      read_buf = scm_fill_input (port);
+      read_buf = scm_fill_input (port, 0);
       count = scm_port_buffer_take (read_buf, dst + copied, size - copied);
       copied += count;
       if (count == 0)
@@ -2451,26 +2436,62 @@ scm_flush (SCM port)
 }
 
 SCM
-scm_fill_input (SCM port)
+scm_fill_input (SCM port, size_t minimum_size)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   SCM read_buf = pt->read_buf;
+  size_t buffered = scm_port_buffer_can_take (read_buf);
 
-  if (scm_port_buffer_can_take (read_buf) ||
-      scm_is_true (scm_port_buffer_has_eof_p (read_buf)))
+  if (minimum_size == 0)
+    minimum_size = 1;
+
+  if (buffered >= minimum_size
+      || scm_is_true (scm_port_buffer_has_eof_p (read_buf)))
     return read_buf;
 
   if (pt->rw_random)
     scm_flush (pt->port);
 
-  /* It could be that putback caused us to enlarge the buffer; now that
-     we've read all the bytes we need to shrink it again.  */
-  if (scm_port_buffer_size (read_buf) != pt->read_buffering)
-    read_buf = pt->read_buf = scm_c_make_port_buffer (pt->read_buffering);
-  else
+  /* Prepare to read.  Make sure there is enough space in the buffer for
+     minimum_size, and ensure that cur is zero so that we fill towards
+     the end of the buffer.  */
+  if (minimum_size > scm_port_buffer_size (read_buf))
+    {
+      /* Grow the read buffer.  */
+      SCM new_buf = scm_c_make_port_buffer (minimum_size);
+      scm_port_buffer_reset (new_buf);
+      scm_port_buffer_put (new_buf,
+                           scm_port_buffer_take_pointer (read_buf),
+                           buffered);
+      pt->read_buf = read_buf = new_buf;
+    }
+  else if (buffered == 0)
     scm_port_buffer_reset (read_buf);
+  else
+    {
+      const scm_t_uint8 *to_shift = scm_port_buffer_take_pointer (read_buf);
+      scm_port_buffer_reset (read_buf);
+      memmove (scm_port_buffer_put_pointer (read_buf), to_shift, buffered);
+      scm_port_buffer_did_put (read_buf, buffered);
+    }
 
-  scm_i_read (port, read_buf);
+  while (buffered < minimum_size
+         && !scm_is_true (scm_port_buffer_has_eof_p (read_buf)))
+    {
+      size_t count;
+      size_t buffering = pt->read_buffering;
+      size_t to_read;
+
+      if (pt->read_buffering < minimum_size)
+        buffering = minimum_size;
+      to_read = buffering - buffered;
+
+      count = scm_i_read_bytes (port, scm_port_buffer_bytevector (read_buf),
+                                buffered, to_read);
+      buffered += count;
+      scm_port_buffer_did_put (read_buf, count);
+      scm_port_buffer_set_has_eof_p (read_buf, scm_from_bool (count == 0));
+    }
 
   return read_buf;
 }
