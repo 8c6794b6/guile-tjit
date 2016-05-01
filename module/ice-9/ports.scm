@@ -241,11 +241,12 @@
          (cur (port-buffer-cur buf)))
     (if (< cur (port-buffer-end buf))
         (bytevector-u8-ref (port-buffer-bytevector buf) cur)
-        (let* ((buf (fill-input port))
-               (cur (port-buffer-cur buf)))
-          (if (< cur (port-buffer-end buf))
-              (bytevector-u8-ref (port-buffer-bytevector buf) cur)
-              the-eof-object)))))
+        (call-with-values (lambda () (fill-input port))
+          (lambda (buf buffered)
+            (if (zero? buffered)
+                the-eof-object
+                (bytevector-u8-ref (port-buffer-bytevector buf)
+                                   (port-buffer-cur buf))))))))
 
 
 
