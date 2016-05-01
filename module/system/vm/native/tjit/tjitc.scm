@@ -94,7 +94,7 @@
                                        (format #f "~x" parent-ip))
                                    parent-exit-id)
                            ""))
-            (linked-id (if parent-snapshot
+            (linked-id (if (or parent-snapshot (not loop?))
                            (format #f " -> ~a"
                                    (and=> (env-linked-fragment env)
                                           fragment-id))
