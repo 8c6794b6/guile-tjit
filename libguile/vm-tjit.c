@@ -122,13 +122,13 @@ static const int op_sizes[256] = {
  */
 
 /* Number of iterations to decide a hot loop. */
-SCM_TJIT_PARAM (hot_loop, hot-loop, 60)
+SCM_TJIT_PARAM (hot_loop, hot-loop, 59)
 
 /* Number of exits to decide a hot side exit. */
 SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 
 /* Number of calls to decide a hot call. */
-SCM_TJIT_PARAM (hot_call, hot-call, 50)
+SCM_TJIT_PARAM (hot_call, hot-call, 59)
 
 /* Maximum length of traced bytecodes. */
 SCM_TJIT_PARAM (max_record, max-record, 3000)
