@@ -554,7 +554,7 @@ index referenced by dst, a, and b values at runtime."
 
 (define-syntax-rule (with-type-guard type src expr)
   (if (or (eq? type (type-ref src))
-          (eq? type (applied-guard env src)))
+          (eq? type (applied-guard env (+ src (current-sp-offset)))))
       expr
       (begin
         (set-applied-guard! env (+ src (current-sp-offset)) type)
