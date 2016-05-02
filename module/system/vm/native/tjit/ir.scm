@@ -296,7 +296,7 @@ returns, current call-num, and current return-num."
        (lambda ()
          (when (and (not (env-parent-snapshot env))
                     (< 0 (current-fp-offset)))
-           (break 3 "root trace with up-frame load"))
+           (break 1 "root trace with up-frame load"))
          (load-up-frame))))))
 
 (define-syntax-rule (with-frame-ref var type idx next . args)
