@@ -114,7 +114,7 @@ typedef struct
   int rw_random;
 
   /* Character encoding support.  */
-  char *encoding;
+  SCM encoding;  /* A symbol of upper-case ASCII.  */
   scm_t_string_failed_conversion_handler ilseq_handler;
 } scm_t_port;
 

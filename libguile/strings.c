@@ -51,6 +51,8 @@
 /* {Strings}
  */
 
+SCM_SYMBOL (sym_UTF_8, "UTF-8");
+SCM_SYMBOL (sym_ISO_8859_1, "ISO-8859-1");
 
 /* Stringbufs 
  *
@@ -1758,16 +1760,16 @@ SCM
 scm_from_port_stringn (const char *str, size_t len, SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+  if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
     return scm_from_latin1_stringn (str, len);
-  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8
+  else if (scm_is_eq (pt->encoding, sym_UTF_8)
            && (pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR
                || (u8_check ((uint8_t *) str, len) == NULL)))
     return scm_from_utf8_stringn (str, len);
   else
-    return scm_from_stringn (str, len, pt->encoding, pt->ilseq_handler);
+    return scm_from_stringn (str, len, scm_i_symbol_chars (pt->encoding),
+                             pt->ilseq_handler);
 }
 
 /* Create a new scheme string from the C string STR.  The memory of
@@ -2165,15 +2167,15 @@ char *
 scm_to_port_stringn (SCM str, size_t *lenp, SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1
+  if (scm_is_eq (pt->encoding, sym_ISO_8859_1)
       && pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR)
     return scm_to_latin1_stringn (str, lenp);
-  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
+  else if (scm_is_eq (pt->encoding, sym_UTF_8))
     return scm_to_utf8_stringn (str, lenp);
   else
-    return scm_to_stringn (str, lenp, pt->encoding, pt->ilseq_handler);
+    return scm_to_stringn (str, lenp, scm_i_symbol_chars (pt->encoding),
+                           pt->ilseq_handler);
 }
 
 /* Return a malloc(3)-allocated buffer containing the contents of STR encoded

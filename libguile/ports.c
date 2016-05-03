@@ -91,6 +91,18 @@
 #endif
 
 
+
+/* We need these symbols early, before (ice-9 ports) loads in the
+   snarfed definitions, so we can't use SCM_SYMBOL.  */
+static SCM sym_UTF_8;
+static SCM sym_ISO_8859_1;
+static SCM sym_UTF_16;
+static SCM sym_UTF_16LE;
+static SCM sym_UTF_16BE;
+static SCM sym_UTF_32;
+static SCM sym_UTF_32LE;
+static SCM sym_UTF_32BE;
+
 /* Port encodings are case-insensitive ASCII strings.  */
 static char
 ascii_toupper (char c)
@@ -103,8 +115,10 @@ ascii_toupper (char c)
    on ports or in the default encoding fluid are in upper-case, and can
    be compared with strcmp.  */
 static int
-encoding_matches (const char *enc, const char *upper)
+encoding_matches (const char *enc, SCM upper_symbol)
 {
+  const char *upper = scm_i_symbol_chars (upper_symbol);
+
   if (!enc)
     enc = "ISO-8859-1";
 
@@ -115,14 +129,16 @@ encoding_matches (const char *enc, const char *upper)
   return !*upper;
 }
 
-static char*
+static SCM
 canonicalize_encoding (const char *enc)
 {
   char *ret;
   int i;
 
-  if (!enc)
-    return "ISO-8859-1";
+  if (!enc || encoding_matches (enc, sym_ISO_8859_1))
+    return sym_ISO_8859_1;
+  if (encoding_matches (enc, sym_UTF_8))
+    return sym_UTF_8;
 
   ret = scm_gc_strdup (enc, "port");
 
@@ -136,7 +152,7 @@ canonicalize_encoding (const char *enc)
         ret[i] = ascii_toupper (ret[i]);
     }
 
-  return ret;
+  return scm_from_latin1_symbol (ret);
 }
 
 
@@ -758,22 +774,7 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->rw_random = ptob->seek != NULL;
   entry->port = ret;
   entry->stream = stream;
-
-  if (encoding_matches (encoding, "UTF-8"))
-    {
-      pti->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
-      entry->encoding = "UTF-8";
-    }
-  else if (encoding_matches (encoding, "ISO-8859-1"))
-    {
-      pti->encoding_mode = SCM_PORT_ENCODING_MODE_LATIN1;
-      entry->encoding = "ISO-8859-1";
-    }
-  else
-    {
-      pti->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
-      entry->encoding = canonicalize_encoding (encoding);
-    }
+  entry->encoding = canonicalize_encoding (encoding);
 
   entry->ilseq_handler = handler;
   pti->iconv_descriptors = NULL;
@@ -970,11 +971,11 @@ static SCM default_port_encoding_var;
 void
 scm_i_set_default_port_encoding (const char *encoding)
 {
-  if (encoding_matches (encoding, "ISO-8859-1"))
+  if (encoding_matches (encoding, sym_ISO_8859_1))
     scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), SCM_BOOL_F);
   else
     scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var),
-                     scm_from_latin1_string (canonicalize_encoding (encoding)));
+                     scm_symbol_to_string (canonicalize_encoding (encoding)));
 }
 
 /* Return the name of the default encoding for newly created ports.  */
@@ -1079,29 +1080,29 @@ static const unsigned char scm_utf32le_bom[4] = {0xFF, 0xFE, 0x00, 0x00};
    to determine the byte order.  Otherwise we choose big endian, as
    recommended by the Unicode Standard.  Note that the BOM (if any) is
    not consumed here.  */
-static const char *
+static SCM
 decide_utf16_encoding (SCM port, scm_t_port_rw_active mode)
 {
   if (mode == SCM_PORT_READ
       && SCM_PORT_GET_INTERNAL (port)->at_stream_start_for_bom_read
       && looking_at_bytes (port, scm_utf16le_bom, sizeof scm_utf16le_bom))
-    return "UTF-16LE";
+    return sym_UTF_16LE;
   else
-    return "UTF-16BE";
+    return sym_UTF_16BE;
 }
 
 /* Decide what byte order to use for a UTF-32 port.  Return "UTF-32BE"
    or "UTF-32LE".  See the comment above 'decide_utf16_encoding' for
    details.  */
-static const char *
+static SCM
 decide_utf32_encoding (SCM port, scm_t_port_rw_active mode)
 {
   if (mode == SCM_PORT_READ
       && SCM_PORT_GET_INTERNAL (port)->at_stream_start_for_bom_read
       && looking_at_bytes (port, scm_utf32le_bom, sizeof scm_utf32le_bom))
-    return "UTF-32LE";
+    return sym_UTF_32LE;
   else
-    return "UTF-32BE";
+    return sym_UTF_32BE;
 }
 
 static void
@@ -1189,29 +1190,24 @@ close_iconv_descriptors (scm_t_iconv_descriptors *id)
 scm_t_iconv_descriptors *
 scm_i_port_iconv_descriptors (SCM port, scm_t_port_rw_active mode)
 {
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
   scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
-
-  assert (pti->encoding_mode == SCM_PORT_ENCODING_MODE_ICONV);
 
   if (!pti->iconv_descriptors)
     {
-      scm_t_port *pt = SCM_PTAB_ENTRY (port);
-      const char *precise_encoding;
-
-      if (!pt->encoding)
-        pt->encoding = "ISO-8859-1";
+      SCM precise_encoding;
 
       /* If the specified encoding is UTF-16 or UTF-32, then make
          that more precise by deciding what byte order to use. */
-      if (strcmp (pt->encoding, "UTF-16") == 0)
+      if (scm_is_eq (pt->encoding, sym_UTF_16))
         precise_encoding = decide_utf16_encoding (port, mode);
-      else if (strcmp (pt->encoding, "UTF-32") == 0)
+      else if (scm_is_eq (pt->encoding, sym_UTF_32))
         precise_encoding = decide_utf32_encoding (port, mode);
       else
         precise_encoding = pt->encoding;
 
       pti->iconv_descriptors =
-        open_iconv_descriptors (precise_encoding,
+        open_iconv_descriptors (scm_i_symbol_chars (precise_encoding),
                                 SCM_INPUT_PORT_P (port),
                                 SCM_OUTPUT_PORT_P (port));
     }
@@ -1239,22 +1235,7 @@ scm_i_set_port_encoding_x (SCM port, const char *encoding)
      position. */
   pti->at_stream_start_for_bom_read  = 1;
   pti->at_stream_start_for_bom_write = 1;
-
-  if (encoding_matches (encoding, "UTF-8"))
-    {
-      pt->encoding = "UTF-8";
-      pti->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
-    }
-  else if (encoding_matches (encoding, "ISO-8859-1"))
-    {
-      pt->encoding = "ISO-8859-1";
-      pti->encoding_mode = SCM_PORT_ENCODING_MODE_LATIN1;
-    }
-  else
-    {
-      pt->encoding = canonicalize_encoding (encoding);
-      pti->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
-    }
+  pt->encoding = canonicalize_encoding (encoding);
 
   pti->iconv_descriptors = NULL;
   if (prev)
@@ -1269,7 +1250,7 @@ SCM_DEFINE (scm_port_encoding, "port-encoding", 1, 0, 0,
 {
   SCM_VALIDATE_PORT (1, port);
 
-  return scm_from_latin1_string (SCM_PTAB_ENTRY (port)->encoding);
+  return scm_symbol_to_string (SCM_PTAB_ENTRY (port)->encoding);
 }
 #undef FUNC_NAME
 
@@ -1856,9 +1837,9 @@ peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
+  if (scm_is_eq (pt->encoding, sym_UTF_8))
     err = peek_utf8_codepoint (port, codepoint, len);
-  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+  else if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
     err = peek_latin1_codepoint (port, codepoint, len);
   else
     err = peek_iconv_codepoint (port, codepoint, len);
@@ -1876,9 +1857,9 @@ peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
              then silently consume it and read another code point. */
           if (SCM_UNLIKELY
               (*codepoint == SCM_UNICODE_BOM
-               && (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8
-                   || strcmp (pt->encoding, "UTF-16") == 0
-                   || strcmp (pt->encoding, "UTF-32") == 0)))
+               && (scm_is_eq (pt->encoding, sym_UTF_8)
+                   || scm_is_eq (pt->encoding, sym_UTF_16)
+                   || scm_is_eq (pt->encoding, sym_UTF_32))))
             {
               scm_port_buffer_did_take (pt->read_buf, *len);
               return peek_codepoint (port, codepoint, len);
@@ -2022,14 +2003,13 @@ scm_ungetc (scm_t_wchar c, SCM port)
 #define FUNC_NAME "scm_ungetc"
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
   char *result;
   char result_buf[10];
   size_t len;
 
   len = sizeof (result_buf);
 
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
+  if (scm_is_eq (pt->encoding, sym_UTF_8))
     {
       if (c < 0x80)
         {
@@ -2041,14 +2021,14 @@ scm_ungetc (scm_t_wchar c, SCM port)
         result =
           (char *) u32_to_u8 ((uint32_t *) &c, 1, (uint8_t *) result_buf, &len);
     }
-  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1 && c <= 0xff)
+  else if (scm_is_eq (pt->encoding, sym_ISO_8859_1) && c <= 0xff)
     {
       result_buf[0] = (char) c;
       result = result_buf;
       len = 1;
     }
   else
-    result = u32_conv_to_encoding (pt->encoding,
+    result = u32_conv_to_encoding (scm_i_symbol_chars (pt->encoding),
                                    (enum iconv_ilseq_handler) pt->ilseq_handler,
                                    (uint32_t *) &c, 1, NULL,
                                    result_buf, &len);
@@ -3163,6 +3143,15 @@ scm_init_ice_9_ports (void)
 void
 scm_init_ports (void)
 {
+  sym_UTF_8 = scm_from_latin1_symbol ("UTF-8");
+  sym_ISO_8859_1 = scm_from_latin1_symbol ("ISO-8859-1");
+  sym_UTF_16 = scm_from_latin1_symbol ("UTF-16");
+  sym_UTF_16LE = scm_from_latin1_symbol ("UTF-16LE");
+  sym_UTF_16BE = scm_from_latin1_symbol ("UTF-16BE");
+  sym_UTF_32 = scm_from_latin1_symbol ("UTF-32");
+  sym_UTF_32LE = scm_from_latin1_symbol ("UTF-32LE");
+  sym_UTF_32BE = scm_from_latin1_symbol ("UTF-32BE");
+
   trampoline_to_c_read_subr =
     scm_c_make_gsubr ("port-read", 4, 0, 0,
                       (scm_t_subr) trampoline_to_c_read);

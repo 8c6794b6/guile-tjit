@@ -221,7 +221,6 @@ struct scm_port_internal
 {
   unsigned at_stream_start_for_bom_read  : 1;
   unsigned at_stream_start_for_bom_write : 1;
-  scm_t_port_encoding_mode encoding_mode;
   scm_t_iconv_descriptors *iconv_descriptors;
   SCM alist;
 };

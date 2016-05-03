@@ -64,6 +64,11 @@
 #define PORT_CONVERSION_HANDLER(port)		\
   SCM_PTAB_ENTRY (port)->ilseq_handler
 
+SCM_SYMBOL (sym_UTF_8, "UTF-8");
+SCM_SYMBOL (sym_ISO_8859_1, "ISO-8859-1");
+SCM_SYMBOL (sym_UTF_16, "UTF-16");
+SCM_SYMBOL (sym_UTF_32, "UTF-32");
+
 static size_t display_string (const void *, int, size_t, SCM,
 			      scm_t_string_failed_conversion_handler);
 
@@ -1036,8 +1041,8 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
         pti->at_stream_start_for_bom_read = 0;
 
       /* Write a BOM if appropriate.  */
-      if (SCM_UNLIKELY (strcmp(pt->encoding, "UTF-16") == 0
-                        || strcmp(pt->encoding, "UTF-32") == 0))
+      if (SCM_UNLIKELY (scm_is_eq (pt->encoding, sym_UTF_16)
+                        || scm_is_eq (pt->encoding, sym_UTF_32)))
         display_character (SCM_UNICODE_BOM, port, iconveh_error);
     }
 
@@ -1135,13 +1140,13 @@ display_string (const void *str, int narrow_p,
 		size_t len, SCM port,
 		scm_t_string_failed_conversion_handler strategy)
 {
-  scm_t_port_internal *pti;
+  scm_t_port *pt;
 
-  pti = SCM_PORT_GET_INTERNAL (port);
+  pt = SCM_PTAB_ENTRY (port);
 
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
+  if (scm_is_eq (pt->encoding, sym_UTF_8))
     return display_string_as_utf8 (str, narrow_p, len, port);
-  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+  else if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
     return display_string_as_latin1 (str, narrow_p, len, port, strategy);
   else
     return display_string_using_iconv (str, narrow_p, len, port, strategy);

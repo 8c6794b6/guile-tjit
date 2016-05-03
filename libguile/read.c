@@ -64,6 +64,7 @@ SCM_GLOBAL_SYMBOL (scm_sym_dot, ".");
 SCM_SYMBOL (scm_keyword_prefix, "prefix");
 SCM_SYMBOL (scm_keyword_postfix, "postfix");
 SCM_SYMBOL (sym_nil, "nil");
+SCM_SYMBOL (sym_ISO_8859_1, "ISO-8859-1");
 
 /* SRFI-105 curly infix expression support */
 SCM_SYMBOL (sym_nfx, "$nfx$");
@@ -1040,7 +1041,7 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   size_t charname_len, bytes_read;
   scm_t_wchar cp;
   int overflow;
-  scm_t_port_internal *pti;
+  scm_t_port *pt;
 
   overflow = read_token (port, opts, buffer, READER_CHAR_NAME_MAX_SIZE,
                          &bytes_read);
@@ -1058,14 +1059,14 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
       return (SCM_MAKE_CHAR (chr));
     }
 
-  pti = SCM_PORT_GET_INTERNAL (port);
+  pt = SCM_PTAB_ENTRY (port);
 
   /* Simple ASCII characters can be processed immediately.  Also, simple
      ISO-8859-1 characters can be processed immediately if the encoding for this
      port is ISO-8859-1.  */
   if (bytes_read == 1 &&
       ((unsigned char) buffer[0] <= 127
-       || pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1))
+       || scm_is_eq (pt->encoding, sym_ISO_8859_1)))
     {
       SCM_COL (port) += 1;
       return SCM_MAKE_CHAR (buffer[0]);
