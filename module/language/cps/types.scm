@@ -1422,15 +1422,15 @@ minimum, and maximum."
   ((logior &true &false) 0 0))
 (define-type-aliases char<? char<=? char>=? char>?)
 
-(define-simple-type-checker (integer->char (&exact-integer 0 #x10ffff)))
+(define-simple-type-checker (integer->char (&u64 0 #x10ffff)))
 (define-type-inferrer (integer->char i result)
-  (restrict! i &exact-integer 0 #x10ffff)
+  (restrict! i &u64 0 #x10ffff)
   (define! result &char (&min/0 i) (min (&max i) #x10ffff)))
 
 (define-simple-type-checker (char->integer &char))
 (define-type-inferrer (char->integer c result)
   (restrict! c &char 0 #x10ffff)
-  (define! result &exact-integer (&min/0 c) (min (&max c) #x10ffff)))
+  (define! result &u64 (&min/0 c) (min (&max c) #x10ffff)))
 
 
 

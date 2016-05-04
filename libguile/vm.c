@@ -442,6 +442,7 @@ static void vm_error_wrong_num_args (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_type_apply (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_stack_underflow (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_improper_list (SCM x) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_not_a_char (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_pair (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_string (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_bytevector (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
@@ -554,6 +555,12 @@ static void
 vm_error_improper_list (SCM x)
 {
   vm_error ("Expected a proper list, but got object with tail ~s", x);
+}
+
+static void
+vm_error_not_a_char (const char *subr, SCM x)
+{
+  scm_wrong_type_arg_msg (subr, 1, x, "char");
 }
 
 static void

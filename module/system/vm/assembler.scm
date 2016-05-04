@@ -166,6 +166,8 @@
             emit-ulsh
             emit-ursh/immediate
             emit-ulsh/immediate
+            emit-char->integer
+            emit-integer->char
             emit-make-vector
             emit-make-vector/immediate
             emit-vector-length

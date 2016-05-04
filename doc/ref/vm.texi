@@ -1352,6 +1352,16 @@ Set the cdr of @var{dst} to @var{src}.
 Note that @code{caddr} and friends compile to a series of @code{car}
 and @code{cdr} instructions.
 
+@deftypefn Instruction {} integer->char s12:@var{dst} s12:@var{src}
+Convert the @code{u64} value in @var{src} to a Scheme character, and
+place it in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} char->integer s12:@var{dst} s12:@var{src}
+Convert the Scheme character in @var{src} to an integer, and place it in
+@var{dst} as an unboxed @code{u64} value.
+@end deftypefn
+
 
 @node Inlined Mathematical Instructions
 @subsubsection Inlined Mathematical Instructions

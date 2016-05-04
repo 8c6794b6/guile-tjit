@@ -3733,8 +3733,47 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       BR_U64_SCM_COMPARISON(x, y, y <= 0 || (scm_t_uint64) y <= x, scm_geq_p);
     }
 
-  VM_DEFINE_OP (175, unused_175, NULL, NOP)
-  VM_DEFINE_OP (176, unused_176, NULL, NOP)
+  /* integer->char a:12 b:12
+   *
+   * Convert the U64 value in B to a Scheme character, and return it in
+   * A.
+   */
+  VM_DEFINE_OP (175, integer_to_char, "integer->char", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      scm_t_uint64 x;
+
+      UNPACK_12_12 (op, dst, src);
+      x = SP_REF_U64 (src);
+
+      if (SCM_UNLIKELY (x > (scm_t_uint64) SCM_CODEPOINT_MAX))
+        vm_error_out_of_range_uint64 ("integer->char", x);
+
+      SP_SET (dst, SCM_MAKE_ITAG8 ((scm_t_bits) (scm_t_wchar) x, scm_tc8_char));
+
+      NEXT (1);
+    }
+
+  /* char->integer a:12 b:12
+   *
+   * Untag the character in B to U64, and return it in A.
+   */
+  VM_DEFINE_OP (176, char_to_integer, "char->integer", OP1 (X8_S12_S12) | OP_DST)
+    {
+      scm_t_uint16 dst, src;
+      SCM x;
+
+      UNPACK_12_12 (op, dst, src);
+      x = SP_REF (src);
+
+      if (SCM_UNLIKELY (!SCM_CHARP (x)))
+        vm_error_not_a_char ("char->integer", x);
+
+      SP_SET_U64 (dst, SCM_CHAR (x));
+
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (177, unused_177, NULL, NOP)
   VM_DEFINE_OP (178, unused_178, NULL, NOP)
   VM_DEFINE_OP (179, unused_179, NULL, NOP)

@@ -576,8 +576,8 @@
                    (letk kbox ($kargs ('f64) (f64)
                                 ($continue k src ($primcall 'f64->scm (f64)))))
                    kbox))
-                ((string-length
-                  vector-length
+                ((char->integer
+                  string-length vector-length
                   bv-length bv-u8-ref bv-u16-ref bv-u32-ref bv-u64-ref)
                  (with-cps cps
                    (letv u64)
@@ -670,6 +670,13 @@
                      cps nfields 'scm->u64
                      (lambda (cps nfields)
                        (have-args cps (list vtable nfields)))))))
+                ((integer->char)
+                 (match args
+                   ((integer)
+                    (unbox-arg
+                     cps integer 'scm->u64
+                     (lambda (cps integer)
+                       (have-args cps (list integer)))))))
                 (else (have-args cps args))))
             (convert-args cps args
               (lambda (cps args)
