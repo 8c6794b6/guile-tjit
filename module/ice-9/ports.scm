@@ -154,6 +154,13 @@
 
 
 
+(define (port-encoding port)
+  "Return, as a string, the character encoding that @var{port} uses to
+interpret its input and output."
+  (symbol->string (%port-encoding port)))
+
+
+
 (define-syntax-rule (port-buffer-bytevector buf) (vector-ref buf 0))
 (define-syntax-rule (port-buffer-cur buf) (vector-ref buf 1))
 (define-syntax-rule (port-buffer-end buf) (vector-ref buf 2))

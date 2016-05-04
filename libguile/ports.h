@@ -285,12 +285,15 @@ SCM_INTERNAL void scm_i_set_default_port_encoding (const char *encoding);
 SCM_INTERNAL SCM scm_i_default_port_conversion_strategy (void);
 SCM_INTERNAL void scm_i_set_default_port_conversion_strategy (SCM strategy);
 SCM_INTERNAL void scm_i_set_port_encoding_x (SCM port, const char *str);
+SCM_INTERNAL SCM scm_sys_port_encoding (SCM port);
+SCM_INTERNAL SCM scm_sys_set_port_encoding_x (SCM port, SCM encoding);
 SCM_API SCM scm_port_encoding (SCM port);
 SCM_API SCM scm_set_port_encoding_x (SCM port, SCM encoding);
 SCM_API SCM scm_port_conversion_strategy (SCM port);
 SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
 
 /* Input.  */
+SCM_INTERNAL SCM scm_port_maybe_consume_initial_byte_order_mark (SCM, SCM, SCM);
 SCM_API int scm_get_byte_or_eof (SCM port);
 SCM_API int scm_peek_byte_or_eof (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);

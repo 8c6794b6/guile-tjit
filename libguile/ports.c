@@ -1222,39 +1222,47 @@ scm_i_set_port_encoding_x (SCM port, const char *encoding)
     close_iconv_descriptors (prev);
 }
 
-SCM_DEFINE (scm_port_encoding, "port-encoding", 1, 0, 0,
+SCM_DEFINE (scm_sys_port_encoding, "%port-encoding", 1, 0, 0,
 	    (SCM port),
-	    "Returns, as a string, the character encoding that @var{port}\n"
+	    "Returns, as a symbol, the character encoding that @var{port}\n"
 	    "uses to interpret its input and output.\n")
-#define FUNC_NAME s_scm_port_encoding
+#define FUNC_NAME s_scm_sys_port_encoding
 {
   SCM_VALIDATE_PORT (1, port);
 
-  return scm_symbol_to_string (SCM_PTAB_ENTRY (port)->encoding);
+  return SCM_PTAB_ENTRY (port)->encoding;
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_set_port_encoding_x, "set-port-encoding!", 2, 0, 0,
+SCM
+scm_port_encoding (SCM port)
+{
+  return scm_symbol_to_string (scm_sys_port_encoding (port));
+}
+
+SCM_DEFINE (scm_sys_set_port_encoding_x, "%set-port-encoding!", 2, 0, 0,
 	    (SCM port, SCM enc),
 	    "Sets the character encoding that will be used to interpret all\n"
 	    "port I/O.  New ports are created with the encoding\n"
 	    "appropriate for the current locale if @code{setlocale} has \n"
 	    "been called or ISO-8859-1 otherwise\n"
 	    "and this procedure can be used to modify that encoding.\n")
-#define FUNC_NAME s_scm_set_port_encoding_x
+#define FUNC_NAME s_scm_sys_set_port_encoding_x
 {
-  char *enc_str;
-
   SCM_VALIDATE_PORT (1, port);
-  SCM_VALIDATE_STRING (2, enc);
+  SCM_VALIDATE_SYMBOL (2, enc);
 
-  enc_str = scm_to_latin1_string (enc);
-  scm_i_set_port_encoding_x (port, enc_str);
-  free (enc_str);
+  scm_i_set_port_encoding_x (port, scm_i_symbol_chars (enc));
 
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
+
+SCM
+scm_set_port_encoding_x (SCM port, SCM enc)
+{
+  return scm_sys_set_port_encoding_x (port, scm_string_to_symbol (enc));
+}
 
 scm_t_string_failed_conversion_handler
 scm_i_string_failed_conversion_handler (SCM conversion_strategy)
@@ -1545,6 +1553,50 @@ scm_c_read (SCM port, void *buffer, size_t size)
 }
 #undef FUNC_NAME
 
+static int
+port_maybe_consume_initial_byte_order_mark (SCM port, scm_t_wchar codepoint,
+                                            size_t len)
+{
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
+
+  if (!pti->at_stream_start_for_bom_read) return 0;
+
+  /* Record that we're no longer at stream start. */
+  pti->at_stream_start_for_bom_read = 0;
+  if (pt->rw_random)
+    pti->at_stream_start_for_bom_write = 0;
+
+  if (codepoint != SCM_UNICODE_BOM) return 0;
+
+  /* If we just read a BOM in an encoding that recognizes them, then
+     silently consume it. */
+  if (scm_is_eq (pt->encoding, sym_UTF_8)
+      || scm_is_eq (pt->encoding, sym_UTF_16)
+      || scm_is_eq (pt->encoding, sym_UTF_32))
+    {
+      scm_port_buffer_did_take (pt->read_buf, len);
+      return 1;
+    }
+
+  return 0;
+}
+
+SCM_DEFINE (scm_port_maybe_consume_initial_byte_order_mark,
+            "port-maybe-consume-initial-byte-order-mark", 3, 0, 0,
+            (SCM port, SCM codepoint, SCM len),
+            "")
+#define FUNC_NAME s_scm_port_maybe_consume_initial_byte_order_mark
+{
+  SCM_VALIDATE_PORT (1, port);
+  return scm_from_bool
+    (port_maybe_consume_initial_byte_order_mark
+     (port,
+      SCM_CHARP (codepoint) ? SCM_CHAR (codepoint) : EOF,
+      scm_to_size_t (len)));
+}
+#undef FUNC_NAME
+
 /* Update the line and column number of PORT after consumption of C.  */
 static inline void
 update_port_lf (scm_t_wchar c, SCM port)
@@ -1807,7 +1859,6 @@ peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
 {
   int err;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
   if (scm_is_eq (pt->encoding, sym_UTF_8))
     err = peek_utf8_codepoint (port, codepoint, len);
@@ -1818,25 +1869,8 @@ peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
 
   if (SCM_LIKELY (err == 0))
     {
-      if (SCM_UNLIKELY (pti->at_stream_start_for_bom_read))
-        {
-          /* Record that we're no longer at stream start. */
-          pti->at_stream_start_for_bom_read = 0;
-          if (pt->rw_random)
-            pti->at_stream_start_for_bom_write = 0;
-
-          /* If we just read a BOM in an encoding that recognizes them,
-             then silently consume it and read another code point. */
-          if (SCM_UNLIKELY
-              (*codepoint == SCM_UNICODE_BOM
-               && (scm_is_eq (pt->encoding, sym_UTF_8)
-                   || scm_is_eq (pt->encoding, sym_UTF_16)
-                   || scm_is_eq (pt->encoding, sym_UTF_32))))
-            {
-              scm_port_buffer_did_take (pt->read_buf, *len);
-              return peek_codepoint (port, codepoint, len);
-            }
-        }
+      if (port_maybe_consume_initial_byte_order_mark (port, *codepoint, *len))
+        return peek_codepoint (port, codepoint, len);
     }
   else if (scm_is_eq (pt->conversion_strategy, sym_substitute))
     {
@@ -3162,7 +3196,7 @@ scm_init_ports (void)
   /* The following bindings are used early in boot-9.scm.  */
 
   /* Used by `include'.  */
-  scm_c_define_gsubr (s_scm_set_port_encoding_x, 2, 0, 0,
+  scm_c_define_gsubr ("set-port-encoding!", 2, 0, 0,
                       (scm_t_subr) scm_set_port_encoding_x);
   scm_c_define_gsubr (s_scm_eof_object_p, 1, 0, 0,
                       (scm_t_subr) scm_eof_object_p);
