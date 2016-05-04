@@ -39,6 +39,12 @@
 
 
 
+SCM_SYMBOL (sym_ISO_8859_1, "ISO-8859-1");
+SCM_SYMBOL (sym_error, "error");
+
+
+
+
 /* Unimplemented features.  */
 
 
@@ -92,10 +98,8 @@ make_bytevector_input_port (SCM bv)
   stream = scm_gc_typed_calloc (struct bytevector_input_port);
   stream->bytevector = bv;
   stream->pos = 0;
-  return scm_c_make_port_with_encoding (bytevector_input_port_type,
-                                        mode_bits,
-                                        NULL, /* encoding */
-                                        SCM_FAILED_CONVERSION_ERROR,
+  return scm_c_make_port_with_encoding (bytevector_input_port_type, mode_bits,
+                                        sym_ISO_8859_1, sym_error,
                                         (scm_t_bits) stream);
 }
 
@@ -273,8 +277,7 @@ make_custom_binary_input_port (SCM read_proc, SCM get_position_proc,
 
   return scm_c_make_port_with_encoding (custom_binary_input_port_type,
                                         mode_bits,
-                                        NULL, /* encoding */
-                                        SCM_FAILED_CONVERSION_ERROR,
+                                        sym_ISO_8859_1, sym_error,
                                         (scm_t_bits) stream);
 }
 
@@ -739,8 +742,7 @@ make_bytevector_output_port (void)
 
   port = scm_c_make_port_with_encoding (bytevector_output_port_type,
                                         mode_bits,
-                                        NULL, /* encoding */
-                                        SCM_FAILED_CONVERSION_ERROR,
+                                        sym_ISO_8859_1, sym_error,
                                         (scm_t_bits)buf);
   buf->port = port;
 
@@ -877,8 +879,7 @@ make_custom_binary_output_port (SCM write_proc, SCM get_position_proc,
 
   return scm_c_make_port_with_encoding (custom_binary_output_port_type,
                                         mode_bits,
-                                        NULL, /* encoding */
-                                        SCM_FAILED_CONVERSION_ERROR,
+                                        sym_ISO_8859_1, sym_error,
                                         (scm_t_bits) stream);
 }
 

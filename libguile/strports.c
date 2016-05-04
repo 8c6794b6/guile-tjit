@@ -52,6 +52,8 @@
  *
  */
 
+SCM_SYMBOL (sym_UTF_8, "UTF-8");
+
 scm_t_bits scm_tc16_strport;
 
 struct string_port {
@@ -178,10 +180,10 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
   stream->pos = byte_pos;
   stream->len = len;
 
-  return scm_c_make_port_with_encoding (scm_tc16_strport, modes,
-                                        "UTF-8",
-                                        scm_i_default_port_conversion_handler (),
-                                        (scm_t_bits) stream);
+  return
+    scm_c_make_port_with_encoding (scm_tc16_strport, modes, sym_UTF_8,
+                                   scm_i_default_port_conversion_strategy (),
+                                   (scm_t_bits) stream);
 }
 
 /* Create a new string from the buffer of PORT, a string port, converting from

@@ -53,6 +53,7 @@
 
 SCM_SYMBOL (sym_UTF_8, "UTF-8");
 SCM_SYMBOL (sym_ISO_8859_1, "ISO-8859-1");
+SCM_SYMBOL (sym_error, "error");
 
 /* Stringbufs 
  *
@@ -1613,11 +1614,18 @@ scm_from_locale_string (const char *str)
   return scm_from_locale_stringn (str, -1);
 }
 
+scm_t_string_failed_conversion_handler
+scm_i_default_string_failed_conversion_handler (void)
+{
+  return scm_i_string_failed_conversion_handler
+    (scm_i_default_port_conversion_strategy ());
+}
+
 SCM
 scm_from_locale_stringn (const char *str, size_t len)
 {
   return scm_from_stringn (str, len, locale_charset (),
-                           scm_i_default_port_conversion_handler ());
+                           scm_i_default_string_failed_conversion_handler ());
 }
 
 SCM
@@ -1764,12 +1772,13 @@ scm_from_port_stringn (const char *str, size_t len, SCM port)
   if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
     return scm_from_latin1_stringn (str, len);
   else if (scm_is_eq (pt->encoding, sym_UTF_8)
-           && (pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR
+           && (scm_is_eq (pt->conversion_strategy, sym_error)
                || (u8_check ((uint8_t *) str, len) == NULL)))
     return scm_from_utf8_stringn (str, len);
   else
     return scm_from_stringn (str, len, scm_i_symbol_chars (pt->encoding),
-                             pt->ilseq_handler);
+                             scm_i_string_failed_conversion_handler
+                             (scm_port_conversion_strategy (port)));
 }
 
 /* Create a new scheme string from the C string STR.  The memory of
@@ -1940,7 +1949,7 @@ scm_to_locale_stringn (SCM str, size_t *lenp)
 {
   return scm_to_stringn (str, lenp,
                          locale_charset (),
-                         scm_i_default_port_conversion_handler ());
+                         scm_i_default_string_failed_conversion_handler ());
 }
 
 char *
@@ -2169,13 +2178,14 @@ scm_to_port_stringn (SCM str, size_t *lenp, SCM port)
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
   if (scm_is_eq (pt->encoding, sym_ISO_8859_1)
-      && pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR)
+      && scm_is_eq (pt->conversion_strategy, sym_error))
     return scm_to_latin1_stringn (str, lenp);
   else if (scm_is_eq (pt->encoding, sym_UTF_8))
     return scm_to_utf8_stringn (str, lenp);
   else
     return scm_to_stringn (str, lenp, scm_i_symbol_chars (pt->encoding),
-                           pt->ilseq_handler);
+                           scm_i_string_failed_conversion_handler
+                           (scm_port_conversion_strategy (port)));
 }
 
 /* Return a malloc(3)-allocated buffer containing the contents of STR encoded

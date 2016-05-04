@@ -103,57 +103,10 @@ static SCM sym_UTF_32;
 static SCM sym_UTF_32LE;
 static SCM sym_UTF_32BE;
 
-/* Port encodings are case-insensitive ASCII strings.  */
-static char
-ascii_toupper (char c)
-{
-  return (c < 'a' || c > 'z') ? c : ('A' + (c - 'a'));
-}
-
-/* It is only necessary to use this function on encodings that come from
-   the user and have not been canonicalized yet.  Encodings that are set
-   on ports or in the default encoding fluid are in upper-case, and can
-   be compared with strcmp.  */
-static int
-encoding_matches (const char *enc, SCM upper_symbol)
-{
-  const char *upper = scm_i_symbol_chars (upper_symbol);
-
-  if (!enc)
-    enc = "ISO-8859-1";
-
-  while (*enc)
-    if (ascii_toupper (*enc++) != *upper++)
-      return 0;
-
-  return !*upper;
-}
-
-static SCM
-canonicalize_encoding (const char *enc)
-{
-  char *ret;
-  int i;
-
-  if (!enc || encoding_matches (enc, sym_ISO_8859_1))
-    return sym_ISO_8859_1;
-  if (encoding_matches (enc, sym_UTF_8))
-    return sym_UTF_8;
-
-  ret = scm_gc_strdup (enc, "port");
-
-  for (i = 0; ret[i]; i++)
-    {
-      if (ret[i] > 127)
-        /* Restrict to ASCII.  */
-        scm_misc_error (NULL, "invalid character encoding ~s",
-                        scm_list_1 (scm_from_latin1_string (enc)));
-      else
-        ret[i] = ascii_toupper (ret[i]);
-    }
-
-  return scm_from_latin1_symbol (ret);
-}
+/* Port conversion strategies.  */
+static SCM sym_error;
+static SCM sym_substitute;
+static SCM sym_escape;
 
 
 
@@ -750,8 +703,7 @@ initialize_port_buffers (SCM port)
 
 SCM
 scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
-                               const char *encoding,
-                               scm_t_string_failed_conversion_handler handler,
+                               SCM encoding, SCM conversion_strategy,
                                scm_t_bits stream)
 {
   SCM ret;
@@ -774,9 +726,8 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->rw_random = ptob->seek != NULL;
   entry->port = ret;
   entry->stream = stream;
-  entry->encoding = canonicalize_encoding (encoding);
-
-  entry->ilseq_handler = handler;
+  entry->encoding = encoding;
+  entry->conversion_strategy = conversion_strategy;
   pti->iconv_descriptors = NULL;
 
   pti->at_stream_start_for_bom_read  = 1;
@@ -800,7 +751,7 @@ scm_c_make_port (scm_t_bits tag, unsigned long mode_bits, scm_t_bits stream)
 {
   return scm_c_make_port_with_encoding (tag, mode_bits,
                                         scm_i_default_port_encoding (),
-                                        scm_i_default_port_conversion_handler (),
+                                        scm_i_default_port_conversion_strategy (),
                                         stream);
 }
 
@@ -962,6 +913,58 @@ SCM_DEFINE (scm_close_output_port, "close-output-port", 1, 0, 0,
 /* Encoding characters to byte streams, and decoding byte streams to
    characters.  */
 
+/* Port encodings are case-insensitive ASCII strings.  */
+static char
+ascii_toupper (char c)
+{
+  return (c < 'a' || c > 'z') ? c : ('A' + (c - 'a'));
+}
+
+/* It is only necessary to use this function on encodings that come from
+   the user and have not been canonicalized yet.  Encodings that are set
+   on ports or in the default encoding fluid are in upper-case, and can
+   be compared with strcmp.  */
+static int
+encoding_matches (const char *enc, SCM upper_symbol)
+{
+  const char *upper = scm_i_symbol_chars (upper_symbol);
+
+  if (!enc)
+    enc = "ISO-8859-1";
+
+  while (*enc)
+    if (ascii_toupper (*enc++) != *upper++)
+      return 0;
+
+  return !*upper;
+}
+
+static SCM
+canonicalize_encoding (const char *enc)
+{
+  char *ret;
+  int i;
+
+  if (!enc || encoding_matches (enc, sym_ISO_8859_1))
+    return sym_ISO_8859_1;
+  if (encoding_matches (enc, sym_UTF_8))
+    return sym_UTF_8;
+
+  ret = scm_gc_strdup (enc, "port");
+
+  for (i = 0; ret[i]; i++)
+    {
+      if (ret[i] > 127)
+        /* Restrict to ASCII.  */
+        scm_misc_error (NULL, "invalid character encoding ~s",
+                        scm_list_1 (scm_from_latin1_string (enc)));
+      else
+        ret[i] = ascii_toupper (ret[i]);
+    }
+
+  return scm_from_latin1_symbol (ret);
+}
+
 /* A fluid specifying the default encoding for newly created ports.  If it is
    a string, that is the encoding.  If it is #f, it is in the "native"
    (Latin-1) encoding.  */
@@ -979,73 +982,50 @@ scm_i_set_default_port_encoding (const char *encoding)
 }
 
 /* Return the name of the default encoding for newly created ports.  */
-const char *
+SCM
 scm_i_default_port_encoding (void)
 {
   SCM encoding;
 
   encoding = scm_fluid_ref (SCM_VARIABLE_REF (default_port_encoding_var));
   if (!scm_is_string (encoding))
-    return "ISO-8859-1";
+    return sym_ISO_8859_1;
   else
-    return scm_i_string_chars (encoding);
+    return canonicalize_encoding (scm_i_string_chars (encoding));
 }
 
 /* A fluid specifying the default conversion handler for newly created
    ports.  Its value should be one of the symbols below.  */
 static SCM default_conversion_strategy_var;
 
-/* The possible conversion strategies.  */
-static SCM sym_error;
-static SCM sym_substitute;
-static SCM sym_escape;
-
 /* Return the default failed encoding conversion policy for new created
    ports.  */
-scm_t_string_failed_conversion_handler
-scm_i_default_port_conversion_handler (void)
+SCM
+scm_i_default_port_conversion_strategy (void)
 {
   SCM value;
 
   value = scm_fluid_ref (SCM_VARIABLE_REF (default_conversion_strategy_var));
 
-  if (scm_is_eq (sym_substitute, value))
-    return SCM_FAILED_CONVERSION_QUESTION_MARK;
-  else if (scm_is_eq (sym_escape, value))
-    return SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE;
-  else
-    /* Default to 'error also when the fluid's value is not one of
-       the valid symbols.  */
-    return SCM_FAILED_CONVERSION_ERROR;
+  if (scm_is_eq (sym_substitute, value) || scm_is_eq (sym_escape, value))
+    return value;
+
+  /* Default to 'error also when the fluid's value is not one of the
+     valid symbols.  */
+  return sym_error;
 }
 
 /* Use HANDLER as the default conversion strategy for future ports.  */
 void
-scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handler
-					   handler)
+scm_i_set_default_port_conversion_strategy (SCM sym)
 {
-  SCM strategy;
+  if (!scm_is_eq (sym, sym_error)
+      && !scm_is_eq (sym, sym_substitute)
+      && !scm_is_eq (sym, sym_escape))
+    /* Internal error.  */
+    abort ();
 
-  switch (handler)
-    {
-    case SCM_FAILED_CONVERSION_ERROR:
-      strategy = sym_error;
-      break;
-
-    case SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE:
-      strategy = sym_escape;
-      break;
-
-    case SCM_FAILED_CONVERSION_QUESTION_MARK:
-      strategy = sym_substitute;
-      break;
-
-    default:
-      abort ();
-    }
-
-  scm_fluid_set_x (SCM_VARIABLE_REF (default_conversion_strategy_var),
-		   strategy);
+  scm_fluid_set_x (SCM_VARIABLE_REF (default_conversion_strategy_var), sym);
 }
 
 /* If the next LEN bytes from PORT are equal to those in BYTES, then
@@ -1276,6 +1256,18 @@ SCM_DEFINE (scm_set_port_encoding_x, "set-port-encoding!", 2, 0, 0,
 }
 #undef FUNC_NAME
 
+scm_t_string_failed_conversion_handler
+scm_i_string_failed_conversion_handler (SCM conversion_strategy)
+{
+  if (scm_is_eq (conversion_strategy, sym_substitute))
+    return SCM_FAILED_CONVERSION_QUESTION_MARK;
+  if (scm_is_eq (conversion_strategy, sym_escape))
+    return SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE;
+
+  /* Default to error.  */
+  return SCM_FAILED_CONVERSION_ERROR;
+}
+
 SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
 	    1, 0, 0, (SCM port),
 	    "Returns the behavior of the port when handling a character that\n"
@@ -1291,10 +1283,8 @@ SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
 	    "when they are created.\n")
 #define FUNC_NAME s_scm_port_conversion_strategy
 {
-  scm_t_string_failed_conversion_handler h;
-
   if (scm_is_false (port))
-    h = scm_i_default_port_conversion_handler ();
+    return scm_i_default_port_conversion_strategy ();
   else
     {
       scm_t_port *pt;
@@ -1302,20 +1292,8 @@ SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
       SCM_VALIDATE_OPPORT (1, port);
       pt = SCM_PTAB_ENTRY (port);
 
-      h = pt->ilseq_handler;
+      return pt->conversion_strategy;
     }
-
-  if (h == SCM_FAILED_CONVERSION_ERROR)
-    return scm_from_latin1_symbol ("error");
-  else if (h == SCM_FAILED_CONVERSION_QUESTION_MARK)
-    return scm_from_latin1_symbol ("substitute");
-  else if (h == SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE)
-    return scm_from_latin1_symbol ("escape");
-  else
-    abort ();
-
-  /* Never gets here. */
-  return SCM_UNDEFINED;
 }
 #undef FUNC_NAME
 
@@ -1339,23 +1317,17 @@ SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
 	    "this thread.\n")
 #define FUNC_NAME s_scm_set_port_conversion_strategy_x
 {
-  scm_t_string_failed_conversion_handler handler;
-
-  if (scm_is_eq (sym, sym_error))
-    handler = SCM_FAILED_CONVERSION_ERROR;
-  else if (scm_is_eq (sym, sym_substitute))
-    handler = SCM_FAILED_CONVERSION_QUESTION_MARK;
-  else if (scm_is_eq (sym, sym_escape))
-    handler = SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE;
-  else
+  if (!scm_is_eq (sym, sym_error)
+      && !scm_is_eq (sym, sym_substitute)
+      && !scm_is_eq (sym, sym_escape))
     SCM_MISC_ERROR ("unknown conversion strategy ~s", scm_list_1 (sym));
 
   if (scm_is_false (port))
-    scm_i_set_default_port_conversion_handler (handler);
+    scm_i_set_default_port_conversion_strategy (sym);
   else
     {
       SCM_VALIDATE_OPPORT (1, port);
-      SCM_PTAB_ENTRY (port)->ilseq_handler = handler;
+      SCM_PTAB_ENTRY (port)->conversion_strategy = sym;
     }
 
   return SCM_UNSPECIFIED;
@@ -1866,7 +1838,7 @@ peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
             }
         }
     }
-  else if (pt->ilseq_handler == SCM_ICONVEH_QUESTION_MARK)
+  else if (scm_is_eq (pt->conversion_strategy, sym_substitute))
     {
       *codepoint = '?';
       err = 0;
@@ -1884,11 +1856,6 @@ get_codepoint (SCM port, scm_t_wchar *codepoint)
 
   err = peek_codepoint (port, codepoint, &len);
   scm_port_buffer_did_take (pt->read_buf, len);
-  if (err != 0 && pt->ilseq_handler == SCM_ICONVEH_QUESTION_MARK)
-    {
-      *codepoint = '?';
-      err = 0;
-    }
   if (*codepoint == EOF)
     scm_i_clear_pending_eof (port);
   update_port_lf (*codepoint, port);
@@ -2028,10 +1995,15 @@ scm_ungetc (scm_t_wchar c, SCM port)
       len = 1;
     }
   else
-    result = u32_conv_to_encoding (scm_i_symbol_chars (pt->encoding),
-                                   (enum iconv_ilseq_handler) pt->ilseq_handler,
-                                   (uint32_t *) &c, 1, NULL,
-                                   result_buf, &len);
+    {
+      scm_t_string_failed_conversion_handler handler =
+        scm_i_string_failed_conversion_handler (pt->conversion_strategy);
+
+      result = u32_conv_to_encoding (scm_i_symbol_chars (pt->encoding),
+                                     (enum iconv_ilseq_handler) handler,
+                                     (uint32_t *) &c, 1, NULL,
+                                     result_buf, &len);
+    }
 
   if (SCM_UNLIKELY (result == NULL || len == 0))
     scm_encoding_error (FUNC_NAME, errno,
@@ -3152,6 +3124,10 @@ scm_init_ports (void)
   sym_UTF_32LE = scm_from_latin1_symbol ("UTF-32LE");
   sym_UTF_32BE = scm_from_latin1_symbol ("UTF-32BE");
 
+  sym_substitute = scm_from_latin1_symbol ("substitute");
+  sym_escape = scm_from_latin1_symbol ("escape");
+  sym_error = scm_from_latin1_symbol ("error");
+
   trampoline_to_c_read_subr =
     scm_c_make_gsubr ("port-read", 4, 0, 0,
                       (scm_t_subr) trampoline_to_c_read);
@@ -3169,10 +3145,6 @@ scm_init_ports (void)
   cur_errport_fluid = scm_make_fluid ();
   cur_warnport_fluid = scm_make_fluid ();
   cur_loadport_fluid = scm_make_fluid ();
-
-  sym_substitute = scm_from_latin1_symbol ("substitute");
-  sym_escape = scm_from_latin1_symbol ("escape");
-  sym_error = scm_from_latin1_symbol ("error");
 
   /* Use Latin-1 as the default port encoding.  */
   default_port_encoding_var =

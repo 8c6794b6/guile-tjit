@@ -62,7 +62,7 @@
 /* Character printers.  */
 
 #define PORT_CONVERSION_HANDLER(port)		\
-  SCM_PTAB_ENTRY (port)->ilseq_handler
+  scm_i_string_failed_conversion_handler (scm_port_conversion_strategy (port))
 
 SCM_SYMBOL (sym_UTF_8, "UTF-8");
 SCM_SYMBOL (sym_ISO_8859_1, "ISO-8859-1");
@@ -441,7 +441,7 @@ print_normal_symbol (SCM sym, SCM port)
   scm_t_string_failed_conversion_handler strategy;
 
   len = scm_i_symbol_length (sym);
-  strategy = SCM_PTAB_ENTRY (port)->ilseq_handler;
+  strategy = PORT_CONVERSION_HANDLER (port);
 
   if (scm_i_is_narrow_symbol (sym))
     display_string (scm_i_symbol_chars (sym), 1, len, port, strategy);

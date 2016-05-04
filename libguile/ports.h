@@ -115,7 +115,7 @@ typedef struct
 
   /* Character encoding support.  */
   SCM encoding;  /* A symbol of upper-case ASCII.  */
-  scm_t_string_failed_conversion_handler ilseq_handler;
+  SCM conversion_strategy; /* A symbol; either substitute, error, or escape.  */
 } scm_t_port;
 
 
@@ -255,12 +255,11 @@ SCM_API long scm_mode_bits (char *modes);
 SCM_API SCM scm_port_mode (SCM port);
 
 /* Low-level constructors.  */
-SCM_API SCM
-scm_c_make_port_with_encoding (scm_t_bits tag,
-                               unsigned long mode_bits,
-                               const char *encoding,
-                               scm_t_string_failed_conversion_handler handler,
-                               scm_t_bits stream);
+SCM_API SCM scm_c_make_port_with_encoding (scm_t_bits tag,
+                                           unsigned long mode_bits,
+                                           SCM encoding,
+                                           SCM conversion_strategy,
+                                           scm_t_bits stream);
 SCM_API SCM scm_c_make_port (scm_t_bits tag, unsigned long mode_bits,
                              scm_t_bits stream);
 SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
@@ -279,12 +278,12 @@ SCM_API SCM scm_close_output_port (SCM port);
 
 /* Encoding characters to byte streams, and decoding byte streams to
    characters.  */
-SCM_INTERNAL const char *scm_i_default_port_encoding (void);
-SCM_INTERNAL void scm_i_set_default_port_encoding (const char *);
 SCM_INTERNAL scm_t_string_failed_conversion_handler
-scm_i_default_port_conversion_handler (void);
-SCM_INTERNAL void
-scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handler);
+scm_i_string_failed_conversion_handler (SCM conversion_strategy);
+SCM_INTERNAL SCM scm_i_default_port_encoding (void);
+SCM_INTERNAL void scm_i_set_default_port_encoding (const char *encoding);
+SCM_INTERNAL SCM scm_i_default_port_conversion_strategy (void);
+SCM_INTERNAL void scm_i_set_default_port_conversion_strategy (SCM strategy);
 SCM_INTERNAL void scm_i_set_port_encoding_x (SCM port, const char *str);
 SCM_API SCM scm_port_encoding (SCM port);
 SCM_API SCM scm_set_port_encoding_x (SCM port, SCM encoding);

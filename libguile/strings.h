@@ -100,6 +100,9 @@ typedef enum
 
 SCM_INTERNAL SCM scm_nullstr;
 
+SCM_INTERNAL scm_t_string_failed_conversion_handler
+scm_i_default_string_failed_conversion_handler (void);
+
 SCM_API SCM scm_string_p (SCM x);
 SCM_API SCM scm_string (SCM chrs);
 SCM_API SCM scm_make_string (SCM k, SCM chr);
