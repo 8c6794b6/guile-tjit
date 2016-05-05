@@ -210,6 +210,13 @@ typedef enum scm_port_encoding_mode scm_t_port_encoding_mode;
    cause finalizers to be registered.  */
 struct scm_iconv_descriptors
 {
+  /* This is the same as pt->encoding, except if pt->encoding is UTF-16
+     or UTF-32, in which case this is UTF-16LE or a similar
+     byte-order-specialed version of UTF-16 or UTF-32.  We don't re-set
+     pt->encoding because being just plain UTF-16 or UTF-32 has an
+     additional meaning, being that we should consume and produce byte
+     order marker codepoints as appropriate. */
+  SCM precise_encoding;
   /* input/output iconv conversion descriptors */
   void *input_cd;
   void *output_cd;
@@ -237,7 +244,6 @@ typedef enum scm_t_port_rw_active {
   SCM_PORT_WRITE = 2
 } scm_t_port_rw_active;
 
-SCM_INTERNAL scm_t_iconv_descriptors *
-scm_i_port_iconv_descriptors (SCM port, scm_t_port_rw_active mode);
+SCM_INTERNAL scm_t_iconv_descriptors * scm_i_port_iconv_descriptors (SCM port);
 
 #endif

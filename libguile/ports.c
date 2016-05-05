@@ -1028,62 +1028,11 @@ scm_i_set_default_port_conversion_strategy (SCM sym)
   scm_fluid_set_x (SCM_VARIABLE_REF (default_conversion_strategy_var), sym);
 }
 
-/* If the next LEN bytes from PORT are equal to those in BYTES, then
-   return 1, else return 0.  Leave the port position unchanged.  */
-static int
-looking_at_bytes (SCM port, const unsigned char *bytes, int len)
-{
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  int i = 0;
-
-  while (i < len && scm_peek_byte_or_eof (port) == bytes[i])
-    {
-      scm_port_buffer_did_take (pt->read_buf, 1);
-      i++;
-    }
-  scm_unget_bytes (bytes, i, port);
-  return (i == len);
-}
-
 static const unsigned char scm_utf8_bom[3]    = {0xEF, 0xBB, 0xBF};
 static const unsigned char scm_utf16be_bom[2] = {0xFE, 0xFF};
 static const unsigned char scm_utf16le_bom[2] = {0xFF, 0xFE};
 static const unsigned char scm_utf32be_bom[4] = {0x00, 0x00, 0xFE, 0xFF};
 static const unsigned char scm_utf32le_bom[4] = {0xFF, 0xFE, 0x00, 0x00};
-
-/* Decide what byte order to use for a UTF-16 port.  Return "UTF-16BE"
-   or "UTF-16LE".  MODE must be either SCM_PORT_READ or SCM_PORT_WRITE,
-   and specifies which operation is about to be done.  The MODE
-   determines how we will decide the byte order.  We deliberately avoid
-   reading from the port unless the user is about to do so.  If the user
-   is about to read, then we look for a BOM, and if present, we use it
-   to determine the byte order.  Otherwise we choose big endian, as
-   recommended by the Unicode Standard.  Note that the BOM (if any) is
-   not consumed here.  */
-static SCM
-decide_utf16_encoding (SCM port, scm_t_port_rw_active mode)
-{
-  if (mode == SCM_PORT_READ
-      && SCM_PORT_GET_INTERNAL (port)->at_stream_start_for_bom_read
-      && looking_at_bytes (port, scm_utf16le_bom, sizeof scm_utf16le_bom))
-    return sym_UTF_16LE;
-  else
-    return sym_UTF_16BE;
-}
-
-/* Decide what byte order to use for a UTF-32 port.  Return "UTF-32BE"
-   or "UTF-32LE".  See the comment above 'decide_utf16_encoding' for
-   details.  */
-static SCM
-decide_utf32_encoding (SCM port, scm_t_port_rw_active mode)
-{
-  if (mode == SCM_PORT_READ
-      && SCM_PORT_GET_INTERNAL (port)->at_stream_start_for_bom_read
-      && looking_at_bytes (port, scm_utf32le_bom, sizeof scm_utf32le_bom))
-    return sym_UTF_32LE;
-  else
-    return sym_UTF_32BE;
-}
 
 static void
 finalize_iconv_descriptors (void *ptr, void *data)
@@ -1092,8 +1041,9 @@ finalize_iconv_descriptors (void *ptr, void *data)
 }
 
 static scm_t_iconv_descriptors *
-open_iconv_descriptors (const char *encoding, int reading, int writing)
+open_iconv_descriptors (SCM precise_encoding, int reading, int writing)
 {
+  const char *encoding;
   scm_t_iconv_descriptors *id;
   iconv_t input_cd, output_cd;
   size_t i;
@@ -1101,6 +1051,7 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
   input_cd = (iconv_t) -1;
   output_cd = (iconv_t) -1;
 
+  encoding = scm_i_symbol_chars (precise_encoding);
   for (i = 0; encoding[i]; i++)
     if (encoding[i] > 127)
       goto invalid_encoding;
@@ -1138,6 +1089,7 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
     }
 
   id = scm_gc_malloc_pointerless (sizeof (*id), "iconv descriptors");
+  id->precise_encoding = precise_encoding;
   id->input_cd = input_cd;
   id->output_cd = output_cd;
 
@@ -1147,13 +1099,9 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
   return id;
 
  invalid_encoding:
-  {
-    SCM err;
-    err = scm_from_latin1_string (encoding);
-    scm_misc_error ("open_iconv_descriptors",
-		    "invalid or unknown character encoding ~s",
-		    scm_list_1 (err));
-  }
+  scm_misc_error ("open_iconv_descriptors",
+                  "invalid or unknown character encoding ~s",
+                  scm_list_1 (precise_encoding));
 }
 
 static void
@@ -1167,30 +1115,35 @@ close_iconv_descriptors (scm_t_iconv_descriptors *id)
   id->output_cd = (void *) -1;
 }
 
-scm_t_iconv_descriptors *
-scm_i_port_iconv_descriptors (SCM port, scm_t_port_rw_active mode)
+static void
+prepare_iconv_descriptors (SCM port, SCM encoding)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
+  scm_t_iconv_descriptors *desc = pti->iconv_descriptors;
+
+  /* If the specified encoding is UTF-16 or UTF-32, then default to
+     big-endian byte order.  This fallback isn't necessary if you read
+     on the port before writing to it, as the read will sniff the BOM if
+     any and specialize the encoding; see the manual.  */
+  if (scm_is_eq (encoding, sym_UTF_16))
+    encoding = sym_UTF_16BE;
+  else if (scm_is_eq (encoding, sym_UTF_32))
+    encoding = sym_UTF_32BE;
+
+  if (desc && scm_is_eq (desc->precise_encoding, encoding))
+    return;
+
+  pti->iconv_descriptors = open_iconv_descriptors
+    (encoding, SCM_INPUT_PORT_P (port), SCM_OUTPUT_PORT_P (port));
+}
+
+scm_t_iconv_descriptors *
+scm_i_port_iconv_descriptors (SCM port)
+{
   scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
   if (!pti->iconv_descriptors)
-    {
-      SCM precise_encoding;
-
-      /* If the specified encoding is UTF-16 or UTF-32, then make
-         that more precise by deciding what byte order to use. */
-      if (scm_is_eq (pt->encoding, sym_UTF_16))
-        precise_encoding = decide_utf16_encoding (port, mode);
-      else if (scm_is_eq (pt->encoding, sym_UTF_32))
-        precise_encoding = decide_utf32_encoding (port, mode);
-      else
-        precise_encoding = pt->encoding;
-
-      pti->iconv_descriptors =
-        open_iconv_descriptors (scm_i_symbol_chars (precise_encoding),
-                                SCM_INPUT_PORT_P (port),
-                                SCM_OUTPUT_PORT_P (port));
-    }
+    prepare_iconv_descriptors (port, SCM_PTAB_ENTRY (port)->encoding);
 
   return pti->iconv_descriptors;
 }
@@ -1450,6 +1403,14 @@ scm_i_read_bytes (SCM port, SCM dst, size_t start, size_t count)
   return filled;
 }
 
+/* In text mode, we will slurp a BOM from the beginning of a UTF-8,
+   UTF-16, or UTF-32 stream, and write one at the beginning of a UTF-16
+   or UTF-32 stream.  In binary mode, we won't.  The mode depends on the
+   caller. */
+enum bom_io_mode { BOM_IO_TEXT, BOM_IO_BINARY };
+static size_t port_clear_stream_start_for_bom_read (SCM, enum bom_io_mode);
+static void port_clear_stream_start_for_bom_write (SCM, enum bom_io_mode);
+
 /* Used by an application to read arbitrary number of bytes from an SCM
    port.  Same semantics as libc read, except that scm_c_read_bytes only
    returns less than SIZE bytes if at end-of-file.
@@ -1471,6 +1432,8 @@ scm_c_read_bytes (SCM port, SCM dst, size_t start, size_t count)
 
   if (pt->rw_random)
     scm_flush (port);
+
+  port_clear_stream_start_for_bom_read (port, BOM_IO_BINARY);
 
   /* Take bytes first from the port's read buffer. */
   {
@@ -1550,50 +1513,6 @@ scm_c_read (SCM port, void *buffer, size_t size)
     }
 
   return copied;
-}
-#undef FUNC_NAME
-
-static int
-port_maybe_consume_initial_byte_order_mark (SCM port, scm_t_wchar codepoint,
-                                            size_t len)
-{
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
-
-  if (!pti->at_stream_start_for_bom_read) return 0;
-
-  /* Record that we're no longer at stream start. */
-  pti->at_stream_start_for_bom_read = 0;
-  if (pt->rw_random)
-    pti->at_stream_start_for_bom_write = 0;
-
-  if (codepoint != SCM_UNICODE_BOM) return 0;
-
-  /* If we just read a BOM in an encoding that recognizes them, then
-     silently consume it. */
-  if (scm_is_eq (pt->encoding, sym_UTF_8)
-      || scm_is_eq (pt->encoding, sym_UTF_16)
-      || scm_is_eq (pt->encoding, sym_UTF_32))
-    {
-      scm_port_buffer_did_take (pt->read_buf, len);
-      return 1;
-    }
-
-  return 0;
-}
-
-SCM_DEFINE (scm_port_maybe_consume_initial_byte_order_mark,
-            "port-maybe-consume-initial-byte-order-mark", 3, 0, 0,
-            (SCM port, SCM codepoint, SCM len),
-            "")
-#define FUNC_NAME s_scm_port_maybe_consume_initial_byte_order_mark
-{
-  SCM_VALIDATE_PORT (1, port);
-  return scm_from_bool
-    (port_maybe_consume_initial_byte_order_mark
-     (port,
-      SCM_CHARP (codepoint) ? SCM_CHAR (codepoint) : EOF,
-      scm_to_size_t (len)));
 }
 #undef FUNC_NAME
 
@@ -1790,8 +1709,6 @@ peek_iconv_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
   scm_t_uint8 utf8_buf[SCM_MBCHAR_BUF_SIZE];
   size_t input_size = 0;
 
-  id = scm_i_port_iconv_descriptors (port, SCM_PORT_READ);
-
   for (;;)
     {
       SCM read_buf;
@@ -1799,6 +1716,8 @@ peek_iconv_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
       size_t input_left, output_left, done;
 
       read_buf = scm_fill_input (port, input_size + 1);
+      id = scm_i_port_iconv_descriptors (port);
+
       if (scm_port_buffer_can_take (read_buf) <= input_size)
 	{
           if (input_size == 0)
@@ -1867,12 +1786,7 @@ peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
   else
     err = peek_iconv_codepoint (port, codepoint, len);
 
-  if (SCM_LIKELY (err == 0))
-    {
-      if (port_maybe_consume_initial_byte_order_mark (port, *codepoint, *len))
-        return peek_codepoint (port, codepoint, len);
-    }
-  else if (scm_is_eq (pt->conversion_strategy, sym_substitute))
+  if (err != 0 && scm_is_eq (pt->conversion_strategy, sym_substitute))
     {
       *codepoint = '?';
       err = 0;
@@ -2352,15 +2266,137 @@ scm_flush (SCM port)
     scm_i_write (port, buf);
 }
 
+/* Return number of bytes consumed, or zero if no BOM was consumed.  */
+static size_t
+maybe_consume_bom (SCM port, const unsigned char *bom, size_t bom_len)
+{
+  SCM read_buf;
+  const scm_t_uint8 *buf;
+
+  if (peek_byte_or_eof (port) != bom[0])
+    return 0;
+
+  /* Make sure there's enough space in the buffer for a BOM.  Now that
+     we matched the first byte, we know we're going to have to read this
+     many bytes anyway.  */
+  read_buf = scm_fill_input (port, bom_len);
+  buf = scm_port_buffer_take_pointer (read_buf);
+
+  if (scm_port_buffer_can_take (read_buf) < bom_len)
+    return 0;
+
+  if (memcmp (buf, bom, bom_len) != 0)
+    return 0;
+
+  scm_port_buffer_did_take (read_buf, bom_len);
+  return bom_len;
+}
+
+static size_t
+port_clear_stream_start_for_bom_read (SCM port, enum bom_io_mode io_mode)
+{
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
+  scm_t_port *pt;
+
+  if (!pti->at_stream_start_for_bom_read)
+    return 0;
+
+  /* Maybe slurp off a byte-order marker.  */
+  pt = SCM_PTAB_ENTRY (port);
+  pti->at_stream_start_for_bom_read = 0;
+  if (pt->rw_random)
+    pti->at_stream_start_for_bom_write = 0;
+
+  if (io_mode == BOM_IO_BINARY)
+    return 0;
+
+  if (scm_is_eq (pt->encoding, sym_UTF_8))
+    return maybe_consume_bom (port, scm_utf8_bom, sizeof (scm_utf8_bom));
+
+  if (scm_is_eq (pt->encoding, sym_UTF_16))
+    {
+      if (maybe_consume_bom (port, scm_utf16le_bom, sizeof (scm_utf16le_bom)))
+        {
+          prepare_iconv_descriptors (port, sym_UTF_16LE);
+          return 2;
+        }
+      if (maybe_consume_bom (port, scm_utf16be_bom, sizeof (scm_utf16be_bom)))
+        {
+          prepare_iconv_descriptors (port, sym_UTF_16BE);
+          return 2;
+        }
+      /* Big-endian by default.  */
+      prepare_iconv_descriptors (port, sym_UTF_16BE);
+      return 0;
+    }
+
+  if (scm_is_eq (pt->encoding, sym_UTF_32))
+    {
+      if (maybe_consume_bom (port, scm_utf32le_bom, sizeof (scm_utf32le_bom)))
+        {
+          /* Big-endian by default.  */
+          prepare_iconv_descriptors (port, sym_UTF_32LE);
+          return 4;
+        }
+      if (maybe_consume_bom (port, scm_utf32be_bom, sizeof (scm_utf32be_bom)))
+        {
+          prepare_iconv_descriptors (port, sym_UTF_32BE);
+          return 4;
+        }
+      /* Big-endian by default.  */
+      prepare_iconv_descriptors (port, sym_UTF_32BE);
+      return 0;
+    }
+
+  return 0;
+}
+
+static void
+port_clear_stream_start_for_bom_write (SCM port, enum bom_io_mode io_mode)
+{
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
+
+  if (!pti->at_stream_start_for_bom_write)
+    return;
+
+  /* Record that we're no longer at stream start.  */
+  pti->at_stream_start_for_bom_write = 0;
+  if (pt->rw_random)
+    pti->at_stream_start_for_bom_read = 0;
+
+  /* Write a BOM if appropriate.  */
+  if (scm_is_eq (pt->encoding, sym_UTF_16))
+    {
+      scm_t_iconv_descriptors *id = scm_i_port_iconv_descriptors (port);
+      if (scm_is_eq (id->precise_encoding, sym_UTF_16LE))
+        scm_c_write (port, scm_utf16le_bom, sizeof (scm_utf16le_bom));
+      else
+        scm_c_write (port, scm_utf16be_bom, sizeof (scm_utf16be_bom));
+    }
+  else if (scm_is_eq (pt->encoding, sym_UTF_32))
+    {
+      scm_t_iconv_descriptors *id = scm_i_port_iconv_descriptors (port);
+      if (scm_is_eq (id->precise_encoding, sym_UTF_32LE))
+        scm_c_write (port, scm_utf32le_bom, sizeof (scm_utf32le_bom));
+      else
+        scm_c_write (port, scm_utf32be_bom, sizeof (scm_utf32be_bom));
+    }
+}
+
 SCM
 scm_fill_input (SCM port, size_t minimum_size)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  SCM read_buf = pt->read_buf;
-  size_t buffered = scm_port_buffer_can_take (read_buf);
+  SCM read_buf;
+  size_t buffered;
 
   if (minimum_size == 0)
     minimum_size = 1;
+
+  port_clear_stream_start_for_bom_read (port, BOM_IO_TEXT);
+  read_buf = pt->read_buf;
+  buffered = scm_port_buffer_can_take (read_buf);
 
   if (buffered >= minimum_size
       || scm_is_true (scm_port_buffer_has_eof_p (read_buf)))
@@ -2525,6 +2561,8 @@ scm_i_write (SCM port, SCM buf)
 {
   size_t start, count;
 
+  port_clear_stream_start_for_bom_write (port, BOM_IO_BINARY);
+
   /* Update cursors before attempting to write, assuming that I/O errors
      are sticky.  That way if the write throws an error, causing the
      computation to abort, and possibly causing the port to be collected
@@ -2632,6 +2670,11 @@ void
 scm_lfwrite (const char *ptr, size_t size, SCM port)
 {
   int saved_line;
+
+  if (size == 0)
+    return;
+
+  port_clear_stream_start_for_bom_write (port, BOM_IO_TEXT);
 
   scm_c_write (port, ptr, size);
 

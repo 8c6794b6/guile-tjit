@@ -1027,24 +1027,8 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
 {
   size_t printed;
   scm_t_iconv_descriptors *id;
-  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
-  id = scm_i_port_iconv_descriptors (port, SCM_PORT_WRITE);
-
-  if (SCM_UNLIKELY (pti->at_stream_start_for_bom_write && len > 0))
-    {
-      scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-      /* Record that we're no longer at stream start.  */
-      pti->at_stream_start_for_bom_write = 0;
-      if (pt->rw_random)
-        pti->at_stream_start_for_bom_read = 0;
-
-      /* Write a BOM if appropriate.  */
-      if (SCM_UNLIKELY (scm_is_eq (pt->encoding, sym_UTF_16)
-                        || scm_is_eq (pt->encoding, sym_UTF_32)))
-        display_character (SCM_UNICODE_BOM, port, iconveh_error);
-    }
+  id = scm_i_port_iconv_descriptors (port);
 
   printed = 0;
 
