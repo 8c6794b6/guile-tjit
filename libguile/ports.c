@@ -1137,6 +1137,22 @@ prepare_iconv_descriptors (SCM port, SCM encoding)
     (encoding, SCM_INPUT_PORT_P (port), SCM_OUTPUT_PORT_P (port));
 }
 
+SCM_INTERNAL SCM scm_specialize_port_encoding_x (SCM port, SCM encoding);
+SCM_DEFINE (scm_specialize_port_encoding_x,
+            "specialize-port-encoding!", 2, 0, 0,
+            (SCM port, SCM encoding),
+            "")
+#define FUNC_NAME s_scm_specialize_port_encoding_x
+{
+  SCM_VALIDATE_PORT (1, port);
+  SCM_VALIDATE_SYMBOL (2, encoding);
+
+  prepare_iconv_descriptors (port, encoding);
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 scm_t_iconv_descriptors *
 scm_i_port_iconv_descriptors (SCM port)
 {
@@ -2350,6 +2366,39 @@ port_clear_stream_start_for_bom_read (SCM port, enum bom_io_mode io_mode)
 
   return 0;
 }
+
+SCM_INTERNAL SCM scm_port_clear_stream_start_for_bom_read (SCM port);
+SCM_DEFINE (scm_port_clear_stream_start_for_bom_read,
+            "port-clear-stream-start-for-bom-read", 1, 0, 0,
+            (SCM port),
+            "")
+#define FUNC_NAME s_scm_port_clear_stream_start_for_bom_read
+{
+  scm_t_port_internal *pti;
+  scm_t_port *pt;
+
+  SCM_VALIDATE_PORT (1, port);
+
+  pti = SCM_PORT_GET_INTERNAL (port);
+  if (!pti->at_stream_start_for_bom_read)
+    return 0;
+
+  /* Maybe slurp off a byte-order marker.  */
+  pt = SCM_PTAB_ENTRY (port);
+  pti->at_stream_start_for_bom_read = 0;
+
+  if (!pti->at_stream_start_for_bom_read)
+    return SCM_BOOL_F;
+
+  /* Maybe slurp off a byte-order marker.  */
+  pt = SCM_PTAB_ENTRY (port);
+  pti->at_stream_start_for_bom_read = 0;
+  if (pt->rw_random)
+    pti->at_stream_start_for_bom_write = 0;
+
+  return SCM_BOOL_T;
+}
+#undef FUNC_NAME
 
 static void
 port_clear_stream_start_for_bom_write (SCM port, enum bom_io_mode io_mode)
