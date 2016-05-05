@@ -304,7 +304,7 @@ interpret its input and output."
 (define-syntax-rule (decoding-error subr port)
   (throw 'decoding-error subr "input decoding error" EILSEQ port))
 
-(define-inlinable (peek-char-and-len/utf8 port first-byte)
+(define (peek-char-and-len/utf8 port first-byte)
   (define (bad-utf8 len)
     (if (eq? (port-conversion-strategy port) 'substitute)
         (values #\? len)
@@ -405,7 +405,9 @@ interpret its input and output."
         (let ((first-byte (logand first-byte #xff)))
           (case (%port-encoding port)
             ((UTF-8)
-             (peek-char-and-len/utf8 port first-byte))
+             (if (< first-byte #x80)
+                 (values (integer->char first-byte) 1)
+                 (peek-char-and-len/utf8 port first-byte)))
             ((ISO-8859-1)
              (peek-char-and-len/iso-8859-1 port first-byte))
             (else
