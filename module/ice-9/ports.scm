@@ -227,7 +227,7 @@ interpret its input and output."
                            (lp (1+ i)))))))))
   (when (and (port-clear-stream-start-for-bom-read port)
              (eq? io-mode 'text))
-    (case (port-encoding port)
+    (case (%port-encoding port)
       ((UTF-8)
        (maybe-consume-bom utf8-bom))
       ((UTF-16)
