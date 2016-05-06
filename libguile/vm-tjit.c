@@ -136,6 +136,9 @@ SCM_TJIT_PARAM (max_record, max-record, 3000)
 /* Maximum count of retries for failed compilation. */
 SCM_TJIT_PARAM (max_retries, max-retries, 5)
 
+/* Maximum number of side traces from root trace. */
+SCM_TJIT_PARAM (max_sides, max-sides, 100)
+
 /* Number of recursive procedure calls to unroll. */
 SCM_TJIT_PARAM (num_unrolls, num-unrolls, 2)
 
@@ -158,10 +161,6 @@ SCM_TJIT_HASH (root_ip)
 /* Hash array to hold IPs of failed traces. Key is bytecode IP, value is
    number of failed compilation. */
 SCM_TJIT_HASH (failed_ip)
-
-/* Hash array to hold IPs of side trace. Key is bytecode IP, value is
-   number of compilation trials. */
-SCM_TJIT_HASH (bailout_ip)
 
 /* Hash table to hold all fragments. Key is fragment ID, value is
    fragment data. */
@@ -357,18 +356,19 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
     case SCM_TJIT_TRACE_TCALL:
       if (scm_is_true (fragment))
         {
-          if (SCM_DOWNREC_P (fragment))
-            {
-              tj->trace_type = SCM_TJIT_TRACE_CALL;
-              record (tj, thread, vp, ip, sp);
-            }
-          else if (SCM_UPREC_P (fragment))
-            {
-              tj->trace_type = SCM_TJIT_TRACE_RETURN;
-              record (tj, thread, vp, ip, sp);
-            }
-          else
-            SCM_TJITC (SCM_BOOL_F);
+          /* if (SCM_DOWNREC_P (fragment)) */
+          /*   { */
+          /*     tj->trace_type = SCM_TJIT_TRACE_CALL; */
+          /*     record (tj, thread, vp, ip, sp); */
+          /*   } */
+          /* else if (SCM_UPREC_P (fragment)) */
+          /*   { */
+          /*     tj->trace_type = SCM_TJIT_TRACE_RETURN; */
+          /*     record (tj, thread, vp, ip, sp); */
+          /*   } */
+          /* else */
+          /*   SCM_TJITC (SCM_BOOL_F); */
+          SCM_TJITC (SCM_BOOL_F);
         }
       else if (ip == end_ip)
         {
@@ -435,8 +435,10 @@ static inline scm_t_uint32*
 call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
+  SCM s_ip, code, fragment_id;
+  SCM exit_id, exit_counts, count;
+  SCM origin_id, origin;
   scm_t_native_code native_code;
-  SCM s_ip, code, exit_id, fragment_id, exit_counts, count;
   struct scm_tjit_retval *ret;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
@@ -444,15 +446,15 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   native_code = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = native_code (thread, vp, registers);
 
-  exit_id = SCM_PACK (ret->exit_id);
   fragment_id = SCM_PACK (ret->fragment_id);
   fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
+  origin_id = SCM_PACK (ret->origin_id);
+  origin = scm_hashq_ref (tjit_fragment_table, origin_id, SCM_BOOL_F);
 
-  /* XXX: Ad hoc a way to restrict compilation of side trace starting
-     from identical IP too many times. */
-  if (scm_is_true (fragment)
-      && bailout_ip_ref ((scm_t_uintptr) vp->ip) < 50)
+  if (scm_is_false (origin)
+      || SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
     {
+      exit_id = SCM_PACK (ret->exit_id);
       exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
       count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
       count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
@@ -460,13 +462,11 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
 
       if (SCM_TJIT_IS_HOT (tjit_hot_exit, vp->ip, count))
         {
-          scm_t_uint16 ntrials = bailout_ip_ref ((scm_t_uintptr) vp->ip);
           scm_t_uint32 *start = vp->ip;
           scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
           tj->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
           tj->parent_exit_id = (int) SCM_I_INUM (exit_id);
-          bailout_ip_set ((scm_t_uintptr) vp->ip, ntrials + 1);
 
           /* When start and end is the same IP, recording starts when VM
              entered the same loop next time. To prevent the VM
@@ -655,14 +655,14 @@ SCM_DEFINE (scm_make_negative_pointer, "make-negative-pointer", 1, 0, 0,
 
 struct scm_tjit_retval*
 scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits exit_id,
-                      scm_t_bits fragment_id, scm_t_bits nlocals)
+                      scm_t_bits fragment_id, scm_t_bits origin_id)
 {
   struct scm_tjit_retval *ret =
     scm_inline_gc_malloc_pointerless (thread, sizeof (struct scm_tjit_retval));
 
   ret->exit_id = exit_id;
   ret->fragment_id = fragment_id;
-  ret->nlocals = nlocals;
+  ret->origin_id = origin_id;
 
   return ret;
 }
@@ -881,14 +881,12 @@ init_tjit_hash (void)
   GC_exclude_static_roots (hot_ip_hash, hot_ip_hash + TJIT_HASH_SIZE);
   GC_exclude_static_roots (root_ip_hash, root_ip_hash + TJIT_HASH_SIZE);
   GC_exclude_static_roots (failed_ip_hash, failed_ip_hash + TJIT_HASH_SIZE);
-  GC_exclude_static_roots (bailout_ip_hash, bailout_ip_hash + TJIT_HASH_SIZE);
 
   for (i = 0; i < TJIT_HASH_SIZE; ++i)
     {
       hot_ip_hash[i] = 0;
       root_ip_hash[i] = 0;
       failed_ip_hash[i] = 0;
-      bailout_ip_hash[i] = 0;
     }
 }
 

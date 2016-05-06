@@ -44,7 +44,7 @@ struct scm_tjit_state
   scm_t_uint32 bc_idx;      /* current index of traced bytecode */
   scm_t_uint32 *bytecode;   /* buffer to contain traced bytecode */
   SCM traces;               /* scheme list to contain recorded trace */
-  int parent_fragment_id;   /* fragment ID of parent trace, or 0 for root*/
+  int parent_fragment_id;   /* fragment ID of parent trace, or 0 for root */
   int parent_exit_id;       /* exit id of parent trace, or 0 for root */
   int nunrolled;            /* current number of unrolled recursion */
   size_t start_seen;        /* flag for whether start has seen */
@@ -54,7 +54,7 @@ struct scm_tjit_retval
 {
   scm_t_bits exit_id;
   scm_t_bits fragment_id;
-  scm_t_bits nlocals;
+  scm_t_bits origin_id;
 };
 
 /* Function pointer type of compiled trace */
@@ -87,6 +87,7 @@ SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
 #define SCM_FRAGMENT_UPREC_P(T)        SCM_STRUCT_SLOT_REF (T, 4)
 #define SCM_FRAGMENT_TYPE_CHECKER(T)   SCM_STRUCT_SLOT_REF (T, 5)
 #define SCM_FRAGMENT_ENTRY_IP(T)       SCM_STRUCT_SLOT_REF (T, 6)
+#define SCM_FRAGMENT_NUM_CHILD(T)      SCM_STRUCT_SLOT_REF (T, 7)
 
 SCM_API SCM scm_tjit_fragment (void);
 SCM_API SCM scm_tjit_root_trace (void);
@@ -102,6 +103,8 @@ SCM_API SCM scm_tjit_max_record (void);
 SCM_API SCM scm_set_tjit_max_record_x (SCM val);
 SCM_API SCM scm_tjit_max_retries (void);
 SCM_API SCM scm_set_tjit_max_retries_x (SCM val);
+SCM_API SCM scm_tjit_max_sides (void);
+SCM_API SCM scm_set_tjit_max_sides_x (SCM val);
 SCM_API SCM scm_tjit_num_unrolls (void);
 SCM_API SCM scm_set_tjit_num_unrolls_x (SCM val);
 SCM_API SCM scm_tjit_scheme_engine (void);

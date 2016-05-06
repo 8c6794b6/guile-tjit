@@ -422,6 +422,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      (env-uprec? env)
                                      type-checker
                                      (env-entry-ip env)
+                                     0
                                      parent-id
                                      (env-parent-exit-id env)
                                      loop-address
@@ -601,7 +602,11 @@ DST-TYPES, and SRC-TYPES are local index number."
       (debug 3 ";;;   snapshot-id: ~a~%" id)
       (debug 3 ";;;   next-ip:     ~a~%" ip)
       (debug 3 ";;;   args:        ~a~%" args)
-      (let ((entry (jit-label)))
+      (let ((entry (jit-label))
+            (origin-id (or (and=> (and=> (env-parent-fragment env)
+                                         get-origin-fragment)
+                                  fragment-id)
+                           (env-id env))))
         (jit-patch entry)
         (match snapshot
           (($ $snapshot id sp-offset fp-offset nlocals locals)
@@ -627,7 +632,7 @@ DST-TYPES, and SRC-TYPES are local index number."
            (jit-pushargr %thread)
            (jit-pushargi (scm-i-makinumi id))
            (jit-pushargi (scm-i-makinumi (env-id env)))
-           (jit-pushargi (scm-i-makinumi nlocals))
+           (jit-pushargi (scm-i-makinumi origin-id))
            (jit-calli %scm-make-tjit-retval)
            (jit-retval %retval)
 

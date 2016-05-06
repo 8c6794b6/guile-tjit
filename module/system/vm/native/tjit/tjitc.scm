@@ -67,6 +67,7 @@
                               (hashq-ref (fragment-snapshots parent-fragment)
                                          parent-exit-id)
                               #f))
+         (origin (and=> parent-fragment get-origin-fragment))
          (entry-ip (car (last traces)))
          (dump-option (tjit-dump-option))
          (sline (addr->source-line entry-ip))
@@ -100,11 +101,15 @@
                                           fragment-id))
                            ""))
             (ttype (cond
+                    ((not loop?) "")
                     (downrec? " - downrec")
                     (uprec? " - uprec")
                     (else ""))))
         (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
                 trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
+    (define (increment-num-child! fragment)
+      (let ((num-child (fragment-num-child fragment)))
+        (set-fragment-num-child! fragment (+ num-child 1))))
     (define-syntax call-op?
       (syntax-rules ()
         ((_ op)
@@ -112,20 +117,18 @@
              (eq? op 'call-label)
              (eq? op 'tail-call)
              (eq? op 'tail-call-label)))))
-    (define-syntax too-many-side-traces-starting-with-call?
-      ;; Detecting side trace starting with call bytecode operation. This is
-      ;; likely to be a higher order procedure call.
+    (define-syntax unsupported-downrec-prologue?
       (syntax-rules ()
         ((_ op)
-         (and (<= 3 num-traces-with-same-entry-ip)
-              (call-op? op)))))
+         (not (or (eq? op 'assert-nargs-ee/locals)
+                  (eq? op 'assert-nargs-ee))))))
     (define-syntax dump
       (syntax-rules ()
         ((_ test data exp)
          (when (and (test dump-option) data)
            exp))))
 
-    (with-tjitc-error-handler entry-ip
+    (with-tjitc-error-handler env
       (let-values (((traces implemented?)
                     (parse-bytecode env bytecode traces)))
         (define (dump-sline-and-bytecode test)
@@ -152,13 +155,10 @@
                (not (zero? (env-last-sp-offset env)))
                (not (call-op? last-op)))
           (nyi "root trace with SP shift, last op `~a'" last-op))
+         ((and parent-snapshot loop?)
+          (nyi "looping side trace"))
          ((and parent-snapshot (not (env-linked-fragment env)))
-          (break 2 "side trace with type mismatched link"))
-         ((too-many-side-traces-starting-with-call? first-op)
-          (let* ((origin (get-origin-fragment (env-parent-fragment env)))
-                 (origin-id (fragment-id origin)))
-            (remove-fragment-and-side-traces origin)
-            (recompile "~a at trace ~a (~x)" first-op origin-id entry-ip)))
+          (nyi "side trace with no linked fragment"))
          (else
           (unless (tjit-dump-abort? dump-option)
             (dump-sline-and-bytecode implemented?))
@@ -169,6 +169,7 @@
             (let-values (((code size adjust loop-address trampoline)
                           (compile-native env ops snapshots sline)))
               (tjit-increment-id!)
+              (and=> origin increment-num-child!)
               (dump tjit-dump-ncode? code
                     (dump-ncode trace-id entry-ip code size adjust
                                 loop-address snapshots trampoline

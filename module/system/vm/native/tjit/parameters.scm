@@ -58,6 +58,8 @@
             set-tjit-scheme-engine!
             tjit-max-record
             set-tjit-max-record!
+            tjit-max-sides
+            set-tjit-max-sides!
             tjit-increment-compilation-failure!
             tjit-add-root-ip!
             tjit-remove-root-ip!

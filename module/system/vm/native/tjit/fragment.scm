@@ -53,6 +53,7 @@
             fragment-handle-interrupts?
             fragment-side-trace-ids set-fragment-side-trace-ids!
             fragment-linked-root-ids set-fragment-linked-root-ids!
+            fragment-num-child set-fragment-num-child!
 
             put-fragment!
             get-fragment
@@ -73,7 +74,8 @@
 ;;
 (define-record-type <fragment>
   (%make-fragment id code exit-counts downrec? uprec? type-checker entry-ip
-                  parent-id parent-exit-id loop-address loop-locals loop-vars
+                  num-child parent-id parent-exit-id
+                  loop-address loop-locals loop-vars
                   snapshots trampoline end-address gdb-jit-entry storage
                   bailout-code handle-interrupts?
                   side-trace-ids linked-root-ids)
@@ -99,6 +101,9 @@
 
   ;; Entry bytecode IP.
   (entry-ip fragment-entry-ip)
+
+  ;; Number of child traces, for root trace only.
+  (num-child fragment-num-child set-fragment-num-child!)
 
   ;; Trace id of parent trace, 0 for root trace.
   (parent-id fragment-parent-id)
@@ -196,7 +201,7 @@ cache."
               (let lp ((ids (fragment-side-trace-ids fragment)))
                 (if (null? ids)
                     (let ((id (fragment-id fragment)))
-                      (debug 1 ";;; removing trace ~s~%" id)
+                      (debug 2 ";;; removing trace ~s~%" id)
                       (hashq-remove! cache id))
                     (begin
                       (and=> (get-fragment (car ids))
@@ -219,5 +224,4 @@ cache."
                         (remove-root-trace linked-fragment)
                         (tjit-remove-root-ip! linked-fragment-ip))))
                   (lp (cdr ids)))))))
-
     (remove-root-trace fragment)))

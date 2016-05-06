@@ -31,6 +31,8 @@
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit parameters)
   #:export (tjitc-errors
             call-with-tjitc-error-handler
@@ -50,24 +52,29 @@
 (define (tjitc-errors)
   *tjitc-errors-table*)
 
-(define (call-with-tjitc-error-handler ip thunk)
+(define (call-with-tjitc-error-handler env thunk)
+  (define (increment! amount)
+    ;; (unless (env-parent-fragment env)
+    ;;   (tjit-increment-compilation-failure! (env-entry-ip env) amount))
+    (tjit-increment-compilation-failure! (env-entry-ip env) amount))
   (call-with-prompt *tjitc-error-prompt-tag*
     thunk
     (lambda (k kind meta fmt . args)
       (case kind
         ((nyi)
          (debug 1 "NYI: ~a~%" (apply format #f fmt args))
-         (tjit-increment-compilation-failure! ip 3))
+         (increment! 3))
         ((break)
          (debug 1 "BREAK: ~a~%" (apply format #f fmt args))
-         (tjit-increment-compilation-failure! ip meta))
+         (increment! meta))
         ((recompile)
          (debug 1 "RECOMPILE: ~a~%" (apply format #f fmt args)))
         ((failure)
          (let ((msg (apply format #f fmt args)))
            (debug 0 "~a: ~a ~a~%" (red "FAILURE") meta msg)
-           (tjit-increment-compilation-failure! ip 5)
-           (hashq-set! (tjitc-errors) ip (cons meta msg))))))))
+           (increment! 5)
+           (hashq-set! (tjitc-errors) (env-entry-ip env)
+                       (cons meta msg))))))))
 
 (define-syntax with-tjitc-error-handler
   (syntax-rules ()
