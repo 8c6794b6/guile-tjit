@@ -438,8 +438,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      '() '()))
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
-       ;; When this trace is a side trace, replace the native code
-       ;; of trampoline in parent fragment.
+       ;; When this trace is a side trace, replace the native code of trampoline
+       ;; in parent fragment.
        (let ((fragment (env-parent-fragment env))
              (code-address (pointer-address ptr)))
          (when fragment
@@ -455,12 +455,33 @@ DST-TYPES, and SRC-TYPES are local index number."
   (when (tjit-dump-time? (tjit-dump-option))
     (let ((log (get-tjit-time-log (env-id env))))
       (set-tjit-time-log-assemble! log (get-internal-run-time))))
-  (let* ((trampoline (make-trampoline (hash-count (const #t) snapshots)))
-         (fragment (env-parent-fragment env)))
-
+  (let ((trampoline (make-trampoline (hash-count (const #t) snapshots))))
     (cond
-     ;; Root trace.
-     ((not fragment)
+     ((env-parent-fragment env)         ; Side trace.
+      => (lambda (parent-fragment)
+           ;; Avoid emitting prologue.
+           (jit-tramp (imm (* 4 %word-size)))
+
+           ;; Store values passed from parent trace when it's not used by this
+           ;; side trace.
+           (match (env-parent-snapshot env)
+             (($ $snapshot _ _ _ _ locals vars)
+              (let* ((snap0 (hashq-ref snapshots 0))
+                     (locals0 (snapshot-locals snap0))
+                     (vars0 (snapshot-variables snap0))
+                     (references (make-hash-table))
+                     (storage (fragment-storage parent-fragment))
+                     (asm (make-asm storage #f #t #f)))
+                (let lp ((locals0 locals0) (vars0 vars0))
+                  (match (cons locals0 vars0)
+                    ((((local . _) . locals0) . (var . vars0))
+                     (hashq-set! references local var)
+                     (lp locals0 vars0))
+                    (_
+                     (maybe-store asm locals vars references 0 0))))))
+             (_
+              (failure 'compile-entry "snapshot not found")))))
+     (else                              ; Root trace.
       (let ((max-spills (tjit-max-spills))
             (nspills (primops-nspills primops))
             (vp r0)
@@ -486,34 +507,7 @@ DST-TYPES, and SRC-TYPES are local index number."
         ;; Store `vp', `vp->sp', and `registers'.
         (store-vp vp)
         (vm-cache-sp vp)
-        (jit-stxi registers-offset %fp registers)))
-
-     ;; Side trace.
-     (else
-      ;; Avoid emitting prologue.
-      (jit-tramp (imm (* 4 %word-size)))
-
-      ;; Store values passed from parent trace when it's not used by this
-      ;; side trace.
-      (match (env-parent-snapshot env)
-        (($ $snapshot _ _ _ _ locals vars)
-         (let* ((snap0 (hashq-ref snapshots 0))
-                (locals0 (snapshot-locals snap0))
-                (vars0 (snapshot-variables snap0))
-                (references (make-hash-table))
-                (parent-fragment (env-parent-fragment env))
-                (storage (fragment-storage parent-fragment))
-                (asm (make-asm storage #f #t #f)))
-           (let lp ((locals0 locals0) (vars0 vars0))
-             (match (cons locals0 vars0)
-               ((((local . _) . locals0) . (var . vars0))
-                (hashq-set! references local var)
-                (lp locals0 vars0))
-               (_
-                (maybe-store asm locals vars references 0))))))
-        (_
-         (failure 'compile-entry "snapshot not found"
-                      (env-parent-exit-id env))))))
+        (jit-stxi registers-offset %fp registers))))
 
     ;; Assemble the primitives.
     (compile-body env primops snapshots trampoline)))
