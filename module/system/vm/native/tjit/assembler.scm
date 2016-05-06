@@ -469,9 +469,9 @@
 (define (make-asm storage end-address gc-inline save-volatiles?)
   (define (volatile-regs-in-use storage)
     (hash-fold (lambda (_ reg acc)
-                 (if (or (and (gpr? reg)
+                 (if (or (and reg (gpr? reg)
                               (<= *num-non-volatiles* (ref-value reg)))
-                         (and (fpr? reg)
+                         (and reg (fpr? reg)
                               ;; Suppressing scratch registers.
                               (<= 0 (ref-value reg))))
                      (cons reg acc)

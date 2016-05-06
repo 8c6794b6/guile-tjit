@@ -85,7 +85,7 @@
                (failure 'store-frame "~s ~a ~s"
                         local (pretty-type type) src))))
     (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
-           local (pretty-type type) (physical-name src))
+           local (pretty-type type) (and src (physical-name src)))
     (cond
      ((return-address? type)
       ;; Moving value coupled with type to frame local. Return address of VM
