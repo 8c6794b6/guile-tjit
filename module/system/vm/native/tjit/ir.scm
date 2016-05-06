@@ -492,8 +492,8 @@ index referenced by dst, a, and b values at runtime."
 (define-syntax-rule (current-fp-offset)
   (vector-ref (env-fp-offsets env) (ir-bytecode-index ir)))
 
-;; Bytecode operation `call' and `call-label' at last position are always
-;; inlined.
+;; `call', `call-label' and `return-values' at last position are always inlined,
+;; no need to emit FP shifting would be done with offsets stored in snapshot.
 (define-syntax-rule (inline-current-call?)
   (or (assq-ref (env-calls env) (env-call-num env))
       (< 0 (env-inline-depth env))
@@ -501,7 +501,8 @@ index referenced by dst, a, and b values at runtime."
 
 (define-syntax-rule (inline-current-return?)
   (or (assq-ref (env-returns env) (env-return-num env))
-      (< 0 (env-inline-depth env))))
+      (< 0 (env-inline-depth env))
+      (ir-last-op? ir)))
 
 (define-syntax-rule (scm-ref n)
   (vector-ref locals n))
