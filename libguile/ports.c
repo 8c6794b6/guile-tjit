@@ -2381,7 +2381,7 @@ SCM_DEFINE (scm_port_clear_stream_start_for_bom_read,
 
   pti = SCM_PORT_GET_INTERNAL (port);
   if (!pti->at_stream_start_for_bom_read)
-    return 0;
+    return SCM_BOOL_F;
 
   /* Maybe slurp off a byte-order marker.  */
   pt = SCM_PTAB_ENTRY (port);
