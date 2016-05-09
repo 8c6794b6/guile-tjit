@@ -214,7 +214,7 @@ Currently does nothing, returns the given argument."
          (initial-inline-depth (env-inline-depth env))
          (local-indices (env-local-indices env))
          (vars (if (< (tjit-max-locals) (length local-indices))
-                   (break 2 "too many locals")
+                   (break 1 "too many locals")
                    (make-vars local-indices)))
          (snapshots (make-hash-table))
          (snapshot-id (if root-trace? 1 0))
