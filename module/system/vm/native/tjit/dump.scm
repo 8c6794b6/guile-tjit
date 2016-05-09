@@ -118,7 +118,7 @@ option was set to true."
    (else
     (cons "(unknown source)" #f))))
 
-(define (dump-bytecode trace-id ip-x-ops)
+(define (dump-bytecode port trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
     (let lp ((ip-x-ops ip-x-ops) (level 0) (lowest 0))
       (match ip-x-ops
@@ -146,14 +146,14 @@ option was set to true."
               (lp (+ i 1) v))
             v))))
   (let ((lowest (lowest-level ip-x-ops)))
-    (format #t ";;; trace ~a: bytecode ~a~%" trace-id (length ip-x-ops))
+    (format port ";;; trace ~a: bytecode ~a~%" trace-id (length ip-x-ops))
     (let lp ((traces ip-x-ops) (level (- lowest)))
       (match traces
         (((op ip ra dl locals) . traces)
          (let ((op-val (format #f "~12,'0x  ~a~a" ip (make-indent level) op)))
            (if (tjit-dump-verbose? (tjit-dump-option))
-               (format #t "~48a; ~a~%" op-val (as-address locals))
-               (format #t "~a~%" op-val)))
+               (format port "~48a; ~a~%" op-val (as-address locals))
+               (format port "~a~%" op-val)))
          (case (car op)
            ((call call-label)
             (lp traces (+ level 1)))
@@ -163,36 +163,36 @@ option was set to true."
             (lp traces level))))
         (() (values))))))
 
-(define (dump-anf trace-id scm)
+(define (dump-anf port trace-id scm)
   (define (dump-let args term)
-    (format #t "(lambda ~a~%  (let* (" args)
+    (format port "(lambda ~a~%  (let* (" args)
     (let lp ((term term))
       (match term
         (('let ((var exp))
            '_)
-         (format #t "(~4a ~a))~%    _))~%" var exp))
+         (format port "(~4a ~a))~%    _))~%" var exp))
         (('let ((var exp))
            ('loop . args))
-         (format #t "(~4a ~a))~%    ~a))~%" var exp (cons 'loop args)))
+         (format port "(~4a ~a))~%    ~a))~%" var exp (cons 'loop args)))
         (('let ((var exp))
            next-term)
-         (format #t "(~4a ~a)~%         " var exp)
+         (format port "(~4a ~a)~%         " var exp)
          (lp next-term)))))
   (match scm
     (`(letrec ((entry (lambda ,entry-args ,entry))
                (loop (lambda ,loop-args ,loop)))
         entry)
-     (format #t ";;; trace ~a: anf~%" trace-id)
+     (format port ";;; trace ~a: anf~%" trace-id)
      (dump-let entry-args entry)
      (dump-let loop-args loop))
     (`(letrec ((patch (lambda ,patch-args ,patch)))
         patch)
-     (format #t ";;; trace ~a: anf~%" trace-id)
+     (format port ";;; trace ~a: anf~%" trace-id)
      (dump-let patch-args patch))
     (_
      (values))))
 
-(define (dump-primops trace-id plist snapshots)
+(define (dump-primops port trace-id plist snapshots)
   (define (mark-op op)
     (case (car op)
       ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fle %fgt %fge
@@ -246,13 +246,13 @@ option was set to true."
     (match snapshot
       (($ $snapshot id sp-offset fp-offset nlocals locals variables
           code ip live-indices inline-depth)
-       (format #t "----     [snap~3,,,' @a] ~a:~a:~a:~a ~a~%"
+       (format port "----     [snap~3,,,' @a] ~a:~a:~a:~a ~a~%"
                id sp-offset fp-offset nlocals inline-depth
                (if (tjit-dump-snapshot? (tjit-dump-option))
                    (pretty-locals locals variables)
                    "")))
       (_
-       (format #t "----     NOT-A-SNAPSHOT~%"))))
+       (format port "----     NOT-A-SNAPSHOT~%"))))
   (define (dump-one idx op)
     (match op
       (('%snap id . _)
@@ -261,31 +261,31 @@ option was set to true."
        (let ((mark (mark-op op)))
          (match op
            (('%fref dst n type)
-            (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
+            (format port "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
                     '%fref
                     (pretty-storage dst)
                     (pretty-constant n)
                     (if (cdr type) (pretty-type (cdr type)) "---")))
            (('%fref/f dst n type)
-            (format #t "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
+            (format port "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
                     '%fref/f
                     (pretty-storage dst)
                     (pretty-constant n)
                     (pretty-type (cdr type))))
            (('%typeq src type)
-            (format #t "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
+            (format port "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
                     '%typeq
                     (pretty-storage src)
                     (pretty-type (cdr type))))
            (('%return (const . ra))
             (let ((sinfo (addr->source-line ra)))
-              (format #t "~4,,,'0@a ~a (~7a ~a/~a:~a)~%" idx mark
+              (format port "~4,,,'0@a ~a (~7a ~a/~a:~a)~%" idx mark
                       '%return
                       (cyan (number->string ra 16))
                       (basename (car sinfo))
                       (cdr sinfo))))
            (('%ccall dst (const . addr))
-            (format #t "~4,,,'0@a ~a (~7a ~a ~a:0x~x)~%" idx mark
+            (format port "~4,,,'0@a ~a (~7a ~a ~a:0x~x)~%" idx mark
                     '%ccall
                     (pretty-storage dst)
                     (let ((proc (pointer->scm (make-pointer addr))))
@@ -296,7 +296,7 @@ option was set to true."
                            (pointer-address
                             (program-free-variable-ref proc 0))))))
            (_
-            (format #t "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
+            (format port "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
                     (car op)
                     (map pretty-storage (cdr op)))))))))
   (define (dump-list idx ops)
@@ -309,19 +309,19 @@ option was set to true."
          idx))))
   (match plist
     (($ $primops entry loop)
-     (format #t ";;; trace ~a: primops:~%" trace-id)
+     (format port ";;; trace ~a: primops:~%" trace-id)
      (let ((idx (dump-list 0 entry)))
        (when (not (null? loop))
-         (format #t "==== loop:~%")
+         (format port "==== loop:~%")
          (dump-list idx loop)
-         (format #t "==== ->loop~%"))))
+         (format port "==== ->loop~%"))))
     (_
-     (format #t ";;; primops: ~a~%" plist))))
+     (format port ";;; primops: ~a~%" plist))))
 
-(define (dump-ncode trace-id entry-ip code code-size adjust
+(define (dump-ncode port trace-id entry-ip code code-size adjust
                     loop-address snapshots trampoline root?)
-  (format #t ";;; trace ~a: ncode ~a~%" trace-id code-size)
-  ((tjit-disassembler) trace-id entry-ip code code-size adjust
+  (format port ";;; trace ~a: ncode ~a~%" trace-id code-size)
+  ((tjit-disassembler) port trace-id entry-ip code code-size adjust
    loop-address snapshots trampoline root?))
 
 (define (dump-tjit-stats)

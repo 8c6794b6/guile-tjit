@@ -88,7 +88,7 @@
           (hash-count (lambda (k v)
                         (eq? entry-ip (fragment-entry-ip v)))
                       (tjit-fragment))))
-    (define (show-sline)
+    (define (show-sline port)
       (let ((exit-pair (if (< 0 parent-ip)
                            (format #f " (~a:~a)"
                                    (or (and=> parent-fragment fragment-id)
@@ -105,7 +105,7 @@
                     (downrec? " - downrec")
                     (uprec? " - uprec")
                     (else ""))))
-        (format #t ";;; trace ~a: ~a:~a~a~a~a~%"
+        (format port ";;; trace ~a: ~a:~a~a~a~a~%"
                 trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
     (define (increment-num-child! fragment)
       (let ((num-child (fragment-num-child fragment)))
@@ -129,17 +129,16 @@
            exp))))
 
     (with-tjitc-error-handler env
-      (let-values (((traces implemented?)
-                    (parse-bytecode env bytecode traces)))
+      (let*-values (((traces implemented?)
+                     (parse-bytecode env bytecode traces))
+                    ((last-op) (and (pair? traces)
+                                    (car (car (last traces)))))
+                    ((first-op) (and (pair? traces)
+                                     (car (car (car traces)))))
+                    ((port) (tjit-dump-log)))
         (define (dump-sline-and-bytecode test)
-          (dump tjit-dump-jitc? test (show-sline))
-          (dump tjit-dump-bytecode? test (dump-bytecode trace-id traces)))
-        (define last-op
-          (and (pair? traces)
-               (car (car (last traces)))))
-        (define first-op
-          (and (pair? traces)
-               (car (car (car traces)))))
+          (dump tjit-dump-jitc? test (show-sline port))
+          (dump tjit-dump-bytecode? test (dump-bytecode port trace-id traces)))
         (when (tjit-dump-abort? dump-option)
           (dump-sline-and-bytecode #t))
         (cond
@@ -164,14 +163,14 @@
             (dump-sline-and-bytecode implemented?))
           (let-values (((snapshots anf ops)
                         (compile-ir env traces)))
-            (dump tjit-dump-anf? anf (dump-anf trace-id anf))
-            (dump tjit-dump-ops? ops (dump-primops trace-id ops snapshots))
+            (dump tjit-dump-anf? anf (dump-anf port trace-id anf))
+            (dump tjit-dump-ops? ops (dump-primops port trace-id ops snapshots))
             (let-values (((code size adjust loop-address trampoline)
                           (compile-native env ops snapshots sline)))
               (tjit-increment-id!)
               (and=> origin increment-num-child!)
               (dump tjit-dump-ncode? code
-                    (dump-ncode trace-id entry-ip code size adjust
+                    (dump-ncode port trace-id entry-ip code size adjust
                                 loop-address snapshots trampoline
                                 (not parent-snapshot))))
             (when (tjit-dump-time? dump-option)

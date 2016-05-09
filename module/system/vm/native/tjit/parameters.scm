@@ -77,6 +77,7 @@
             tjit-dump-time?
             tjit-dump-verbose?
             tjit-dump-exit?
+            tjit-dump-log
             parse-tjit-dump-flags
             set-tjit-dump-option!
 
@@ -187,6 +188,10 @@ fields to @code{#f}."
   "Set @code{tjit-dump-option} parameter with flags in STR."
   (tjit-dump-option (parse-tjit-dump-flags str)))
 
+;;; Parameter to hold log output for dump.
+(define tjit-dump-log
+  (make-parameter (current-output-port)))
+
 
 ;;;
 ;;; Time log
@@ -246,7 +251,7 @@ fields to @code{#f}."
 (define (fold-tjit-time-logs proc init)
   (hash-fold proc init *tjit-time-logs*))
 
-(define (default-disassembler trace-id entry-ip code code-size adjust
+(define (default-disassembler port trace-id entry-ip code code-size adjust
           loop-address snapshots trampoline root?)
   "Disassemble CODE with size CODE-SIZE, using ADDR as offset address.
 
@@ -297,19 +302,19 @@ assumes `objdump' executable already installed."
             (when (<= (if root? 16 2) n)
               (when (and (pointer? loop-address)
                          (regexp-exec loop-start/rx line))
-                (display "loop:\n"))
-              (display line)
+                (display "loop:\n" port))
+              (display line port)
               (when (and (pointer? loop-address)
                          (regexp-exec loop-jump/rx line))
-                (display "    ->loop"))
+                (display "    ->loop" port))
               (cond
                ((side-exit-jump? line)
                 => (lambda (id)
-                     (display "    ->")
-                     (display id)))
+                     (display "    ->" port)
+                     (display id port)))
                (else
                 (values)))
-              (newline))
+              (newline port))
             (lp (read-line pipe) (+ n 1) done?))))
       (close-pipe pipe)
       (delete-file path))))

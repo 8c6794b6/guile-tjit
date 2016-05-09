@@ -434,6 +434,14 @@ If FILE begins with `-' the -s switch is mandatory.
                               set-tjit-dump-option!)
                            (substring ,arg 12))
                          out)))
+           ((string-prefix? "--tjit-dump-log=" arg)
+            (parse args
+                   (cons `((@ (system vm native tjit parameters)
+                              tjit-dump-log)
+                           ;; XXX: Close the log file.
+                           (or (open-output-file (substring ,arg 16))
+                               (current-output-port)))
+                         out)))
 
            (else
             (error "unrecognized switch ~a" arg)))))))
