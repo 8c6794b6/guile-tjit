@@ -146,8 +146,10 @@
           (tjit-increment-compilation-failure! entry-ip 3))
          (uprec?
           (nyi "up recursion"))
-         (downrec?
-          (nyi "down recursion"))
+         ((and downrec?
+               (not parent-snapshot)
+               (unsupported-downrec-prologue? first-op))
+          (nyi "downrec root trace starting with ~a" first-op))
          ((and (not parent-snapshot) (not loop?))
           (nyi "loop-less root trace"))
          ((and (not parent-snapshot)

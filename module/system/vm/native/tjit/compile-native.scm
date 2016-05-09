@@ -166,7 +166,7 @@
          (sp-set! local r0))
         (else (err)))))))
 
-(define (maybe-store %asm local-x-types srcs references shift)
+(define (maybe-store %asm local-x-types srcs references ref-shift src-shift)
   "Store src in SRCS to frame when local is not found in REFERENCES."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
@@ -180,11 +180,11 @@
        (when (or (dynamic-link? type)
                  (return-address? type)
                  (not references)
-                 (let ((reg (hashq-ref references (- local shift))))
+                 (let ((reg (hashq-ref references (- local ref-shift))))
                    (or (not reg)
                        (not (equal? src reg)))))
          (syntax-parameterize ((asm (identifier-syntax %asm)))
-           (store-frame local type src)))
+           (store-frame (- local src-shift) type src)))
        (lp local-x-types srcs))
       (_ (values)))))
 
@@ -521,18 +521,6 @@ DST-TYPES, and SRC-TYPES are local index number."
           ((hashq-ref snapshots snapshot-id)
            => (lambda (snapshot)
                 (cond
-                 ;; ((snapshot-downrec? snapshot)
-                 ;;  (let-values
-                 ;;      (((loop? dsts)
-                 ;;        (if (tj-parent-fragment tj)
-                 ;;            (let* ((linked-ip (env-linked-ip env))
-                 ;;                   (linked-fragment (get-root-trace linked-ip)))
-                 ;;              (values #f (fragment-loop-vars linked-fragment)))
-                 ;;            (values #t (env-loop-vars env)))))
-                 ;;    (compile-downrec tj asm loop? snapshot
-                 ;;                     (snapshot-nlocals (hashq-ref snapshots 0))
-                 ;;                     dsts))
-                 ;;  (lp ops acc))
                  ;; ((snapshot-uprec? snapshot)
                  ;;  (compile-uprec tj asm snapshot (tj-loop-locals tj)
                  ;;                 (env-loop-vars env))
@@ -704,20 +692,20 @@ DST-TYPES, and SRC-TYPES are local index number."
      ;; Store unpassed variables, and move variables to linked trace.  Shift
      ;; amount in `maybe-store' depends on whether the trace is root trace or
      ;; not.
-     (let* ((linked-fragment (env-linked-fragment env))
-            (loop-locals (and=> linked-fragment fragment-loop-locals))
+     (let* ((linked (env-linked-fragment env))
+            (loop-locals (and=> linked fragment-loop-locals))
             (dst-type-table (make-hash-table))
             (dst-var-table (make-hash-table))
             (lives (env-live-indices env))
             (src-var-table (make-src-var-table storage lives sp-offset))
             (src-type-table (make-src-type-table locals sp-offset))
             (ref-table (make-hash-table))
-            (linked-snapshots (fragment-snapshots linked-fragment))
+            (linked-snapshots (fragment-snapshots linked))
             (linked-snap1 (hashq-ref linked-snapshots 1))
             (my-depth (snapshot-inline-depth snapshot)))
 
        (let lp ((loop-locals loop-locals)
-                (vars (fragment-loop-vars linked-fragment)))
+                (vars (fragment-loop-vars linked)))
          (match (cons loop-locals vars)
            ((((n . type) . loop-locals) . (var . vars))
             (hashq-set! dst-type-table n type)
@@ -732,11 +720,12 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (hashq-set! ref-table n t)
                  (lp ref-locals))
                 (()
-                 (maybe-store %asm locals args ref-table sp-offset)
-
                  ;; Shift SP, then shift FP with nlocals.
                  (shift-sp %asm sp-offset)
                  (shift-fp nlocals)
+
+                 ;; Store locals.
+                 (maybe-store %asm locals args ref-table sp-offset sp-offset)
 
                  ;; Move or load locals for linked trace.
                  (syntax-parameterize ((asm (identifier-syntax %asm)))
@@ -745,12 +734,11 @@ DST-TYPES, and SRC-TYPES are local index number."
 
                    ;; Handle interrupts if linked fragment didn't.
                    (when (and (env-handle-interrupts? env)
-                              (not (fragment-handle-interrupts?
-                                    linked-fragment)))
+                              (not (fragment-handle-interrupts? linked)))
                      (vm-handle-interrupts)))
 
                  ;; Jump to the beginning of the loop in linked trace.
-                 (jumpi (fragment-loop-address linked-fragment))))))))))
+                 (jumpi (fragment-loop-address linked))))))))))
     (_
      (failure 'compile-link "not a snapshot ~s" snapshot))))
 
@@ -764,14 +752,28 @@ DST-TYPES, and SRC-TYPES are local index number."
         (($ $snapshot id sp-offset fp-offset nlocals locals vars)
          (debug 2 ";;; [compile-downrec] sp-offset=~a~%" sp-offset)
          (debug 2 ";;; [compile-downrec] nlocals=~a~%" nlocals)
+
+         ;; Stack space might ran out in the middle of next run, expand stack
+         ;; with twice of the spaces used for current iteration. Then adjust
+         ;; with SP offset saved in snapshot with *ip-key-downrec*.
+         ;;
+         (let* ((next-offset (* (env-min-sp-offset env) 2))
+                (diff (- sp-offset next-offset)))
+           (if (zero? diff)
+               (vm-expand-stack asm sp-offset)
+               (begin
+                 (vm-expand-stack asm next-offset)
+                 (jit-addi %sp %sp (imm (* diff %word-size)))
+                 (vm-sync-sp %sp))))
+         (shift-fp nlocals)
          (let lp ((locals locals) (vars vars))
            (match (cons locals vars)
              ((((n . t) . locals) . (v . vars))
-              (debug 2 ";;; [compile-downrec] n=~a:~a:~a~%" n
-                     (pretty-type t)
-                     (physical-name v))
-              (hashq-set! src-var-table n v)
-              (store-frame n t v)
+              (if (< n sp-offset)
+                  (debug 2 ";;; [compile-downrec] skiiping ~a~%" n)
+                  (begin
+                    (hashq-set! src-var-table n v)
+                    (store-frame (- n sp-offset) t v)))
               (lp locals vars))
              ((())
               (let lp ((loop-locals (env-loop-locals env))
@@ -784,39 +786,9 @@ DST-TYPES, and SRC-TYPES are local index number."
                               (move dst src))))
                    (lp loop-locals loop-vars))
                   (_
-                   (shift-sp %asm sp-offset)
-                   (shift-fp nlocals))))))))
+                   (values))))))))
         (_
          (failure 'compile-downrec "not a snapshot ~a" snapshot))))))
-
-;; XXX: Incomplete
-;; (define (compile-downrec tj asm loop? snapshot initial-nlocals dsts)
-;;   (let* ((last-sp-offset (snapshot-sp-offset snapshot))
-;;          (last-fp-offset (snapshot-fp-offset snapshot))
-;;          (last-nlocals (snapshot-nlocals snapshot)))
-;;     (vm-expand-stack asm last-sp-offset)
-;;     (shift-fp (if loop?
-;;                   (- (+ last-sp-offset last-nlocals) initial-nlocals)
-;;                   last-sp-offset))
-;;     (let lp ((locals (snapshot-locals snapshot))
-;;              (vars (snapshot-variables snapshot)))
-;;       (match (list locals vars)
-;;         ((((local . type) . locals) (var . vars))
-;;          (store-frame asm (- local last-sp-offset) type var)
-;;          (lp locals vars))
-;;         (_
-;;          (let lp ((dsts dsts)
-;;                   (srcs (snapshot-variables snapshot)))
-;;            (match (list dsts srcs)
-;;              (((dst . dsts) (src . srcs))
-;;               ;; XXX: Move carefully, avoid overwriting srcs with dsts.
-;;               (move dst src)
-;;               (lp dsts srcs))
-;;              (_
-;;               (values)))))))
-;;     (when (not loop?)
-;;       (let ((linked-fragment (get-root-trace (env-linked-ip env))))
-;;         (jumpi (fragment-loop-address linked-fragment))))))
 
 ;; XXX: Incomplete
 ;; (define (compile-uprec tj asm snapshot dst-locals dst-vars)

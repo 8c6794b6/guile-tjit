@@ -67,6 +67,7 @@
             env-inline-depth set-env-inline-depth!
             env-save-volatiles? set-env-save-volatiles!
             env-applied-guards
+            env-min-sp-offset set-env-min-sp-offset!
 
             increment-env-call-return-num!
             add-env-call!
@@ -90,7 +91,7 @@
              write-indices read-indices write-buf live-indices
              entry-types inferred-types
              call-num return-num calls returns inline-depth
-             applied-guards)
+             applied-guards min-sp-offset)
   env?
 
   ;; Trace ID of this compilation.
@@ -196,7 +197,10 @@
   (inline-depth env-inline-depth set-env-inline-depth!)
 
   ;; Applied guards.
-  (applied-guards env-applied-guards))
+  (applied-guards env-applied-guards)
+
+  ;; Minimum SP offset.
+  (min-sp-offset env-min-sp-offset set-env-min-sp-offset!))
 
 (define (make-env id entry-ip linked-ip
                   parent-exit-id parent-fragment parent-snapshot
@@ -210,7 +214,7 @@
              #f #f #f #f #f '() '() sp-offset fp-offset 0
              write-indices '() (list write-indices) live-indices
              '() (copy-tree types-from-parent)
-             0 0 '() '() inline-depth (make-hash-table)))
+             0 0 '() '() inline-depth (make-hash-table) 0))
 
 (define (env-local-indices env)
   (sort (delete-duplicates (append (env-write-indices env)

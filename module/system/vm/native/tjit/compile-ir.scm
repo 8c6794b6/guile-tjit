@@ -88,6 +88,13 @@
 Currently does nothing, returns the given argument."
   anf)
 
+(define (get-max-sp-offset sp-offset fp-offset nlocals)
+  (max fp-offset
+       (- (+ sp-offset nlocals) 1)
+       (if (< fp-offset 0)
+           (- (+ (- fp-offset) nlocals) 1)
+           0)))
+
 (define (get-live-vars-in-parent storage snapshot)
   (if (and storage snapshot)
       (let* ((parent-snapshot-vars
@@ -102,8 +109,7 @@ Currently does nothing, returns the given argument."
                    parent-read-vars storage))
       '()))
 
-(define (add-initial-loads env snapshots
-                           initial-locals initial-sp-offset
+(define (add-initial-loads env snapshots initial-locals initial-sp-offset
                            parent-snapshot initial-vars live-vars-in-parent
                            loaded-vars thunk)
   ;; When local was passed from parent and snapshot 0 contained the local with
@@ -367,41 +373,6 @@ Currently does nothing, returns the given argument."
       ;; pass the register and local information to linked trace.
       ;;
       (cond
-       ;; XXX: NYI downrec
-
-       ;; ((env-downrec? env)
-       ;;  (match op
-       ;;    (('call proc nlocals)
-       ;;     (lambda ()
-       ;;       (let* ((next-sp (- last-fp-offset proc nlocals))
-       ;;              (sp-shift
-       ;;               (cond
-       ;;                ((and=> (env-parent-fragment env)
-       ;;                        (lambda (fragment)
-       ;;                          (fragment-loop-locals fragment)))
-       ;;                 => (lambda (loop-locals)
-       ;;                      (length loop-locals)))
-       ;;                (else
-       ;;                 initial-nlocals)))
-       ;;              (next-sp-offset (+ next-sp sp-shift))
-       ;;              (dr-locals
-       ;;               (let lp ((n 0) (end (vector-length locals)) (acc '()))
-       ;;                 (if (= n nlocals)
-       ;;                     (list->vector acc)
-       ;;                     (let* ((i (- end proc n 1))
-       ;;                            (e (vector-ref locals i)))
-       ;;                       (lp (+ n 1) end (cons e acc)))))))
-       ;;         `(let ((_ ,(entry-snapshot! *ip-key-downrec*
-       ;;                                     (dr-locals proc nlocals)
-       ;;                                     next-sp-offset next-sp-offset
-       ;;                                     #f)))
-       ;;            (loop ,@(reverse (map cdr (ir-vars ir))))))))
-       ;;    (('call-label . _)
-       ;;     ;; XXX: TODO.
-       ;;     (nyi "down-recursion with last op `call-label'"))
-       ;;    (_
-       ;;     (nyi "Unknown op ~a" op))))
-
        ;; XXX: NYI uprec
        ;; ((env-uprec? env)
        ;;  (match op
@@ -418,7 +389,8 @@ Currently does nothing, returns the given argument."
 
        (root-trace?
         (cond
-         ((< last-sp-offset 0)
+         ((or (env-downrec? env)
+              (< last-sp-offset 0))
           (lambda ()
             `(let ((_ ,(entry-snapshot! *ip-key-downrec* locals last-sp-offset
                                         (ir-min-sp-offset ir)
@@ -448,7 +420,8 @@ Currently does nothing, returns the given argument."
                (fp-offsets (env-fp-offsets env))
                (old-fp-offset (vector-ref fp-offsets old-index))
                (nlocals (vector-length locals))
-               (max-offset (get-max-sp-offset old-sp-offset old-fp-offset
+               (max-offset (get-max-sp-offset old-sp-offset
+                                              old-fp-offset
                                               nlocals))
                (new-sp-offset (if (< 0 new-index (vector-length sp-offsets))
                                   (vector-ref sp-offsets new-index)
@@ -488,5 +461,7 @@ Currently does nothing, returns the given argument."
         (((op ip ra dl locals) . rest)
          (convert-one ir op ip ra dl locals rest))
         (last-op
+         ;; XXX: Remove min-sp-offset from ir, use min-sp-offset field of env.
+         (set-env-min-sp-offset! env (ir-min-sp-offset ir))
          (last-op))))
     (convert ir traces)))

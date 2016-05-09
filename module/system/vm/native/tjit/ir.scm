@@ -72,7 +72,6 @@
 
             make-var
             make-vars
-            get-max-sp-offset
             get-initial-sp-offset
             get-initial-fp-offset
             take-snapshot
@@ -192,13 +191,6 @@
          (cons n (make-var n)))
        locals))
 
-(define (get-max-sp-offset sp-offset fp-offset nlocals)
-  (max fp-offset
-       (- (+ sp-offset nlocals) 1)
-       (if (< fp-offset 0)
-           (- (+ (- fp-offset) nlocals) 1)
-           0)))
-
 (define (get-initial-sp-offset parent-snapshot)
   ;; Initial offset of root trace is constantly 0. Initial offset of side
   ;; trace is where parent trace left, using offset value from SNAPSHOT.
@@ -239,7 +231,7 @@ returns, current call-num, and current return-num."
   (let* ((nlocals (or nlocals (vector-length locals)))
          (dst-ip (+ ip (* dst-offset 4)))
          (indices (filter (lambda (i)
-                            (<= min-sp-offset i max-sp-offset))
+                            (<= min-sp-offset i))
                           indices))
          (args (let lp ((vars vars) (acc '()))
                  (match vars

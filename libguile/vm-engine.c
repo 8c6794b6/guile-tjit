@@ -224,14 +224,14 @@
     else                                                                \
       NEXT (n);                                                         \
   } while (0)
-/* #  define VM_TJIT_CALL(old_ip)                                          \ */
-/*   do {                                                                  \ */
-/*     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \ */
-/*       SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),             \ */
-/*                       SCM_TJIT_TRACE_CALL, tjit_hot_call);              \ */
-/*     else                                                                \ */
-/*       NEXT (0);                                                         \ */
-/*   } while (0) */
+#  define VM_TJIT_CALL(old_ip)                                          \
+  do {                                                                  \
+    if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
+      SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),             \
+                      SCM_TJIT_TRACE_CALL, tjit_hot_call);              \
+    else                                                                \
+      NEXT (0);                                                         \
+  } while (0)
 #  define VM_TJIT_TAIL_CALL(old_ip)                                     \
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
