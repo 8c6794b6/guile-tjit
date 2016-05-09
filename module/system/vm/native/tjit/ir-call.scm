@@ -167,8 +167,9 @@
          (stack-size (vector-length locals))
          (fp (- stack-size proc))
          (r2 (make-tmpvar 2))
-         (proc/v (var-ref (- fp 1)))
-         (proc/l (scm-ref (- fp 1)))
+         (proc/i (- fp 1))
+         (proc/v (var-ref proc/i))
+         (proc/l (scm-ref proc/i))
          (proc/f (program-flag proc/l))
          (emit-next (lambda ()
                       (if (inline-current-call?)
@@ -310,9 +311,7 @@
   ;; Two locals below callee procedure in VM frame contain dynamic link and
   ;; return address. VM interpreter refills these two with #f, doing the same
   ;; thing in `emit-next'.
-  (let* ((ra/val (make-return-address (make-pointer ra)))
-         (dl/val (make-dynamic-link dl))
-         (stack-size (vector-length locals))
+  (let* ((stack-size (vector-length locals))
          (snapshot (take-snapshot! ip 0))
          (maybe-add-indices (lambda (i indices)
                               (if (memq i indices)
