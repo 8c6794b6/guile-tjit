@@ -1699,6 +1699,62 @@ peek_latin1_codepoint (SCM port, size_t *len)
   return ret;
 }
 
+SCM_INTERNAL SCM scm_port_decode_char (SCM, SCM, SCM, SCM);
+SCM_DEFINE (scm_port_decode_char, "port-decode-char", 4, 0, 0,
+            (SCM port, SCM bv, SCM start, SCM count),
+            "")
+#define FUNC_NAME s_scm_port_decode_char
+{
+  char *input, *output;
+  scm_t_uint8 utf8_buf[SCM_MBCHAR_BUF_SIZE];
+  scm_t_iconv_descriptors *id;
+  size_t c_start, c_count;
+  size_t input_left, output_left, done;
+
+  SCM_VALIDATE_OPINPORT (1, port);
+  SCM_VALIDATE_BYTEVECTOR (2, bv);
+  c_start = scm_to_size_t (start);
+  c_count = scm_to_size_t (count);
+  SCM_ASSERT_RANGE (3, start, c_start <= SCM_BYTEVECTOR_LENGTH (bv));
+  SCM_ASSERT_RANGE (4, count, c_count <= SCM_BYTEVECTOR_LENGTH (bv) - c_start);
+
+  id = scm_i_port_iconv_descriptors (port);
+  input = (char *) SCM_BYTEVECTOR_CONTENTS (bv) + c_start;
+  input_left = c_count;
+  output = (char *) utf8_buf;
+  output_left = sizeof (utf8_buf);
+
+  /* FIXME: locking!  */
+  done = iconv (id->input_cd, &input, &input_left, &output, &output_left);
+
+  if (done == (size_t) -1)
+    {
+      int err = errno;
+      if (err == EINVAL)
+        /* The input byte sequence did not form a complete
+           character.  Read another byte and try again. */
+        return SCM_BOOL_F;
+      else if (scm_is_eq (SCM_PTAB_ENTRY (port)->conversion_strategy,
+                          sym_substitute))
+        return SCM_MAKE_CHAR ('?');
+      else
+        scm_decoding_error ("decode-char", err, "input decoding error", port);
+    }
+
+  {
+    size_t output_size = sizeof (utf8_buf) - output_left;
+    if (output_size == 0)
+      /* iconv consumed some bytes without producing any output.
+         Most likely this means that a Unicode byte-order mark
+         (BOM) was consumed.  In any case, keep going until we get
+         output.  */
+      return SCM_BOOL_F;
+
+    return SCM_MAKE_CHAR (utf8_to_codepoint (utf8_buf, output_size));
+  }
+}
+#undef FUNC_NAME
+
 /* Peek a codepoint from PORT, decoding it through iconv.  On success,
    return the codepoint and set *LEN to the length in bytes.  If there
    was a decoding error and the port conversion strategy was
@@ -1708,75 +1764,46 @@ peek_latin1_codepoint (SCM port, size_t *len)
 static scm_t_wchar
 peek_iconv_codepoint (SCM port, size_t *len)
 {
-  scm_t_iconv_descriptors *id;
-  scm_t_uint8 utf8_buf[SCM_MBCHAR_BUF_SIZE];
   size_t input_size = 0;
+  SCM maybe_char = SCM_BOOL_F;
 
-  for (;;)
+  while (scm_is_false (maybe_char))
     {
-      SCM read_buf;
-      char *input, *output;
-      size_t input_left, output_left, done;
-
-      read_buf = scm_fill_input (port, input_size + 1);
-      id = scm_i_port_iconv_descriptors (port);
+      SCM read_buf = scm_fill_input (port, input_size + 1);
 
       if (scm_port_buffer_can_take (read_buf) <= input_size)
 	{
           *len = input_size;
           if (input_size == 0)
             /* Normal EOF.  */
-            return EOF;
+            {
+              /* Make sure iconv descriptors have been opened even if
+                 there were no bytes, to be sure that a decoding error
+                 is signalled if the encoding itself was invalid.  */
+              scm_i_port_iconv_descriptors (port);
+              return EOF;
+            }
 
           /* EOF found in the middle of a multibyte character. */
-          goto decoding_error;
+          if (scm_is_eq (SCM_PTAB_ENTRY (port)->conversion_strategy,
+                         sym_substitute))
+            return '?';
+
+          scm_decoding_error ("peek-char", EILSEQ,
+                              "input decoding error", port);
+          /* Not reached.  */
+          return 0;
 	}
 
       input_size++;
-      input = (char *) scm_port_buffer_take_pointer (read_buf);
-      input_left = input_size;
-      output = (char *) utf8_buf;
-      output_left = sizeof (utf8_buf);
-
-      /* FIXME: locking!  */
-      done = iconv (id->input_cd, &input, &input_left, &output, &output_left);
-
-      if (done == (size_t) -1)
-	{
-	  int err = errno;
-	  if (err == EINVAL)
-            /* The input byte sequence did not form a complete
-               character.  Read another byte and try again. */
-            continue;
-
-          *len = input_size;
-          goto decoding_error;
-	}
-      else
-        {
-          size_t output_size = sizeof (utf8_buf) - output_left;
-          if (output_size == 0)
-            /* iconv consumed some bytes without producing any output.
-               Most likely this means that a Unicode byte-order mark
-               (BOM) was consumed.  In any case, keep going until we get
-               output.  */
-            continue;
-
-          /* iconv generated output.  Convert the UTF8_BUF sequence
-             to a Unicode code point.  */
-          *len = input_size;
-          return utf8_to_codepoint (utf8_buf, output_size);
-        }
+      maybe_char = scm_port_decode_char (port,
+                                         scm_port_buffer_bytevector (read_buf),
+                                         scm_port_buffer_cur (read_buf),
+                                         SCM_I_MAKINUM (input_size));
     }
 
- decoding_error:
-  if (scm_is_eq (SCM_PTAB_ENTRY (port)->conversion_strategy, sym_substitute))
-    return '?';
-
-  scm_decoding_error ("peek-char", EILSEQ, "input decoding error",
-                      port);
-  /* Not reached.  */
-  return 0;
+  *len = input_size;
+  return SCM_CHAR (maybe_char);
 }
 
 /* Peek a codepoint from PORT and return it in *CODEPOINT.  Set *LEN to
