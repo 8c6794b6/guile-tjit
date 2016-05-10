@@ -417,22 +417,21 @@ interpret its input and output."
   (values (integer->char first-byte) 1))
 
 (define (peek-char-and-len/iconv port first-byte)
-  (define (bad-input len)
-    (if (eq? (port-conversion-strategy port) 'substitute)
-        (values #\? len)
-        (decoding-error "peek-char" port)))
   (let lp ((prev-input-size 0))
     (let* ((input-size (1+ prev-input-size))
            (buf (fill-input port input-size))
            (cur (port-buffer-cur buf)))
       (cond
-       ((<= (- (port-buffer-end buf) cur) prev-input-size)
-        (if (zero? prev-input-size)
-            (values the-eof-object 0)
-            (bad-input prev-input-size)))
-       ;; fixme: takes port arg???
-       ((iconv1 port (port-buffer-bytevector buf) cur input-size
-                (port-conversion-strategy port))
+       ((< (- (port-buffer-end buf) cur) input-size)
+        ;; Buffer failed to fill; EOF, possibly premature.
+        (cond
+         ((zero? prev-input-size)
+          (values the-eof-object 0))
+         ((eq? (port-conversion-strategy port) 'substitute)
+          (values #\? prev-input-size))
+         (else
+          (decoding-error "peek-char" port))))
+       ((port-decode-char port (port-buffer-bytevector buf) cur input-size)
         => (lambda (char)
              (values char input-size)))
        (else
