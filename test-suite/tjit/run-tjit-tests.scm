@@ -91,7 +91,8 @@
     (init-vm-tjit coverage)
     (when coverage
       (lightning-verbosity 2)
-      (set-tjit-dump-option! "jbovdstn"))
+      (set-tjit-dump-option! "jbovdstn")
+      (tjit-dump-log (open-output-file "tjit-tests.log")))
     (let* ((run (lambda ()
                   (map (run-tjit-test coverage)
                        (if coverage
