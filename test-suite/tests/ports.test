@@ -822,21 +822,32 @@
   ;; Mini DSL to test decoding error handling.
   (letrec-syntax ((decoding-error?
                    (syntax-rules ()
-                     ((_ port exp)
+                     ((_ port proc)
                       (catch 'decoding-error
                         (lambda ()
-                          (pk 'exp exp)
+                          (pk 'proc (proc port))
                           #f)
                         (lambda (key subr message errno p)
+                          (define (skip-over-error)
+                            (let ((strategy (port-conversion-strategy p)))
+                              (set-port-conversion-strategy! p 'substitute)
+                              ;; If `proc' is `read-char', this will
+                              ;; skip over the bad bytes.
+                              (let ((c (proc p)))
+                                (unless (eqv? c #\?)
+                                  (error "unexpected char" c))
+                                (set-port-conversion-strategy! p strategy)
+                                #t)))
                           (and (eq? p port)
-                               (not (= 0 errno))))))))
+                               (not (= 0 errno))
+                               (skip-over-error)))))))
                   (make-check
                    (syntax-rules (-> error eof)
                      ((_ port (proc -> error))
                       (if (eq? 'substitute
                                (port-conversion-strategy port))
                           (eqv? (proc port) #\?)
-                          (decoding-error? port (proc port))))
+                          (decoding-error? port proc)))
                      ((_ port (proc -> eof))
                       (eof-object? (proc port)))
                      ((_ port (proc -> char))

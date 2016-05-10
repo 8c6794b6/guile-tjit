@@ -1811,34 +1811,22 @@ peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
   return err;
 }
 
-static SCM_C_INLINE int
-get_codepoint (SCM port, scm_t_wchar *codepoint)
-{
-  int err;
-  size_t len = 0;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  err = peek_codepoint (port, codepoint, &len);
-  scm_port_buffer_did_take (pt->read_buf, len);
-  if (*codepoint == EOF)
-    scm_i_clear_pending_eof (port);
-  update_port_lf (*codepoint, port);
-  return err;
-}
-
 /* Read a codepoint from PORT and return it.  */
 scm_t_wchar
 scm_getc (SCM port)
 #define FUNC_NAME "scm_getc"
 {
   int err;
-  scm_t_wchar codepoint;
+  size_t len = 0;
+  scm_t_wchar codepoint = EOF;
 
-  err = get_codepoint (port, &codepoint);
+  err = peek_codepoint (port, &codepoint, &len);
   if (SCM_UNLIKELY (err != 0))
-    /* At this point PORT should point past the invalid encoding, as per
-       R6RS-lib Section 8.2.4.  */
     scm_decoding_error (FUNC_NAME, err, "input decoding error", port);
+  scm_port_buffer_did_take (SCM_PTAB_ENTRY (port)->read_buf, len);
+  if (codepoint == EOF)
+    scm_i_clear_pending_eof (port);
+  update_port_lf (codepoint, port);
 
   return codepoint;
 }

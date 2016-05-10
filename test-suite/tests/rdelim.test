@@ -19,7 +19,7 @@
 
 (define-module (test-suite test-rdelim)
   #:use-module (ice-9 rdelim)
-  #:use-module ((rnrs io ports) #:select (open-bytevector-input-port))
+  #:use-module ((rnrs io ports) #:select (open-bytevector-input-port get-u8))
   #:use-module (test-suite lib))
 
 (with-test-prefix "read-line"
@@ -79,8 +79,7 @@
           #f)
         (lambda (key subr message err port)
           (and (eq? port p)
-
-               ;; PORT should now point past the error.
+               (eqv? (get-u8 p) 255)
                (string=? (read-line p) "BCD")
                (eof-object? (read-line p)))))))
 
