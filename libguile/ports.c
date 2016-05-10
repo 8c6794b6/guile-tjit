@@ -234,7 +234,7 @@ trampoline_to_c_read (SCM port, SCM dst, SCM start, SCM count)
   SCM_VALIDATE_OPPORT (1, port);
   c_start = scm_to_size_t (start);
   c_count = scm_to_size_t (count);
-  SCM_ASSERT_RANGE (2, start, start <= count);
+  SCM_ASSERT_RANGE (2, start, c_start <= c_count);
   SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (dst));
 
   return scm_from_size_t
