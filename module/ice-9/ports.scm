@@ -451,7 +451,7 @@ interpret its input and output."
           (else
            (peek-char-and-len/iconv port first-byte))))))
 
-(define (%peek-char port)
+(define* (%peek-char #:optional (port (current-input-port)))
   (define (slow-path)
     (call-with-values (lambda () (peek-char-and-len port))
       (lambda (char len)
