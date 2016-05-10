@@ -467,6 +467,51 @@ interpret its input and output."
   (peek-bytes port 1 fast-path
               (lambda (buf bv cur buffered) (slow-path))))
 
+(define* (%read-char #:optional (port (current-input-port)))
+  (define (update-position! char)
+    (case char
+      ((#\alarm) #t) ; No change.
+      ((#\backspace)
+       (let ((col (port-column port)))
+         (when (> col 0)
+           (set-port-column! port (1- col)))))
+      ((#\newline)
+       (set-port-line! port (1+ (port-line port)))
+       (set-port-column! port 0))
+      ((#\return)
+       (set-port-column! port 0))
+      ((#\tab)
+       (let ((col (port-column port)))
+         (set-port-column! port (- (+ col 8) (remainder col 8)))))
+      (else
+       (set-port-column! port (1+ (port-column port)))))
+    char)
+  (define (slow-path)
+    (call-with-values (lambda () (peek-char-and-len port))
+      (lambda (char len)
+        (let ((buf (port-read-buffer port)))
+          (set-port-buffer-cur! buf (+ (port-buffer-cur buf) len))
+          (if (eq? char the-eof-object)
+              (set-port-buffer-has-eof?! buf #f)
+              (update-position! char))
+          char))))
+  (define (fast-path buf bv cur buffered)
+    (let ((u8 (bytevector-u8-ref bv cur))
+          (enc (%port-encoding port)))
+      (case enc
+        ((UTF-8)
+         (decode-utf8 bv cur buffered u8
+                      (lambda (char len)
+                        (set-port-buffer-cur! buf (+ cur len))
+                        (update-position! char))
+                      slow-path))
+        ((ISO-8859-1)
+         (set-port-buffer-cur! buf (+ cur 1))
+         (update-position! (integer->char u8)))
+        (else (slow-path)))))
+  (peek-bytes port 1 fast-path
+              (lambda (buf bv cur buffered) (slow-path))))
+
 
 
 ;;; Current ports as parameters.
