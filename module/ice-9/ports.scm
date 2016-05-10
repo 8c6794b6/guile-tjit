@@ -360,7 +360,7 @@ interpret its input and output."
 
 (define (bad-utf8-len bv cur buffering first-byte)
   (define (ref n)
-    (bytevector-u8-ref bv (+ cur 1)))
+    (bytevector-u8-ref bv (+ cur n)))
   (cond
    ((< first-byte #x80) 0)
    ((<= #xc2 first-byte #xdf)
