@@ -419,24 +419,25 @@ interpret its input and output."
 
 (define (peek-char-and-len/iconv port first-byte)
   (let lp ((prev-input-size 0))
-    (let* ((input-size (1+ prev-input-size))
-           (buf (fill-input port input-size))
-           (cur (port-buffer-cur buf)))
-      (cond
-       ((< (- (port-buffer-end buf) cur) input-size)
-        ;; Buffer failed to fill; EOF, possibly premature.
-        (cond
-         ((zero? prev-input-size)
-          (values the-eof-object 0))
-         ((eq? (port-conversion-strategy port) 'substitute)
-          (values #\? prev-input-size))
-         (else
-          (decoding-error "peek-char" port))))
-       ((port-decode-char port (port-buffer-bytevector buf) cur input-size)
-        => (lambda (char)
-             (values char input-size)))
-       (else
-        (lp input-size))))))
+    (let ((input-size (1+ prev-input-size)))
+      (call-with-values (lambda () (fill-input port input-size))
+        (lambda (buf buffered)
+          (cond
+           ((< buffered input-size)
+            ;; Buffer failed to fill; EOF, possibly premature.
+            (cond
+             ((zero? prev-input-size)
+              (values the-eof-object 0))
+             ((eq? (port-conversion-strategy port) 'substitute)
+              (values #\? prev-input-size))
+             (else
+              (decoding-error "peek-char" port))))
+           ((port-decode-char port (port-buffer-bytevector buf)
+                              (port-buffer-cur buf) input-size)
+            => (lambda (char)
+                 (values char input-size)))
+           (else
+            (lp input-size))))))))
 
 (define (peek-char-and-len port)
   (let ((first-byte (peek-byte port)))
