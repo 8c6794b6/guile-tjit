@@ -459,6 +459,11 @@ DST-TYPES, and SRC-TYPES are local index number."
     (cond
      ((env-parent-fragment env)         ; Side trace.
       => (lambda (parent-fragment)
+           ;; Check for spilled variables.
+           (let ((nspills (primops-nspills primops)))
+             (when (< (tjit-max-spills) nspills)
+               (break 1 "too many spills ~s" nspills)))
+
            ;; Avoid emitting prologue.
            (jit-tramp (imm (* 4 %word-size)))
 
@@ -487,7 +492,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (vp r0)
             (registers r1))
         (when (< max-spills nspills)
-          (failure 'compile-entry "Too many spills ~s" nspills))
+          (break 1 "too many spills ~s" nspills))
 
         ;; Root trace allocates spaces for spilled variables. One word to store
         ;; `registers' from argument, and space to save volatile registers.
