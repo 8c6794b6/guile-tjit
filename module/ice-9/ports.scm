@@ -492,9 +492,10 @@ interpret its input and output."
         (let ((buf (port-read-buffer port)))
           (set-port-buffer-cur! buf (+ (port-buffer-cur buf) len))
           (if (eq? char the-eof-object)
-              (set-port-buffer-has-eof?! buf #f)
-              (update-position! char))
-          char))))
+              (begin
+                (set-port-buffer-has-eof?! buf #f)
+                char)
+              (update-position! char))))))
   (define (fast-path buf bv cur buffered)
     (let ((u8 (bytevector-u8-ref bv cur))
           (enc (%port-encoding port)))
