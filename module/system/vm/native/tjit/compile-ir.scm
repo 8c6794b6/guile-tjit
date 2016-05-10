@@ -152,37 +152,41 @@ Currently does nothing, returns the given argument."
     (let lp ((vars (reverse initial-vars)))
       (match vars
         (((n . var) . vars)
-         (let ((i (- n (snapshot-sp-offset snapshot0))))
-           (cond
-            ((or (< n 0)
-                 (not (<= 0 i (- (vector-length initial-locals) 1)))
-                 (let* ((j (+ n initial-sp-offset))
-                        (parent-type (type-from-parent j))
-                        (snapshot-type (type-from-snapshot j)))
-                   (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a~%"
-                          n initial-sp-offset (pretty-type parent-type)
-                          (pretty-type snapshot-type))
-                   (and (env-parent-snapshot env)
-                        (or (not (memq n (env-read-indices env)))
-                            (and (memq var live-vars-in-parent)
-                                 (or (and parent-type
-                                          snapshot-type
-                                          (eq? parent-type snapshot-type))
-                                     (or (dynamic-link? parent-type)
-                                         (return-address? parent-type))
-                                     (and (<= 0 initial-sp-offset)
-                                          (< n 0))))))))
-             (lp vars))
-            (else
-             (let ((guard (assq-ref (env-entry-types env) n))
-                   (type (assq-ref (env-inferred-types env) n)))
-               (hashq-set! loaded-vars n guard)
-               ;; XXX: Any other way to select preferred register between GPR
-               ;; and FPR?
-               (if (or (eq? type &flonum)
-                       (eq? type &f64))
-                   (with-frame-ref var type n lp vars)
-                   (with-frame-ref var guard n lp vars)))))))
+         (cond
+          ((or (< n 0)
+               (let ((i (- n (snapshot-sp-offset snapshot0))))
+                 (not (<= 0 i (- (vector-length initial-locals) 1))))
+               (let* ((j (+ n initial-sp-offset))
+                      (parent-type (type-from-parent j))
+                      (snapshot-type (type-from-snapshot j))
+                      (entry-type (assq-ref (env-entry-types env) j)))
+                 (debug 3 ";;;   n:~a sp-offset:~a parent:~a snap:~a entry:~a~%"
+                        n initial-sp-offset (pretty-type parent-type)
+                        (pretty-type snapshot-type) (pretty-type entry-type))
+                 (and (env-parent-snapshot env)
+                      (or (not (memq n (env-read-indices env)))
+                          (and (memq var live-vars-in-parent)
+                               (or (and parent-type
+                                        snapshot-type
+                                        (eq? parent-type snapshot-type))
+                                   (or (dynamic-link? parent-type)
+                                       (return-address? parent-type))
+                                   (and (<= 0 initial-sp-offset)
+                                        (< n 0))))))))
+           (lp vars))
+          (else
+           (let ((guard (assq-ref (env-entry-types env) n))
+                 (type (assq-ref (env-inferred-types env) n)))
+             (if (eq? &any guard)
+                 (lp vars)
+                 (begin
+                   (hashq-set! loaded-vars n guard)
+                   ;; XXX: Any other way to select preferred register between GPR
+                   ;; and FPR?
+                   (if (or (eq? type &flonum)
+                           (eq? type &f64))
+                       (with-frame-ref var type n lp vars)
+                       (with-frame-ref var guard n lp vars))))))))
         (()
          (let ((live-indices (sort (hash-fold (lambda (k v acc)
                                                 (if (memq k acc)
@@ -298,9 +302,8 @@ Currently does nothing, returns the given argument."
                                  ,(add-initial-loads env snapshots
                                                      initial-locals
                                                      initial-sp-offset
-                                                     #f vars '()
-                                                     loaded-vars
-                                                     thunk))))
+                                                     #f initial-vars '()
+                                                     loaded-vars thunk))))
                       (loop (lambda ,args
                               ,(let* ((locals
                                        (sort (hash-map->list cons loaded-vars)
@@ -323,8 +326,7 @@ Currently does nothing, returns the given argument."
                                                      initial-sp-offset
                                                      parent-snapshot
                                                      vars live-vars-in-parent
-                                                     loaded-vars
-                                                     emit)))))
+                                                     loaded-vars emit)))))
                patch))))))
 
     (values vars snapshots (make-anf))))

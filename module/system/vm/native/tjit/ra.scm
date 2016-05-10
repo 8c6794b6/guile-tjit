@@ -152,8 +152,8 @@
                             (if (pair? types)
                                 (cdr types)
                                 (failure 'get-arg-types!
-                                             "unknown type ~s ~s"
-                                             op types))
+                                         "unknown type ~s ~s"
+                                         op types))
                             types))
                  (args args)
                  (acc '()))
@@ -223,14 +223,16 @@
                 (prim `(%move ,reg ,(make-constant val))))
            (assign-term term1 (cons prim acc))))
         (('let ((dst (? symbol? src))) term1)
-         (let* ((src-reg (ref src))
-                (dst-reg (cond
-                          ((ref dst) => identity)
-                          ((gpr? src-reg) (get-gpr! dst))
-                          ((fpr? src-reg) (get-fpr! dst))
-                          ((memory? src-reg) (get-mem! dst))))
-                (prim `(%move ,dst-reg ,src-reg)))
-           (assign-term term1 (cons prim acc))))
+         (let ((src-reg (ref src)))
+           (if src-reg
+               (let* ((dst-reg (cond
+                                ((ref dst) => identity)
+                                ((gpr? src-reg) (get-gpr! dst))
+                                ((fpr? src-reg) (get-fpr! dst))
+                                ((memory? src-reg) (get-mem! dst))))
+                      (prim `(%move ,dst-reg ,src-reg)))
+                 (assign-term term1 (cons prim acc)))
+               (assign-term term1 acc))))
         (('let ((dst (op . args))) term1)
          ;; Set and get argument types before destination type.
          (let* ((arg-regs (get-arg-types! op dst args))
@@ -381,7 +383,8 @@
                     (unless (or (return-address? type)
                                 (dynamic-link? type)
                                 (eq? &undefined type)
-                                (eq? &false type))
+                                (eq? &false type)
+                                (eq? &any type))
                       (failure 'ir->primops "var ~a at local ~a, type ~a"
                                var local (pretty-type type)))))
                  (lp vars locals))

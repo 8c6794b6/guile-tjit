@@ -96,16 +96,7 @@
        (let ((,dst/v (%add ,dst/v 2)))
          ,(next)))))
 
-(define-ir (load-f64 (f64! dst) (const high-bits) (const low-bits))
-  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
-     ,(next)))
-
-(define-ir (load-u64 (u64! dst) (const high-bits) (const low-bits))
-  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
-     ,(next)))
-
 ;; XXX: scm->s64
 ;; XXX: s64->scm
-;; XXX: load-s64
 
 ;; XXX: current-thread

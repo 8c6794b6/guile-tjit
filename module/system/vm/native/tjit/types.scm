@@ -49,6 +49,7 @@
             &fixnum
             &undefined
             &scm
+            &any
 
             flonum?
             fraction?
@@ -205,10 +206,14 @@
 ;; XXX: Any better number to use ...?
 (define &undefined 0)
 
-(define-syntax &fixnum (identifier-syntax &exact-integer))
+(define-syntax &fixnum
+  (identifier-syntax &exact-integer))
 
 (define-syntax &scm
   (identifier-syntax (@@ (language cps types) &all-types)))
+
+(define-syntax &any
+  (identifier-syntax most-positive-fixnum))
 
 
 ;;;
@@ -259,7 +264,7 @@ LOCALS is a vector containing stack elements. The returned procedure will return
 true if all of the types in ARG-TYPES matched with LOCALS, otherwise return
 false."
   (lambda (hint)
-    (let* ((ignored-types (list #f &scm &u64 &f64 &s64))
+    (let* ((ignored-types (list #f &scm &u64 &f64 &s64 &any))
            (checker
             (cond
              ((vector? hint)
@@ -390,6 +395,7 @@ false."
    ((eq? type &s64) "s64")
    ;; Not from (@ language cps types)
    ((eq? type &undefined) (green "udef"))
+   ((eq? type &any) "any")
    ((dynamic-link? type)
     (let ((diff (number->string (dynamic-link-offset type))))
       (string-append "dl:" (cyan diff))))

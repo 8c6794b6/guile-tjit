@@ -61,7 +61,11 @@
      ,(next)))
 
 (define-scan (static-ref dst offset)
-  (set-scan-initial-fields! env))
+  (set-scan-initial-fields! env)
+  ;; (let ((sp-offset (env-sp-offset env)))
+  ;;   (set-entry-type! env (+ dst sp-offset) &any)
+  ;;   (set-scan-initial-fields! env))
+  )
 
 (define-ti (static-ref dst offset)
   (let* ((sp-offset (env-sp-offset env))
@@ -77,10 +81,28 @@
   (let* ((ptr (make-pointer (+ ip (* 4 offset))))
          (ref (dereference-pointer ptr))
          (src/l (pointer->scm ref)))
-    `(let ((,(var-ref dst)
-            ,(cond ((flonum? src/l) src/l)
-                   (else (pointer-address ref)))))
+    `(let ((,(var-ref dst) ,(cond ((flonum? src/l) src/l)
+                                  (else (pointer-address ref)))))
        ,(next))))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!
+
+(define-ir (load-f64 (f64! dst) (const high-bits) (const low-bits))
+  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
+     ,(next)))
+
+(define-scan (load-u64 dst high low)
+  (let ((sp-offset (env-sp-offset env)))
+    (set-entry-type! env (+ dst sp-offset) &any)
+    (set-scan-initial-fields! env)))
+
+(define-ti (load-u64 dst high low)
+  (let ((sp-offset (env-sp-offset env)))
+    (set-inferred-type! env (+ dst sp-offset) &u64)))
+
+(define-anf (load-u64 dst high-bits low-bits)
+  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
+     ,(next)))
+
+;; XXX: load-s64
