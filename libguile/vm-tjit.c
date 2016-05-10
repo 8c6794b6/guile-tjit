@@ -451,8 +451,7 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   origin_id = SCM_PACK (ret->origin_id);
   origin = scm_hashq_ref (tjit_fragment_table, origin_id, SCM_BOOL_F);
 
-  if (scm_is_false (origin)
-      || SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
+  if (SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
     {
       exit_id = SCM_PACK (ret->exit_id);
       exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
