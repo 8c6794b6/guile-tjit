@@ -235,9 +235,6 @@ Currently does nothing, returns the given argument."
                                    snapshot-id
                                    initial-sp-offset initial-fp-offset
                                    (min initial-sp-offset 0)
-                                   (get-max-sp-offset initial-sp-offset
-                                                      initial-fp-offset
-                                                      initial-nlocals)
                                    initial-inline-depth env)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
@@ -257,8 +254,7 @@ Currently does nothing, returns the given argument."
                                                         initial-fp-offset
                                                         initial-nlocals))
                       (ir (make-ir snapshots snapshot-id vars
-                                   min-sp-offset max-sp-offset
-                                   0 #f #f)))
+                                   min-sp-offset 0 #f #f)))
                  (set-env-sp-offset! env env-sp-offset)
                  (set-env-fp-offset! env env-fp-offset)
                  (trace->anf env ir trace)))))
@@ -346,9 +342,8 @@ Currently does nothing, returns the given argument."
                     (take-snapshot ip 0 locals (ir-vars ir)
                                    (env-write-indices env)
                                    (ir-snapshot-id ir) sp-offset last-fp-offset
-                                   min-sp (ir-max-sp-offset ir)
-                                   (env-inline-depth env)
-                                   env #f nlocals)))
+                                   min-sp (env-inline-depth env) env #f
+                                   nlocals)))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
@@ -435,8 +430,6 @@ Currently does nothing, returns the given argument."
           (set-env-fp-offset! env new-fp-offset)
           (when (< new-sp-offset (ir-min-sp-offset ir))
             (set-ir-min-sp-offset! ir new-sp-offset))
-          (when (< (ir-max-sp-offset ir) max-offset)
-            (set-ir-max-sp-offset! ir max-offset))
           (increment-env-call-return-num! env op)
           (convert ir rest))))
     (define (convert-one ir op ip ra dl locals rest)

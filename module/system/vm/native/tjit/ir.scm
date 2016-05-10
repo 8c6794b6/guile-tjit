@@ -45,7 +45,6 @@
             ir-snapshots
             ir-snapshot-id set-ir-snapshot-id!
             ir-min-sp-offset set-ir-min-sp-offset!
-            ir-max-sp-offset set-ir-max-sp-offset!
             ir-bytecode-index set-ir-bytecode-index!
             ir-vars
             ir-last-op? set-ir-last-op!
@@ -95,8 +94,8 @@
 ;;;
 
 (define-record-type <ir>
-  (make-ir snapshots snapshot-id vars min-sp-offset max-sp-offset
-           bytecode-index last-op? cached-snapshot)
+  (make-ir snapshots snapshot-id vars min-sp-offset bytecode-index
+           last-op? cached-snapshot)
   ir?
 
   ;; Hash table containing snapshots.
@@ -110,9 +109,6 @@
 
   ;; Current minimum SP offset.
   (min-sp-offset ir-min-sp-offset set-ir-min-sp-offset!)
-
-  ;; Current maximum SP offset.
-  (max-sp-offset ir-max-sp-offset set-ir-max-sp-offset!)
 
   ;; Current bytecode index.
   (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
@@ -226,7 +222,7 @@ returns, current call-num, and current return-num."
          (+ acc (env-inline-depth env)))))))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
-                        min-sp-offset max-sp-offset inline-depth env
+                        min-sp-offset inline-depth env
                         #:optional (refill? #f) (nlocals #f))
   (let* ((nlocals (or nlocals (vector-length locals)))
          (dst-ip (+ ip (* dst-offset 4)))
@@ -527,7 +523,6 @@ index referenced by dst, a, and b values at runtime."
                                       (current-sp-offset)
                                       (current-fp-offset)
                                       (ir-min-sp-offset ir)
-                                      (ir-max-sp-offset ir)
                                       (current-inline-depth env) env
                                       refill?)))
            (let ((old-id (ir-snapshot-id ir)))
