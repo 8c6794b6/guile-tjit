@@ -298,6 +298,8 @@
     (pop-scan-fp-offset! env dl)))
 
 (define-ti (return-values nlocals)
+  ;; VM interpreter refills return address and dynamic link with false, doing
+  ;; the same.
   (let* ((stack-size (vector-length locals))
          (sp-offset (current-sp-for-ti))
          (ra-offset (+ sp-offset stack-size))
@@ -309,8 +311,7 @@
   ;; Add guard to test return address.
   ;;
   ;; Two locals below callee procedure in VM frame contain dynamic link and
-  ;; return address. VM interpreter refills these two with #f, doing the same
-  ;; thing in `emit-next'.
+  ;; return address.
   (let* ((stack-size (vector-length locals))
          (snapshot (take-snapshot! ip 0))
          (maybe-add-indices (lambda (i indices)
@@ -329,7 +330,5 @@
                    (live-indices (maybe-add-indices dl/i live-indices)))
               (set-env-live-indices! env live-indices)
               `(let ((_ (%return ,ra)))
-                 (let ((,ra/v #f))
-                   (let ((,dl/v #f))
-                     (let ((_ ,(take-snapshot! ra 0 #t)))
-                       ,(next))))))))))
+                 (let ((_ ,(take-snapshot! ra 0 #t)))
+                   ,(next))))))))

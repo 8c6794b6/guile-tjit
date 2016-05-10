@@ -121,6 +121,7 @@
   (push-scan-sp-offset! env nlocals))
 
 (define-ti (assert-nargs-ee/locals expected nlocals)
+  ;; Fill in allocated locals with #<undefined>.
   (let ((sp-offset (current-sp-for-ti)))
     (do ((n 1 (+ n 1)))
         ((< nlocals n))
@@ -129,11 +130,7 @@
 (define-anf (assert-nargs-ee/locals expected nlocals)
   (let ((undefined (pointer->scm (make-pointer #x904))))
     (expand-stack! nlocals)
-    (let lp ((n 1))
-      (if (<= n nlocals)
-          `(let ((,(var-ref (- n)) ,undefined))
-             ,(lp (+ n 1)))
-          (next)))))
+    (next)))
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args

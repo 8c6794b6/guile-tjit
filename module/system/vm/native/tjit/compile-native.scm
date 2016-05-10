@@ -147,6 +147,9 @@
       (jit-movi r0 *scm-unspecified*)
       (sp-set! local r0))
 
+     ((not src)
+      (values))
+
      ;; XXX: `fixnum' need boxing when the value was greater than
      ;; `most-positive-fixnum' or less than `most-negative-fixnum'.
 

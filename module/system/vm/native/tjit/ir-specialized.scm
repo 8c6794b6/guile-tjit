@@ -51,6 +51,7 @@
 
 ;;; XXX: Multiple values return not yet implemented.
 (define-ti (subr-call)
+  ;; Filling in return address and dynamic link with false.
   (let* ((stack-size (vector-length locals))
          (sp-offset (if (env-initialized? env)
                         (env-sp-offset env)
@@ -80,20 +81,15 @@
          (ra/v (var-ref stack-size))
          (dl/v (var-ref (+ stack-size 1)))
          (proc-addr (object-address subr/l))
-         (emit-next
-          (lambda ()
-            `(let ((,ra/v #f))
-               (let ((,dl/v #f))
-                 ,(next)))))
          (emit-ccall
           (lambda ()
             (if (inline-current-return?)
                 `(let ((,dst/v (%ccall ,proc-addr)))
-                   ,(emit-next))
+                   ,(next))
                 `(let ((_ ,(take-snapshot! ip 0)))
                    (let ((_ (%return ,ra)))
                      (let ((,dst/v (%ccall ,proc-addr)))
-                       ,(emit-next))))))))
+                       ,(next))))))))
     (set-env-handle-interrupts! env #t)
     (if (primitive-code? ccode)
         (let lp ((n 0))
