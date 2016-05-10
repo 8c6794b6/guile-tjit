@@ -1598,27 +1598,27 @@ utf8_to_codepoint (const scm_t_uint8 *utf8_buf, size_t size)
   return codepoint;
 }
 
-/* Peek a UTF-8 sequence from PORT.  On success, return 0, set
-   *CODEPOINT to the codepoint that was read, and set *LEN to the length
-   in bytes.  Return `EILSEQ' on error, setting *LEN to the shortest
-   prefix that cannot begin a valid UTF-8 sequence.  */
-static int
-peek_utf8_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
+/* Peek a UTF-8 sequence from PORT.  On success, return the codepoint
+   that was read, and set *LEN to the length in bytes.  If there was a
+   decoding error and the port conversion strategy was `substitute',
+   then return #\? and set *LEN to the length of the shortest prefix
+   that cannot begin a valid UTF-8 sequence.  Otherwise signal an
+   error.  */
+static scm_t_wchar
+peek_utf8_codepoint (SCM port, size_t *len)
 {
+#define DECODING_ERROR(bytes) \
+  do { *len = bytes; goto decoding_error; } while (0)
+#define RETURN(bytes, codepoint) \
+  do { *len = bytes; return codepoint; } while (0)
+
   int first_byte;
 
   first_byte = peek_byte_or_eof (port);
   if (first_byte == EOF)
-    {
-      *codepoint = EOF;
-      return 0;
-    }
+    RETURN (0, EOF);
   else if (first_byte < 0x80)
-    {
-      *codepoint = first_byte;
-      *len = 1;
-      return 0;
-    }
+    RETURN (1, first_byte);
   else if (first_byte >= 0xc2 && first_byte <= 0xdf)
     {
       SCM read_buf = scm_fill_input (port, 2);
@@ -1626,14 +1626,9 @@ peek_utf8_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
       const scm_t_uint8 *ptr = scm_port_buffer_take_pointer (read_buf);
 
       if (can_take < 2 || (ptr[1] & 0xc0) != 0x80)
-        {
-          *len = 1;
-          return EILSEQ;
-        }
+        DECODING_ERROR (1);
 
-      *codepoint = (first_byte & 0x1f) << 6UL | (ptr[1] & 0x3f);
-      *len = 2;
-      return 0;
+      RETURN (2, (first_byte & 0x1f) << 6UL | (ptr[1] & 0x3f));
     }
   else if ((first_byte & 0xf0) == 0xe0)
     {
@@ -1644,22 +1639,15 @@ peek_utf8_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
       if (can_take < 2 || (ptr[1] & 0xc0) != 0x80
           || (ptr[0] == 0xe0 && ptr[1] < 0xa0)
           || (ptr[0] == 0xed && ptr[1] > 0x9f))
-        {
-          *len = 1;
-          return EILSEQ;
-        }
+        DECODING_ERROR (1);
 
       if (can_take < 3 || (ptr[2] & 0xc0) != 0x80)
-        {
-          *len = 2;
-          return EILSEQ;
-        }
+        DECODING_ERROR (2);
 
-      *codepoint = ((scm_t_wchar) ptr[0] & 0x0f) << 12UL
-	| ((scm_t_wchar) ptr[1] & 0x3f) << 6UL
-	| (ptr[2] & 0x3f);
-      *len = 3;
-      return 0;
+      RETURN (3,
+              ((scm_t_wchar) ptr[0] & 0x0f) << 12UL
+              | ((scm_t_wchar) ptr[1] & 0x3f) << 6UL
+              | (ptr[2] & 0x3f));
     }
   else if (first_byte >= 0xf0 && first_byte <= 0xf4)
     {
@@ -1670,56 +1658,55 @@ peek_utf8_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
       if (can_take < 2 || (ptr[1] & 0xc0) != 0x80
           || (ptr[0] == 0xf0 && ptr[1] < 0x90)
           || (ptr[0] == 0xf4 && ptr[1] > 0x8f))
-        {
-          *len = 1;
-          return EILSEQ;
-        }
+        DECODING_ERROR (1);
 
       if (can_take < 3 || (ptr[2] & 0xc0) != 0x80)
-        {
-          *len = 2;
-          return EILSEQ;
-        }
+        DECODING_ERROR (2);
 
       if (can_take < 4 || (ptr[3] & 0xc0) != 0x80)
-        {
-          *len = 3;
-          return EILSEQ;
-        }
+        DECODING_ERROR (3);
 
-      *codepoint = ((scm_t_wchar) ptr[0] & 0x07) << 18UL
-	| ((scm_t_wchar) ptr[1] & 0x3f) << 12UL
-	| ((scm_t_wchar) ptr[2] & 0x3f) << 6UL
-	| (ptr[3] & 0x3f);
-      *len = 4;
-      return 0;
+      RETURN (4,
+              ((scm_t_wchar) ptr[0] & 0x07) << 18UL
+              | ((scm_t_wchar) ptr[1] & 0x3f) << 12UL
+              | ((scm_t_wchar) ptr[2] & 0x3f) << 6UL
+              | (ptr[3] & 0x3f));
     }
   else
-    {
-      *len = 1;
-      return EILSEQ;
-    }
+    DECODING_ERROR (1);
+
+ decoding_error:
+  if (scm_is_eq (SCM_PTAB_ENTRY (port)->conversion_strategy, sym_substitute))
+    /* *len already set.  */
+    return '?';
+
+  scm_decoding_error ("peek-char", EILSEQ, "input decoding error", port);
+  /* Not reached.  */
+  return 0;
+#undef DECODING_ERROR
+#undef RETURN
 }
 
 /* Peek an ISO-8859-1 codepoint (a byte) from PORT.  On success, return
-   0, set *CODEPOINT to the codepoint that was peeked, and set *LEN to
-   the length in bytes.  No encoding error is possible.  */
-static int
-peek_latin1_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
+   the codepoint, and set *LEN to 1.  Otherwise on EOF set *LEN to 0.  */
+static scm_t_wchar
+peek_latin1_codepoint (SCM port, size_t *len)
 {
-  *codepoint = peek_byte_or_eof (port);
-  if (*codepoint == EOF)
-    *len = 0;
-  else
-    *len = 1;
-  return 0;
+  scm_t_wchar ret = peek_byte_or_eof (port);
+
+  *len = ret == EOF ? 0 : 1;
+
+  return ret;
 }
 
 /* Peek a codepoint from PORT, decoding it through iconv.  On success,
-   return 0, set *CODEPOINT to the codepoint that was peeked, and set
-   *LEN to the length in bytes.  Return `EILSEQ' on decoding error.  */
-static int
-peek_iconv_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
+   return the codepoint and set *LEN to the length in bytes.  If there
+   was a decoding error and the port conversion strategy was
+   `substitute', then return #\? and set *LEN to the length of the
+   shortest prefix that cannot begin a valid UTF-8 sequence.  Otherwise
+   signal an error.  */
+static scm_t_wchar
+peek_iconv_codepoint (SCM port, size_t *len)
 {
   scm_t_iconv_descriptors *id;
   scm_t_uint8 utf8_buf[SCM_MBCHAR_BUF_SIZE];
@@ -1736,16 +1723,13 @@ peek_iconv_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
 
       if (scm_port_buffer_can_take (read_buf) <= input_size)
 	{
+          *len = input_size;
           if (input_size == 0)
             /* Normal EOF.  */
-            {
-              *codepoint = (scm_t_wchar) EOF;
-              *len = 0;
-              return 0;
-            }
-          else
-            /* EOF found in the middle of a multibyte character. */
-            return EILSEQ;
+            return EOF;
+
+          /* EOF found in the middle of a multibyte character. */
+          goto decoding_error;
 	}
 
       input_size++;
@@ -1764,8 +1748,9 @@ peek_iconv_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
             /* The input byte sequence did not form a complete
                character.  Read another byte and try again. */
             continue;
-          else
-            return err;
+
+          *len = input_size;
+          goto decoding_error;
 	}
       else
         {
@@ -1779,36 +1764,35 @@ peek_iconv_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
 
           /* iconv generated output.  Convert the UTF8_BUF sequence
              to a Unicode code point.  */
-          *codepoint = utf8_to_codepoint (utf8_buf, output_size);
           *len = input_size;
-          return 0;
+          return utf8_to_codepoint (utf8_buf, output_size);
         }
     }
+
+ decoding_error:
+  if (scm_is_eq (SCM_PTAB_ENTRY (port)->conversion_strategy, sym_substitute))
+    return '?';
+
+  scm_decoding_error ("peek-char", EILSEQ, "input decoding error",
+                      port);
+  /* Not reached.  */
+  return 0;
 }
 
 /* Peek a codepoint from PORT and return it in *CODEPOINT.  Set *LEN to
    the length in bytes of that representation.  Return 0 on success and
    an errno value on error.  */
-static SCM_C_INLINE int
-peek_codepoint (SCM port, scm_t_wchar *codepoint, size_t *len)
+static SCM_C_INLINE scm_t_wchar
+peek_codepoint (SCM port, size_t *len)
 {
-  int err;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  SCM encoding = SCM_PTAB_ENTRY (port)->encoding;
 
-  if (scm_is_eq (pt->encoding, sym_UTF_8))
-    err = peek_utf8_codepoint (port, codepoint, len);
-  else if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
-    err = peek_latin1_codepoint (port, codepoint, len);
+  if (scm_is_eq (encoding, sym_UTF_8))
+    return peek_utf8_codepoint (port, len);
+  else if (scm_is_eq (encoding, sym_ISO_8859_1))
+    return peek_latin1_codepoint (port, len);
   else
-    err = peek_iconv_codepoint (port, codepoint, len);
-
-  if (err != 0 && scm_is_eq (pt->conversion_strategy, sym_substitute))
-    {
-      *codepoint = '?';
-      err = 0;
-    }
-
-  return err;
+    return peek_iconv_codepoint (port, len);
 }
 
 /* Read a codepoint from PORT and return it.  */
@@ -1816,13 +1800,10 @@ scm_t_wchar
 scm_getc (SCM port)
 #define FUNC_NAME "scm_getc"
 {
-  int err;
   size_t len = 0;
-  scm_t_wchar codepoint = EOF;
+  scm_t_wchar codepoint;
 
-  err = peek_codepoint (port, &codepoint, &len);
-  if (SCM_UNLIKELY (err != 0))
-    scm_decoding_error (FUNC_NAME, err, "input decoding error", port);
+  codepoint = peek_codepoint (port, &len);
   scm_port_buffer_did_take (SCM_PTAB_ENTRY (port)->read_buf, len);
   if (codepoint == EOF)
     scm_i_clear_pending_eof (port);
@@ -2009,7 +1990,6 @@ SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
 	    "sequence when the error is raised.\n")
 #define FUNC_NAME s_scm_peek_char
 {
-  int err;
   scm_t_wchar c;
   size_t len = 0;
 
@@ -2017,14 +1997,9 @@ SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
     port = scm_current_input_port ();
   SCM_VALIDATE_OPINPORT (1, port);
 
-  err = peek_codepoint (port, &c, &len);
+  c = peek_codepoint (port, &len);
 
-  if (err == 0)
-    return c == EOF ? SCM_EOF_VAL : SCM_MAKE_CHAR (c);
-
-  scm_decoding_error (FUNC_NAME, err, "input decoding error", port);
-  /* Not reached.  */
-  return SCM_BOOL_F;
+  return c == EOF ? SCM_EOF_VAL : SCM_MAKE_CHAR (c);
 }
 #undef FUNC_NAME
 
