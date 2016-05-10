@@ -2376,13 +2376,6 @@ SCM_DEFINE (scm_port_clear_stream_start_for_bom_read,
   /* Maybe slurp off a byte-order marker.  */
   pt = SCM_PTAB_ENTRY (port);
   pti->at_stream_start_for_bom_read = 0;
-
-  if (!pti->at_stream_start_for_bom_read)
-    return SCM_BOOL_F;
-
-  /* Maybe slurp off a byte-order marker.  */
-  pt = SCM_PTAB_ENTRY (port);
-  pti->at_stream_start_for_bom_read = 0;
   if (pt->rw_random)
     pti->at_stream_start_for_bom_write = 0;
 
