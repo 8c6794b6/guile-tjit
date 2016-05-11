@@ -250,7 +250,7 @@ returns, current call-num, and current return-num."
      (let* ((stack-size (vector-length locals))
             (sp-offset (current-sp-offset))
             (min-local-index (+ (- stack-size proc 1) sp-offset 2))
-            (max-local-index (+ proc sp-offset 2))
+            (max-local-index (+ sp-offset proc nlocals))
             (live-indices (env-live-indices env))
             (load-up-frame
              (lambda ()
