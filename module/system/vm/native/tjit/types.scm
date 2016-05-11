@@ -188,16 +188,13 @@
 ;;;
 
 (define (infer-type env op ip dl locals)
-  (match (hashq-ref *ti-procedures* (car op))
-    ((? list? procs)
-     (let lp ((procs procs))
-       (match procs
-         (((test . work) . procs)
-          (if (apply test (list op locals))
-              (apply work env ip dl locals (cdr op))
-              (lp procs)))
-         (() (values)))))
-    (_ (values))))
+  (let lp ((procs (hashq-ref *ti-procedures* (car op))))
+    (match procs
+      (((test . work) . procs)
+       (if (test op locals)
+           (apply work env ip dl locals (cdr op))
+           (lp procs)))
+      (_ (values)))))
 
 ;;;
 ;;; Extra types

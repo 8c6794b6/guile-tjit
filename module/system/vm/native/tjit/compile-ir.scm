@@ -178,148 +178,134 @@ Currently does nothing, returns the given argument."
          (thunk))))))
 
 (define (compile-anf env trace)
-  (define (get-live-vars-in-parent storage snapshot)
-    (if (and storage snapshot)
-        (let* ((parent-snapshot-vars
-                (or (and=> snapshot snapshot-variables) '()))
-               (parent-read-vars
-                (map make-var (snapshot-live-indices snapshot))))
-          (hash-fold (lambda (k v acc)
-                       (if (and (memq v parent-snapshot-vars)
-                                (not (memq k acc)))
-                           (cons k acc)
-                           acc))
-                     parent-read-vars storage))
-        '()))
   (let* ((parent-snapshot (env-parent-snapshot env))
+         (local-indices (env-local-indices env))
+         (vars (if (< (tjit-max-locals) (length local-indices))
+                   (break 1 "too many locals")
+                   (make-vars local-indices)))
          (initial-trace (car trace))
          (initial-ip (cadr initial-trace))
          (initial-locals (list-ref initial-trace 4))
          (initial-nlocals (vector-length initial-locals))
          (initial-inline-depth (env-inline-depth env))
-         (local-indices (env-local-indices env))
-         (vars (if (< (tjit-max-locals) (length local-indices))
-                   (break 1 "too many locals")
-                   (make-vars local-indices)))
+         (initial-write-indices (env-write-indices env))
+         (initial-sp-offset (env-sp-offset env))
+         (initial-fp-offset (env-fp-offset env))
          (snapshots (make-hash-table))
-         (root-trace? (not parent-snapshot))
-         (snapshot-id (if root-trace? 1 0))
-         (initial-sp-offset (get-initial-sp-offset parent-snapshot))
-         (initial-fp-offset (get-initial-fp-offset parent-snapshot))
-         (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
-                                     '()))
-         (live-vars-in-parent
-          (get-live-vars-in-parent (and=> (env-parent-fragment env)
-                                          fragment-storage)
-                                   parent-snapshot))
-         (vars-from-parent
-          (filter (match-lambda
-                    ((_ . var) (memq var live-vars-in-parent)))
-                  vars))
-         (args-from-parent (reverse (map cdr vars-from-parent)))
-         (initial-vars (if parent-snapshot
-                           vars-from-parent
-                           vars))
-         (initial-write-indices (env-write-indices env)))
-
-    (define (initial-snapshot!)
+         (snapshot-id 0)
+         (loaded-vars (make-hash-table)))
+    (define (initial-snapshot! vars)
       (let-values (((ret snapshot)
                     (take-snapshot initial-ip 0 initial-locals
-                                   initial-vars initial-write-indices
-                                   snapshot-id
+                                   vars initial-write-indices snapshot-id
                                    initial-sp-offset initial-fp-offset
                                    (min initial-sp-offset 0)
                                    initial-inline-depth env)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
-
+    (define (get-live-vars storage snapshot)
+      (let* ((parent-snapshot-vars (snapshot-variables snapshot))
+             (parent-live-vars
+              (map make-var (snapshot-live-indices snapshot))))
+        (hash-fold (lambda (k v acc)
+                     (if (and (memq v parent-snapshot-vars)
+                              (not (memq k acc)))
+                         (cons k acc)
+                         acc))
+                   parent-live-vars storage)))
+    (define-syntax-rule (update-inferred-types! ini-srcs)
+      (let lp ((srcs ini-srcs) (dsts (env-inferred-types env)))
+        (match srcs
+          (((n . ty) . srcs)
+           (lp srcs (assq-set! dsts n ty)))
+          (()
+           (set-env-inferred-types! env dsts)))))
     (define (make-anf)
-      (let ((emit
-             (lambda ()
-               (let* ((initial-nlocals
-                       (snapshot-nlocals (hashq-ref snapshots 0)))
-                      (env-sp-offset
-                       (vector-ref (env-sp-offsets env) 0))
-                      (env-fp-offset
-                       (vector-ref (env-fp-offsets env) 0))
-                      (min-sp-offset (min initial-sp-offset 0))
-                      (ir (make-ir snapshots snapshot-id vars
-                                   min-sp-offset 0 #f #f)))
-                 (set-env-sp-offset! env env-sp-offset)
-                 (set-env-fp-offset! env env-fp-offset)
-                 (trace->anf env ir trace)))))
-
-        ;; Update inferred type with entry types. All guards for entry types
-        ;; have passed at this point. Then if this trace was side trace, set
-        ;; inferred types from parent snapshot locals.
-        (let ((srcs (env-entry-types env))
-              (dsts (env-inferred-types env)))
-          (let lp ((srcs srcs) (dsts dsts))
-            (match srcs
-              (((n . ty) . srcs)
-               (lp srcs (assq-set! dsts n ty)))
-              (()
-               (if (pair? parent-snapshot-locals)
-                   (let lp ((srcs parent-snapshot-locals) (dsts dsts))
-                     (match srcs
-                       (((n . ty) . srcs)
-                        (lp srcs (assq-set! dsts n ty)))
-                       (()
-                        (set-env-inferred-types! env dsts))))
-                   (set-env-inferred-types! env dsts))))))
-
+      (let ((emit (lambda ()
+                    (let ((ir (make-ir snapshots snapshot-id vars
+                                       (min initial-sp-offset 0)
+                                       0 #f #f))
+                          (sp (vector-ref (env-sp-offsets env) 0))
+                          (fp (vector-ref (env-fp-offsets env) 0)))
+                      (set-env-sp-offset! env sp)
+                      (set-env-fp-offset! env fp)
+                      (trace->anf env ir trace)))))
+        ;; Update inferred types with entry types. All guards for entry types
+        ;; have passed at this point.
+        (update-inferred-types! (env-entry-types env))
         (cond
-         (root-trace?
+         ((env-parent-snapshot env)     ; Side trace.
+          ;; Side trace updates inferred type with locals from parent
+          ;; snapshot. Update is done before invoking `initial-snapshot!', since
+          ;; snapshot creation will refer inferred types in env.
+          => (lambda (parent-snapshot)
+               (let* ((parent-fragment (env-parent-fragment env))
+                      (live-vars-in-parent
+                       (get-live-vars (fragment-storage parent-fragment)
+                                      parent-snapshot))
+                      (vars-from-parent
+                       (filter (match-lambda
+                                 ((_ . var) (memq var live-vars-in-parent)))
+                               vars))
+                      (args-from-parent (reverse (map cdr vars-from-parent)))
+                      (_ (update-inferred-types!
+                          (snapshot-locals parent-snapshot)))
+                      (snap0 (initial-snapshot! vars-from-parent))
+                      (patch-body
+                       (lambda ()
+                         (add-initial-loads env snapshots initial-locals
+                                            initial-sp-offset parent-snapshot
+                                            vars live-vars-in-parent
+                                            loaded-vars emit))))
+                 `(letrec ((patch (lambda ,args-from-parent
+                                    (let ((_ ,snap0))
+                                      ,(patch-body)))))
+                    patch))))
+         (else ; Root trace.
+          ;; Root trace takes snapshot 0, used to emit bailout code without
+          ;; stack element update. Snapshot 0 is saved to snapshots as usual,
+          ;; and snapshot ID get incremented.
           (let* ((arg-indices (filter (lambda (n)
                                         (<= 0 n (- initial-nlocals 1)))
                                       (reverse local-indices)))
                  (args (map make-var (reverse local-indices)))
                  (thunk (lambda ()
-                          (let ((snap1 (initial-snapshot!)))
+                          (let ((snap1 (initial-snapshot! vars)))
                             `(let ((_ ,snap1))
                                (loop ,@args)))))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
                                        env initial-ip 0))
                  (_ (hashq-set! snapshots 0 snap0))
-                 (loaded-vars (make-hash-table))
+                 (_ (set! snapshot-id (+ snapshot-id 1)))
                  (live-indices (if (env-uprec? env)
                                    (filter (lambda (n)
                                              (<= 0 n (- initial-nlocals 1)))
                                            (env-read-indices env))
-                                   (env-read-indices env))))
+                                   (env-read-indices env)))
+                 (entry-body
+                  (lambda ()
+                    (add-initial-loads env snapshots initial-locals
+                                       initial-sp-offset #f vars '()
+                                       loaded-vars thunk)))
+                 (loop-body
+                  (lambda ()
+                    (let* ((locals (sort (hash-map->list cons loaded-vars)
+                                         (lambda (a b)
+                                           (< (car a) (car b)))))
+                           (vars (map (lambda (l)
+                                        (make-var (car l)))
+                                      (reverse locals))))
+                      (set-env-loop-vars! env vars)
+                      (set-env-loop-locals! env locals)
+                      (emit)))))
             (set-env-live-indices! env live-indices)
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
-                                 ,(add-initial-loads env snapshots
-                                                     initial-locals
-                                                     initial-sp-offset
-                                                     #f initial-vars '()
-                                                     loaded-vars thunk))))
+                                 ,(entry-body))))
                       (loop (lambda ,args
-                              ,(let* ((locals
-                                       (sort (hash-map->list cons loaded-vars)
-                                             (lambda (a b)
-                                               (< (car a) (car b)))))
-                                      (vars (map (lambda (l)
-                                                   (make-var (car l)))
-                                                 (reverse locals))))
-                                 (set-env-loop-vars! env vars)
-                                 (set-env-loop-locals! env locals)
-                                 (emit)))))
-               entry)))
-         (else
-          (let ((snap0 (initial-snapshot!))
-                (loaded-vars (make-hash-table)))
-            `(letrec ((patch (lambda ,args-from-parent
-                               (let ((_ ,snap0))
-                                 ,(add-initial-loads env snapshots
-                                                     initial-locals
-                                                     initial-sp-offset
-                                                     parent-snapshot
-                                                     vars live-vars-in-parent
-                                                     loaded-vars emit)))))
-               patch))))))
+                              ,(loop-body))))
+               entry))))))
 
     (values vars snapshots (make-anf))))
 
@@ -423,7 +409,7 @@ Currently does nothing, returns the given argument."
          (let lp ((procs procs))
            (match procs
              (((test . work) . procs)
-              (if (apply test (list op locals))
+              (if (test op locals)
                   (let ((next (gen-next ir ip dl locals op rest)))
                     (apply work env ir next ip ra dl locals (cdr op)))
                   (lp procs)))

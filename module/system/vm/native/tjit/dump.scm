@@ -309,7 +309,8 @@ option was set to true."
          idx))))
   (match plist
     (($ $primops entry loop)
-     (format port ";;; trace ~a: primops:~%" trace-id)
+     (format port ";;; trace ~a: primops (~a snapshots):~%" trace-id
+             (hash-count (const #t) snapshots))
      (let ((idx (dump-list 0 entry)))
        (when (not (null? loop))
          (format port "==== loop:~%")

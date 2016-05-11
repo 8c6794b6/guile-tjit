@@ -114,16 +114,13 @@ After successufl parse, this procedure will update fields in ENV."
             nyi)))
     (debug 2 ";;; [parse] call=~a return=~a op=~a~%"
            (env-call-num env) (env-return-num env) op)
-    (match (hashq-ref *scan-procedures* (car op))
-      ((? list? procs)
-       (let lp ((procs procs))
-         (match procs
-           (((test . work) . procs)
-            (if (apply test (list op locals))
-                (apply work env ip dl locals (cdr op))
-                (lp procs)))
-           (_ (%nyi)))))
-      (_ (%nyi))))
+    (let lp ((procs (hashq-ref *scan-procedures* (car op))))
+      (match procs
+        (((test . work) . procs)
+         (if (test op locals)
+             (apply work env ip dl locals (cdr op))
+             (lp procs)))
+        (_ (%nyi)))))
   (define (go)
     (let lp ((acc '()) (offset 0) (traces (reverse! traces))
              (so-far-so-good? #t))

@@ -412,13 +412,15 @@ index referenced by dst, a, and b values at runtime."
               (let lp ((flags '(flag ...)) (ns (cdr op)))
                 (match (cons flags ns)
                   (((f . flags) . (n . ns))
-                   (if (memq f '(fixnum flonum fraction char procedure pair
-                                 vector box struct string bytevector array))
-                       (let ((runtime-value (vector-ref locals n)))
-                         (if (eq? (type-of runtime-value) (flag->type f))
-                             (lp flags ns)
-                             #f))
-                       (lp flags ns)))
+                   (case f
+                     ((fixnum flonum fraction char procedure pair
+                       vector box struct string bytevector array)
+                      (let ((runtime-value (vector-ref locals n)))
+                        (if (eq? (type-of runtime-value) (flag->type f))
+                            (lp flags ns)
+                            #f)))
+                     (else
+                      (lp flags ns))))
                   (_
                    #t)))))
            (scan-proc
