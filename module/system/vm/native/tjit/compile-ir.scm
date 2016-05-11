@@ -88,27 +88,6 @@
 Currently does nothing, returns the given argument."
   anf)
 
-(define (get-max-sp-offset sp-offset fp-offset nlocals)
-  (max fp-offset
-       (- (+ sp-offset nlocals) 1)
-       (if (< fp-offset 0)
-           (- (+ (- fp-offset) nlocals) 1)
-           0)))
-
-(define (get-live-vars-in-parent storage snapshot)
-  (if (and storage snapshot)
-      (let* ((parent-snapshot-vars
-              (or (and=> snapshot snapshot-variables) '()))
-             (parent-read-vars
-              (map make-var (snapshot-live-indices snapshot))))
-        (hash-fold (lambda (k v acc)
-                     (if (and (memq v parent-snapshot-vars)
-                              (not (memq k acc)))
-                         (cons k acc)
-                         acc))
-                   parent-read-vars storage))
-      '()))
-
 (define (add-initial-loads env snapshots initial-locals initial-sp-offset
                            parent-snapshot initial-vars live-vars-in-parent
                            loaded-vars thunk)
@@ -199,10 +178,20 @@ Currently does nothing, returns the given argument."
          (thunk))))))
 
 (define (compile-anf env trace)
+  (define (get-live-vars-in-parent storage snapshot)
+    (if (and storage snapshot)
+        (let* ((parent-snapshot-vars
+                (or (and=> snapshot snapshot-variables) '()))
+               (parent-read-vars
+                (map make-var (snapshot-live-indices snapshot))))
+          (hash-fold (lambda (k v acc)
+                       (if (and (memq v parent-snapshot-vars)
+                                (not (memq k acc)))
+                           (cons k acc)
+                           acc))
+                     parent-read-vars storage))
+        '()))
   (let* ((parent-snapshot (env-parent-snapshot env))
-         (root-trace? (not parent-snapshot))
-         (initial-sp-offset (get-initial-sp-offset parent-snapshot))
-         (initial-fp-offset (get-initial-fp-offset parent-snapshot))
          (initial-trace (car trace))
          (initial-ip (cadr initial-trace))
          (initial-locals (list-ref initial-trace 4))
@@ -213,7 +202,10 @@ Currently does nothing, returns the given argument."
                    (break 1 "too many locals")
                    (make-vars local-indices)))
          (snapshots (make-hash-table))
+         (root-trace? (not parent-snapshot))
          (snapshot-id (if root-trace? 1 0))
+         (initial-sp-offset (get-initial-sp-offset parent-snapshot))
+         (initial-fp-offset (get-initial-fp-offset parent-snapshot))
          (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
                                      '()))
          (live-vars-in-parent
@@ -228,9 +220,7 @@ Currently does nothing, returns the given argument."
          (initial-vars (if parent-snapshot
                            vars-from-parent
                            vars))
-         (initial-write-indices (if parent-snapshot
-                                    (map car parent-snapshot-locals)
-                                    (env-write-indices env))))
+         (initial-write-indices (env-write-indices env)))
 
     (define (initial-snapshot!)
       (let-values (((ret snapshot)
@@ -254,9 +244,6 @@ Currently does nothing, returns the given argument."
                       (env-fp-offset
                        (vector-ref (env-fp-offsets env) 0))
                       (min-sp-offset (min initial-sp-offset 0))
-                      (max-sp-offset (get-max-sp-offset initial-sp-offset
-                                                        initial-fp-offset
-                                                        initial-nlocals))
                       (ir (make-ir snapshots snapshot-id vars
                                    min-sp-offset 0 #f #f)))
                  (set-env-sp-offset! env env-sp-offset)
@@ -295,8 +282,13 @@ Currently does nothing, returns the given argument."
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
                                        env initial-ip 0))
                  (_ (hashq-set! snapshots 0 snap0))
-                 (loaded-vars (make-hash-table)))
-            (set-env-live-indices! env (env-read-indices env))
+                 (loaded-vars (make-hash-table))
+                 (live-indices (if (env-uprec? env)
+                                   (filter (lambda (n)
+                                             (<= 0 n (- initial-nlocals 1)))
+                                           (env-read-indices env))
+                                   (env-read-indices env))))
+            (set-env-live-indices! env live-indices)
             `(letrec ((entry (lambda ()
                                (let ((_ (%snap 0)))
                                  ,(add-initial-loads env snapshots
@@ -362,7 +354,7 @@ Currently does nothing, returns the given argument."
         (('tail-call nlocals) nlocals)
         (('tail-call-label nlocals _) nlocals)
         (_ #f)))
-    (define (gen-last-op op ip locals)
+    (define (gen-last-op op ip ra locals)
       ;; Last operation is wrapped in a thunk, to assign snapshot ID in last
       ;; expression after taking snapshots from various works defined in `ir-*'
       ;; modules. Trace with loop will emit `loop'.  Side traces and loop-less
@@ -370,20 +362,6 @@ Currently does nothing, returns the given argument."
       ;; pass the register and local information to linked trace.
       ;;
       (cond
-       ;; XXX: NYI uprec
-       ;; ((env-uprec? env)
-       ;;  (match op
-       ;;    (('return-values n)
-       ;;     (lambda ()
-       ;;       (let* ((next-sp-offset last-sp-offset))
-       ;;         `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals
-       ;;                                     next-sp-offset
-       ;;                                     (ir-min-sp-offset ir)
-       ;;                                     #f)))
-       ;;            (loop ,@(reverse (map cdr (ir-vars ir))))))))
-       ;;    (_
-       ;;     (nyi "uprec with last op ~a" op))))
-
        (root-trace?
         (cond
          ((or (env-downrec? env)
@@ -393,6 +371,13 @@ Currently does nothing, returns the given argument."
                                         (ir-min-sp-offset ir)
                                         (nlocals-from-op op))))
                (loop ,@(reverse (map cdr (ir-vars ir)))))))
+         ((env-uprec? env)
+          (lambda ()
+            `(let ((_ (%return ,ra)))
+               (let ((_ ,(entry-snapshot! *ip-key-uprec* locals last-sp-offset
+                                          (ir-min-sp-offset ir)
+                                          (vector-length locals))))
+                 (loop ,@(reverse (map cdr (ir-vars ir))))))))
          ((zero? last-sp-offset)
           (lambda ()
             `(loop ,@(reverse (map cdr (ir-vars ir))))))
@@ -417,9 +402,6 @@ Currently does nothing, returns the given argument."
                (fp-offsets (env-fp-offsets env))
                (old-fp-offset (vector-ref fp-offsets old-index))
                (nlocals (vector-length locals))
-               (max-offset (get-max-sp-offset old-sp-offset
-                                              old-fp-offset
-                                              nlocals))
                (new-sp-offset (if (< 0 new-index (vector-length sp-offsets))
                                   (vector-ref sp-offsets new-index)
                                   0))
@@ -450,7 +432,7 @@ Currently does nothing, returns the given argument."
     (define (convert ir trace)
       (match trace
         (((op ip ra dl locals) . ())
-         (let ((last-op (gen-last-op op ip locals)))
+         (let ((last-op (gen-last-op op ip ra locals)))
            (set-ir-last-op! ir #t)
            (convert-one ir op ip ra dl locals last-op)))
         (((op ip ra dl locals) . rest)
