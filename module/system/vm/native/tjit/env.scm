@@ -207,7 +207,6 @@
                   loop? downrec? uprec?
                   sp-offset fp-offset write-indices live-indices
                   types-from-parent inline-depth)
-  (debug 2 ";;; [make-env] inline-depth=~a~%" inline-depth)
   (%make-env id entry-ip linked-ip #f
              parent-exit-id parent-fragment parent-snapshot
              loop? downrec? uprec? #f

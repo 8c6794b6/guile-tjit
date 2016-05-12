@@ -141,10 +141,10 @@
   ;; Flag for handling interrupts.
   (handle-interrupts? fragment-handle-interrupts?)
 
-  ;; Side trace IDs of this fragment.
+  ;; Side trace IDs of this fragment, referred when removing.
   (side-trace-ids fragment-side-trace-ids set-fragment-side-trace-ids!)
 
-  ;; Root trace IDs linked via side trace.
+  ;; Root trace IDs linked via side trace, referred when removing.
   (linked-root-ids fragment-linked-root-ids set-fragment-linked-root-ids!))
 
 (define make-fragment %make-fragment)

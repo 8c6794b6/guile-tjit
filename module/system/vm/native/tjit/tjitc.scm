@@ -75,8 +75,8 @@
           (call-with-values
               (lambda ()
                 (match parent-snapshot
-                  (($ $snapshot id sp fp nlocals locals variables code ip lives
-                      depth)
+                  (($ $snapshot id sp fp nlocals locals variables code ip
+                      lives depth)
                    (values sp fp (map car locals) lives locals depth))
                   (_
                    (values 0 0 '() '() '() 0))))

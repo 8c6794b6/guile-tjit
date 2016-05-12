@@ -552,8 +552,7 @@ scm_acquire_tjit_state (void)
           }                                                             \
       }                                                                 \
                                                                         \
-    /* Increment hot ip counter if current IP is not black-listed, */   \
-    /* then jump to next IP. */                                         \
+    /* Increment hot ip counter if current IP is not black-listed. */   \
     if (SCM_I_MAKINUM (failed_ip_ref (next_ip)) < tjit_max_retries)     \
       {                                                                 \
         scm_t_uint16 count = hot_ip_ref (next_ip);                      \
@@ -566,6 +565,8 @@ scm_acquire_tjit_state (void)
         else                                                            \
           hot_ip_set (next_ip, count + INC);                            \
       }                                                                 \
+                                                                        \
+    /* Jump to the IP specified by JUMP parameter. */                   \
     NEXT (JUMP);                                                        \
   } while (0)
 
