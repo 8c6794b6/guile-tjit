@@ -127,9 +127,6 @@ SCM_TJIT_PARAM (hot_loop, hot-loop, 59)
 /* Number of exits to decide a hot side exit. */
 SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 
-/* Number of calls to decide a hot call. */
-SCM_TJIT_PARAM (hot_call, hot-call, 59)
-
 /* Maximum length of traced bytecodes. */
 SCM_TJIT_PARAM (max_record, max-record, 3000)
 
@@ -533,7 +530,7 @@ scm_acquire_tjit_state (void)
   by "libguile/vm.c". Following two macros share common variables
   defined in "libguile/vm-engine.h", such as thread, vp, ip, ... etc. */
 
-#define SCM_TJIT_ENTER(JUMP, END, TTYPE, REF)                           \
+#define SCM_TJIT_ENTER(JUMP, END, TTYPE, INC)                           \
   do {                                                                  \
     scm_t_uintptr next_ip = (scm_t_uintptr) (ip + JUMP);                \
                                                                         \
@@ -560,14 +557,14 @@ scm_acquire_tjit_state (void)
     if (SCM_I_MAKINUM (failed_ip_ref (next_ip)) < tjit_max_retries)     \
       {                                                                 \
         scm_t_uint16 count = hot_ip_ref (next_ip);                      \
-        if (REF < SCM_I_MAKINUM (count))                                \
+        if (tjit_hot_loop < SCM_I_MAKINUM (count))                      \
           {                                                             \
             scm_t_uint32 *start = (scm_t_uint32 *) next_ip;             \
             start_recording (tj, start, END, TTYPE, 1);                 \
             hot_ip_set (next_ip, 0);                                    \
           }                                                             \
         else                                                            \
-          hot_ip_set (next_ip, count + 1);                              \
+          hot_ip_set (next_ip, count + INC);                            \
       }                                                                 \
     NEXT (JUMP);                                                        \
   } while (0)

@@ -48,8 +48,6 @@
             set-tjit-hot-loop!
             tjit-hot-exit
             set-tjit-hot-exit!
-            tjit-hot-call
-            set-tjit-hot-call!
             tjit-max-retries
             set-tjit-max-retries!
             tjit-num-unrolls
