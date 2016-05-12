@@ -306,6 +306,27 @@ interpret its input and output."
                 (and (> buffered 0)
                      (bytevector-u8-ref bv cur)))))
 
+(define* (%lookahead-u8 port)
+  (define (fast-path buf bv cur buffered)
+    (bytevector-u8-ref bv cur))
+  (define (slow-path buf bv cur buffered)
+    (if (zero? buffered)
+        the-eof-object
+        (fast-path buf bv cur buffered)))
+  (peek-bytes port 1 fast-path slow-path))
+
+(define* (%get-u8 port)
+  (define (fast-path buf bv cur buffered)
+    (set-port-buffer-cur! buf (1+ cur))
+    (bytevector-u8-ref bv cur))
+  (define (slow-path buf bv cur buffered)
+    (if (zero? buffered)
+        (begin
+          (set-port-buffer-has-eof?! buf #f)
+          the-eof-object)
+        (fast-path buf bv cur buffered)))
+  (peek-bytes port 1 fast-path slow-path))
+
 (define (decoding-error subr port)
   ;; GNU/Linux definition; fixme?
   (define EILSEQ 84)
