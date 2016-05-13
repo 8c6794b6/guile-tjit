@@ -50,14 +50,7 @@ struct scm_tjit_state
   size_t start_seen;        /* flag for whether start has seen */
   scm_t_bits ret_exit_id;   /* exit ID returned from native code */
   scm_t_bits ret_fragment_id; /* fragment ID returned from native code */
-  scm_t_bits ret_origin_id; /* origin ID returned from native code */
-};
-
-struct scm_tjit_retval
-{
-  scm_t_bits exit_id;
-  scm_t_bits fragment_id;
-  scm_t_bits origin_id;
+  scm_t_bits ret_origin;    /* origin ID returned from native code */
 };
 
 /* Function pointer type of compiled trace */

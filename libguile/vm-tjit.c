@@ -446,8 +446,7 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
 
   /* Back to interpreter. Native code sets some of the fields in tj
      during bailout, using them to decide what to do next. */
-  origin_id = SCM_PACK (tj->ret_origin_id);
-  origin = scm_hashq_ref (tjit_fragment_table, origin_id, SCM_BOOL_F);
+  origin = SCM_PACK (tj->ret_origin);
 
   if (SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
     {
@@ -505,7 +504,7 @@ scm_make_tjit_state (void)
   t->start_seen = 0;
   t->ret_exit_id = 0;
   t->ret_fragment_id = 0;
-  t->ret_origin_id = 0;
+  t->ret_origin = 0;
 
   return t;
 }
@@ -658,13 +657,13 @@ SCM_DEFINE (scm_make_negative_pointer, "make-negative-pointer", 1, 0, 0,
 
 void
 scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits fragment_id,
-                      scm_t_bits origin_id)
+                     scm_t_bits origin)
 {
   struct scm_tjit_state *tj = scm_acquire_tjit_state ();
 
   tj->ret_exit_id = exit_id;
   tj->ret_fragment_id = fragment_id;
-  tj->ret_origin_id = origin_id;
+  tj->ret_origin = origin;
 }
 
 void

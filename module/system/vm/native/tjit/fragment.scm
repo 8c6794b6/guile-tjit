@@ -49,7 +49,7 @@
             fragment-end-address
             fragment-gdb-jit-entry
             fragment-storage
-            fragment-bailout-code
+            fragment-bailout-code set-fragment-bailout-code!
             fragment-handle-interrupts?
             fragment-side-trace-ids set-fragment-side-trace-ids!
             fragment-linked-root-ids set-fragment-linked-root-ids!
@@ -136,7 +136,7 @@
   (storage fragment-storage)
 
   ;; Native code for bailout.
-  (bailout-code fragment-bailout-code)
+  (bailout-code fragment-bailout-code set-fragment-bailout-code!)
 
   ;; Flag for handling interrupts.
   (handle-interrupts? fragment-handle-interrupts?)

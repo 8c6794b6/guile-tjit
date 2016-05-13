@@ -387,33 +387,40 @@ DST-TYPES, and SRC-TYPES are local index number."
             (type-checker (if (zero? parent-id)
                               (gen-type-checker checker-types (env-id env))
                               #f))
-            (bcode (compile-bailouts env end-address trampoline bailouts)))
+            (new-fragment (make-fragment (env-id env)
+                                         code
+                                         exit-counts
+                                         (env-downrec? env)
+                                         (env-uprec? env)
+                                         type-checker
+                                         (env-entry-ip env)
+                                         0
+                                         parent-id
+                                         (env-parent-exit-id env)
+                                         loop-address
+                                         (env-loop-locals env)
+                                         loop-vars
+                                         snapshots
+                                         trampoline
+                                         end-address
+                                         gdb-jit-entry
+                                         storage
+                                         #f
+                                         (env-handle-interrupts? env)
+                                         '() '()))
+            (origin (cond
+                     ((env-parent-fragment env)
+                      => get-origin-fragment)
+                     (else
+                      new-fragment)))
+            (bcode
+             (compile-bailouts env end-address trampoline origin bailouts)))
        (make-bytevector-executable! code)
+       (set-fragment-bailout-code! new-fragment bcode)
 
        ;; Same entry-ip could be used when side exit 0 was taken for
        ;; multiple times. Using trace ID as hash table key.
-       (put-fragment! (env-id env)
-                      (make-fragment (env-id env)
-                                     code
-                                     exit-counts
-                                     (env-downrec? env)
-                                     (env-uprec? env)
-                                     type-checker
-                                     (env-entry-ip env)
-                                     0
-                                     parent-id
-                                     (env-parent-exit-id env)
-                                     loop-address
-                                     (env-loop-locals env)
-                                     loop-vars
-                                     snapshots
-                                     trampoline
-                                     end-address
-                                     gdb-jit-entry
-                                     storage
-                                     bcode
-                                     (env-handle-interrupts? env)
-                                     '() '()))
+       (put-fragment! (env-id env) new-fragment)
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
        ;; When this trace is a side trace, replace the native code of trampoline
@@ -559,18 +566,14 @@ DST-TYPES, and SRC-TYPES are local index number."
      (failure 'compile-body "not a $primops" primops))))
 
 (define (compile-bailout env %asm snapshot trampoline args)
-  (lambda (end-address)
+  (lambda (end-address origin)
     (let ((ip (snapshot-ip snapshot))
           (id (snapshot-id snapshot)))
       (debug 3 ";;; compile-bailout:~%")
       (debug 3 ";;;   snapshot-id: ~a~%" id)
       (debug 3 ";;;   next-ip:     ~a~%" ip)
       (debug 3 ";;;   args:        ~a~%" args)
-      (let ((entry (jit-label))
-            (origin-id (or (and=> (and=> (env-parent-fragment env)
-                                         get-origin-fragment)
-                                  fragment-id)
-                           (env-id env))))
+      (let ((entry (jit-label)))
         (jit-patch entry)
         (match snapshot
           (($ $snapshot id sp-offset fp-offset nlocals locals)
@@ -595,7 +598,7 @@ DST-TYPES, and SRC-TYPES are local index number."
            (jit-prepare)
            (jit-pushargi (scm-i-makinumi id))
            (jit-pushargi (scm-i-makinumi (env-id env)))
-           (jit-pushargi (scm-i-makinumi origin-id))
+           (jit-pushargi (scm->pointer origin))
            (jit-calli %scm-set-tjit-retval)
 
            ;; Debug code to dump tjit-retval and locals.
@@ -618,7 +621,7 @@ DST-TYPES, and SRC-TYPES are local index number."
         (jumpi end-address)
         (cons id entry)))))
 
-(define (compile-bailouts env end-address trampoline bailouts)
+(define (compile-bailouts env end-address trampoline origin bailouts)
   ;; Emit bailouts with end address of this code. Side traces need to
   ;; jump to the address of epilogue of parent root trace, to manage
   ;; non-volatile registers.
@@ -628,7 +631,9 @@ DST-TYPES, and SRC-TYPES are local index number."
   (with-jit-state
    (jit-prolog)
    (jit-tramp (imm (* 4 %word-size)))
-   (let ((entries (map (lambda (proc) (proc end-address)) bailouts)))
+   (let ((entries (map (lambda (proc)
+                         (proc end-address origin))
+                       bailouts)))
      (jit-epilog)
      (jit-realize)
      (let* ((estimated-size (jit-code-size))
