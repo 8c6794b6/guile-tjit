@@ -44,63 +44,12 @@
 /* An internal-only structure defined in ports-internal.h. */
 struct scm_port_internal;
 
-/* Port buffers.
-
-   It's important to avoid calling into the kernel too many times.  For
-   that reason we buffer the input and output, using "port buffer"
-   objects.  Port buffers are represented as vectors containing the
-   buffer, two cursors, and a flag.  The bytes in a read buffer are laid
-   out like this:
-
-                    |already read | not yet | invalid
-                    |    data     |  read   |  data
-      readbuf: #vu8(|r r r r r r r|u u u u u|x x x x x|)
-               ^buf               ^cur      ^end      ^size(buf)
-
-   Similarly for a write buffer:
-
-                     |already written | not yet | invalid
-                     |    data        | written |  data
-      writebuf: #vu8(|w w w w w w w w |u u u u u|x x x x x|)
-                ^buf                  ^cur      ^end      ^size(buf)
-
-   We use the same port buffer data structure for both purposes.  Port
-   buffers are implemented as their own object so that they can be
-   atomically swapped in or out of ports, and as Scheme vectors so they
-   can be manipulated from Scheme.  */
-
-enum scm_port_buffer_field {
-  SCM_PORT_BUFFER_FIELD_BYTEVECTOR,
-  SCM_PORT_BUFFER_FIELD_CUR,
-  SCM_PORT_BUFFER_FIELD_END,
-  SCM_PORT_BUFFER_FIELD_HAS_EOF_P,
-  SCM_PORT_BUFFER_FIELD_COUNT
-};
-
 /* C representation of a Scheme port.  */
 
 typedef struct 
 {
   /* Data for the underlying port implementation as a raw C value.  */
   scm_t_bits stream;
-
-  /* Port buffers.  */
-  SCM read_buf;
-  SCM write_buf;
-
-  /* All ports have read and write buffers; an unbuffered port simply
-     has a one-byte buffer.  However unreading bytes can expand the read
-     buffer, but that doesn't mean that we want to increase the input
-     buffering.  For that reason `read_buffering' is a separate
-     indication of how many characters to buffer on the read side.
-     There isn't a write_buf_size because there isn't an
-     `unwrite-byte'.  */
-  size_t read_buffering;
-
-  /* True if the port is random access.  Implies that the buffers must
-     be flushed before switching between reading and writing, seeking,
-     and so on.  */
-  int rw_random;
 
   /* Character encoding support.  */
   SCM encoding;  /* A symbol of upper-case ASCII.  */

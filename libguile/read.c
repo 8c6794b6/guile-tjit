@@ -2057,7 +2057,7 @@ is_encoding_char (char c)
 char *
 scm_i_scan_for_encoding (SCM port)
 {
-  scm_t_port *pt;
+  scm_t_port_internal *pti;
   SCM buf;
   char header[SCM_ENCODING_SEARCH_SIZE+1];
   size_t bytes_read, encoding_length, i;
@@ -2065,10 +2065,10 @@ scm_i_scan_for_encoding (SCM port)
   char *pos, *encoding_start;
   int in_comment;
 
-  pt = SCM_PTAB_ENTRY (port);
-  buf = pt->read_buf;
+  pti = SCM_PORT_GET_INTERNAL (port);
+  buf = pti->read_buf;
 
-  if (pt->rw_random)
+  if (pti->rw_random)
     scm_flush (port);
 
   if (scm_port_buffer_can_take (buf) == 0)

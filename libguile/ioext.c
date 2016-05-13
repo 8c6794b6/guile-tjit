@@ -34,6 +34,7 @@
 #include "libguile/hashtab.h"
 #include "libguile/ioext.h"
 #include "libguile/ports.h"
+#include "libguile/ports-internal.h"
 #include "libguile/strings.h"
 #include "libguile/validate.h"
 
@@ -90,19 +91,20 @@ SCM_DEFINE (scm_redirect_port, "redirect-port", 2, 0, 0,
          buffers.  */
       if (SCM_OUTPUT_PORT_P (old))
         scm_flush (old);
-      if (SCM_INPUT_PORT_P (old) && SCM_PTAB_ENTRY (old)->rw_random)
+      if (SCM_INPUT_PORT_P (old) && SCM_PORT_GET_INTERNAL (old)->rw_random)
         scm_end_input (old);
 
       if (SCM_OUTPUT_PORT_P (new))
         scm_flush (new);
-      if (SCM_INPUT_PORT_P (new) && SCM_PTAB_ENTRY (new)->rw_random)
+      if (SCM_INPUT_PORT_P (new) && SCM_PORT_GET_INTERNAL (new)->rw_random)
         scm_end_input (new);
 
       ans = dup2 (oldfd, newfd);
       if (ans == -1)
 	SCM_SYSERROR;
 
-      SCM_PTAB_ENTRY (new)->rw_random = SCM_PTAB_ENTRY (old)->rw_random;
+      SCM_PORT_GET_INTERNAL (new)->rw_random =
+        SCM_PORT_GET_INTERNAL (old)->rw_random;
     }
   return SCM_UNSPECIFIED;
 }

@@ -651,18 +651,18 @@ set_element (fd_set *set, SCM *ports_ready, SCM element, int pos)
       if (pos == SCM_ARG1)
 	{
 	  /* check whether port has buffered input.  */
-	  scm_t_port *pt = SCM_PTAB_ENTRY (element);
+	  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (element);
       
-	  if (scm_port_buffer_can_take (pt->read_buf) > 0)
+	  if (scm_port_buffer_can_take (pti->read_buf) > 0)
 	    use_buf = 1;
 	}
       else if (pos == SCM_ARG2)
 	{
 	  /* check whether port's output buffer has room.  */
-	  scm_t_port *pt = SCM_PTAB_ENTRY (element);
+	  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (element);
 
 	  /* > 1 since writing the last byte in the buffer causes flush.  */
-	  if (scm_port_buffer_can_put (pt->write_buf) > 1)
+	  if (scm_port_buffer_can_put (pti->write_buf) > 1)
 	    use_buf = 1;
 	}
       fd = use_buf ? -1 : SCM_FPORT_FDES (element);
