@@ -81,9 +81,6 @@ enum scm_port_buffer_field {
 
 typedef struct 
 {
-  /* Link back to the port object.  */
-  SCM port;
-
   /* Pointer to internal-only port structure. */
   struct scm_port_internal *internal;
 

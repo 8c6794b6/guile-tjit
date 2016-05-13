@@ -735,7 +735,6 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
 
   entry->internal = pti;
   entry->file_name = SCM_BOOL_F;
-  entry->port = ret;
   entry->stream = stream;
   entry->encoding = encoding;
   entry->conversion_strategy = conversion_strategy;
@@ -2455,7 +2454,7 @@ scm_fill_input (SCM port, size_t minimum_size)
     return read_buf;
 
   if (pt->rw_random)
-    scm_flush (pt->port);
+    scm_flush (port);
 
   /* Prepare to read.  Make sure there is enough space in the buffer for
      minimum_size, and ensure that cur is zero so that we fill towards
@@ -2874,8 +2873,8 @@ SCM_DEFINE (scm_seek, "seek", 3, 0, 0,
       /* FIXME: Avoid flushing buffers for SEEK_CUR with an offset of
          0.  */
 
-      scm_end_input (pt->port);
-      scm_flush (pt->port);
+      scm_end_input (fd_port);
+      scm_flush (fd_port);
 
       rv = ptob->seek (fd_port, off, how);
 
