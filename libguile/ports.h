@@ -191,6 +191,7 @@ typedef struct scm_t_ptob_descriptor
 
   void (*get_natural_buffer_sizes) (SCM port, size_t *read_size,
                                     size_t *write_size);
+  int (*random_access_p) (SCM port);
 
   int (*input_waiting) (SCM port);
 
@@ -230,6 +231,8 @@ SCM_API void scm_set_port_truncate (scm_t_bits tc,
 SCM_API void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM));
 SCM_API void scm_set_port_get_natural_buffer_sizes
   (scm_t_bits tc, void (*get_natural_buffer_sizes) (SCM, size_t *, size_t *));
+SCM_API void scm_set_port_random_access_p (scm_t_bits tc,
+                                           int (*random_access_p) (SCM port));
 
 /* The input, output, error, and load ports.  */
 SCM_API SCM scm_current_input_port (void);

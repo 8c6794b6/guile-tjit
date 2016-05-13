@@ -2263,71 +2263,19 @@ interface works internally.
 @cindex ptob
 @tindex scm_t_ptob_descriptor
 @tindex scm_t_port
-@tindex scm_t_port_buffer
 @findex SCM_PTAB_ENTRY
 @findex SCM_PTOBNUM
 @vindex scm_ptobs
-Guile's port facility consists of three main data structures.  A port
-type object (ptob) is of type @code{scm_t_ptob_descriptor}, and holds
-pointers to the methods that implement the port type.  A port instance
-is of type @code{scm_t_port}, and holds all state for the port.  Finally
-the read and write buffers are the @code{read_buf} and @code{write_buf}
-members of the port instance, and are of type @code{scm_t_port_buffer}.
+Guile's port facility consists of two main data types: port type objects
+and port instances.  A port type object (or @dfn{ptob}) is of type
+@code{scm_t_ptob_descriptor}, and holds pointers to the methods that
+implement the port type.  A port instance is of type @code{scm_t_port},
+and holds all state for the port.
 
 Given an @code{SCM} variable which points to a port, the corresponding C
 port object can be obtained using the @code{SCM_PTAB_ENTRY} macro.  The
 ptob can be obtained by using @code{SCM_PTOBNUM} to give an index into
 the @code{scm_ptobs} global array.
-
-@subsubheading Port buffers
-
-An input port always has a read buffer and an output port always has a
-write buffer.  @xref{Buffering}.  These buffers are represented in C by
-@code{scm_t_port_buffer} objects. 
-
-The port buffer consists of data as a byte array, pointed to by its
-@code{buf} field.  The valid data in the buffer is between the
-@code{cur} and @code{end} indices into @code{buf}; @code{cur} must
-always be less than or equal to @code{end}, which in turn must be less
-than or equal to the buffer size @code{size}.  The @code{buf} pointer is
-actually a pointer to the start of a bytevector, stored in the
-@code{bytevector} member.  Using bytevectors to back port buffers allows
-Scheme to manipulate these buffers.
-
-``Valid data'' for a read buffer is data that has been buffered, but not
-yet read by the user.  A port's @code{read} procedure fills a read
-buffer from the @code{end} element.  For a write buffer, the ``valid
-data'' is data which has been written by the user, but not yet flushed
-to the mutable store.  A port's @code{write} procedure will consume the
-data between @code{cur} and @code{end} (not including @code{end}) and
-advance @code{cur}.
-
-The size of the buffers is controlled by the user, via @code{setvbuf}.
-A port implementation can provide an idea of what the ``natural'' size
-for its buffers are, but it has no guarantee that the buffer will be
-those sizes.  It's also possible for big reads or writes to work on
-auxiliary buffers, and it's possible for @code{unget-bytevector} to
-cause a read buffer to expand temporarily; port implementations can't
-assume that the buffer they have been given to fill or empty corresponds
-to the port's designated read or write buffer.
-
-Port read buffers also have a flag indicating that the last read did not
-advance @code{end}, which indicates end-of-stream.  It is cleared by
-Guile when Guile gives the user an EOF object.
-
-@subsubheading The @code{rw_random} flag
-
-Special treatment is required for ports which can be seeked at random.
-Before various operations, such as seeking the port or changing from
-input to output on a bidirectional port or vice versa.  Seeking on a
-port with buffered input, or switching to writing after reading, will
-cause the buffered input to be discarded and Guile will seek the port
-back the buffered number of bytes.  Likewise seeking on a port with
-buffered output, or switching to reading after writing, will flush
-pending bytes with a call to the @code{write} procedure.  Indicate to
-Guile that your port needs this behavior by setting the @code{rw_random}
-flag.  This flag is set by default if the port type supplies a seek
-implementation.
 
 @subsubheading C interface
 
@@ -2403,6 +2351,46 @@ before hand, as appropriate.  Set using
 @deftypefun void scm_set_port_truncate (scm_t_bits tc, void (*truncate) (SCM port, scm_t_off length))
 @end deftypefun
 
+@item random_access_p
+Determine whether this port is a random-access port.
+
+@cindex random access
+Seeking on a random-access port with buffered input, or switching to
+writing after reading, will cause the buffered input to be discarded and
+Guile will seek the port back the buffered number of bytes.  Likewise
+seeking on a random-access port with buffered output, or switching to
+reading after writing, will flush pending bytes with a call to the
+@code{write} procedure.  @xref{Buffering}.
+
+Indicate to Guile that your port needs this behavior by returning a
+nonzero value from your @code{random_access_p} function.  The default
+implementation of this function returns nonzero if the port type
+supplies a seek implementation.
+
+@deftypefun void scm_set_port_random_access_p (scm_t_bits tc, int (*random_access_p) (SCM port));
+@end deftypefun
+
+@item get_natural_buffer_sizes
+Guile will internally attach buffers to ports.  An input port always has
+a read buffer and an output port always has a write buffer.
+@xref{Buffering}.  A port buffer consists of a bytevector, along with
+some cursors into that bytevector denoting where to get and put data.
+
+Port implementations generally don't have to be concerned with
+buffering: a port type's @code{read} or @code{write} function will
+receive the buffer's bytevector as an argument, along with an offset and
+a length into that bytevector, and should then either fill or empty that
+bytevector.  However in some cases, port implementations may be able to
+provide an appropriate default buffer size to Guile.
+
+@deftypefun void scm_set_port_get_natural_buffer_sizes @
+  (scm_t_bits tc, void (*get_natural_buffer_sizes) (SCM, size_t *read_buf_size, size_t *write_buf_size))
+Fill in @var{read_buf_size} and @var{write_buf_size} with an appropriate buffer size for this port, if one is known.
+@end deftypefun
+
+File ports implement a @code{get_natural_buffer_sizes} to let the
+operating system inform Guile about the appropriate buffer sizes for the
+particular file opened by the port.
 @end table
 
 @node BOM Handling

@@ -418,7 +418,6 @@ scm_i_fdes_to_port (int fdes, long mode_bits, SCM name)
 
   port = scm_c_make_port (scm_tc16_fport, mode_bits, (scm_t_bits)fp);
   
-  SCM_PTAB_ENTRY (port)->rw_random = SCM_FDES_RANDOM_P (fdes);
   SCM_SET_FILENAME (port, name);
 
   return port;
@@ -639,6 +638,12 @@ fport_close (SCM port)
     scm_syserror ("fport_close");
 }
 
+static int
+fport_random_access_p (SCM port)
+{
+  return SCM_FDES_RANDOM_P (SCM_FSTREAM (port)->fdes);
+}
+
 /* Query the OS to get the natural buffering for FPORT, if available.  */
 static void
 fport_get_natural_buffer_sizes (SCM port, size_t *read_size, size_t *write_size)
@@ -663,6 +668,7 @@ scm_make_fptob ()
   scm_set_port_seek                     (tc, fport_seek);
   scm_set_port_truncate                 (tc, fport_truncate);
   scm_set_port_input_waiting            (tc, fport_input_waiting);
+  scm_set_port_random_access_p          (tc, fport_random_access_p);
   scm_set_port_get_natural_buffer_sizes (tc, fport_get_natural_buffer_sizes);
 
   return tc;

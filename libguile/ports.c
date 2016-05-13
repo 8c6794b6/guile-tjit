@@ -196,6 +196,12 @@ scm_c_port_type_add_x (scm_t_ptob_descriptor *desc)
 static SCM trampoline_to_c_read_subr;
 static SCM trampoline_to_c_write_subr;
 
+static int
+default_random_access_p (SCM port)
+{
+  return SCM_PORT_DESCRIPTOR (port)->seek != NULL;
+}
+
 scm_t_bits
 scm_make_port_type (char *name,
                     size_t (*read) (SCM port, SCM dst, size_t start,
@@ -215,6 +221,7 @@ scm_make_port_type (char *name,
   desc->c_write = write;
   desc->scm_read = read ? trampoline_to_c_read_subr : SCM_BOOL_F;
   desc->scm_write = write ? trampoline_to_c_write_subr : SCM_BOOL_F;
+  desc->random_access_p = default_random_access_p;
 
   ptobnum = scm_c_port_type_add_x (desc);
 
@@ -331,6 +338,13 @@ void
 scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM))
 {
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->input_waiting = input_waiting;
+}
+
+void
+scm_set_port_random_access_p (scm_t_bits tc, int (*random_access_p) (SCM))
+{
+  scm_t_ptob_descriptor *ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
+  ptob->random_access_p = random_access_p;
 }
 
 void
@@ -721,9 +735,6 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
 
   entry->internal = pti;
   entry->file_name = SCM_BOOL_F;
-  /* By default, any port type with a seek function has random-access
-     ports.  */
-  entry->rw_random = ptob->seek != NULL;
   entry->port = ret;
   entry->stream = stream;
   entry->encoding = encoding;
@@ -742,6 +753,8 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
     }
 
   initialize_port_buffers (ret);
+
+  entry->rw_random = ptob->random_access_p (ret);
 
   return ret;
 }
