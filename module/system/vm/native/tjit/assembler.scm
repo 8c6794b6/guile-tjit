@@ -1576,16 +1576,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                     (fpr->gpr (gpr dst) f0))
                    (else
                     (jit-movi (gpr dst) (constant src))))))
-         ((gpr)
-          (cond
-           ;; XXX: Workaround for Lightning, force to emit `(move %rsi %rcx)'.
-           ((and (= (ref-value dst) 6)
-                 (= (ref-value src) 4))
-            (let ((tmp-offset (volatile-offset '(gpr . 7))))
-              (jit-movr r0 (gpr src))
-              (jit-movr (gpr dst) r0)))
-           (else
-            (jit-movr (gpr dst) (gpr src)))))
+         ((gpr) (jit-movr (gpr dst) (gpr src)))
          ((fpr) (fpr->gpr (gpr dst) (fpr src)))
          ((mem) (memory-ref (gpr dst) src))
          (else (err))))
