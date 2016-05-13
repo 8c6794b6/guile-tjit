@@ -83,16 +83,9 @@ scm_i_evict_port (void *closure, SCM port)
 {
   int fd = * (int*) closure;
 
-  if (SCM_FPORTP (port))
+  if (SCM_OPFPORTP (port))
     {
-      scm_t_port *p;
-      scm_t_fport *fp;
-
-      /* XXX: In some cases, we can encounter a port with no associated ptab
-	 entry.  */
-      p = SCM_PTAB_ENTRY (port);
-      fp = (p != NULL) ? (scm_t_fport *) p->stream : NULL;
-
+      scm_t_fport *fp = SCM_FSTREAM (port);
       if ((fp != NULL) && (fp->fdes == fd))
 	{
 	  fp->fdes = dup (fd);

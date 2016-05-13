@@ -276,10 +276,8 @@ static SCM
 get_matching_port (void *closure, SCM port, SCM result)
 {
   int fd = * (int *) closure;
-  scm_t_port *entry = SCM_PTAB_ENTRY (port);
   
-  if (SCM_OPFPORTP (port)
-      && ((scm_t_fport *) entry->stream)->fdes == fd)
+  if (SCM_OPFPORTP (port) && SCM_FSTREAM (port)->fdes == fd)
     result = scm_cons (port, result);
 
   return result;

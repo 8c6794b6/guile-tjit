@@ -55,7 +55,7 @@
 #include "libguile/strings.h"
 #include "libguile/mallocs.h"
 #include "libguile/validate.h"
-#include "libguile/ports.h"
+//#include "libguile/ports.h"
 #include "libguile/ports-internal.h"
 #include "libguile/vectors.h"
 #include "libguile/weak-set.h"
@@ -716,28 +716,26 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
                                scm_t_bits stream)
 {
   SCM ret;
-  scm_t_port *entry;
-  scm_t_port_internal *pti;
+  scm_t_port *pt;
   scm_t_ptob_descriptor *ptob;
 
-  pti = scm_gc_typed_calloc (scm_t_port_internal);
-  entry = &pti->pt;
+  pt = scm_gc_typed_calloc (scm_t_port);
   ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tag));
 
-  ret = scm_words (tag | mode_bits, 3);
-  SCM_SET_CELL_WORD_1 (ret, (scm_t_bits) entry);
-  SCM_SET_CELL_WORD_2 (ret, (scm_t_bits) ptob);
+  ret = scm_words (tag | mode_bits, 4);
+  SCM_SET_CELL_WORD_1 (ret, stream);
+  SCM_SET_CELL_WORD_2 (ret, (scm_t_bits) pt);
+  SCM_SET_CELL_WORD_3 (ret, (scm_t_bits) ptob);
 
-  entry->stream = stream;
-  entry->encoding = encoding;
-  entry->conversion_strategy = conversion_strategy;
-  pti->file_name = SCM_BOOL_F;
-  pti->iconv_descriptors = NULL;
+  pt->encoding = encoding;
+  pt->conversion_strategy = conversion_strategy;
+  pt->file_name = SCM_BOOL_F;
+  pt->iconv_descriptors = NULL;
 
-  pti->at_stream_start_for_bom_read  = 1;
-  pti->at_stream_start_for_bom_write = 1;
+  pt->at_stream_start_for_bom_read  = 1;
+  pt->at_stream_start_for_bom_write = 1;
 
-  pti->alist = SCM_EOL;
+  pt->alist = SCM_EOL;
 
   if (SCM_PORT_DESCRIPTOR (ret)->flags & SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC)
     {
@@ -747,7 +745,7 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
 
   initialize_port_buffers (ret);
 
-  pti->rw_random = ptob->random_access_p (ret);
+  pt->rw_random = ptob->random_access_p (ret);
 
   return ret;
 }
@@ -3098,7 +3096,7 @@ scm_port_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
   scm_print_port_mode (exp, port);
   scm_puts (type, port);
   scm_putc (' ', port);
-  scm_uintprint (SCM_CELL_WORD_1 (exp), 16, port);
+  scm_uintprint ((scm_t_bits) SCM_PTAB_ENTRY (exp), 16, port);
   scm_putc ('>', port);
   return 1;
 }

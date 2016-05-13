@@ -231,14 +231,6 @@ scm_port_buffer_putback (SCM buf, const scm_t_uint8 *src, size_t count)
            src, count);
 }
 
-enum scm_port_encoding_mode {
-  SCM_PORT_ENCODING_MODE_UTF8,
-  SCM_PORT_ENCODING_MODE_LATIN1,
-  SCM_PORT_ENCODING_MODE_ICONV
-};
-
-typedef enum scm_port_encoding_mode scm_t_port_encoding_mode;
-
 /* This is a separate object so that only those ports that use iconv
    cause finalizers to be registered.  */
 struct scm_iconv_descriptors
@@ -257,10 +249,8 @@ struct scm_iconv_descriptors
 
 typedef struct scm_iconv_descriptors scm_t_iconv_descriptors;
 
-struct scm_port_internal
+struct scm_port
 {
-  scm_t_port pt;
-
   /* Source location information.  */
   SCM file_name;
   long line_number;
@@ -284,13 +274,21 @@ struct scm_port_internal
      and so on.  */
   int rw_random;
 
+  /* Character encoding support.  */
+  SCM encoding;  /* A symbol of upper-case ASCII.  */
+  SCM conversion_strategy; /* A symbol; either substitute, error, or escape.  */
+
   unsigned at_stream_start_for_bom_read  : 1;
   unsigned at_stream_start_for_bom_write : 1;
   scm_t_iconv_descriptors *iconv_descriptors;
   SCM alist;
 };
 
-typedef struct scm_port_internal scm_t_port_internal;
+typedef struct scm_port scm_t_port;
+typedef scm_t_port scm_t_port_internal;
+
+#define SCM_PTAB_ENTRY(x)         ((scm_t_port *) SCM_CELL_WORD_2 (x))
+#define SCM_PORT_DESCRIPTOR(port) ((scm_t_ptob_descriptor *) SCM_CELL_WORD_3 (port))
 
 #define SCM_UNICODE_BOM  0xFEFFUL  /* Unicode byte-order mark */
 

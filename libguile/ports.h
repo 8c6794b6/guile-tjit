@@ -41,22 +41,6 @@
 
 
 
-/* An internal-only structure defined in ports-internal.h. */
-struct scm_port_internal;
-
-/* C representation of a Scheme port.  */
-
-typedef struct 
-{
-  /* Data for the underlying port implementation as a raw C value.  */
-  scm_t_bits stream;
-
-  /* Character encoding support.  */
-  SCM encoding;  /* A symbol of upper-case ASCII.  */
-  SCM conversion_strategy; /* A symbol; either substitute, error, or escape.  */
-} scm_t_port;
-
-
 SCM_INTERNAL SCM scm_i_port_weak_set;
 
 
@@ -86,11 +70,9 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 #define SCM_CLR_PORT_OPEN_FLAG(p) \
   SCM_SET_CELL_WORD_0 ((p), SCM_CELL_WORD_0 (p) & ~SCM_OPN)
 
-#define SCM_PTAB_ENTRY(x)         ((scm_t_port *) SCM_CELL_WORD_1 (x))
-#define SCM_PORT_DESCRIPTOR(port) ((scm_t_ptob_descriptor *) SCM_CELL_WORD_2 (port))
-#define SCM_SETPTAB_ENTRY(x, ent)  (SCM_SET_CELL_WORD_1 ((x), (scm_t_bits) (ent)))
-#define SCM_STREAM(x)             (SCM_PTAB_ENTRY(x)->stream)
-#define SCM_SETSTREAM(x, s)        (SCM_PTAB_ENTRY(x)->stream = (scm_t_bits) (s))
+#define SCM_STREAM(port) (SCM_CELL_WORD_1 (port))
+#define SCM_SETSTREAM(port, stream) (SCM_SET_CELL_WORD_1 (port, stream))
+
 /* Maximum number of port types.  */
 #define SCM_I_MAX_PORT_TYPE_COUNT  256
 
