@@ -727,10 +727,10 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   SCM_SET_CELL_WORD_1 (ret, (scm_t_bits) entry);
   SCM_SET_CELL_WORD_2 (ret, (scm_t_bits) ptob);
 
-  entry->file_name = SCM_BOOL_F;
   entry->stream = stream;
   entry->encoding = encoding;
   entry->conversion_strategy = conversion_strategy;
+  pti->file_name = SCM_BOOL_F;
   pti->iconv_descriptors = NULL;
 
   pti->at_stream_start_for_bom_read  = 1;
@@ -3017,7 +3017,7 @@ SCM_DEFINE (scm_set_port_line_x, "set-port-line!", 2, 0, 0,
 {
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
-  SCM_PTAB_ENTRY (port)->line_number = scm_to_long (line);
+  SCM_PORT_GET_INTERNAL (port)->line_number = scm_to_long (line);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -3048,7 +3048,7 @@ SCM_DEFINE (scm_set_port_column_x, "set-port-column!", 2, 0, 0,
 {
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
-  SCM_PTAB_ENTRY (port)->column_number = scm_to_int (column);
+  SCM_PORT_GET_INTERNAL (port)->column_number = scm_to_int (column);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME

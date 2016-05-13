@@ -84,11 +84,6 @@ typedef struct
   /* Data for the underlying port implementation as a raw C value.  */
   scm_t_bits stream;
 
-  /* Source location information.  */
-  SCM file_name;
-  long line_number;
-  int column_number;
-
   /* Port buffers.  */
   SCM read_buf;
   SCM write_buf;
@@ -147,17 +142,6 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 #define SCM_SETPTAB_ENTRY(x, ent)  (SCM_SET_CELL_WORD_1 ((x), (scm_t_bits) (ent)))
 #define SCM_STREAM(x)             (SCM_PTAB_ENTRY(x)->stream)
 #define SCM_SETSTREAM(x, s)        (SCM_PTAB_ENTRY(x)->stream = (scm_t_bits) (s))
-#define SCM_FILENAME(x)           (SCM_PTAB_ENTRY(x)->file_name)
-#define SCM_SET_FILENAME(x, n)    (SCM_PTAB_ENTRY(x)->file_name = (n))
-#define SCM_LINUM(x)              (SCM_PTAB_ENTRY(x)->line_number)
-#define SCM_COL(x)                (SCM_PTAB_ENTRY(x)->column_number)
-
-#define SCM_INCLINE(port)  	do {SCM_LINUM (port) += 1; SCM_COL (port) = 0;} while (0)
-#define SCM_ZEROCOL(port)  	do {SCM_COL (port) = 0;} while (0)
-#define SCM_INCCOL(port)  	do {SCM_COL (port) += 1;} while (0)
-#define SCM_DECCOL(port)  	do {if (SCM_COL (port) > 0) SCM_COL (port) -= 1;} while (0)
-#define SCM_TABCOL(port)  	do {SCM_COL (port) += 8 - SCM_COL (port) % 8;} while (0)
-
 /* Maximum number of port types.  */
 #define SCM_I_MAX_PORT_TYPE_COUNT  256
 

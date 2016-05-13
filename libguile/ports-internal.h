@@ -227,6 +227,12 @@ typedef struct scm_iconv_descriptors scm_t_iconv_descriptors;
 struct scm_port_internal
 {
   scm_t_port pt;
+
+  /* Source location information.  */
+  SCM file_name;
+  long line_number;
+  int column_number;
+
   unsigned at_stream_start_for_bom_read  : 1;
   unsigned at_stream_start_for_bom_write : 1;
   scm_t_iconv_descriptors *iconv_descriptors;
@@ -238,6 +244,17 @@ typedef struct scm_port_internal scm_t_port_internal;
 #define SCM_UNICODE_BOM  0xFEFFUL  /* Unicode byte-order mark */
 
 #define SCM_PORT_GET_INTERNAL(x)  ((scm_t_port_internal*) SCM_PTAB_ENTRY(x))
+
+#define SCM_FILENAME(x)           (SCM_PORT_GET_INTERNAL(x)->file_name)
+#define SCM_SET_FILENAME(x, n)    (SCM_PORT_GET_INTERNAL(x)->file_name = (n))
+#define SCM_LINUM(x)              (SCM_PORT_GET_INTERNAL(x)->line_number)
+#define SCM_COL(x)                (SCM_PORT_GET_INTERNAL(x)->column_number)
+
+#define SCM_INCLINE(port)  	do {SCM_LINUM (port) += 1; SCM_COL (port) = 0;} while (0)
+#define SCM_ZEROCOL(port)  	do {SCM_COL (port) = 0;} while (0)
+#define SCM_INCCOL(port)  	do {SCM_COL (port) += 1;} while (0)
+#define SCM_DECCOL(port)  	do {if (SCM_COL (port) > 0) SCM_COL (port) -= 1;} while (0)
+#define SCM_TABCOL(port)  	do {SCM_COL (port) += 8 - SCM_COL (port) % 8;} while (0)
 
 typedef enum scm_t_port_rw_active {
   SCM_PORT_NEITHER = 0,
