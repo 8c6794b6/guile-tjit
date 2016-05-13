@@ -1767,7 +1767,7 @@ scm_from_port_string (const char *str, SCM port)
 SCM
 scm_from_port_stringn (const char *str, size_t len, SCM port)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port *pt = SCM_PORT (port);
 
   if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
     return scm_from_latin1_stringn (str, len);
@@ -2175,7 +2175,7 @@ scm_to_port_string (SCM str, SCM port)
 char *
 scm_to_port_stringn (SCM str, size_t *lenp, SCM port)
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port *pt = SCM_PORT (port);
 
   if (scm_is_eq (pt->encoding, sym_ISO_8859_1)
       && scm_is_eq (pt->conversion_strategy, sym_error))

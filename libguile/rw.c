@@ -236,7 +236,7 @@ SCM_DEFINE (scm_write_string_partial, "write-string/partial", 1, 3, 0,
 
       SCM_VALIDATE_OPFPORT (2, port);
       SCM_VALIDATE_OUTPUT_PORT (2, port);
-      write_buf = SCM_PORT_GET_INTERNAL (port)->write_buf;
+      write_buf = SCM_PORT (port)->write_buf;
 
       /* Filling the last character in the buffer would require a
          flush.  */

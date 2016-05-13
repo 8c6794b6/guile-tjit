@@ -1059,7 +1059,7 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
       return (SCM_MAKE_CHAR (chr));
     }
 
-  pt = SCM_PTAB_ENTRY (port);
+  pt = SCM_PORT (port);
 
   /* Simple ASCII characters can be processed immediately.  Also, simple
      ISO-8859-1 characters can be processed immediately if the encoding for this
@@ -2057,7 +2057,7 @@ is_encoding_char (char c)
 char *
 scm_i_scan_for_encoding (SCM port)
 {
-  scm_t_port_internal *pti;
+  scm_t_port *pt;
   SCM buf;
   char header[SCM_ENCODING_SEARCH_SIZE+1];
   size_t bytes_read, encoding_length, i;
@@ -2065,10 +2065,10 @@ scm_i_scan_for_encoding (SCM port)
   char *pos, *encoding_start;
   int in_comment;
 
-  pti = SCM_PORT_GET_INTERNAL (port);
-  buf = pti->read_buf;
+  pt = SCM_PORT (port);
+  buf = pt->read_buf;
 
-  if (pti->rw_random)
+  if (pt->rw_random)
     scm_flush (port);
 
   if (scm_port_buffer_can_take (buf) == 0)

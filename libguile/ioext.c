@@ -91,20 +91,19 @@ SCM_DEFINE (scm_redirect_port, "redirect-port", 2, 0, 0,
          buffers.  */
       if (SCM_OUTPUT_PORT_P (old))
         scm_flush (old);
-      if (SCM_INPUT_PORT_P (old) && SCM_PORT_GET_INTERNAL (old)->rw_random)
+      if (SCM_INPUT_PORT_P (old) && SCM_PORT (old)->rw_random)
         scm_end_input (old);
 
       if (SCM_OUTPUT_PORT_P (new))
         scm_flush (new);
-      if (SCM_INPUT_PORT_P (new) && SCM_PORT_GET_INTERNAL (new)->rw_random)
+      if (SCM_INPUT_PORT_P (new) && SCM_PORT (new)->rw_random)
         scm_end_input (new);
 
       ans = dup2 (oldfd, newfd);
       if (ans == -1)
 	SCM_SYSERROR;
 
-      SCM_PORT_GET_INTERNAL (new)->rw_random =
-        SCM_PORT_GET_INTERNAL (old)->rw_random;
+      SCM_PORT (new)->rw_random = SCM_PORT (old)->rw_random;
     }
   return SCM_UNSPECIFIED;
 }

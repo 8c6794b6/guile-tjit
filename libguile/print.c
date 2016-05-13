@@ -1126,7 +1126,7 @@ display_string (const void *str, int narrow_p,
 {
   scm_t_port *pt;
 
-  pt = SCM_PTAB_ENTRY (port);
+  pt = SCM_PORT (port);
 
   if (scm_is_eq (pt->encoding, sym_UTF_8))
     return display_string_as_utf8 (str, narrow_p, len, port);
