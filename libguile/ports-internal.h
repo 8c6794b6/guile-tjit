@@ -27,6 +27,37 @@
 #include "libguile/_scm.h"
 #include "libguile/ports.h"
 
+typedef enum scm_t_port_type_flags {
+  /* Indicates that the port should be closed if it is garbage collected
+     while it is open.  */
+  SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC = 1 << 0
+} scm_t_port_type_flags;
+
+/* port-type description.  */
+struct scm_t_ptob_descriptor
+{
+  char *name;
+  int (*print) (SCM exp, SCM port, scm_print_state *pstate);
+
+  size_t (*c_read) (SCM port, SCM dst, size_t start, size_t count);
+  size_t (*c_write) (SCM port, SCM src, size_t start, size_t count);
+  SCM scm_read;
+  SCM scm_write;
+
+  scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
+  void (*close) (SCM port);
+
+  void (*get_natural_buffer_sizes) (SCM port, size_t *read_size,
+                                    size_t *write_size);
+  int (*random_access_p) (SCM port);
+
+  int (*input_waiting) (SCM port);
+
+  void (*truncate) (SCM port, scm_t_off length);
+
+  unsigned flags;
+};
+
 /* Port buffers.
 
    It's important to avoid calling into the kernel too many times.  For

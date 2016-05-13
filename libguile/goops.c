@@ -40,6 +40,7 @@
 #include "libguile/macros.h"
 #include "libguile/modules.h"
 #include "libguile/ports.h"
+#include "libguile/ports-internal.h"
 #include "libguile/procprop.h"
 #include "libguile/programs.h"
 #include "libguile/smob.h"
