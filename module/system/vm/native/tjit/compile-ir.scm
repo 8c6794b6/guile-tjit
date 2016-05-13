@@ -188,16 +188,15 @@ Currently does nothing, returns the given argument."
          (initial-locals (list-ref initial-trace 4))
          (initial-nlocals (vector-length initial-locals))
          (initial-inline-depth (env-inline-depth env))
-         (initial-write-indices (env-write-indices env))
          (initial-sp-offset (env-sp-offset env))
          (initial-fp-offset (env-fp-offset env))
          (snapshots (make-hash-table))
          (snapshot-id 0)
          (loaded-vars (make-hash-table)))
-    (define (initial-snapshot! vars)
+    (define (initial-snapshot! write-indices vars)
       (let-values (((ret snapshot)
                     (take-snapshot initial-ip 0 initial-locals
-                                   vars initial-write-indices snapshot-id
+                                   vars write-indices snapshot-id
                                    initial-sp-offset initial-fp-offset
                                    (min initial-sp-offset 0)
                                    initial-inline-depth env)))
@@ -207,20 +206,13 @@ Currently does nothing, returns the given argument."
     (define (get-live-vars storage snapshot)
       (let* ((parent-snapshot-vars (snapshot-variables snapshot))
              (parent-live-vars
-              (map make-var (snapshot-live-indices snapshot))))
-        (hash-fold (lambda (k v acc)
-                     (if (and (memq v parent-snapshot-vars)
-                              (not (memq k acc)))
-                         (cons k acc)
-                         acc))
-                   parent-live-vars storage)))
-    (define-syntax-rule (update-inferred-types! ini-srcs)
-      (let lp ((srcs ini-srcs) (dsts (env-inferred-types env)))
-        (match srcs
-          (((n . ty) . srcs)
-           (lp srcs (assq-set! dsts n ty)))
-          (()
-           (set-env-inferred-types! env dsts)))))
+              (map make-var (snapshot-live-indices snapshot)))
+             (f (lambda (k v acc)
+                  (if (and (memq v parent-snapshot-vars)
+                           (not (memq k acc)))
+                      (cons k acc)
+                      acc))))
+        (hash-fold f parent-live-vars storage)))
     (define (make-anf)
       (let ((emit (lambda ()
                     (let ((ir (make-ir snapshots snapshot-id vars
@@ -231,37 +223,67 @@ Currently does nothing, returns the given argument."
                       (set-env-sp-offset! env sp)
                       (set-env-fp-offset! env fp)
                       (trace->anf env ir trace)))))
-        ;; Update inferred types with entry types. All guards for entry types
-        ;; have passed at this point.
-        (update-inferred-types! (env-entry-types env))
         (cond
          ((env-parent-snapshot env)     ; Side trace.
-          ;; Side trace updates inferred type with locals from parent
-          ;; snapshot. Update is done before invoking `initial-snapshot!', since
-          ;; snapshot creation will refer inferred types in env.
           => (lambda (parent-snapshot)
                (let* ((parent-fragment (env-parent-fragment env))
+                      (parent-locals (snapshot-locals parent-snapshot))
+                      (parent-inferred-types
+                       (snapshot-inferred-types parent-snapshot))
                       (live-vars-in-parent
                        (get-live-vars (fragment-storage parent-fragment)
                                       parent-snapshot))
+                      (indices-from-parent
+                       (map car (snapshot-locals parent-snapshot)))
                       (vars-from-parent
                        (filter (match-lambda
                                  ((_ . var) (memq var live-vars-in-parent)))
                                vars))
                       (args-from-parent (reverse (map cdr vars-from-parent)))
-                      (_ (update-inferred-types!
-                          (snapshot-locals parent-snapshot)))
-                      (snap0 (initial-snapshot! vars-from-parent))
+                      (min-sp initial-sp-offset)
+                      (max-sp (- (+ initial-sp-offset initial-nlocals) 1))
+                      (make-snap0
+                       (lambda ()
+                         (initial-snapshot! indices-from-parent
+                                            vars-from-parent)))
                       (patch-body
                        (lambda ()
                          (add-initial-loads env snapshots initial-locals
                                             initial-sp-offset parent-snapshot
                                             vars live-vars-in-parent
                                             loaded-vars emit))))
-                 `(letrec ((patch (lambda ,args-from-parent
-                                    (let ((_ ,snap0))
-                                      ,(patch-body)))))
-                    patch))))
+
+                 ;; Side trace updates inferred type with locals from parent
+                 ;; snapshot. Update is done before creating initial snapshot,
+                 ;; since snapshot creation will refer inferred types in env.
+                 (let lp ((srcs (env-entry-types env))
+                          (dsts (env-inferred-types env)))
+                   (match srcs
+                     (((n . t) . srcs)
+                      (lp srcs (assq-set! dsts n t)))
+                     (()
+                      (let lp ((srcs parent-inferred-types)
+                               (dsts dsts))
+                        (match srcs
+                          (((n . t) . srcs)
+                           (let* ((t (if (and (<= min-sp n max-sp)
+                                              (not (dynamic-link? t))
+                                              (not (return-address? t))
+                                              (not (eq? &undefined t))
+                                              (not (eq? &false t)))
+                                         t
+                                         (assq-ref parent-locals n)))
+                                  (dsts (if t
+                                            (assq-set! dsts n t)
+                                            dsts)))
+                             (lp srcs dsts)))
+                          (()
+                           (set-env-inferred-types! env dsts)
+                           `(letrec ((patch (lambda ,args-from-parent
+                                              (let ((_ ,(make-snap0)))
+                                                ,(patch-body)))))
+                              patch))))))))))
+
          (else ; Root trace.
           ;; Root trace takes snapshot 0, used to emit bailout code without
           ;; stack element update. Snapshot 0 is saved to snapshots as usual,
@@ -270,14 +292,13 @@ Currently does nothing, returns the given argument."
                                         (<= 0 n (- initial-nlocals 1)))
                                       (reverse local-indices)))
                  (args (map make-var (reverse local-indices)))
+                 (indices (env-write-indices env))
                  (thunk (lambda ()
-                          (let ((snap1 (initial-snapshot! vars)))
+                          (let ((snap1 (initial-snapshot! indices vars)))
                             `(let ((_ ,snap1))
                                (loop ,@args)))))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
                                        env initial-ip 0))
-                 (_ (hashq-set! snapshots 0 snap0))
-                 (_ (set! snapshot-id (+ snapshot-id 1)))
                  (live-indices (if (env-uprec? env)
                                    (filter (lambda (n)
                                              (<= 0 n (- initial-nlocals 1)))
@@ -299,13 +320,26 @@ Currently does nothing, returns the given argument."
                       (set-env-loop-vars! env vars)
                       (set-env-loop-locals! env locals)
                       (emit)))))
-            (set-env-live-indices! env live-indices)
-            `(letrec ((entry (lambda ()
-                               (let ((_ (%snap 0)))
-                                 ,(entry-body))))
-                      (loop (lambda ,args
-                              ,(loop-body))))
-               entry))))))
+
+            ;; Update inferred types with entry types. All guards for entry
+            ;; types have passed at this point. Then update snapshots, snapshot
+            ;; id, live indices.
+            (let lp ((srcs (env-entry-types env))
+                     (dsts (env-inferred-types env)))
+              (match srcs
+                (((n . t) . srcs)
+                 (lp srcs (assq-set! dsts n t)))
+                (()
+                 (set-env-inferred-types! env dsts)
+                 (set-env-live-indices! env live-indices)
+                 (hashq-set! snapshots 0 snap0)
+                 (set! snapshot-id (+ snapshot-id 1))
+                 `(letrec ((entry (lambda ()
+                                    (let ((_ (%snap 0)))
+                                      ,(entry-body))))
+                           (loop (lambda ,args
+                                   ,(loop-body))))
+                    entry)))))))))
 
     (values vars snapshots (make-anf))))
 

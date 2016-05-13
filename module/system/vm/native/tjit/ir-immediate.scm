@@ -35,7 +35,9 @@
   #:use-module (system vm native tjit types))
 
 (define-scan (make-short-immediate dst low-bits)
-  (set-scan-initial-fields! env))
+  (let ((sp-offset (env-sp-offset env)))
+    (set-entry-type! env (+ dst sp-offset) &any)
+    (set-scan-initial-fields! env)))
 
 (define-ti (make-short-immediate dst low-bits)
   (let* ((sp-offset (env-sp-offset env))
@@ -61,11 +63,9 @@
      ,(next)))
 
 (define-scan (static-ref dst offset)
-  (set-scan-initial-fields! env)
-  ;; (let ((sp-offset (env-sp-offset env)))
-  ;;   (set-entry-type! env (+ dst sp-offset) &any)
-  ;;   (set-scan-initial-fields! env))
-  )
+  (let ((sp-offset (env-sp-offset env)))
+    (set-entry-type! env (+ dst sp-offset) &any)
+    (set-scan-initial-fields! env)))
 
 (define-ti (static-ref dst offset)
   (let* ((sp-offset (env-sp-offset env))
@@ -81,8 +81,9 @@
   (let* ((ptr (make-pointer (+ ip (* 4 offset))))
          (ref (dereference-pointer ptr))
          (src/l (pointer->scm ref)))
-    `(let ((,(var-ref dst) ,(cond ((flonum? src/l) src/l)
-                                  (else (pointer-address ref)))))
+    `(let ((,(var-ref dst) ,(if (flonum? src/l)
+                                src/l
+                                (pointer-address ref))))
        ,(next))))
 
 ;; XXX: static-set!

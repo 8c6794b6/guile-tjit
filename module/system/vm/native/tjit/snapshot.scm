@@ -52,6 +52,7 @@
             snapshot-env-types
             snapshot-live-indices
             snapshot-inline-depth
+            snapshot-inferred-types
 
             snapshot-link?
             snapshot-downrec?
@@ -64,7 +65,7 @@
 ;; Record type for snapshot.
 (define-record-type $snapshot
   (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
-                  live-indices inline-depth)
+                  live-indices inline-depth inferred-types)
   snapshot?
 
   ;; ID number of this snapshot.
@@ -95,7 +96,10 @@
   (live-indices snapshot-live-indices)
 
   ;; Call depth.
-  (inline-depth snapshot-inline-depth))
+  (inline-depth snapshot-inline-depth)
+
+  ;; Inferred types at the time of snapshot creation.
+  (inferred-types snapshot-inferred-types))
 
 
 ;;;
@@ -126,7 +130,8 @@
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
            (%make-snapshot id sp-offset fp-offset nlocals (reverse! acc)
-                           #f #f ip (env-live-indices env) inline-depth)))))))
+                           #f #f ip (env-live-indices env) inline-depth
+                           (copy-tree (env-inferred-types env)))))))))
 
 
 ;;;
