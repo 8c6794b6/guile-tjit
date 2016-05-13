@@ -430,17 +430,17 @@ SCM_DEFINE (scm_make_bytevector_executable_x, "make-bytevector-executable!",
 
 static void* scm_lightning_malloc (size_t size)
 {
-  return scm_gc_malloc (size, "lightning");
+  return GC_MALLOC (size);
 }
 
 static void* scm_lightning_realloc (void* mem, size_t size)
 {
-  return scm_gc_realloc (mem, 0, size, "lightning");
+  return GC_REALLOC (mem, size);
 }
 
 static void scm_lightning_free (void *mem)
 {
-  scm_gc_free (mem, 0, "lightning");
+  GC_FREE (mem);
 }
 
 void
