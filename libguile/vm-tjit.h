@@ -48,6 +48,9 @@ struct scm_tjit_state
   int parent_exit_id;       /* exit id of parent trace, or 0 for root */
   int nunrolled;            /* current number of unrolled recursion */
   size_t start_seen;        /* flag for whether start has seen */
+  scm_t_bits ret_exit_id;   /* exit ID returned from native code */
+  scm_t_bits ret_fragment_id; /* fragment ID returned from native code */
+  scm_t_bits ret_origin_id; /* origin ID returned from native code */
 };
 
 struct scm_tjit_retval
@@ -58,15 +61,15 @@ struct scm_tjit_retval
 };
 
 /* Function pointer type of compiled trace */
-typedef struct scm_tjit_retval* (*scm_t_native_code)
-  (scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers);
+typedef void (*scm_t_native_code) (scm_i_thread *thread,
+                                   struct scm_vm *vp,
+                                   scm_i_jmp_buf *registers);
 
-SCM_API struct scm_tjit_retval*
-scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits exit_id,
-                      scm_t_bits exit_ip, scm_t_bits nlocals);
+SCM_API void
+scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits exit_ip,
+                     scm_t_bits nlocals);
 
-SCM_API void scm_tjit_dump_retval (struct scm_tjit_retval *retval,
-                                   struct scm_vm *vp);
+SCM_API void scm_tjit_dump_retval (struct scm_vm *vp);
 SCM_API void scm_tjit_dump_locals (SCM trace_id, int n, struct scm_vm *vp);
 
 SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);

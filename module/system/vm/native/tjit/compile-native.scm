@@ -55,8 +55,8 @@
 ;;; Scheme constants and syntax
 ;;;
 
-(define %scm-make-tjit-retval
-  (dynamic-pointer "scm_make_tjit_retval" (dynamic-link)))
+(define %scm-set-tjit-retval
+  (dynamic-pointer "scm_set_tjit_retval" (dynamic-link)))
 
 (define %scm-tjit-dump-retval
   (dynamic-pointer "scm_tjit_dump_retval" (dynamic-link)))
@@ -325,35 +325,6 @@ DST-TYPES, and SRC-TYPES are local index number."
              (lp rest)))))
         (() (values))))))
 
-;;; XXX: Incomplete
-
-;; (define (adjust-downrec-stack asm loop? snapshots dsts)
-;;   (let* ((last-index (- (hash-count (const #t) snapshots) 1))
-;;          (last-snapshot (hashq-ref snapshots last-index))
-;;          (last-sp-offset (snapshot-sp-offset last-snapshot))
-;;          (last-fp-offset (snapshot-fp-offset last-snapshot))
-;;          (last-nlocals (snapshot-nlocals last-snapshot))
-;;          (initial-nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
-;;     (vm-expand-stack asm last-sp-offset)
-;;     (shift-fp (if loop?
-;;                   (- (+ last-sp-offset last-nlocals) initial-nlocals)
-;;                   last-sp-offset))
-;;     (let lp ((locals (snapshot-locals last-snapshot))
-;;              (vars (snapshot-variables last-snapshot)))
-;;       (match (list locals vars)
-;;         ((((local . type) . locals) (var . vars))
-;;          (store-frame asm (- local last-sp-offset) type var)
-;;          (lp locals vars))
-;;         (_
-;;          (let lp ((dsts dsts)
-;;                   (srcs (snapshot-variables last-snapshot)))
-;;            (match (list dsts srcs)
-;;              (((dst . dsts) (src . srcs))
-;;               (move dst src)
-;;               (lp dsts srcs))
-;;              (_
-;;               (values)))))))))
-
 (define (dump-bailout ip exit-id code)
   (let ((verbosity (lightning-verbosity)))
     (when (and verbosity (<= 4 verbosity))
@@ -376,7 +347,6 @@ DST-TYPES, and SRC-TYPES are local index number."
      (let* ((epilog-label (jit-label))
             (_ (begin
                  (jit-patch epilog-label)
-                 (jit-retr %retval)
                  (jit-epilog)
                  (jit-realize)))
             (estimated-size (jit-code-size))
@@ -621,34 +591,27 @@ DST-TYPES, and SRC-TYPES are local index number."
            (jit-movi r0 (imm ip))
            (vm-sync-ip r0)
 
-           ;; Make tjit-retval for VM interpreter.
+           ;; Set tjit return values for VM interpreter.
            (jit-prepare)
-           (jit-pushargr %thread)
            (jit-pushargi (scm-i-makinumi id))
            (jit-pushargi (scm-i-makinumi (env-id env)))
            (jit-pushargi (scm-i-makinumi origin-id))
-           (jit-calli %scm-make-tjit-retval)
-           (jit-retval %retval)
+           (jit-calli %scm-set-tjit-retval)
 
            ;; Debug code to dump tjit-retval and locals.
            (let ((dump-option (tjit-dump-option)))
              (when (tjit-dump-exit? dump-option)
-               (jit-movr %thread %retval)
                (jit-prepare)
-               (jit-pushargr %retval)
-               (load-vp %retval)
-               (jit-pushargr %retval)
+               (load-vp r0)
+               (jit-pushargr r0)
                (jit-calli %scm-tjit-dump-retval)
-               (jit-movr %retval %thread)
                (when (tjit-dump-verbose? dump-option)
-                 (jit-movr %thread %retval)
                  (jit-prepare)
                  (jit-pushargi (scm-i-makinumi (env-id env)))
                  (jit-pushargi (imm nlocals))
-                 (load-vp %retval)
-                 (jit-pushargr %retval)
-                 (jit-calli %scm-tjit-dump-locals)
-                 (jit-movr %retval %thread)))))
+                 (load-vp r0)
+                 (jit-pushargr r0)
+                 (jit-calli %scm-tjit-dump-locals)))))
           (_
            (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
 

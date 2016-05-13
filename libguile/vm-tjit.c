@@ -436,21 +436,24 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   SCM exit_id, exit_counts, count;
   SCM origin_id, origin;
   scm_t_native_code native_code;
-  struct scm_tjit_retval *ret;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
   code = SCM_FRAGMENT_CODE (fragment);
   native_code = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-  ret = native_code (thread, vp, registers);
 
-  fragment_id = SCM_PACK (ret->fragment_id);
-  fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
-  origin_id = SCM_PACK (ret->origin_id);
+  /* Run the native code. */
+  native_code (thread, vp, registers);
+
+  /* Back to interpreter. Native code sets some of the fields in tj
+     during bailout, using them to decide what to do next. */
+  origin_id = SCM_PACK (tj->ret_origin_id);
   origin = scm_hashq_ref (tjit_fragment_table, origin_id, SCM_BOOL_F);
 
   if (SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
     {
-      exit_id = SCM_PACK (ret->exit_id);
+      fragment_id = SCM_PACK (tj->ret_fragment_id);
+      fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
+      exit_id = SCM_PACK (tj->ret_exit_id);
       exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
       count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
       count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
@@ -500,6 +503,9 @@ scm_make_tjit_state (void)
   t->parent_exit_id = 0;
   t->nunrolled = 0;
   t->start_seen = 0;
+  t->ret_exit_id = 0;
+  t->ret_fragment_id = 0;
+  t->ret_origin_id = 0;
 
   return t;
 }
@@ -650,29 +656,27 @@ SCM_DEFINE (scm_make_negative_pointer, "make-negative-pointer", 1, 0, 0,
  * Gluing functions
  */
 
-struct scm_tjit_retval*
-scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits exit_id,
-                      scm_t_bits fragment_id, scm_t_bits origin_id)
+void
+scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits fragment_id,
+                      scm_t_bits origin_id)
 {
-  struct scm_tjit_retval *ret =
-    scm_inline_gc_malloc_pointerless (thread, sizeof (struct scm_tjit_retval));
+  struct scm_tjit_state *tj = scm_acquire_tjit_state ();
 
-  ret->exit_id = exit_id;
-  ret->fragment_id = fragment_id;
-  ret->origin_id = origin_id;
-
-  return ret;
+  tj->ret_exit_id = exit_id;
+  tj->ret_fragment_id = fragment_id;
+  tj->ret_origin_id = origin_id;
 }
 
 void
-scm_tjit_dump_retval (struct scm_tjit_retval *retval, struct scm_vm *vp)
+scm_tjit_dump_retval (struct scm_vm *vp)
 {
   SCM port = scm_current_output_port ();
+  struct scm_tjit_state *tj = scm_acquire_tjit_state ();
 
   scm_puts (";;; trace ", port);
-  scm_display (SCM_PACK (retval->fragment_id), port);
+  scm_display (SCM_PACK (tj->ret_fragment_id), port);
   scm_puts (": exit ", port);
-  scm_display (SCM_PACK (retval->exit_id), port);
+  scm_display (SCM_PACK (tj->ret_exit_id), port);
   scm_puts (" => ", port);
   scm_display (to_hex (SCM_I_MAKINUM (vp->ip)), port);
   scm_newline (port);
