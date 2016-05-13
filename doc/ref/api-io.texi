@@ -2232,18 +2232,19 @@ the representation, will return an object equal (in the sense of
 This section describes how to implement a new port type in C.  Although
 ports support many operations, as a data structure they present an
 opaque interface to the user.  To the port implementor, you have two
-additional pieces of information: the port type code, which you allocate
-when defining your port type; and a port's ``stream'', which you
-allocate when you create a port.
+additional pieces of information: the port type, which is an opaque
+pointer allocated when defining your port type; and a port's ``stream'',
+which you allocate when you create a port.
 
 The type code helps you identify which ports are actually yours.  The
 ``stream'' is the private data associated with that port which you and
 only you control.  Get a stream from a port using the @code{SCM_STREAM}
-macro.
+macro.  Note that your port methods are only ever called with ports of
+your type.
 
 A port type is created by calling @code{scm_make_port_type}.
 
-@deftypefun scm_t_bits scm_make_port_type (char *name, size_t (*read) (SCM port, SCM dst, size_t start, size_t count), size_t (*write) (SCM port, SCM src, size_t start, size_t count))
+@deftypefun scm_t_port_type* scm_make_port_type (char *name, size_t (*read) (SCM port, SCM dst, size_t start, size_t count), size_t (*write) (SCM port, SCM src, size_t start, size_t count))
 Define a new port type.  The @var{name}, @var{read} and @var{write}
 parameters are initial values for those port type fields, as described
 below.  The other fields are initialized with default values and can be
@@ -2278,7 +2279,7 @@ Called when @code{write} is called on the port, to print a port
 description.  For example, for a file port it may produce something
 like: @code{#<input: /etc/passwd 3>}.  Set using
 
-@deftypefun void scm_set_port_print (scm_t_bits tc, int (*print) (SCM port, SCM dest_port, scm_print_state *pstate))
+@deftypefun void scm_set_port_print (scm_t_port_type *type, int (*print) (SCM port, SCM dest_port, scm_print_state *pstate))
 The first argument @var{port} is the port being printed, the second
 argument @var{dest_port} is where its description should go.
 @end deftypefun
@@ -2287,7 +2288,7 @@ argument @var{dest_port} is where its description should go.
 Called when the port is closed.  It should free any resources used by
 the port.  Set using
 
-@deftypefun void scm_set_port_close (scm_t_bits tc, void (*close) (SCM port))
+@deftypefun void scm_set_port_close (scm_t_port_type *type, void (*close) (SCM port))
 @end deftypefun
 
 By default, ports that are garbage collected just go away without
@@ -2296,21 +2297,21 @@ a file descriptor, or needs to make sure that its internal buffers are
 flushed even if the port is collected while it was open, then mark the
 port type as needing a close on GC.
 
-@deftypefun void scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p)
+@deftypefun void scm_set_port_needs_close_on_gc (scm_t_port_type *type, int needs_close_p)
 @end deftypefun
 
 @item seek
 Set the current position of the port.  Guile will flush read and/or
 write buffers before seeking, as appropriate.
 
-@deftypefun void scm_set_port_seek (scm_t_bits tc, scm_t_off (*seek) (SCM port, scm_t_off offset, int whence))
+@deftypefun void scm_set_port_seek (scm_t_port_type *type, scm_t_off (*seek) (SCM port, scm_t_off offset, int whence))
 @end deftypefun
 
 @item truncate
 Truncate the port data to be specified length.  Guile will flush buffers
 before hand, as appropriate.  Set using
 
-@deftypefun void scm_set_port_truncate (scm_t_bits tc, void (*truncate) (SCM port, scm_t_off length))
+@deftypefun void scm_set_port_truncate (scm_t_port_type *type, void (*truncate) (SCM port, scm_t_off length))
 @end deftypefun
 
 @item random_access_p
@@ -2329,7 +2330,7 @@ nonzero value from your @code{random_access_p} function.  The default
 implementation of this function returns nonzero if the port type
 supplies a seek implementation.
 
-@deftypefun void scm_set_port_random_access_p (scm_t_bits tc, int (*random_access_p) (SCM port));
+@deftypefun void scm_set_port_random_access_p (scm_t_port_type *type, int (*random_access_p) (SCM port));
 @end deftypefun
 
 @item get_natural_buffer_sizes
@@ -2346,7 +2347,7 @@ bytevector.  However in some cases, port implementations may be able to
 provide an appropriate default buffer size to Guile.
 
 @deftypefun void scm_set_port_get_natural_buffer_sizes @
-  (scm_t_bits tc, void (*get_natural_buffer_sizes) (SCM, size_t *read_buf_size, size_t *write_buf_size))
+  (scm_t_port_type *type, void (*get_natural_buffer_sizes) (SCM, size_t *read_buf_size, size_t *write_buf_size))
 Fill in @var{read_buf_size} and @var{write_buf_size} with an appropriate buffer size for this port, if one is known.
 @end deftypefun
 
