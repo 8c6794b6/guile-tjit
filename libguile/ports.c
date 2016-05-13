@@ -366,15 +366,9 @@ SCM_DEFINE (scm_i_port_property, "%port-property", 2, 0, 0,
             "Return the property of @var{port} associated with @var{key}.")
 #define FUNC_NAME s_scm_i_port_property
 {
-  SCM result;
-  scm_t_port *pt;
-
   SCM_VALIDATE_OPPORT (1, port);
 
-  pt = SCM_PTAB_ENTRY (port);
-  result = scm_assq_ref (pt->internal->alist, key);
-
-  return result;
+  return scm_assq_ref (SCM_PORT_GET_INTERNAL (port)->alist, key);
 }
 #undef FUNC_NAME
 
@@ -383,12 +377,12 @@ SCM_DEFINE (scm_i_set_port_property_x, "%set-port-property!", 3, 0, 0,
             "Set the property of @var{port} associated with @var{key} to @var{value}.")
 #define FUNC_NAME s_scm_i_set_port_property_x
 {
-  scm_t_port *pt;
+  scm_t_port_internal *pti;
 
   SCM_VALIDATE_OPPORT (1, port);
 
-  pt = SCM_PTAB_ENTRY (port);
-  pt->internal->alist = scm_assq_set_x (pt->internal->alist, key, value);
+  pti = SCM_PORT_GET_INTERNAL (port);
+  pti->alist = scm_assq_set_x (pti->alist, key, value);
 
   return SCM_UNSPECIFIED;
 }
@@ -725,15 +719,14 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   scm_t_port_internal *pti;
   scm_t_ptob_descriptor *ptob;
 
-  entry = scm_gc_typed_calloc (scm_t_port);
   pti = scm_gc_typed_calloc (scm_t_port_internal);
+  entry = &pti->pt;
   ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tag));
 
   ret = scm_words (tag | mode_bits, 3);
   SCM_SET_CELL_WORD_1 (ret, (scm_t_bits) entry);
   SCM_SET_CELL_WORD_2 (ret, (scm_t_bits) ptob);
 
-  entry->internal = pti;
   entry->file_name = SCM_BOOL_F;
   entry->stream = stream;
   entry->encoding = encoding;
