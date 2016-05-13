@@ -1147,6 +1147,21 @@ SCM_DEFINE (scm_specialize_port_encoding_x,
   SCM_VALIDATE_PORT (1, port);
   SCM_VALIDATE_SYMBOL (2, encoding);
 
+  if (scm_is_eq (SCM_PTAB_ENTRY (port)->encoding, sym_UTF_16))
+    {
+      if (!scm_is_eq (encoding, sym_UTF_16LE)
+          && !scm_is_eq (encoding, sym_UTF_16BE))
+        SCM_OUT_OF_RANGE (2, encoding);
+    }
+  else if (scm_is_eq (SCM_PTAB_ENTRY (port)->encoding, sym_UTF_32))
+    {
+      if (!scm_is_eq (encoding, sym_UTF_32LE)
+          && !scm_is_eq (encoding, sym_UTF_32BE))
+        SCM_OUT_OF_RANGE (2, encoding);
+    }
+  else
+    SCM_OUT_OF_RANGE (2, encoding);
+
   prepare_iconv_descriptors (port, encoding);
 
   return SCM_UNSPECIFIED;
@@ -1898,19 +1913,11 @@ scm_unget_bytes (const scm_t_uint8 *buf, size_t len, SCM port)
       else
         {
           /* Bah, have to expand the read_buf for the putback.  */
-          SCM new_buf;
-
           while (size < len + buffered)
             size *= 2;
-
-          new_buf = scm_c_make_port_buffer (size);
-          scm_port_buffer_reset_end (new_buf);
-          scm_port_buffer_set_has_eof_p (new_buf,
-                                         scm_port_buffer_has_eof_p (read_buf));
-          scm_port_buffer_putback (new_buf,
-                                   scm_port_buffer_take_pointer (read_buf),
-                                   buffered);
-          pt->read_buf = read_buf = new_buf;
+          read_buf = scm_expand_port_read_buffer_x (port,
+                                                    scm_from_size_t (size),
+                                                    SCM_BOOL_T);
         }
     }
 
@@ -2323,16 +2330,16 @@ port_clear_stream_start_for_bom_read (SCM port, enum bom_io_mode io_mode)
     {
       if (maybe_consume_bom (port, scm_utf16le_bom, sizeof (scm_utf16le_bom)))
         {
-          prepare_iconv_descriptors (port, sym_UTF_16LE);
+          scm_specialize_port_encoding_x (port, sym_UTF_16LE);
           return 2;
         }
       if (maybe_consume_bom (port, scm_utf16be_bom, sizeof (scm_utf16be_bom)))
         {
-          prepare_iconv_descriptors (port, sym_UTF_16BE);
+          scm_specialize_port_encoding_x (port, sym_UTF_16BE);
           return 2;
         }
       /* Big-endian by default.  */
-      prepare_iconv_descriptors (port, sym_UTF_16BE);
+      scm_specialize_port_encoding_x (port, sym_UTF_16BE);
       return 0;
     }
 
@@ -2341,16 +2348,16 @@ port_clear_stream_start_for_bom_read (SCM port, enum bom_io_mode io_mode)
       if (maybe_consume_bom (port, scm_utf32le_bom, sizeof (scm_utf32le_bom)))
         {
           /* Big-endian by default.  */
-          prepare_iconv_descriptors (port, sym_UTF_32LE);
+          scm_specialize_port_encoding_x (port, sym_UTF_32LE);
           return 4;
         }
       if (maybe_consume_bom (port, scm_utf32be_bom, sizeof (scm_utf32be_bom)))
         {
-          prepare_iconv_descriptors (port, sym_UTF_32BE);
+          scm_specialize_port_encoding_x (port, sym_UTF_32BE);
           return 4;
         }
       /* Big-endian by default.  */
-      prepare_iconv_descriptors (port, sym_UTF_32BE);
+      scm_specialize_port_encoding_x (port, sym_UTF_32BE);
       return 0;
     }
 
@@ -2441,15 +2448,10 @@ scm_fill_input (SCM port, size_t minimum_size)
      minimum_size, and ensure that cur is zero so that we fill towards
      the end of the buffer.  */
   if (minimum_size > scm_port_buffer_size (read_buf))
-    {
-      /* Grow the read buffer.  */
-      SCM new_buf = scm_c_make_port_buffer (minimum_size);
-      scm_port_buffer_reset (new_buf);
-      scm_port_buffer_put (new_buf,
-                           scm_port_buffer_take_pointer (read_buf),
-                           buffered);
-      pt->read_buf = read_buf = new_buf;
-    }
+    /* Grow the read buffer.  */
+    read_buf = scm_expand_port_read_buffer_x (port,
+                                              scm_from_size_t (minimum_size),
+                                              SCM_BOOL_F);
   else if (buffered == 0)
     scm_port_buffer_reset (read_buf);
   else
@@ -2501,16 +2503,45 @@ SCM_DEFINE (scm_port_read_buffering, "port-read-buffering", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_set_port_read_buffer_x, "set-port-read-buffer!", 2, 0, 0,
-            (SCM port, SCM buf),
-	    "Reset the read buffer on an input port.")
-#define FUNC_NAME s_scm_set_port_read_buffer_x
+SCM_DEFINE (scm_expand_port_read_buffer_x, "expand-port-read-buffer!", 2, 1, 0,
+            (SCM port, SCM size, SCM putback_p),
+	    "Expand the read buffer of @var{port} to @var{size}.  Copy the\n"
+            "old buffered data, if, any, to the beginning of the new\n"
+            "buffer, unless @var{putback_p} is true, in which case copy it\n"
+            "to the end instead.  Return the new buffer.")
+#define FUNC_NAME s_scm_expand_port_read_buffer_x
 {
+  scm_t_port *pt;
+  size_t c_size;
+  SCM new_buf;
+
   SCM_VALIDATE_OPINPORT (1, port);
-  SCM_ASSERT_TYPE (scm_is_vector (buf) && scm_c_vector_length (buf) >= 4,
-                   buf, 2, FUNC_NAME, "port buffer");
-  SCM_PTAB_ENTRY (port)->read_buf = buf;
-  return SCM_UNSPECIFIED;
+  pt = SCM_PTAB_ENTRY (port);
+  c_size = scm_to_size_t (size);
+  SCM_ASSERT_RANGE (2, size, c_size > scm_port_buffer_size (pt->read_buf));
+  if (SCM_UNBNDP (putback_p))
+    putback_p = SCM_BOOL_F;
+
+  new_buf = scm_c_make_port_buffer (c_size);
+  scm_port_buffer_set_has_eof_p (new_buf,
+                                 scm_port_buffer_has_eof_p (pt->read_buf));
+  if (scm_is_true (putback_p))
+    {
+      scm_port_buffer_reset_end (new_buf);
+      scm_port_buffer_putback (new_buf,
+                               scm_port_buffer_take_pointer (pt->read_buf),
+                               scm_port_buffer_can_take (pt->read_buf));
+    }
+  else
+    {
+      scm_port_buffer_reset (new_buf);
+      scm_port_buffer_put (new_buf,
+                           scm_port_buffer_take_pointer (pt->read_buf),
+                           scm_port_buffer_can_take (pt->read_buf));
+    }
+  pt->read_buf = new_buf;
+
+  return new_buf;
 }
 #undef FUNC_NAME
 

@@ -321,7 +321,8 @@ SCM_API void scm_flush (SCM port);
 
 SCM_INTERNAL SCM scm_port_random_access_p (SCM port);
 SCM_INTERNAL SCM scm_port_read_buffering (SCM port);
-SCM_INTERNAL SCM scm_set_port_read_buffer_x (SCM port, SCM buf);
+SCM_INTERNAL SCM scm_expand_port_read_buffer_x (SCM port, SCM size,
+                                                SCM putback_p);
 SCM_INTERNAL SCM scm_port_read (SCM port);
 SCM_INTERNAL SCM scm_port_write (SCM port);
 SCM_INTERNAL SCM scm_port_read_buffer (SCM port);
