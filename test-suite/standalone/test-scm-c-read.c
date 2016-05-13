@@ -43,7 +43,7 @@ struct custom_port
 
 /* Return a new port of type PORT_TYPE.  */
 static inline SCM
-make_port (scm_t_bits port_type)
+make_port (scm_t_port_type *port_type)
 {
   struct custom_port *stream = scm_gc_typed_calloc (struct custom_port);
 
@@ -88,7 +88,7 @@ static void *
 do_start (void *arg)
 {
   SCM port;
-  scm_t_bits port_type;
+  scm_t_port_type *port_type;
   char buffer[PORT_BUFFER_SIZE + (PORT_BUFFER_SIZE / 2)];
   size_t read, last_read;
 

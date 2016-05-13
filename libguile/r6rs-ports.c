@@ -82,7 +82,7 @@ SCM_DEFINE (scm_eof_object, "eof-object", 0, 0, 0,
 #endif
 
 /* Bytevector input ports.  */
-static scm_t_bits bytevector_input_port_type = 0;
+static scm_t_port_type *bytevector_input_port_type = 0;
 
 struct bytevector_input_port {
   SCM bytevector;
@@ -259,7 +259,7 @@ custom_binary_port_close (SCM port)
 
 /* Custom binary input ports.  */
 
-static scm_t_bits custom_binary_input_port_type = 0;
+static scm_t_port_type *custom_binary_input_port_type = 0;
 
 static inline SCM
 make_custom_binary_input_port (SCM read_proc, SCM get_position_proc,
@@ -668,7 +668,7 @@ SCM_DEFINE (scm_unget_bytevector, "unget-bytevector", 2, 2, 0,
    XXX: Access to a bytevector output port's internal buffer is not
    thread-safe.  */
 
-static scm_t_bits bytevector_output_port_type = 0;
+static scm_t_port_type *bytevector_output_port_type = 0;
 
 SCM_SMOB (bytevector_output_port_procedure,
 	  "r6rs-bytevector-output-port-procedure",
@@ -860,7 +860,7 @@ initialize_bytevector_output_ports (void)
 
 /* Custom binary output ports.  */
 
-static scm_t_bits custom_binary_output_port_type;
+static scm_t_port_type *custom_binary_output_port_type;
 
 
 static inline SCM
@@ -950,7 +950,7 @@ initialize_custom_binary_output_ports (void)
 
 /* Transcoded ports.  */
 
-static scm_t_bits transcoded_port_type = 0;
+static scm_t_port_type *transcoded_port_type = 0;
 
 #define SCM_TRANSCODED_PORT_BINARY_PORT(_port) SCM_PACK (SCM_STREAM (_port))
 

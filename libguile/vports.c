@@ -50,7 +50,7 @@
  */
 
 
-static scm_t_bits scm_tc16_soft_port;
+static scm_t_port_type *scm_soft_port_type;
 
 #define ENCODE_BUF_SIZE 10
 
@@ -221,31 +221,31 @@ SCM_DEFINE (scm_make_soft_port, "make-soft-port", 2, 0, 0,
   stream->input_waiting =
     vlen == 6 ? SCM_SIMPLE_VECTOR_REF (pv, 5) : SCM_BOOL_F;
 
-  return scm_c_make_port (scm_tc16_soft_port, scm_i_mode_bits (modes),
+  return scm_c_make_port (scm_soft_port_type, scm_i_mode_bits (modes),
                           (scm_t_bits) stream);
 }
 #undef FUNC_NAME
 
 
-static scm_t_bits
+static scm_t_port_type *
 scm_make_sfptob ()
 {
-  scm_t_bits tc = scm_make_port_type ("soft", soft_port_read,
-                                      soft_port_write);
+  scm_t_port_type *ptob = scm_make_port_type ("soft", soft_port_read,
+                                              soft_port_write);
 
-  scm_set_port_close (tc, soft_port_close);
-  scm_set_port_needs_close_on_gc (tc, 1);
-  scm_set_port_get_natural_buffer_sizes (tc,
+  scm_set_port_close (ptob, soft_port_close);
+  scm_set_port_needs_close_on_gc (ptob, 1);
+  scm_set_port_get_natural_buffer_sizes (ptob,
                                          soft_port_get_natural_buffer_sizes);
-  scm_set_port_input_waiting (tc, soft_port_input_waiting);
+  scm_set_port_input_waiting (ptob, soft_port_input_waiting);
 
-  return tc;
+  return ptob;
 }
 
 void
 scm_init_vports ()
 {
-  scm_tc16_soft_port = scm_make_sfptob ();
+  scm_soft_port_type = scm_make_sfptob ();
 
 #include "libguile/vports.x"
 }

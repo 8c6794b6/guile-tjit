@@ -47,6 +47,7 @@
 #include "libguile/strings.h"
 #include "libguile/vectors.h"
 #include "libguile/dynwind.h"
+#include "libguile/ports.h"
 #include "libguile/ports-internal.h"
 
 #include "libguile/validate.h"

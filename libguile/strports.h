@@ -28,7 +28,8 @@
 
 
 
-#define SCM_STRPORTP(x)      (SCM_HAS_TYP16 (x, scm_tc16_strport))
+#define SCM_STRPORTP(x) \
+  (SCM_PORTP (x) && SCM_PORT_TYPE (x) == scm_string_port_type)
 #define SCM_OPSTRPORTP(x)    (SCM_STRPORTP (x) && \
                               (SCM_CELL_WORD_0 (x) & SCM_OPN))
 #define SCM_OPINSTRPORTP(x)  (SCM_OPSTRPORTP (x) && \
@@ -38,7 +39,7 @@
 
 
 
-SCM_API scm_t_bits scm_tc16_strport;
+SCM_API scm_t_port_type *scm_string_port_type;
 
 
 

@@ -110,88 +110,6 @@ static SCM sym_escape;
 
 
 
-/* The port kind table --- a dynamically resized array of port types.  */
-
-
-/* scm_ptobs scm_numptob
- * implement a dynamically resized array of ptob records.
- * Indexes into this table are used when generating type
- * tags for smobjects (if you know a tag you can get an index and conversely).
- */
-static scm_t_ptob_descriptor **scm_ptobs = NULL;
-static long scm_numptob = 0; /* Number of port types.  */
-static long scm_ptobs_size = 0; /* Number of slots in the port type
-                                   table.  */
-static scm_i_pthread_mutex_t scm_ptobs_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-
-long
-scm_c_num_port_types (void)
-{
-  long ret;
-  
-  scm_i_pthread_mutex_lock (&scm_ptobs_lock);
-  ret = scm_numptob;
-  scm_i_pthread_mutex_unlock (&scm_ptobs_lock);
-
-  return ret;
-}
-
-scm_t_ptob_descriptor*
-scm_c_port_type_ref (long ptobnum)
-{
-  scm_t_ptob_descriptor *ret = NULL;
-
-  scm_i_pthread_mutex_lock (&scm_ptobs_lock);
-
-  if (0 <= ptobnum && ptobnum < scm_numptob)
-    ret = scm_ptobs[ptobnum];
-
-  scm_i_pthread_mutex_unlock (&scm_ptobs_lock);
-
-  if (!ret)
-    scm_out_of_range ("scm_c_port_type_ref", scm_from_long (ptobnum));
-
-  return ret;
-}
-
-long
-scm_c_port_type_add_x (scm_t_ptob_descriptor *desc)
-{
-  long ret = -1;
-
-  scm_i_pthread_mutex_lock (&scm_ptobs_lock);
-  
-  if (scm_numptob + 1 < SCM_I_MAX_PORT_TYPE_COUNT)
-    {
-      if (scm_numptob == scm_ptobs_size)
-        {
-          unsigned long old_size = scm_ptobs_size;
-          scm_t_ptob_descriptor **old_ptobs = scm_ptobs;
-      
-          /* Currently there are only 9 predefined port types, so one
-             resize will cover it.  */
-          scm_ptobs_size = old_size + 10;
-
-          if (scm_ptobs_size >= SCM_I_MAX_PORT_TYPE_COUNT)
-            scm_ptobs_size = SCM_I_MAX_PORT_TYPE_COUNT;
-
-          scm_ptobs = scm_gc_malloc (sizeof (*scm_ptobs) * scm_ptobs_size,
-                                     "scm_ptobs");
-
-          memcpy (scm_ptobs, old_ptobs, sizeof (*scm_ptobs) * scm_numptob);
-        }
-
-      ret = scm_numptob++;
-      scm_ptobs[ret] = desc;
-    }
-  
-  scm_i_pthread_mutex_unlock (&scm_ptobs_lock);
-
-  if (ret < 0)
-    scm_out_of_range ("scm_c_port_type_add_x", scm_from_long (scm_numptob));
-
-  return ret;
-}
 
 static SCM trampoline_to_c_read_subr;
 static SCM trampoline_to_c_write_subr;
@@ -199,18 +117,17 @@ static SCM trampoline_to_c_write_subr;
 static int
 default_random_access_p (SCM port)
 {
-  return SCM_PORT_DESCRIPTOR (port)->seek != NULL;
+  return SCM_PORT_TYPE (port)->seek != NULL;
 }
 
-scm_t_bits
+scm_t_port_type *
 scm_make_port_type (char *name,
                     size_t (*read) (SCM port, SCM dst, size_t start,
                                     size_t count),
                     size_t (*write) (SCM port, SCM src, size_t start,
                                      size_t count))
 {
-  scm_t_ptob_descriptor *desc;
-  long ptobnum;
+  scm_t_port_type *desc;
 
   desc = scm_gc_malloc_pointerless (sizeof (*desc), "port-type");
   memset (desc, 0, sizeof (*desc));
@@ -222,14 +139,9 @@ scm_make_port_type (char *name,
   desc->scm_read = read ? trampoline_to_c_read_subr : SCM_BOOL_F;
   desc->scm_write = write ? trampoline_to_c_write_subr : SCM_BOOL_F;
   desc->random_access_p = default_random_access_p;
+  scm_make_port_classes (desc);
 
-  ptobnum = scm_c_port_type_add_x (desc);
-
-  /* Make a class object if GOOPS is present.  */
-  if (SCM_UNPACK (scm_i_port_class[0]) != 0)
-    scm_make_port_classes (ptobnum, name);
-
-  return scm_tc7_port + ptobnum * 256;
+  return desc;
 }
 
 static SCM
@@ -245,7 +157,7 @@ trampoline_to_c_read (SCM port, SCM dst, SCM start, SCM count)
   SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (dst));
 
   return scm_from_size_t
-    (SCM_PORT_DESCRIPTOR (port)->c_read (port, dst, c_start, c_count));
+    (SCM_PORT_TYPE (port)->c_read (port, dst, c_start, c_count));
 }
 #undef FUNC_NAME
 
@@ -253,7 +165,7 @@ static size_t
 trampoline_to_scm_read (SCM port, SCM dst, size_t start, size_t count)
 {
   return scm_to_size_t
-    (scm_call_4 (SCM_PORT_DESCRIPTOR (port)->scm_read, port, dst,
+    (scm_call_4 (SCM_PORT_TYPE (port)->scm_read, port, dst,
                  scm_from_size_t (start), scm_from_size_t (count)));
 }
 
@@ -270,7 +182,7 @@ trampoline_to_c_write (SCM port, SCM src, SCM start, SCM count)
   SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (src));
 
   return scm_from_size_t
-    (SCM_PORT_DESCRIPTOR (port)->c_write (port, src, c_start, c_count));
+    (SCM_PORT_TYPE (port)->c_write (port, src, c_start, c_count));
 }
 #undef FUNC_NAME
 
@@ -278,44 +190,40 @@ static size_t
 trampoline_to_scm_write (SCM port, SCM src, size_t start, size_t count)
 {
   return scm_to_size_t
-    (scm_call_4 (SCM_PORT_DESCRIPTOR (port)->scm_write, port, src,
+    (scm_call_4 (SCM_PORT_TYPE (port)->scm_write, port, src,
                  scm_from_size_t (start), scm_from_size_t (count)));
 }
 
 void
-scm_set_port_scm_read (scm_t_bits tc, SCM read)
+scm_set_port_scm_read (scm_t_port_type *ptob, SCM read)
 {
-  scm_t_ptob_descriptor *desc = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
-  desc->scm_read = read;
-  desc->c_read = trampoline_to_scm_read;
+  ptob->scm_read = read;
+  ptob->c_read = trampoline_to_scm_read;
 }
 
 void
-scm_set_port_scm_write (scm_t_bits tc, SCM write)
+scm_set_port_scm_write (scm_t_port_type *ptob, SCM write)
 {
-  scm_t_ptob_descriptor *desc = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
-  desc->scm_write = write;
-  desc->c_write = trampoline_to_scm_write;
+  ptob->scm_write = write;
+  ptob->c_write = trampoline_to_scm_write;
 }
 
 void
-scm_set_port_print (scm_t_bits tc, int (*print) (SCM exp, SCM port,
-                                                 scm_print_state *pstate))
+scm_set_port_print (scm_t_port_type *ptob,
+                    int (*print) (SCM exp, SCM port, scm_print_state *pstate))
 {
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->print = print;
+  ptob->print = print;
 }
 
 void
-scm_set_port_close (scm_t_bits tc, void (*close) (SCM))
+scm_set_port_close (scm_t_port_type *ptob, void (*close) (SCM))
 {
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->close = close;
+  ptob->close = close;
 }
 
 void
-scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p)
+scm_set_port_needs_close_on_gc (scm_t_port_type *ptob, int needs_close_p)
 {
-  scm_t_ptob_descriptor *ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
-
   if (needs_close_p)
     ptob->flags |= SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC;
   else
@@ -323,35 +231,36 @@ scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p)
 }
 
 void
-scm_set_port_seek (scm_t_bits tc, scm_t_off (*seek) (SCM, scm_t_off, int))
+scm_set_port_seek (scm_t_port_type *ptob,
+                   scm_t_off (*seek) (SCM, scm_t_off, int))
 {
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->seek = seek;
+  ptob->seek = seek;
 }
 
 void
-scm_set_port_truncate (scm_t_bits tc, void (*truncate) (SCM, scm_t_off))
+scm_set_port_truncate (scm_t_port_type *ptob, void (*truncate) (SCM, scm_t_off))
 {
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->truncate = truncate;
+  ptob->truncate = truncate;
 }
 
 void
-scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM))
+scm_set_port_input_waiting (scm_t_port_type *ptob, int (*input_waiting) (SCM))
 {
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->input_waiting = input_waiting;
+  ptob->input_waiting = input_waiting;
 }
 
 void
-scm_set_port_random_access_p (scm_t_bits tc, int (*random_access_p) (SCM))
+scm_set_port_random_access_p (scm_t_port_type *ptob,
+                              int (*random_access_p) (SCM))
 {
-  scm_t_ptob_descriptor *ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
   ptob->random_access_p = random_access_p;
 }
 
 void
 scm_set_port_get_natural_buffer_sizes
-  (scm_t_bits tc, void (*get_natural_buffer_sizes) (SCM, size_t *, size_t *))
+  (scm_t_port_type *ptob,
+   void (*get_natural_buffer_sizes) (SCM, size_t *, size_t *))
 {
-  scm_t_ptob_descriptor *ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
   ptob->get_natural_buffer_sizes = get_natural_buffer_sizes;
 }
 
@@ -684,7 +593,7 @@ static void
 initialize_port_buffers (SCM port)
 {
   scm_t_port *pt = SCM_PORT (port);
-  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+  scm_t_port_type *ptob = SCM_PORT_TYPE (port);
   size_t read_buf_size, write_buf_size;
 
   if (SCM_CELL_WORD_0 (port) & SCM_BUF0)
@@ -711,18 +620,16 @@ initialize_port_buffers (SCM port)
 }
 
 SCM
-scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
+scm_c_make_port_with_encoding (scm_t_port_type *ptob, unsigned long mode_bits,
                                SCM encoding, SCM conversion_strategy,
                                scm_t_bits stream)
 {
   SCM ret;
   scm_t_port *pt;
-  scm_t_ptob_descriptor *ptob;
 
   pt = scm_gc_typed_calloc (scm_t_port);
-  ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tag));
 
-  ret = scm_words (tag | mode_bits, 4);
+  ret = scm_words (scm_tc7_port | mode_bits, 4);
   SCM_SET_CELL_WORD_1 (ret, stream);
   SCM_SET_CELL_WORD_2 (ret, (scm_t_bits) pt);
   SCM_SET_CELL_WORD_3 (ret, (scm_t_bits) ptob);
@@ -737,7 +644,7 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
 
   pt->alist = SCM_EOL;
 
-  if (SCM_PORT_DESCRIPTOR (ret)->flags & SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC)
+  if (SCM_PORT_TYPE (ret)->flags & SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC)
     {
       scm_i_set_finalizer (SCM2PTR (ret), finalize_port, NULL);
       scm_weak_set_add_x (scm_i_port_weak_set, ret);
@@ -751,18 +658,13 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
 }
 
 SCM
-scm_c_make_port (scm_t_bits tag, unsigned long mode_bits, scm_t_bits stream)
+scm_c_make_port (scm_t_port_type *ptob,
+                 unsigned long mode_bits, scm_t_bits stream)
 {
-  return scm_c_make_port_with_encoding (tag, mode_bits,
+  return scm_c_make_port_with_encoding (ptob, mode_bits,
                                         scm_i_default_port_encoding (),
                                         scm_i_default_port_conversion_strategy (),
                                         stream);
-}
-
-SCM
-scm_new_port_table_entry (scm_t_bits tag)
-{
-  return scm_c_make_port (tag, 0, 0);
 }
 
 
@@ -860,13 +762,13 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
   pt = SCM_PORT (port);
   SCM_CLR_PORT_OPEN_FLAG (port);
 
-  if (SCM_PORT_DESCRIPTOR (port)->flags & SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC)
+  if (SCM_PORT_TYPE (port)->flags & SCM_PORT_TYPE_NEEDS_CLOSE_ON_GC)
     scm_weak_set_remove_x (scm_i_port_weak_set, port);
 
-  if (SCM_PORT_DESCRIPTOR (port)->close)
+  if (SCM_PORT_TYPE (port)->close)
     /* Note!  This may throw an exception.  Anything after this point
        should be resilient to non-local exits.  */
-    SCM_PORT_DESCRIPTOR (port)->close (port);
+    SCM_PORT_TYPE (port)->close (port);
 
   if (pt->iconv_descriptors)
     {
@@ -1418,7 +1320,7 @@ static size_t
 scm_i_read_bytes (SCM port, SCM dst, size_t start, size_t count)
 {
   size_t filled;
-  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+  scm_t_port_type *ptob = SCM_PORT_TYPE (port);
 
   assert (count <= SCM_BYTEVECTOR_LENGTH (dst));
   assert (start + count <= SCM_BYTEVECTOR_LENGTH (dst));
@@ -2107,7 +2009,7 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
 {
   long csize;
   scm_t_port *pt;
-  scm_t_ptob_descriptor *ptob;
+  scm_t_port_type *ptob;
   scm_t_bits tag_word;
   size_t read_buf_size, write_buf_size;
   SCM saved_read_buf;
@@ -2116,7 +2018,7 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
 
   SCM_VALIDATE_OPENPORT (1, port);
   pt = SCM_PORT (port);
-  ptob = SCM_PORT_DESCRIPTOR (port);
+  ptob = SCM_PORT_TYPE (port);
   tag_word = SCM_CELL_WORD_0 (port) & ~(SCM_BUF0 | SCM_BUFLINE);
 
   if (scm_is_eq (mode, sym_none))
@@ -2237,7 +2139,7 @@ scm_end_input (SCM port)
   discarded = scm_port_buffer_take (buf, NULL, (size_t) -1);
 
   if (discarded != 0)
-    SCM_PORT_DESCRIPTOR (port)->seek (port, -discarded, SEEK_CUR);
+    SCM_PORT_TYPE (port)->seek (port, -discarded, SEEK_CUR);
 }
 
 SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
@@ -2538,7 +2440,7 @@ SCM_DEFINE (scm_port_read, "port-read", 1, 0, 0, (SCM port),
 #define FUNC_NAME s_scm_port_read
 {
   SCM_VALIDATE_OPINPORT (1, port);
-  return SCM_PORT_DESCRIPTOR (port)->scm_read;
+  return SCM_PORT_TYPE (port)->scm_read;
 }
 #undef FUNC_NAME
 
@@ -2548,7 +2450,7 @@ SCM_DEFINE (scm_port_write, "port-write", 1, 0, 0,
 #define FUNC_NAME s_scm_port_write
 {
   SCM_VALIDATE_OPOUTPORT (1, port);
-  return SCM_PORT_DESCRIPTOR (port)->scm_write;
+  return SCM_PORT_TYPE (port)->scm_write;
 }
 #undef FUNC_NAME
 
@@ -2595,7 +2497,7 @@ static void
 scm_i_write_bytes (SCM port, SCM src, size_t start, size_t count)
 {
   size_t written = 0;
-  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+  scm_t_port_type *ptob = SCM_PORT_TYPE (port);
 
   assert (count <= SCM_BYTEVECTOR_LENGTH (src));
   assert (start + count <= SCM_BYTEVECTOR_LENGTH (src));
@@ -2787,7 +2689,7 @@ SCM_DEFINE (scm_char_ready_p, "char-ready?", 0, 1, 0,
     return SCM_BOOL_T;
   else
     {
-      scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+      scm_t_port_type *ptob = SCM_PORT_TYPE (port);
       
       if (ptob->input_waiting)
 	return scm_from_bool (ptob->input_waiting (port));
@@ -2835,7 +2737,7 @@ SCM_DEFINE (scm_seek, "seek", 3, 0, 0,
   if (SCM_OPPORTP (fd_port))
     {
       scm_t_port *pt = SCM_PORT (fd_port);
-      scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (fd_port);
+      scm_t_port_type *ptob = SCM_PORT_TYPE (fd_port);
       off_t_or_off64_t off = scm_to_off_t_or_off64_t (offset);
       off_t_or_off64_t rv;
 
@@ -2943,7 +2845,7 @@ SCM_DEFINE (scm_truncate_file, "truncate-file", 1, 1, 0,
   else if (SCM_OPOUTPORTP (object))
     {
       off_t_or_off64_t c_length = scm_to_off_t_or_off64_t (length);
-      scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (object);
+      scm_t_port_type *ptob = SCM_PORT_TYPE (object);
 
       if (!ptob->truncate)
 	SCM_MISC_ERROR ("port is not truncatable", SCM_EOL);
@@ -3085,7 +2987,7 @@ scm_print_port_mode (SCM exp, SCM port)
 int
 scm_port_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  char *type = SCM_PTOBNAME (SCM_PTOBNUM (exp));
+  char *type = SCM_PORT_TYPE (port)->name;
   if (!type)
     type = "port";
   scm_puts ("#<", port);
@@ -3177,7 +3079,7 @@ SCM_DEFINE (scm_flush_all_ports, "flush-all-ports", 0, 0, 0,
 
 /* Void ports.   */
 
-scm_t_bits scm_tc16_void_port = 0;
+scm_t_port_type *scm_void_port_type = 0;
 
 static size_t
 void_port_read (SCM port, SCM dst, size_t start, size_t count)
@@ -3194,7 +3096,7 @@ void_port_write (SCM port, SCM src, size_t start, size_t count)
 static SCM
 scm_i_void_port (long mode_bits)
 {
-  return scm_c_make_port (scm_tc16_void_port, mode_bits, 0);
+  return scm_c_make_port (scm_void_port_type, mode_bits, 0);
 }
 
 SCM
@@ -3261,7 +3163,7 @@ scm_init_ports (void)
     scm_c_make_gsubr ("port-write", 4, 0, 0,
                       (scm_t_subr) trampoline_to_c_write);
 
-  scm_tc16_void_port = scm_make_port_type ("void", void_port_read,
+  scm_void_port_type = scm_make_port_type ("void", void_port_read,
 					   void_port_write);
 
   scm_i_port_weak_set = scm_c_make_weak_set (31);

@@ -70,48 +70,47 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 #define SCM_CLR_PORT_OPEN_FLAG(p) \
   SCM_SET_CELL_WORD_0 ((p), SCM_CELL_WORD_0 (p) & ~SCM_OPN)
 
+typedef struct scm_t_port_type scm_t_port_type;
+typedef struct scm_t_port scm_t_port;
+
 #define SCM_STREAM(port) (SCM_CELL_WORD_1 (port))
 #define SCM_SETSTREAM(port, stream) (SCM_SET_CELL_WORD_1 (port, stream))
+#define SCM_PORT(x)         ((scm_t_port *) SCM_CELL_WORD_2 (x))
+#define SCM_PORT_TYPE(port) ((scm_t_port_type *) SCM_CELL_WORD_3 (port))
 
 /* Maximum number of port types.  */
 #define SCM_I_MAX_PORT_TYPE_COUNT  256
 
+
 
 
-typedef struct scm_t_ptob_descriptor scm_t_ptob_descriptor;
-
-#define SCM_TC2PTOBNUM(x) (0x0ff & ((x) >> 8))
-#define SCM_PTOBNUM(x) (SCM_TC2PTOBNUM (SCM_CELL_TYPE (x)))
-/* SCM_PTOBNAME can be 0 if name is missing */
-#define SCM_PTOBNAME(ptobnum) (scm_c_port_type_ref (ptobnum)->name)
-
 /* Port types, and their vtables.  */
-SCM_INTERNAL long scm_c_num_port_types (void);
-SCM_API scm_t_ptob_descriptor* scm_c_port_type_ref (long ptobnum);
-SCM_API long scm_c_port_type_add_x (scm_t_ptob_descriptor *desc);
-SCM_API scm_t_bits scm_make_port_type
+SCM_API scm_t_port_type *scm_make_port_type
 	(char *name,
          size_t (*read) (SCM port, SCM dst, size_t start, size_t count),
          size_t (*write) (SCM port, SCM src, size_t start, size_t count));
-SCM_API void scm_set_port_scm_read (scm_t_bits tc, SCM read);
-SCM_API void scm_set_port_scm_write (scm_t_bits tc, SCM write);
-SCM_API void scm_set_port_print (scm_t_bits tc,
+SCM_API void scm_set_port_scm_read (scm_t_port_type *ptob, SCM read);
+SCM_API void scm_set_port_scm_write (scm_t_port_type *ptob, SCM write);
+SCM_API void scm_set_port_print (scm_t_port_type *ptob,
 				 int (*print) (SCM exp,
 					       SCM port,
 					       scm_print_state *pstate));
-SCM_API void scm_set_port_close (scm_t_bits tc, void (*close) (SCM));
-SCM_API void scm_set_port_needs_close_on_gc (scm_t_bits tc, int needs_close_p);
-SCM_API void scm_set_port_seek (scm_t_bits tc,
+SCM_API void scm_set_port_close (scm_t_port_type *ptob, void (*close) (SCM));
+SCM_API void scm_set_port_needs_close_on_gc (scm_t_port_type *ptob,
+                                             int needs_close_p);
+SCM_API void scm_set_port_seek (scm_t_port_type *ptob,
 				scm_t_off (*seek) (SCM port,
 						   scm_t_off OFFSET,
 						   int WHENCE));
-SCM_API void scm_set_port_truncate (scm_t_bits tc,
+SCM_API void scm_set_port_truncate (scm_t_port_type *ptob,
 				    void (*truncate) (SCM port,
 						      scm_t_off length));
-SCM_API void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM));
+SCM_API void scm_set_port_input_waiting (scm_t_port_type *ptob,
+                                         int (*input_waiting) (SCM));
 SCM_API void scm_set_port_get_natural_buffer_sizes
-  (scm_t_bits tc, void (*get_natural_buffer_sizes) (SCM, size_t *, size_t *));
-SCM_API void scm_set_port_random_access_p (scm_t_bits tc,
+  (scm_t_port_type *ptob,
+   void (*get_natural_buffer_sizes) (SCM, size_t *, size_t *));
+SCM_API void scm_set_port_random_access_p (scm_t_port_type *ptob,
                                            int (*random_access_p) (SCM port));
 
 /* The input, output, error, and load ports.  */
@@ -138,14 +137,13 @@ SCM_API long scm_mode_bits (char *modes);
 SCM_API SCM scm_port_mode (SCM port);
 
 /* Low-level constructors.  */
-SCM_API SCM scm_c_make_port_with_encoding (scm_t_bits tag,
+SCM_API SCM scm_c_make_port_with_encoding (scm_t_port_type *ptob,
                                            unsigned long mode_bits,
                                            SCM encoding,
                                            SCM conversion_strategy,
                                            scm_t_bits stream);
-SCM_API SCM scm_c_make_port (scm_t_bits tag, unsigned long mode_bits,
+SCM_API SCM scm_c_make_port (scm_t_port_type *ptob, unsigned long mode_bits,
                              scm_t_bits stream);
-SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
 
 /* Predicates.  */
 SCM_API SCM scm_port_p (SCM x);

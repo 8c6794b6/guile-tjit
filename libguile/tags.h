@@ -434,8 +434,6 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 #define scm_tc7_unused_14	111
 #define scm_tc7_unused_15	117
 #define scm_tc7_unused_16	119
-
-/* There are 256 port subtypes.  */
 #define scm_tc7_port		125
 
 /* There are 256 smob subtypes.  [**] If you change scm_tc7_smob, you must

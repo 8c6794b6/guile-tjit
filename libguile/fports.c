@@ -72,7 +72,7 @@
 #error Oops, unknown OFF_T size
 #endif
 
-scm_t_bits scm_tc16_fport;
+scm_t_port_type *scm_file_port_type;
 
 
 /* Move ports with the specified file descriptor to new descriptors,
@@ -409,7 +409,7 @@ scm_i_fdes_to_port (int fdes, long mode_bits, SCM name)
                                                   "file port");
   fp->fdes = fdes;
 
-  port = scm_c_make_port (scm_tc16_fport, mode_bits, (scm_t_bits)fp);
+  port = scm_c_make_port (scm_file_port_type, mode_bits, (scm_t_bits)fp);
   
   SCM_SET_FILENAME (port, name);
 
@@ -547,7 +547,7 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
       if (scm_is_string (name) || scm_is_symbol (name))
 	scm_display (name, port);
       else
-	scm_puts (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
+	scm_puts (SCM_PORT_TYPE (exp)->name, port);
       scm_putc (' ', port);
       fdes = (SCM_FSTREAM (exp))->fdes;
 
@@ -560,7 +560,7 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
     }
   else
     {
-      scm_puts (SCM_PTOBNAME (SCM_PTOBNUM (exp)), port);
+      scm_puts (SCM_PORT_TYPE (exp)->name, port);
       scm_putc (' ', port);
       scm_uintprint ((scm_t_bits) SCM_PORT (exp), 16, port);
     }
@@ -650,21 +650,21 @@ fport_get_natural_buffer_sizes (SCM port, size_t *read_size, size_t *write_size)
 #endif
 }
 
-static scm_t_bits
+static scm_t_port_type *
 scm_make_fptob ()
 {
-  scm_t_bits tc = scm_make_port_type ("file", fport_read, fport_write);
+  scm_t_port_type *ptob = scm_make_port_type ("file", fport_read, fport_write);
 
-  scm_set_port_print                    (tc, fport_print);
-  scm_set_port_needs_close_on_gc        (tc, 1);
-  scm_set_port_close                    (tc, fport_close);
-  scm_set_port_seek                     (tc, fport_seek);
-  scm_set_port_truncate                 (tc, fport_truncate);
-  scm_set_port_input_waiting            (tc, fport_input_waiting);
-  scm_set_port_random_access_p          (tc, fport_random_access_p);
-  scm_set_port_get_natural_buffer_sizes (tc, fport_get_natural_buffer_sizes);
+  scm_set_port_print                    (ptob, fport_print);
+  scm_set_port_needs_close_on_gc        (ptob, 1);
+  scm_set_port_close                    (ptob, fport_close);
+  scm_set_port_seek                     (ptob, fport_seek);
+  scm_set_port_truncate                 (ptob, fport_truncate);
+  scm_set_port_input_waiting            (ptob, fport_input_waiting);
+  scm_set_port_random_access_p          (ptob, fport_random_access_p);
+  scm_set_port_get_natural_buffer_sizes (ptob, fport_get_natural_buffer_sizes);
 
-  return tc;
+  return ptob;
 }
 
 /* We can't initialize the keywords from 'scm_init_fports', because
@@ -685,7 +685,7 @@ scm_init_ice_9_fports (void)
 void
 scm_init_fports ()
 {
-  scm_tc16_fport = scm_make_fptob ();
+  scm_file_port_type = scm_make_fptob ();
 
   scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
                             "scm_init_ice_9_fports",

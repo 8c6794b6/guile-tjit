@@ -116,7 +116,7 @@ SCM_DEPRECATED SCM scm_internal_dynamic_wind (scm_t_guard before,
 #define scm_option scm_option__GONE__REPLACE_WITH__scm_t_option
 #define scm_port scm_port__GONE__REPLACE_WITH__scm_t_port
 #define scm_port_rw_active scm_port_rw_active__GONE__REPLACE_WITH__scm_t_port_rw_active
-#define scm_ptob_descriptor scm_ptob_descriptor__GONE__REPLACE_WITH__scm_t_ptob_descriptor
+#define scm_ptob_descriptor scm_ptob_descriptor__GONE__REPLACE_WITH__scm_t_port_type
 #define scm_rng scm_rng__GONE__REPLACE_WITH__scm_t_rng
 #define scm_rstate scm_rstate__GONE__REPLACE_WITH__scm_t_rstate
 #define scm_sizet scm_sizet__GONE__REPLACE_WITH__size_t
@@ -203,7 +203,6 @@ SCM_DEPRECATED SCM scm_class_int;
 SCM_DEPRECATED SCM scm_class_float;
 SCM_DEPRECATED SCM scm_class_double;
 
-SCM_DEPRECATED SCM *scm_port_class;
 SCM_DEPRECATED SCM *scm_smob_class;
 
 SCM_INTERNAL void scm_init_deprecated_goops (void);

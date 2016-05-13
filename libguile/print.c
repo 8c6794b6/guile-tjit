@@ -815,7 +815,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	  break;
 	case scm_tc7_port:
 	  {
-	    scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (exp);
+	    scm_t_port_type *ptob = SCM_PORT_TYPE (exp);
 	    if (ptob->print && ptob->print (exp, port, pstate))
 	      break;
 	    goto punk;
@@ -1691,7 +1691,7 @@ static int
 port_with_ps_print (SCM obj, SCM port, scm_print_state *pstate)
 {
   obj = SCM_PORT_WITH_PS_PORT (obj);
-  return SCM_PORT_DESCRIPTOR (obj)->print (obj, port, pstate);
+  return SCM_PORT_TYPE (obj)->print (obj, port, pstate);
 }
 
 SCM

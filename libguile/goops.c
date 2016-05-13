@@ -51,11 +51,6 @@
 #include "libguile/validate.h"
 #include "libguile/goops.h"
 
-/* Port classes */
-#define SCM_IN_PCLASS_INDEX       0
-#define SCM_OUT_PCLASS_INDEX      SCM_I_MAX_PORT_TYPE_COUNT
-#define SCM_INOUT_PCLASS_INDEX    (2 * SCM_I_MAX_PORT_TYPE_COUNT)
-
 /* Objects have identity, so references to classes and instances are by
    value, not by reference.  Redefinition of a class or modification of
    an instance causes in-place update; you can think of GOOPS as
@@ -137,11 +132,6 @@ static SCM class_array;
 static SCM class_bitvector;
 
 static SCM vtable_class_map = SCM_BOOL_F;
-
-/* Port classes.  Allocate 3 times the maximum number of port types so that
-   input ports, output ports, and in/out ports can be stored at different
-   offsets.  See `SCM_IN_PCLASS_INDEX' et al.  */
-SCM scm_i_port_class[3 * SCM_I_MAX_PORT_TYPE_COUNT];
 
 /* SMOB classes.  */
 SCM scm_i_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
@@ -277,11 +267,16 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	    /* fall through to ports */
 	  }
 	case scm_tc7_port:
-	  return scm_i_port_class[(SCM_WRTNG & SCM_CELL_WORD_0 (x)
-                                   ? (SCM_RDNG & SCM_CELL_WORD_0 (x)
-                                      ? SCM_INOUT_PCLASS_INDEX | SCM_PTOBNUM (x)
-                                      : SCM_OUT_PCLASS_INDEX | SCM_PTOBNUM (x))
-                                   : SCM_IN_PCLASS_INDEX | SCM_PTOBNUM (x))];
+          {
+            scm_t_port_type *ptob = SCM_PORT_TYPE (x);
+            if (SCM_INPUT_PORT_P (x))
+              {
+                if (SCM_OUTPUT_PORT_P (x))
+                  return ptob->input_output_class;
+                return ptob->input_class;
+              }
+            return ptob->output_class;
+          }
 	case scm_tcs_struct:
 	  if (SCM_OBJ_CLASS_FLAGS (x) & SCM_CLASSF_GOOPS_VALID)
             /* A GOOPS object with a valid class.  */
@@ -759,40 +754,67 @@ create_smob_classes (void)
                                                      scm_smobs[i].apply != 0);
 }
 
-void
-scm_make_port_classes (long ptobnum, char *type_name)
+struct pre_goops_port_type
+{
+  scm_t_port_type *ptob;
+  struct pre_goops_port_type *prev;
+};
+struct pre_goops_port_type *pre_goops_port_types;
+
+static void
+make_port_classes (scm_t_port_type *ptob)
 {
   SCM name, meta, super, supers;
 
   meta = class_class;
 
-  name = make_class_name ("<", type_name, "-port>");
+  name = make_class_name ("<", ptob->name, "-port>");
   supers = scm_list_1 (class_port);
   super = scm_make_standard_class (meta, name, supers, SCM_EOL);
 
-  name = make_class_name ("<", type_name, "-input-port>");
+  name = make_class_name ("<", ptob->name, "-input-port>");
   supers = scm_list_2 (super, class_input_port);
-  scm_i_port_class[SCM_IN_PCLASS_INDEX + ptobnum]
-    = scm_make_standard_class (meta, name, supers, SCM_EOL);
+  ptob->input_class = scm_make_standard_class (meta, name, supers, SCM_EOL);
 
-  name = make_class_name ("<", type_name, "-output-port>");
+  name = make_class_name ("<", ptob->name, "-output-port>");
   supers = scm_list_2 (super, class_output_port);
-  scm_i_port_class[SCM_OUT_PCLASS_INDEX + ptobnum]
-    = scm_make_standard_class (meta, name, supers, SCM_EOL);
+  ptob->output_class = scm_make_standard_class (meta, name, supers, SCM_EOL);
 
-  name = make_class_name ("<", type_name, "-input-output-port>");
+  name = make_class_name ("<", ptob->name, "-input-output-port>");
   supers = scm_list_2 (super, class_input_output_port);
-  scm_i_port_class[SCM_INOUT_PCLASS_INDEX + ptobnum]
-    = scm_make_standard_class (meta, name, supers, SCM_EOL);
+  ptob->input_output_class =
+    scm_make_standard_class (meta, name, supers, SCM_EOL);
+}
+
+void
+scm_make_port_classes (scm_t_port_type *ptob)
+{
+  ptob->input_class = SCM_BOOL_F;
+  ptob->output_class = SCM_BOOL_F;
+  ptob->input_output_class = SCM_BOOL_F;
+
+  if (!goops_loaded_p)
+    {
+      /* Not really a pair.  */
+      struct pre_goops_port_type *link;
+      link = scm_gc_typed_calloc (struct pre_goops_port_type);
+      link->ptob = ptob;
+      link->prev = pre_goops_port_types;
+      pre_goops_port_types = link;
+      return;
+    }
+
+  make_port_classes (ptob);
 }
 
 static void
 create_port_classes (void)
 {
-  long i;
-
-  for (i = scm_c_num_port_types () - 1; i >= 0; i--)
-    scm_make_port_classes (i, SCM_PTOBNAME (i));
+  while (pre_goops_port_types)
+    {
+      make_port_classes (pre_goops_port_types->ptob);
+      pre_goops_port_types = pre_goops_port_types->prev;
+    }
 }
 
 SCM

@@ -82,7 +82,6 @@
 
 #define SCM_SET_CLASS_DESTRUCTOR(c, d) SCM_SET_VTABLE_DESTRUCTOR (c, d)
 
-SCM_INTERNAL SCM scm_i_port_class[];
 SCM_INTERNAL SCM scm_i_smob_class[];
 
 SCM_API SCM scm_module_goops;
@@ -90,7 +89,7 @@ SCM_API SCM scm_module_goops;
 SCM_API SCM scm_goops_version (void);
 SCM_API void scm_load_goops (void);
 SCM_API SCM scm_make_extended_class (char const *type_name, int applicablep);
-SCM_API void scm_make_port_classes (long ptobnum, char *type_name);
+SCM_INTERNAL void scm_make_port_classes (scm_t_port_type *ptob);
 SCM_API SCM scm_ensure_accessor (SCM name);
 SCM_API SCM scm_class_of (SCM obj);
 

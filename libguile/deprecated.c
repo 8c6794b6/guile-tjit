@@ -202,7 +202,6 @@ scm_init_deprecated_goops (void)
   scm_class_output_port = scm_variable_ref (scm_c_lookup ("<output-port>"));
   scm_class_input_output_port = scm_variable_ref (scm_c_lookup ("<input-output-port>"));
 
-  scm_port_class = scm_i_port_class;
   scm_smob_class = scm_i_smob_class;
 }
 

@@ -54,7 +54,7 @@
 
 SCM_SYMBOL (sym_UTF_8, "UTF-8");
 
-scm_t_bits scm_tc16_strport;
+scm_t_port_type *scm_string_port_type;
 
 struct string_port {
   SCM bytevector;
@@ -181,7 +181,7 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
   stream->len = len;
 
   return
-    scm_c_make_port_with_encoding (scm_tc16_strport, modes, sym_UTF_8,
+    scm_c_make_port_with_encoding (scm_string_port_type, modes, sym_UTF_8,
                                    scm_i_default_port_conversion_strategy (),
                                    (scm_t_bits) stream);
 }
@@ -375,21 +375,21 @@ scm_eval_string (SCM string)
   return scm_eval_string_in_module (string, SCM_UNDEFINED);
 }
 
-static scm_t_bits
+static scm_t_port_type *
 scm_make_string_port_type ()
 {
-  scm_t_bits tc = scm_make_port_type ("string",
-                                      string_port_read,
-                                      string_port_write);
-  scm_set_port_seek (tc, string_port_seek);
+  scm_t_port_type *ptob = scm_make_port_type ("string",
+                                              string_port_read,
+                                              string_port_write);
+  scm_set_port_seek (ptob, string_port_seek);
 
-  return tc;
+  return ptob;
 }
 
 void
 scm_init_strports ()
 {
-  scm_tc16_strport = scm_make_string_port_type ();
+  scm_string_port_type = scm_make_string_port_type ();
 
 #include "libguile/strports.x"
 }

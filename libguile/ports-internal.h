@@ -34,7 +34,7 @@ typedef enum scm_t_port_type_flags {
 } scm_t_port_type_flags;
 
 /* port-type description.  */
-struct scm_t_ptob_descriptor
+struct scm_t_port_type
 {
   char *name;
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
@@ -56,6 +56,9 @@ struct scm_t_ptob_descriptor
   void (*truncate) (SCM port, scm_t_off length);
 
   unsigned flags;
+
+  /* GOOPS tomfoolery.  */
+  SCM input_class, output_class, input_output_class;
 };
 
 /* Port buffers.
@@ -280,7 +283,7 @@ struct scm_iconv_descriptors
 
 typedef struct scm_iconv_descriptors scm_t_iconv_descriptors;
 
-struct scm_port
+struct scm_t_port
 {
   /* Source location information.  */
   SCM file_name;
@@ -314,11 +317,6 @@ struct scm_port
   scm_t_iconv_descriptors *iconv_descriptors;
   SCM alist;
 };
-
-typedef struct scm_port scm_t_port;
-
-#define SCM_PORT(x)               ((scm_t_port *) SCM_CELL_WORD_2 (x))
-#define SCM_PORT_DESCRIPTOR(port) ((scm_t_ptob_descriptor *) SCM_CELL_WORD_3 (port))
 
 #define SCM_UNICODE_BOM  0xFEFFUL  /* Unicode byte-order mark */
 
