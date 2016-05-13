@@ -169,7 +169,7 @@
          (sp-set! local r0))
         (else (err)))))))
 
-(define (maybe-store %asm local-x-types srcs references ref-shift)
+(define (maybe-store %asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
@@ -184,10 +184,10 @@
          (when (or (dynamic-link? type)
                    (return-address? type)
                    (not references)
-                   (let ((reg (hashq-ref references (- local ref-shift))))
+                   (let ((reg (hashq-ref references (- local shift))))
                      (or (not reg)
                          (not (equal? src reg)))))
-           (store-frame local type src))
+           (store-frame (- local shift) type src))
          (lp local-x-types srcs))
         (_ (values))))))
 
@@ -700,11 +700,11 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (hashq-set! ref-table n t)
                  (lp ref-locals))
                 (()
-                 ;; Store locals.
-                 (maybe-store %asm locals args ref-table sp-offset)
-
-                 ;; Shift SP, then shift FP with nlocals.
+                 ;; Shift SP, then store locals, and then shift FP with
+                 ;; nlocals. This order is taken to preserve stored locals from
+                 ;; garbage collection.
                  (shift-sp %asm sp-offset)
+                 (maybe-store %asm locals args ref-table sp-offset)
                  (shift-fp nlocals)
 
                  ;; Move or load locals for linked fragment.
@@ -717,7 +717,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                               (not (fragment-handle-interrupts? linked)))
                      (vm-handle-interrupts)))
 
-                 ;; Jump to the beginning of the loop in linked fragment.
+                 ;; Jump to beginning of the loop in linked fragment.
                  (jumpi (fragment-loop-address linked))))))))))
     (_
      (failure 'compile-link "not a snapshot ~s" snapshot))))
@@ -739,7 +739,6 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (vm-expand-stack asm next-offset)
                  (jit-addi %sp %sp (imm (* diff %word-size)))
                  (vm-sync-sp %sp))))
-         (shift-fp nlocals)
          (let lp ((locals locals) (vars vars))
            (match (cons locals vars)
              ((((n . t) . locals) . (v . vars))
@@ -760,7 +759,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                               (move dst src))))
                    (lp loop-locals loop-vars))
                   (_
-                   (values))))))))
+                   (shift-fp nlocals))))))))
         (_
          (failure 'compile-downrec "not a snapshot ~a" snapshot))))))
 

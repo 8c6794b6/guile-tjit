@@ -204,6 +204,7 @@ TESTS = \
 	t-rec-04.scm \
 	t-rec-05.scm \
 	t-rec-06.scm \
+	t-rec-07.scm \
 	t-reset-frame-01.scm \
 	t-reset-frame-02.scm \
 	t-repl-01.scm \
