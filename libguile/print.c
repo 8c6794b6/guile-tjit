@@ -1565,9 +1565,7 @@ SCM_DEFINE (scm_simple_format, "simple-format", 2, 0, 1,
   else if (scm_is_false (destination))
     {
       fReturnString = 1;
-      port = scm_mkstrport (SCM_INUM0, SCM_BOOL_F,
-			    SCM_OPN | SCM_WRTNG,
-			    FUNC_NAME);
+      port = scm_mkstrport (SCM_INUM0, SCM_BOOL_F, SCM_WRTNG, FUNC_NAME);
       destination = port;
     }
   else

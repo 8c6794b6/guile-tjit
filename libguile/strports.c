@@ -215,8 +215,7 @@ SCM_DEFINE (scm_object_to_string, "object->string", 1, 1, 0,
   if (!SCM_UNBNDP (printer))
     SCM_VALIDATE_PROC (2, printer);
 
-  port = scm_mkstrport (SCM_INUM0, SCM_BOOL_F,
-			SCM_OPN | SCM_WRTNG, FUNC_NAME);
+  port = scm_mkstrport (SCM_INUM0, SCM_BOOL_F, SCM_WRTNG, FUNC_NAME);
 
   if (SCM_UNBNDP (printer))
     scm_write (obj, port);
@@ -267,8 +266,7 @@ SCM_DEFINE (scm_open_input_string, "open-input-string", 1, 0, 0,
 	    "by the garbage collector if it becomes inaccessible.")
 #define FUNC_NAME s_scm_open_input_string
 {
-  SCM p = scm_mkstrport (SCM_INUM0, str, SCM_OPN | SCM_RDNG, FUNC_NAME);
-  return p;
+  return scm_mkstrport (SCM_INUM0, str, SCM_RDNG, FUNC_NAME);
 }
 #undef FUNC_NAME
 
@@ -281,12 +279,7 @@ SCM_DEFINE (scm_open_output_string, "open-output-string", 0, 0, 0,
 	    "inaccessible.")
 #define FUNC_NAME s_scm_open_output_string
 {
-  SCM p;
-
-  p = scm_mkstrport (SCM_INUM0, SCM_BOOL_F,
-		     SCM_OPN | SCM_WRTNG,
-                     FUNC_NAME);
-  return p;
+  return scm_mkstrport (SCM_INUM0, SCM_BOOL_F, SCM_WRTNG, FUNC_NAME);
 }
 #undef FUNC_NAME
 
@@ -308,15 +301,13 @@ SCM_DEFINE (scm_get_output_string, "get-output-string", 1, 0, 0,
 SCM
 scm_c_read_string (const char *expr)
 {
-  SCM port = scm_mkstrport (SCM_INUM0,
-			    scm_from_locale_string (expr),
-			    SCM_OPN | SCM_RDNG,
-			    "scm_c_read_string");
-  SCM form;
+  SCM port, form;
 
+  port = scm_mkstrport (SCM_INUM0, scm_from_locale_string (expr),
+                        SCM_RDNG, "scm_c_read_string");
   form = scm_read (port);
-
   scm_close_port (port);
+
   return form;
 }
 

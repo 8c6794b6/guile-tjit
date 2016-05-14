@@ -92,7 +92,7 @@ struct bytevector_input_port {
 static inline SCM
 make_bytevector_input_port (SCM bv)
 {
-  const unsigned long mode_bits = SCM_OPN | SCM_RDNG;
+  const unsigned long mode_bits = SCM_RDNG;
   struct bytevector_input_port *stream;
 
   stream = scm_gc_typed_calloc (struct bytevector_input_port);
@@ -266,7 +266,7 @@ make_custom_binary_input_port (SCM read_proc, SCM get_position_proc,
                                SCM set_position_proc, SCM close_proc)
 {
   struct custom_binary_port *stream;
-  const unsigned long mode_bits = SCM_OPN | SCM_RDNG;
+  const unsigned long mode_bits = SCM_RDNG;
 
   stream = scm_gc_typed_calloc (struct custom_binary_port);
   stream->read = read_proc;
@@ -734,7 +734,7 @@ make_bytevector_output_port (void)
 {
   SCM port, proc;
   scm_t_bytevector_output_port_buffer *buf;
-  const unsigned long mode_bits = SCM_OPN | SCM_WRTNG;
+  const unsigned long mode_bits = SCM_WRTNG;
 
   buf = (scm_t_bytevector_output_port_buffer *)
     scm_gc_malloc (sizeof (* buf), SCM_GC_BYTEVECTOR_OUTPUT_PORT);
@@ -868,7 +868,7 @@ make_custom_binary_output_port (SCM write_proc, SCM get_position_proc,
                                 SCM set_position_proc, SCM close_proc)
 {
   struct custom_binary_port *stream;
-  const unsigned long mode_bits = SCM_OPN | SCM_WRTNG;
+  const unsigned long mode_bits = SCM_WRTNG;
 
   stream = scm_gc_typed_calloc (struct custom_binary_port);
   stream->read = SCM_BOOL_F;
@@ -957,13 +957,8 @@ static scm_t_port_type *transcoded_port_type = 0;
 static inline SCM
 make_transcoded_port (SCM binary_port, unsigned long mode)
 {
-  SCM port;
-  const unsigned long mode_bits = SCM_OPN | mode;
-  
-  port = scm_c_make_port (transcoded_port_type, mode_bits,
+  return scm_c_make_port (transcoded_port_type, mode,
                           SCM_UNPACK (binary_port));
-
-  return port;
 }
 
 static size_t
