@@ -48,16 +48,15 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 
 #define SCM_EOF_OBJECT_P(x) (scm_is_eq ((x), SCM_EOF_VAL))
 
-/* PORT FLAGS
- * A set of flags characterizes a port.
- * Note that we reserve the bits 1 << 24 and above for use by the
- * routines in the port's scm_ptobfuns structure.
- */
-#define SCM_OPN		(1L<<16) /* Is the port open? */
-#define SCM_RDNG	(2L<<16) /* Is it a readable port? */
-#define SCM_WRTNG	(4L<<16) /* Is it writable? */
-#define SCM_BUF0	(8L<<16) /* Is it unbuffered? */
-#define SCM_BUFLINE     (64L<<16) /* Is it line-buffered? */
+/* A port's first word contains its tag, which is a tc7 value.  Above
+   there is a flag indicating whether the port is open or not, and then
+   some "mode bits": flags indicating whether the port is an input
+   and/or an output port and how Guile should buffer the port.  */
+#define SCM_OPN		(1U<<16) /* Is the port open? */
+#define SCM_RDNG	(1U<<17) /* Is it a readable port? */
+#define SCM_WRTNG	(1U<<18) /* Is it writable? */
+#define SCM_BUF0	(1U<<19) /* Is it unbuffered? */
+#define SCM_BUFLINE     (1U<<20) /* Is it line-buffered? */
 
 #define SCM_PORTP(x) (SCM_HAS_TYP7 (x, scm_tc7_port))
 #define SCM_OPPORTP(x) (SCM_PORTP (x) && (SCM_CELL_WORD_0 (x) & SCM_OPN))
