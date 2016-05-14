@@ -331,12 +331,6 @@ struct scm_t_port
 #define SCM_DECCOL(port)  	do {if (SCM_COL (port) > 0) SCM_COL (port) -= 1;} while (0)
 #define SCM_TABCOL(port)  	do {SCM_COL (port) += 8 - SCM_COL (port) % 8;} while (0)
 
-typedef enum scm_t_port_rw_active {
-  SCM_PORT_NEITHER = 0,
-  SCM_PORT_READ = 1,
-  SCM_PORT_WRITE = 2
-} scm_t_port_rw_active;
-
 SCM_INTERNAL scm_t_iconv_descriptors * scm_i_port_iconv_descriptors (SCM port);
 
 #endif
