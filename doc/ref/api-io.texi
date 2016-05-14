@@ -2242,13 +2242,33 @@ only you control.  Get a stream from a port using the @code{SCM_STREAM}
 macro.  Note that your port methods are only ever called with ports of
 your type.
 
-A port type is created by calling @code{scm_make_port_type}.
+A port type is created by calling @code{scm_make_port_type}.  Once you
+have your port type, you can create ports with @code{scm_c_make_port},
+or @code{scm_c_make_port_with_encoding}.
 
 @deftypefun scm_t_port_type* scm_make_port_type (char *name, size_t (*read) (SCM port, SCM dst, size_t start, size_t count), size_t (*write) (SCM port, SCM src, size_t start, size_t count))
 Define a new port type.  The @var{name}, @var{read} and @var{write}
 parameters are initial values for those port type fields, as described
 below.  The other fields are initialized with default values and can be
 changed later.
+@end deftypefun
+
+@deftypefun SCM scm_c_make_port_with_encoding (scm_t_port_type *type, unsigned long mode_bits, SCM encoding, SCM conversion_strategy, scm_t_bits stream)
+@deftypefunx SCM scm_c_make_port (scm_t_port_type *type, unsigned long mode_bits, scm_t_bits stream)
+Make a port with the given @var{type}.  The @var{stream} indicates the
+private data associated with the port, which your port implementation
+may later retrieve with @code{SCM_STREAM}.  The mode bits should include
+one or more of the flags @code{SCM_RDNG} or @code{SCM_WRTNG}, indicating
+that the port is an input and/or an output port, respectively.  The mode
+bits may also include @code{SCM_BUF0} or @code{SCM_BUFLINE}, indicating
+that the port should be unbuffered or line-buffered, respectively.  The
+default is that the port will be block-buffered.  @xref{Buffering}.
+
+As you would imagine, @var{encoding} and @var{conversion_strategy}
+specify the port's initial textual encoding and conversion strategy.
+Both are symbols.  @code{scm_c_make_port} is the same as
+@code{scm_c_make_port_with_encoding}, except it uses the default port
+encoding and conversion strategy.
 @end deftypefun
 
 The port type has a number of associate procedures and properties which
