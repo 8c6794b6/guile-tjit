@@ -9,12 +9,46 @@ Please send Guile bug reports to bug-guile@gnu.org.
 Changes in 2.1.3 (changes since the 2.1.2 alpha release):
 
 * Notable changes
+** Complete overhaul of port internals
+
+Guile's ports have been completely overhauled to allow Guile developers
+and eventually Guile users to write low-level input and output routines
+in Scheme.  The new internals will eventually allow for user-space
+tasklets or green threads that suspend to a scheduler when they would
+cause blocking I/O, allowing users to write straightforward network
+services that parse their input and send their output as if it were
+blocking, while under the hood Guile can multiplex many active
+connections at once.
+
+At the same time, this change makes Guile's ports implementation much
+more maintainable, rationalizing the many legacy port internals and
+making sure that the abstractions between the user, Guile's core ports
+facility, and the port implementations result in a system that is as
+performant and expressive as possible.
+
+The interface to the user has no significant change, neither on the C
+side nor on the Scheme side.  However this refactoring has changed the
+interface to the port implementor in an incompatible way.  See below for
+full details.
+
 ** All ports are now buffered, can be targets of `setvbuf'
 
 See "Buffering" in the manual, for more.  A port with a buffer size of 1
 is equivalent to an unbuffered port.  Ports may set their default buffer
 sizes, and some ports (for example soft ports) are unbuffered by default
 for historical reasons.
+
+** Removal of port locks
+
+As part of the 2.2 series, we introduced recursive locks on each port,
+and arranged to lock them to avoid crashes but also to serialize I/O in
+some ways.  This turned out to be a mistake: the port lock does not
+necessarily correspond to a program's desired atomic unit of I/O, so
+correct programs would likely have to have their own locking.  At the
+same time the port buffering refactoring made it possible for us to
+avoid the crashes that led to the introduction of locking, but without
+locks.  For that reason we have removed port locks, and removed the
+"_unlocked" port API variants that were introduced in 2.1.0.
 
 * New deprecations
 ** `_IONBF', `_IOLBF', and `_IOFBF'
@@ -23,14 +57,24 @@ Instead, use the symbol values `none', `line', or `block', respectively,
 as arguments to the `setvbuf' function.
 
 * Incompatible changes
+
+** Decoding errors do not advance the read pointer before erroring
+
+When the user sets a port's conversion strategy to "error", indicating
+that Guile should throw an error if it tries to read from a port whose
+incoming bytes are not valid for the port's encoding, it used to be that
+Guile would advance the read pointer past the bad bytes, and then throw
+an error.  This would allow the following `read-char' invocation to
+proceed after the bad bytes.  This behavior is incompatible with the
+final R6RS standard, and besides contravenes the user's intention to
+raise an error on bad input.  Guile now raises an error without
+advancing the read pointer.  To skip over a bad encoding, set the port
+conversion strategy to "substitute" and read a substitute character.
+
 ** API to define new port types from C has changed
 
-In Guile 2.2 the API used to define new port types has changed.  This
-largely shouldn't affect port users, modulo the buffering port mentioned
-above.  However, in order to enable all ports to have buffers
-implemented in the same way, which is a prerequisite to non-blocking
-I/O, the port API has changed.  See "I/O Extensions" in the manual, for
-full details.  Notably:
+See the newly expanded "I/O Extensions" in the manual, for full details.
+Notably:
 
 *** Remove `scm_set_port_mark'
 
@@ -61,12 +105,25 @@ manage an implementation-side buffer are no longer needed.
 
 *** Change prototype of `scm_make_port_type'
 
-The `read' (renamed from `fill_input') and `write' functions now return
-void and take a port buffer.
+The `read' (renamed from `fill_input') and `write' functions now operate
+on bytevectors.  Also the `mode_bits' argument now inplicitly includes
+SCM_OPN, so you don't need to include these.
 
-*** Remove `SCM_INITIAL_PUTBACK_BUF_SIZE', `SCM_READ_BUFFER_EMPTY_P'
+*** Change prototype of port `close' function
 
-Probably nobody used these.
+The port close function now returns void.
+
+*** Port and port type data structures are now opaque
+
+Port type implementations should now use API to access port state.
+However, since the change to handle port buffering centrally, port type
+implementations rarely need to access unrelated port state.
+
+*** Port types are now `scm_t_port_type*', not a tc16 value
+
+`scm_make_port_type' now returns an opaque pointer, not a tc16.
+Relatedly, the limitation that there only be 256 port types has been
+lifted.
 
 
 
