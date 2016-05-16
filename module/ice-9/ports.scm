@@ -178,6 +178,7 @@ interpret its input and output."
             %port-encoding
             specialize-port-encoding!
             port-random-access?
+            port-decode-char
             port-read-buffering))
 
 (define-syntax-rule (port-buffer-bytevector buf) (vector-ref buf 0))

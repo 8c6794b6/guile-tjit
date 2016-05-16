@@ -127,6 +127,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/session.test			\
 	    tests/signals.test			\
 	    tests/sort.test			\
+	    tests/sports.test			\
 	    tests/srcprop.test			\
 	    tests/srfi-1.test			\
 	    tests/srfi-6.test			\

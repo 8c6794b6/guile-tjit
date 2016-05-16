@@ -1,0 +1,51 @@
+;;;; Scheme implementation of Guile ports -*- scheme -*-
+;;;;
+;;;; Copyright (C) 2016 Free Software Foundation, Inc.
+;;;; 
+;;;; This library is free software: you can redistribute it and/or modify
+;;;; it under the terms of the GNU Lesser General Public License as
+;;;; published by the Free Software Foundation, either version 3 of the
+;;;; License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;;;; GNU Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library.  If not, see
+;;;; <http://www.gnu.org/licenses/>.
+
+(define-module (test-suite test-ports)
+  #:use-module (ice-9 sports))
+
+;; Include tests from ports.test.
+
+(define-syntax import-uses
+  (syntax-rules ()
+    ((_) #t)
+    ((_ #:use-module mod . uses)
+     (begin (use-modules mod) (import-uses . uses)))))
+
+(define-syntax include-one
+  (syntax-rules (define-module)
+    ((_ (define-module mod . uses))
+     (import-uses . uses))
+    ((_ exp) exp)))
+
+(define-syntax include-tests
+  (lambda (x)
+    (syntax-case x ()
+      ((include-tests file)
+       (call-with-input-file (in-vicinity (getenv "TEST_SUITE_DIR")
+                                          (syntax->datum #'file))
+         (lambda (port)
+           #`(begin
+               . #,(let lp ()
+                     (let ((exp (read port)))
+                       (if (eof-object? exp)
+                           #'()
+                           (let ((exp (datum->syntax #'include-tests exp)))
+                             #`((include-one #,exp) . #,(lp)))))))))))))
+
+(include-tests "tests/ports.test")
