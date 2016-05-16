@@ -439,8 +439,8 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
 
   if (SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
     {
-      fragment_id = SCM_PACK (tj->ret_fragment_id);
-      fragment = scm_hashq_ref (tjit_fragment_table, fragment_id, SCM_BOOL_F);
+      fragment = SCM_PACK (tj->ret_fragment);
+      fragment_id = SCM_FRAGMENT_ID (fragment);
       exit_id = SCM_PACK (tj->ret_exit_id);
       exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
       count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
@@ -484,7 +484,7 @@ scm_make_tjit_state (void)
   t->parent_exit_id = 0;
   t->nunrolled = 0;
   t->ret_exit_id = 0;
-  t->ret_fragment_id = 0;
+  t->ret_fragment = 0;
   t->ret_origin = 0;
 
   return t;
@@ -637,13 +637,13 @@ SCM_DEFINE (scm_make_negative_pointer, "make-negative-pointer", 1, 0, 0,
  */
 
 void
-scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits fragment_id,
+scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits fragment,
                      scm_t_bits origin)
 {
   struct scm_tjit_state *tj = scm_acquire_tjit_state ();
 
   tj->ret_exit_id = exit_id;
-  tj->ret_fragment_id = fragment_id;
+  tj->ret_fragment = fragment;
   tj->ret_origin = origin;
 }
 
@@ -654,7 +654,7 @@ scm_tjit_dump_retval (struct scm_vm *vp)
   struct scm_tjit_state *tj = scm_acquire_tjit_state ();
 
   scm_puts (";;; trace ", port);
-  scm_display (SCM_PACK (tj->ret_fragment_id), port);
+  scm_display (SCM_FRAGMENT_ID (SCM_PACK (tj->ret_fragment)), port);
   scm_puts (": exit ", port);
   scm_display (SCM_PACK (tj->ret_exit_id), port);
   scm_puts (" => ", port);
@@ -725,13 +725,15 @@ SCM
 scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp)
 {
   SCM vm_cont;
+  scm_t_dynstack *dynstack;
   int first;
 
+  dynstack = scm_dynstack_capture_all (&thread->dynstack);
   vm_cont = scm_i_vm_capture_stack (vp->stack_top,
                                     SCM_FRAME_DYNAMIC_LINK (vp->fp),
                                     SCM_FRAME_PREVIOUS_SP (vp->fp),
                                     SCM_FRAME_RETURN_ADDRESS (vp->fp),
-                                    scm_dynstack_capture_all (&thread->dynstack),
+                                    dynstack,
                                     0);
 
   /* XXX: Return the contents of `first'. */

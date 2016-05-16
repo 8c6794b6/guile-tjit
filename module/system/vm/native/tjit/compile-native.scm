@@ -414,7 +414,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                      (else
                       new-fragment)))
             (bcode
-             (compile-bailouts env end-address trampoline origin bailouts)))
+             (compile-bailouts env end-address trampoline new-fragment
+                               origin bailouts)))
        (make-bytevector-executable! code)
        (set-fragment-bailout-code! new-fragment bcode)
 
@@ -566,62 +567,56 @@ DST-TYPES, and SRC-TYPES are local index number."
      (failure 'compile-body "not a $primops" primops))))
 
 (define (compile-bailout env %asm snapshot trampoline args)
-  (lambda (end-address origin)
-    (let ((ip (snapshot-ip snapshot))
-          (id (snapshot-id snapshot)))
-      (debug 3 ";;; compile-bailout:~%")
-      (debug 3 ";;;   snapshot-id: ~a~%" id)
-      (debug 3 ";;;   next-ip:     ~a~%" ip)
-      (debug 3 ";;;   args:        ~a~%" args)
-      (let ((entry (jit-label)))
-        (jit-patch entry)
-        (match snapshot
-          (($ $snapshot id sp-offset fp-offset nlocals locals)
-           ;; Store contents of args to the stack.
-           (let lp ((locals locals) (args args))
-             (match (cons locals args)
-               ((((local . type) . locals) . (arg . args))
-                (syntax-parameterize ((asm (identifier-syntax %asm)))
-                  (store-frame local type arg))
-                (lp locals args))
-               (_ (values))))
+  (lambda (end-address self-fragment origin)
+    (let ((entry (jit-label)))
+      (jit-patch entry)
+      (match snapshot
+        (($ $snapshot id sp-offset fp-offset nlocals locals _ _ ip)
+         ;; Store contents of args to the stack.
+         (let lp ((locals locals) (args args))
+           (match (cons locals args)
+             ((((local . type) . locals) . (arg . args))
+              (syntax-parameterize ((asm (identifier-syntax %asm)))
+                (store-frame local type arg))
+              (lp locals args))
+             (_ (values))))
 
-           ;; Shift SP, then shift FP with nlocals.
-           (shift-sp %asm sp-offset)
-           (shift-fp nlocals)
+         ;; Shift SP, then shift FP with nlocals.
+         (shift-sp %asm sp-offset)
+         (shift-fp nlocals)
 
-           ;; Sync next IP with vp->ip for VM.
-           (jit-movi r0 (imm ip))
-           (vm-sync-ip r0)
+         ;; Sync next IP with vp->ip for VM.
+         (jit-movi r0 (imm ip))
+         (vm-sync-ip r0)
 
-           ;; Set tjit return values for VM interpreter.
-           (jit-prepare)
-           (jit-pushargi (scm-i-makinumi id))
-           (jit-pushargi (scm-i-makinumi (env-id env)))
-           (jit-pushargi (scm->pointer origin))
-           (jit-calli %scm-set-tjit-retval)
+         ;; Set tjit return values for VM interpreter.
+         (jit-prepare)
+         (jit-pushargi (scm-i-makinumi id))
+         (jit-pushargi (scm->pointer self-fragment))
+         (jit-pushargi (scm->pointer origin))
+         (jit-calli %scm-set-tjit-retval)
 
-           ;; Debug code to dump tjit-retval and locals.
-           (let ((dump-option (tjit-dump-option)))
-             (when (tjit-dump-exit? dump-option)
+         ;; Debug code to dump tjit-retval and locals.
+         (let ((dump-option (tjit-dump-option)))
+           (when (tjit-dump-exit? dump-option)
+             (jit-prepare)
+             (load-vp r0)
+             (jit-pushargr r0)
+             (jit-calli %scm-tjit-dump-retval)
+             (when (tjit-dump-verbose? dump-option)
                (jit-prepare)
+               (jit-pushargi (scm-i-makinumi (env-id env)))
+               (jit-pushargi (imm nlocals))
                (load-vp r0)
                (jit-pushargr r0)
-               (jit-calli %scm-tjit-dump-retval)
-               (when (tjit-dump-verbose? dump-option)
-                 (jit-prepare)
-                 (jit-pushargi (scm-i-makinumi (env-id env)))
-                 (jit-pushargi (imm nlocals))
-                 (load-vp r0)
-                 (jit-pushargr r0)
-                 (jit-calli %scm-tjit-dump-locals)))))
-          (_
-           (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))
+               (jit-calli %scm-tjit-dump-locals))))
+         (jumpi end-address)
+         (cons id entry))
+        (_
+         (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot))))))
 
-        (jumpi end-address)
-        (cons id entry)))))
-
-(define (compile-bailouts env end-address trampoline origin bailouts)
+(define (compile-bailouts env end-address trampoline self-fragment origin
+                          bailouts)
   ;; Emit bailouts with end address of this code. Side traces need to
   ;; jump to the address of epilogue of parent root trace, to manage
   ;; non-volatile registers.
@@ -632,7 +627,7 @@ DST-TYPES, and SRC-TYPES are local index number."
    (jit-prolog)
    (jit-tramp (imm (* 4 %word-size)))
    (let ((entries (map (lambda (proc)
-                         (proc end-address origin))
+                         (proc end-address self-fragment origin))
                        bailouts)))
      (jit-epilog)
      (jit-realize)
