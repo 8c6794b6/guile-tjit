@@ -30,7 +30,6 @@
 (define-module (system vm native tjit snapshot)
   #:use-module (ice-9 match)
   #:use-module (ice-9 format)
-  #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
