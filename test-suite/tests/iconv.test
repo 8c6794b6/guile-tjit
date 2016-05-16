@@ -97,7 +97,7 @@
     (pass-if "misparse latin1 as utf8 with substitutions"
       (equal? (bytevector->string (string->bytevector s "latin1")
                                   "utf-8" 'substitute)
-              "?t?"))
+              "\uFFFDt\uFFFD"))
 
     (pass-if-exception "misparse latin1 as ascii" exception:decoding-error
       (bytevector->string (string->bytevector s "latin1") "ascii"))))

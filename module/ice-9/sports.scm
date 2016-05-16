@@ -291,7 +291,7 @@
 (define (peek-char-and-len/utf8 port first-byte)
   (define (bad-utf8 len)
     (if (eq? (port-conversion-strategy port) 'substitute)
-        (values #\? len)
+        (values #\xFFFD len)
         (decoding-error "peek-char" port)))
   (if (< first-byte #x80)
       (values (integer->char first-byte) 1)
@@ -308,7 +308,7 @@
               (let ((len (bad-utf8-len bv cur buffering first-byte)))
                 (when (zero? len) (error "internal error"))
                 (if (eq? (port-conversion-strategy port) 'substitute)
-                    (values #\? len)
+                    (values #\xFFFD len)
                     (decoding-error "peek-char" port))))
             (decode-utf8 bv cur buffering first-byte values bad-utf8))))))
 
@@ -327,7 +327,7 @@
              ((zero? prev-input-size)
               (values the-eof-object 0))
              ((eq? (port-conversion-strategy port) 'substitute)
-              (values #\? prev-input-size))
+              (values #\xFFFD prev-input-size))
              (else
               (decoding-error "peek-char" port))))
            ((port-decode-char port (port-buffer-bytevector buf)

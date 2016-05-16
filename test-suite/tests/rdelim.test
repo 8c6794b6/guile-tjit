@@ -87,7 +87,7 @@
     (let ((p (open-bytevector-input-port #vu8(65 255 66 67 68))))
       (set-port-encoding! p "UTF-8")
       (set-port-conversion-strategy! p 'substitute)
-      (and (string=? (read-line p) "A?BCD")
+      (and (string=? (read-line p) "A\uFFFDBCD")
            (eof-object? (read-line p))))))
 
 

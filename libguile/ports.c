@@ -111,6 +111,12 @@ static SCM sym_escape;
 
 
 
+/* See Unicode 8.0 section 5.22, "Best Practice for U+FFFD
+   Substitution".  */
+static const scm_t_wchar UNICODE_REPLACEMENT_CHARACTER = 0xFFFD;
+
+
+
 static SCM trampoline_to_c_read_subr;
 static SCM trampoline_to_c_write_subr;
 
@@ -1590,7 +1596,7 @@ peek_utf8_codepoint (SCM port, size_t *len)
  decoding_error:
   if (scm_is_eq (SCM_PORT (port)->conversion_strategy, sym_substitute))
     /* *len already set.  */
-    return '?';
+    return UNICODE_REPLACEMENT_CHARACTER;
 
   scm_decoding_error ("peek-char", EILSEQ, "input decoding error", port);
   /* Not reached.  */
@@ -1648,7 +1654,7 @@ SCM_DEFINE (scm_port_decode_char, "port-decode-char", 4, 0, 0,
         return SCM_BOOL_F;
       else if (scm_is_eq (SCM_PORT (port)->conversion_strategy,
                           sym_substitute))
-        return SCM_MAKE_CHAR ('?');
+        return SCM_MAKE_CHAR (UNICODE_REPLACEMENT_CHARACTER);
       else
         scm_decoding_error ("decode-char", err, "input decoding error", port);
     }
@@ -1699,7 +1705,7 @@ peek_iconv_codepoint (SCM port, size_t *len)
           /* EOF found in the middle of a multibyte character. */
           if (scm_is_eq (SCM_PORT (port)->conversion_strategy,
                          sym_substitute))
-            return '?';
+            return UNICODE_REPLACEMENT_CHARACTER;
 
           scm_decoding_error ("peek-char", EILSEQ,
                               "input decoding error", port);

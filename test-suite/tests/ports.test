@@ -834,7 +834,7 @@
                               ;; If `proc' is `read-char', this will
                               ;; skip over the bad bytes.
                               (let ((c (proc p)))
-                                (unless (eqv? c #\?)
+                                (unless (eqv? c #\xFFFD)
                                   (error "unexpected char" c))
                                 (set-port-conversion-strategy! p strategy)
                                 #t)))
@@ -846,7 +846,7 @@
                      ((_ port (proc -> error))
                       (if (eq? 'substitute
                                (port-conversion-strategy port))
-                          (eqv? (proc port) #\?)
+                          (eqv? (proc port) #\xFFFD)
                           (decoding-error? port proc)))
                      ((_ port (proc -> eof))
                       (eof-object? (proc port)))

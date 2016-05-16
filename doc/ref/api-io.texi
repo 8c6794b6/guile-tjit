@@ -78,11 +78,17 @@ string doesn't depend on its context: the same byte sequence will always
 return the same string.  A couple of modal encodings are in common use,
 like ISO-2022-JP and ISO-2022-KR, and they are not yet supported.
 
-Each port also has an associated conversion strategy: what to do when
-a Guile character can't be converted to the port's encoded character
-representation for output. There are three possible strategies: to
-raise an error, to replace the character with a hex escape, or to
-replace the character with a substitute character.
+@cindex port conversion strategy
+@cindex conversion strategy, port
+@cindex decoding error
+@cindex encoding error
+Each port also has an associated conversion strategy, which determines
+what to do when a Guile character can't be converted to the port's
+encoded character representation for output.  There are three possible
+strategies: to raise an error, to replace the character with a hex
+escape, or to replace the character with a substitute character.  Port
+conversion strategies are also used when decoding characters from an
+input port.
 
 Finally, all ports have associated input and output buffers, as
 appropriate.  Buffering is a common strategy to limit the overhead of
@@ -142,14 +148,10 @@ its input and output.  The value @code{#f} is equivalent to @code{"ISO-8859-1"}.
 
 @deffn {Scheme Procedure} set-port-conversion-strategy! port sym
 @deffnx {C Function} scm_set_port_conversion_strategy_x (port, sym)
-Sets the behavior of the interpreter when outputting a character that
-is not representable in the port's current encoding.  @var{sym} can be
-either @code{'error}, @code{'substitute}, or @code{'escape}.  If it is
-@code{'error}, an error will be thrown when an nonconvertible character
-is encountered.  If it is @code{'substitute}, then nonconvertible
-characters will be replaced with approximate characters, or with
-question marks if no approximately correct character is available.  If
-it is @code{'escape}, it will appear as a hex escape when output.
+Sets the behavior of Guile when outputting a character that is not
+representable in the port's current encoding, or when Guile encounters a
+decoding error when trying to read a character.  @var{sym} can be either
+@code{error}, @code{substitute}, or @code{escape}.
 
 If @var{port} is an open port, the conversion error behavior
 is set for that port.  If it is @code{#f}, it is set as the
@@ -157,15 +159,27 @@ default behavior for any future ports that get created in
 this thread.
 @end deffn
 
+For an output port, a there are three possible port conversion
+strategies.  The @code{error} strategy will throw an error when a
+nonconvertible character is encountered.  The @code{substitute} strategy
+will replace nonconvertible characters with a question mark (@samp{?}).
+Finally the @code{escape} strategy will print nonconvertible characters
+as a hex escape, using the escaping that is recognized by Guile's string
+syntax.  Note that if the port's encoding is a Unicode encoding, like
+@code{UTF-8}, then encoding errors are impossible.
+
+For an input port, the @code{error} strategy will cause Guile to throw
+an error if it encounters an invalid encoding, such as might happen if
+you tried to read @code{ISO-8859-1} as @code{UTF-8}.  The error is
+thrown before advancing the read position.  The @code{substitute}
+strategy will replace the bad bytes with a U+FFFD replacement character,
+in accordance with Unicode recommendations.  When reading from an input
+port, the @code{escape} strategy is treated as if it were @code{error}.
+
 @deffn {Scheme Procedure} port-conversion-strategy port
 @deffnx {C Function} scm_port_conversion_strategy (port)
-Returns the behavior of the port when outputting a character that is
-not representable in the port's current encoding.  It returns the
-symbol @code{error} if unrepresentable characters should cause
-exceptions, @code{substitute} if the port should try to replace
-unrepresentable characters with question marks or approximate
-characters, or @code{escape} if unrepresentable characters should be
-converted to string escapes.
+Returns the behavior of the port when outputting a character that is not
+representable in the port's current encoding.
 
 If @var{port} is @code{#f}, then the current default behavior will be
 returned.  New ports will have this default behavior when they are
@@ -179,9 +193,9 @@ and for other conversion routines such as @code{scm_to_stringn},
 @code{pointer->string}.
 
 Its value must be one of the symbols described above, with the same
-semantics: @code{'error}, @code{'substitute}, or @code{'escape}.
+semantics: @code{error}, @code{substitute}, or @code{escape}.
 
-When Guile starts, its value is @code{'substitute}.
+When Guile starts, its value is @code{substitute}.
 
 Note that @code{(set-port-conversion-strategy! #f @var{sym})} is
 equivalent to @code{(fluid-set! %default-port-conversion-strategy
@@ -226,13 +240,10 @@ interactive port that has no ready characters.
 @rnindex read-char
 @deffn {Scheme Procedure} read-char [port]
 @deffnx {C Function} scm_read_char (port)
-Return the next character available from @var{port}, updating
-@var{port} to point to the following character.  If no more
-characters are available, the end-of-file object is returned.
-
-When @var{port}'s data cannot be decoded according to its character
-encoding, a @code{decoding-error} is raised and @var{port} is not
-advanced past the erroneous byte sequence.
+Return the next character available from @var{port}, updating @var{port}
+to point to the following character.  If no more characters are
+available, the end-of-file object is returned.  A decoding error, if
+any, is handled in accordance with the port's conversion strategy.
 @end deffn
 
 @deftypefn {C Function} size_t scm_c_read (SCM port, void *buffer, size_t size)
@@ -262,8 +273,8 @@ return the value returned by the preceding call to
 an interactive port will hang waiting for input whenever a call
 to @code{read-char} would have hung.
 
-As for @code{read-char}, a @code{decoding-error} may be raised
-if such a situation occurs.
+As for @code{read-char}, decoding errors are handled in accordance with
+the port's conversion strategy.
 @end deffn
 
 @deffn {Scheme Procedure} unread-char cobj [port]
@@ -627,9 +638,6 @@ Push the terminating delimiter (if any) back on to the port.
 Return a pair containing the string read from the port and the
 terminating delimiter or end-of-file object.
 @end table
-
-Like @code{read-char}, this procedure can throw to @code{decoding-error}
-(@pxref{Reading, @code{read-char}}).
 @end deffn
 
 @c begin (scm-doc-string "rdelim.scm" "read-line!")

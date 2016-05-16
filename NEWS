@@ -71,6 +71,13 @@ raise an error on bad input.  Guile now raises an error without
 advancing the read pointer.  To skip over a bad encoding, set the port
 conversion strategy to "substitute" and read a substitute character.
 
+** Decoding errors with `substitute' strategy return U+FFFD
+
+It used to be that decoding errors with the `substitute' conversion
+strategy would replace the bad bytes with a `?' character.  This has
+been changed to use the standard U+FFFD REPLACEMENT CHARACTER, in
+accordance with the Unicode recommendations.
+
 ** API to define new port types from C has changed
 
 See the newly expanded "I/O Extensions" in the manual, for full details.
