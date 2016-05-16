@@ -221,13 +221,12 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
 static inline void
 start_recording (struct scm_tjit_state *tj,
                  scm_t_uint32 *start, scm_t_uint32 *end,
-                 enum scm_tjit_trace_type trace_type, size_t start_seen)
+                 enum scm_tjit_trace_type trace_type)
 {
   tj->vm_state = SCM_TJIT_VM_STATE_RECORD;
   tj->trace_type = trace_type;
   tj->loop_start = (scm_t_uintptr) start;
   tj->loop_end = (scm_t_uintptr) end;
-  tj->start_seen = start_seen;
 }
 
 static inline void
@@ -239,7 +238,6 @@ stop_recording (struct scm_tjit_state *tj)
   tj->parent_fragment_id = 0;
   tj->parent_exit_id = 0;
   tj->nunrolled = 0;
-  tj->start_seen = 0;
 }
 
 static inline void
@@ -369,17 +367,9 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
         }
       else if (ip == end_ip)
         {
-          if (tj->start_seen)
-            {
-              if (tj->loop_start != tj->loop_end && !has_root_trace)
-                record (tj, thread, vp, ip, sp);
-              SCM_TJITC (SCM_BOOL_T);
-            }
-          else
-            {
-              record (tj, thread, vp, ip, sp);
-              tj->start_seen = 1;
-            }
+          if (tj->loop_start != tj->loop_end && !has_root_trace)
+            record (tj, thread, vp, ip, sp);
+          SCM_TJITC (SCM_BOOL_T);
         }
       else
         record (tj, thread, vp, ip, sp);
@@ -397,7 +387,7 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
             }
         }
       else if (ip == end_ip)
-        /* XXX: Hot procedure call, possibly non-recursive. Worth to
+        /* XXX: Hot procedure call, possibly non-recursive. May worth to
            compile but currently ignored. */
         stop_recording (tj);
       else
@@ -433,8 +423,7 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
   SCM s_ip, code, fragment_id;
-  SCM exit_id, exit_counts, count;
-  SCM origin_id, origin;
+  SCM exit_id, origin, exit_counts, count;
   scm_t_native_code native_code;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
@@ -466,14 +455,7 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
           tj->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
           tj->parent_exit_id = (int) SCM_I_INUM (exit_id);
 
-          /* When start and end is the same IP, recording starts when VM
-             entered the same loop next time. To prevent the VM
-             interpreter to stop recording immediately without visiting
-             bytecode of the loop, setting `tj->start_seen' flag to
-             0. Result of record will be a side trace starting from
-             entry IP of parent trace. */
-          start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP,
-                           start == end ? 0 : 1);
+          start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP);
         }
     }
 
@@ -501,7 +483,6 @@ scm_make_tjit_state (void)
   t->parent_fragment_id = 0;
   t->parent_exit_id = 0;
   t->nunrolled = 0;
-  t->start_seen = 0;
   t->ret_exit_id = 0;
   t->ret_fragment_id = 0;
   t->ret_origin = 0;
@@ -564,7 +545,7 @@ scm_acquire_tjit_state (void)
         if (tjit_hot_loop < SCM_I_MAKINUM (count))                      \
           {                                                             \
             scm_t_uint32 *start = (scm_t_uint32 *) next_ip;             \
-            start_recording (tj, start, END, TTYPE, 1);                 \
+            start_recording (tj, start, END, TTYPE);                    \
             hot_ip_set (next_ip, 0);                                    \
           }                                                             \
         else                                                            \
