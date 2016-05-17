@@ -363,7 +363,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (_ (jit-set-code (bytevector->pointer code) (imm estimated-size)))
             (ptr (jit-emit))
             (size (jit-code-size))
-            (exit-counts (make-hash-table))
+            (exit-counts (make-vector (hash-count (const #t) snapshots) 0))
             (loop-address (and loop-label (jit-address loop-label)))
             (end-address (or (and=> (env-parent-fragment env)
                                     fragment-end-address)
@@ -607,7 +607,7 @@ DST-TYPES, and SRC-TYPES are local index number."
 
          ;; Set tjit return values for VM interpreter.
          (jit-prepare)
-         (jit-pushargi (scm-i-makinumi id))
+         (jit-pushargi (imm id))
          (jit-pushargi (scm->pointer self-fragment))
          (jit-pushargi (scm->pointer origin))
          (jit-calli %scm-set-tjit-retval)

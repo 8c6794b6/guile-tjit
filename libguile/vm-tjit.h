@@ -47,7 +47,7 @@ struct scm_tjit_state
   int parent_fragment_id;   /* fragment ID of parent trace, or 0 for root */
   int parent_exit_id;       /* exit id of parent trace, or 0 for root */
   int nunrolled;            /* current number of unrolled recursion */
-  scm_t_bits ret_exit_id;   /* exit ID returned from native code */
+  size_t ret_exit_id;       /* exit ID returned from native code */
   scm_t_bits ret_fragment;  /* fragment returned from native code */
   scm_t_bits ret_origin;    /* origin returned from native code */
 };

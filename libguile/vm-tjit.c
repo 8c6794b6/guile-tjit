@@ -243,8 +243,7 @@ stop_recording (struct scm_tjit_state *tj)
 static inline void
 abort_recording (struct scm_tjit_state *tj, scm_t_uint32 *ip)
 {
-  scm_t_uint16 retries;
-  retries = failed_ip_ref ((scm_t_uintptr) ip);
+  scm_t_uint16 retries = failed_ip_ref ((scm_t_uintptr) ip);
   failed_ip_set ((scm_t_uintptr) ip, retries + 1);
   stop_recording (tj);
 }
@@ -257,6 +256,7 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
   SCM locals, trace;
   SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (vp->fp));
   SCM s_dl_diff = SCM_I_MAKINUM (vp->fp[1].as_uint);
+  SCM s_ip = SCM_I_MAKINUM (ip);
 
   opcode = *ip & 0xff;
 
@@ -273,7 +273,7 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
   trace = scm_inline_cons (thread, locals, SCM_EOL);
   trace = scm_inline_cons (thread, s_dl_diff, trace);
   trace = scm_inline_cons (thread, s_ra, trace);
-  trace = scm_inline_cons (thread, SCM_I_MAKINUM (ip), trace);
+  trace = scm_inline_cons (thread, s_ip, trace);
 
   tj->traces = scm_inline_cons (thread, trace, tj->traces);
 }
@@ -422,9 +422,9 @@ static inline scm_t_uint32*
 call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
-  SCM s_ip, code, fragment_id;
-  SCM exit_id, origin, exit_counts, count;
+  SCM s_ip, code, origin, exit_counts, count;
   scm_t_native_code native_code;
+  size_t exit_id;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
   code = SCM_FRAGMENT_CODE (fragment);
@@ -440,21 +440,19 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   if (SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
     {
       fragment = SCM_PACK (tj->ret_fragment);
-      fragment_id = SCM_FRAGMENT_ID (fragment);
-      exit_id = SCM_PACK (tj->ret_exit_id);
+      exit_id = tj->ret_exit_id;
       exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
-      count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
+      count = SCM_SIMPLE_VECTOR_REF (exit_counts, exit_id);
       count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
-      scm_hashq_set_x (exit_counts, exit_id, count);
+      SCM_SIMPLE_VECTOR_SET (exit_counts, exit_id, count);
 
       if (SCM_TJIT_IS_HOT (tjit_hot_exit, vp->ip, count))
         {
           scm_t_uint32 *start = vp->ip;
           scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-          tj->parent_fragment_id = (int) SCM_I_INUM (fragment_id);
-          tj->parent_exit_id = (int) SCM_I_INUM (exit_id);
-
+          tj->parent_fragment_id = SCM_I_INUM (SCM_FRAGMENT_ID (fragment));
+          tj->parent_exit_id = (int) exit_id;
           start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP);
         }
     }
@@ -637,8 +635,7 @@ SCM_DEFINE (scm_make_negative_pointer, "make-negative-pointer", 1, 0, 0,
  */
 
 void
-scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits fragment,
-                     scm_t_bits origin)
+scm_set_tjit_retval (size_t exit_id, scm_t_bits fragment, scm_t_bits origin)
 {
   struct scm_tjit_state *tj = scm_acquire_tjit_state ();
 
@@ -656,7 +653,7 @@ scm_tjit_dump_retval (struct scm_vm *vp)
   scm_puts (";;; trace ", port);
   scm_display (SCM_FRAGMENT_ID (SCM_PACK (tj->ret_fragment)), port);
   scm_puts (": exit ", port);
-  scm_display (SCM_PACK (tj->ret_exit_id), port);
+  scm_display (SCM_I_MAKINUM (tj->ret_exit_id), port);
   scm_puts (" => ", port);
   scm_display (to_hex (SCM_I_MAKINUM (vp->ip)), port);
   scm_newline (port);
