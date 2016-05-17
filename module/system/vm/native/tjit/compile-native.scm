@@ -199,7 +199,7 @@
     (jit-addi vp->fp %sp (imm (* nlocals %word-size)))
     (store-vp->fp vp vp->fp)))
 
-(define (shift-sp %asm offset)
+(define (shift-sp env %asm offset)
   "Shift SP for OFFSET, may expand stack with %ASM when offset is negative."
   (cond
    ((= 0 offset)
@@ -208,7 +208,16 @@
     (jit-addi %sp %sp (imm (* offset %word-size)))
     (vm-sync-sp %sp))
    (else
-    (vm-expand-stack %asm offset))))
+    ;; Stack space might ran out in the middle of next run, expand stack with
+    ;; twice of the spaces used for current iteration to ensure enough
+    ;; space were allocated. Then adjust with SP offset saved in snapshot.
+    (let* ((next-offset (* (env-min-sp-offset env) 2))
+           (diff (- offset next-offset)))
+      (vm-expand-stack %asm next-offset)
+      (if (< 0 diff)
+          (jit-addi %sp %sp (imm (* diff %word-size)))
+          (jit-subi %sp %sp (imm (* (- diff) %word-size))))
+      (vm-sync-sp %sp)))))
 
 (define-syntax-rule (move-or-load-carefully dsts srcs dst-types src-types)
   "Move SRCS to DSTS or load without overwriting.
@@ -572,18 +581,25 @@ DST-TYPES, and SRC-TYPES are local index number."
       (jit-patch entry)
       (match snapshot
         (($ $snapshot id sp-offset fp-offset nlocals locals _ _ ip)
-         ;; Store contents of args to the stack.
-         (let lp ((locals locals) (args args))
-           (match (cons locals args)
-             ((((local . type) . locals) . (arg . args))
-              (syntax-parameterize ((asm (identifier-syntax %asm)))
-                (store-frame local type arg))
-              (lp locals args))
-             (_ (values))))
+         (define (store-locals shift)
+           (let lp ((locals locals) (args args))
+             (match (cons locals args)
+               ((((local . type) . locals) . (arg . args))
+                (syntax-parameterize ((asm (identifier-syntax %asm)))
+                  (store-frame (- local shift) type arg))
+                (lp locals args))
+               (_ (values)))))
 
-         ;; Shift SP, then shift FP with nlocals.
-         (shift-sp %asm sp-offset)
-         (shift-fp nlocals)
+         ;; Choose order to shift SP and store frame by sign of SP.
+         (cond
+          ((< sp-offset 0)
+           (shift-sp env %asm sp-offset)
+           (store-locals sp-offset)
+           (shift-fp nlocals))
+          (else
+           (store-locals 0)
+           (shift-sp env %asm sp-offset)
+           (shift-fp nlocals)))
 
          ;; Sync next IP with vp->ip for VM.
          (jit-movi r0 (imm ip))
@@ -695,12 +711,18 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (hashq-set! ref-table n t)
                  (lp ref-locals))
                 (()
-                 ;; Shift SP, then store locals, and then shift FP with
-                 ;; nlocals. This order is taken to preserve stored locals from
-                 ;; garbage collection.
-                 (shift-sp %asm sp-offset)
-                 (maybe-store %asm locals args ref-table sp-offset)
-                 (shift-fp nlocals)
+                 ;; Shift SP before storing locals when SP offset was negative,
+                 ;; then shift FP with nlocals. This order is taken to preserve
+                 ;; stored locals from garbage collection.
+                 (cond
+                  ((< sp-offset 0)
+                   (shift-sp env %asm sp-offset)
+                   (maybe-store %asm locals args ref-table sp-offset)
+                   (shift-fp nlocals))
+                  (else
+                   (maybe-store %asm locals args ref-table 0)
+                   (shift-sp env %asm sp-offset)
+                   (shift-fp nlocals)))
 
                  ;; Move or load locals for linked fragment.
                  (syntax-parameterize ((asm (identifier-syntax %asm)))
@@ -722,18 +744,7 @@ DST-TYPES, and SRC-TYPES are local index number."
     (syntax-parameterize ((asm (identifier-syntax %asm)))
       (match snapshot
         (($ $snapshot id sp-offset fp-offset nlocals locals vars)
-         ;; Stack space might ran out in the middle of next run, expand stack
-         ;; with twice of the spaces used for current iteration. Then adjust
-         ;; with SP offset saved in snapshot with *ip-key-downrec*.
-         ;;
-         (let* ((next-offset (* (env-min-sp-offset env) 2))
-                (diff (- sp-offset next-offset)))
-           (if (zero? diff)
-               (vm-expand-stack asm sp-offset)
-               (begin
-                 (vm-expand-stack asm next-offset)
-                 (jit-addi %sp %sp (imm (* diff %word-size)))
-                 (vm-sync-sp %sp))))
+         (shift-sp env asm sp-offset)
          (let lp ((locals locals) (vars vars))
            (match (cons locals vars)
              ((((n . t) . locals) . (v . vars))
@@ -791,7 +802,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                    (lp locals vars)))
                 (_
                  (values))))
-            (shift-sp %asm sp-offset)
+            (shift-sp env %asm sp-offset)
             (shift-fp nlocals)
             (syntax-parameterize ((asm (identifier-syntax %asm)))
               (move-or-load-carefully dst-var-table src-var-table
