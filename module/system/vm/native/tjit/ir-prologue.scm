@@ -109,7 +109,7 @@
   (values))
 
 (define-anf (reset-frame nlocals)
-  (let ((thunk (gen-load-thunk (- nlocals 2) nlocals (const #f))))
+  (let ((thunk (gen-load-thunk (- nlocals 1) nlocals (const #f))))
     (thunk)))
 
 ;; XXX: push
