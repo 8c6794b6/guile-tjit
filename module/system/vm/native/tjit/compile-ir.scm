@@ -184,8 +184,8 @@ Currently does nothing, returns the given argument."
                    (break 1 "too many locals")
                    (make-vars local-indices)))
          (initial-trace (car trace))
-         (initial-ip (cadr initial-trace))
-         (initial-locals (list-ref initial-trace 4))
+         (initial-ip (vector-ref initial-trace 1))
+         (initial-locals (vector-ref initial-trace 4))
          (initial-nlocals (vector-length initial-locals))
          (initial-inline-depth (env-inline-depth env))
          (initial-sp-offset (env-sp-offset env))
@@ -451,11 +451,11 @@ Currently does nothing, returns the given argument."
         (_ (nyi "~a" (car op)))))
     (define (convert ir trace)
       (match trace
-        (((op ip ra dl locals) . ())
+        ((#(op ip ra dl locals) . ())
          (let ((last-op (gen-last-op op ip ra locals)))
            (set-ir-last-op! ir #t)
            (convert-one ir op ip ra dl locals last-op)))
-        (((op ip ra dl locals) . rest)
+        ((#(op ip ra dl locals) . rest)
          (convert-one ir op ip ra dl locals rest))
         (last-op
          ;; XXX: Remove min-sp-offset from ir, use min-sp-offset field of env.

@@ -120,7 +120,7 @@ option was set to true."
   (define (lowest-level ip-x-ops)
     (let lp ((ip-x-ops ip-x-ops) (level 0) (lowest 0))
       (match ip-x-ops
-        (((op . _) . ip-x-ops)
+        ((#(op ip ra dl locals) . ip-x-ops)
          (case (car op)
            ((call call-label)
             (lp ip-x-ops (+ level 1) lowest))
@@ -147,7 +147,7 @@ option was set to true."
     (format port ";;; trace ~a: bytecode ~a~%" trace-id (length ip-x-ops))
     (let lp ((traces ip-x-ops) (level (- lowest)))
       (match traces
-        (((op ip ra dl locals) . traces)
+        ((#(op ip ra dl locals) . traces)
          (let ((op-val (format #f "~12,'0x  ~a~a" ip (make-indent level) op)))
            (if (tjit-dump-verbose? (tjit-dump-option))
                (format port "~48a; ~a~%" op-val (as-address locals))

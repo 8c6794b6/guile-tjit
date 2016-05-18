@@ -72,8 +72,6 @@ a success flag, true on success, false otherwise.
 
 After successufl parse, this procedure will update fields in ENV."
 
-  (define last-locals
-    (and (pair? traces) (cadddr (car traces))))
   (define initial-sp-offset
     (env-sp-offset env))
   (define initial-fp-offset
@@ -127,22 +125,27 @@ After successufl parse, this procedure will update fields in ENV."
       (match traces
         ((trace . traces)
          (match trace
-           ((ip ra dl locals)
+           (#(_ ip ra dl locals)
             (let*-values
                 (((len op) (disassemble-one bytecode offset))
                  ((implemented?)
                   (if so-far-so-good?
                       (let* ((ret (scan-trace env op ip dl locals))
                              (_ (infer-type env op ip dl locals))
-                             (ws (map car (env-inferred-types env)))
+                             (ws (let lp ((types (env-inferred-types env))
+                                          (acc '()))
+                                   (if (null? types)
+                                       acc
+                                       (lp (cdr types)
+                                           (cons (car (car types)) acc)))))
                              (buf (env-write-buf env))
-                             (buf (cons (sort ws <) buf)))
+                             (buf (cons (sort! ws <) buf)))
                         (increment-env-call-return-num! env op)
                         (set-env-write-buf! env buf)
                         ret)
                       #f)))
-              (lp (cons (cons op trace) acc) (+ offset len) traces
-                  implemented?)))
+              (vector-set! trace 0 op)
+              (lp (cons trace acc) (+ offset len) traces implemented?)))
            (_ (error "malformed trace" trace))))
         (()
          (let* ((linked-ip (env-linked-ip env))

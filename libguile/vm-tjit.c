@@ -266,14 +266,18 @@ record (struct scm_tjit_state *tj, scm_i_thread *thread, struct scm_vm *vp,
 
   /* Copy local contents to vector. */
   num_locals = FRAME_LOCALS_COUNT ();
-  locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);
+  locals = scm_inline_words (thread, (num_locals << 8) | scm_tc7_vector,
+                             num_locals + 1);
   for (i = 0; i < num_locals; ++i)
-    scm_c_vector_set_x (locals, i, sp[i].as_scm);
+    SCM_SIMPLE_VECTOR_SET (locals, i, sp[i].as_scm);
 
-  trace = scm_inline_cons (thread, locals, SCM_EOL);
-  trace = scm_inline_cons (thread, s_dl_diff, trace);
-  trace = scm_inline_cons (thread, s_ra, trace);
-  trace = scm_inline_cons (thread, s_ip, trace);
+  /* Save other data to vector. */
+  trace = scm_inline_words (thread, (5 << 8) | scm_tc7_vector, 5 + 1);
+  SCM_SIMPLE_VECTOR_SET (trace, 0, SCM_BOOL_F);
+  SCM_SIMPLE_VECTOR_SET (trace, 1, s_ip);
+  SCM_SIMPLE_VECTOR_SET (trace, 2, s_ra);
+  SCM_SIMPLE_VECTOR_SET (trace, 3, s_dl_diff);
+  SCM_SIMPLE_VECTOR_SET (trace, 4, locals);
 
   tj->traces = scm_inline_cons (thread, trace, tj->traces);
 }
