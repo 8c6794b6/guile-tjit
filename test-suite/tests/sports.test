@@ -46,6 +46,7 @@
                        (if (eof-object? exp)
                            #'()
                            (let ((exp (datum->syntax #'include-tests exp)))
-                             #`((include-one #,exp) . #,(lp)))))))))))))
+                             #`((include-one #,exp) . #,(lp))))))))
+         #:guess-encoding #t)))))
 
 (include-tests "tests/ports.test")
