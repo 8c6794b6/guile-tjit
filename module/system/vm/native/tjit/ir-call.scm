@@ -178,8 +178,8 @@
                              ,(next))))))
     (check-entry-ip (program-code proc/l) 'call)
     `(let ((_ ,(take-snapshot! ip 0)))
-       (let ((_ (%tceq ,proc/v #x7f ,%tc7-program)))
-         ,(with-callee-guard proc/l proc/f proc/v emit-next)))))
+       ,(with-type-guard &procedure proc/i
+          (with-callee-guard proc/l proc/f proc/v emit-next)))))
 
 (define-scan (call-label proc nlocals label)
   (scan-call proc nlocals #t))
@@ -263,13 +263,13 @@
          (src/i (- (- stack-size proc) 2))
          (src/v (var-ref src/i))
          (live-indices (env-live-indices env))
-         (dst/i+sp-offset (+ dst/i sp-offset)))
+         (dst/i+sp-offset (+ dst/i sp-offset))
+         (test (lambda (v) (eq? v dst/v))))
     ;; Update live indices before generating load thunk.
     (unless (memq dst/i+sp-offset live-indices)
       (set-env-live-indices! env (cons dst/i+sp-offset live-indices)))
     `(let ((,dst/v ,src/v))
-       ,(let ((thunk (gen-load-thunk proc nlocals
-                                     (lambda (v) (eq? v dst/v)))))
+       ,(let ((thunk (gen-load-thunk proc nlocals test)))
           (thunk)))))
 
 (define-scan (receive-values proc allow-extra? nvalues)

@@ -253,8 +253,8 @@ returns, current call-num, and current return-num."
     ((_ proc nlocals skip-var?)
      (let* ((stack-size (vector-length locals))
             (sp-offset (current-sp-offset))
-            (min-local-index (+ (- stack-size proc 1) sp-offset 2))
-            (max-local-index (+ sp-offset nlocals))
+            (min-local-index (+ (- stack-size proc) sp-offset 1))
+            (max-local-index (+ nlocals sp-offset))
             (live-indices (env-live-indices env))
             (load-up-frame
              (lambda ()
@@ -346,7 +346,7 @@ returns, current call-num, and current return-num."
 
 (define-syntax gen-infer-type
   (syntax-rules (scm! fixnum! flonum! fraction! char! pair! vector!
-                      box! struct! string! u64! f64!)
+                      box! procedure! struct! string! u64! f64!)
     ((_ (scm! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &scm))
     ((_ (fixnum! arg) . rest)
@@ -363,6 +363,8 @@ returns, current call-num, and current return-num."
      (set-inferred-type! env (+ arg (env-sp-offset env)) &vector))
     ((_ (box! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &box))
+    ((_ (procedure! arg) . rest)
+     (set-inferred-type! env (+ arg (env-sp-offset env)) &procedure))
     ((_ (struct! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &struct))
     ((_ (string! arg) . rest)
@@ -382,7 +384,8 @@ returns, current call-num, and current return-num."
          (set-env-live-indices! env (cons idx+sp-offset live-indices)))))))
 
 (define-syntax gen-update-live-indices
-  (syntax-rules (scm! fixnum! flonum! char! pair! vector! box! struct! u64! f64!)
+  (syntax-rules (scm! fixnum! flonum! char! pair! vector! box! procedure!
+                      struct! u64! f64!)
     ((_ (scm! arg) . rest) (maybe-update-live-indices arg))
     ((_ (fixnum! arg) . rest) (maybe-update-live-indices arg))
     ((_ (flonum! arg) . rest) (maybe-update-live-indices arg))
@@ -390,6 +393,7 @@ returns, current call-num, and current return-num."
     ((_ (pair! arg) . rest) (maybe-update-live-indices arg))
     ((_ (vector! arg) . rest) (maybe-update-live-indices arg))
     ((_ (box! arg) . rest) (maybe-update-live-indices arg))
+    ((_ (procedure! arg) . rest) (maybe-update-live-indices arg))
     ((_ (struct! arg) . rest) (maybe-update-live-indices arg))
     ((_ (u64! arg) . rest) (maybe-update-live-indices arg))
     ((_ (f64! arg) . rest) (maybe-update-live-indices arg))

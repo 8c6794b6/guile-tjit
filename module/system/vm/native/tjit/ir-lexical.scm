@@ -108,7 +108,8 @@
         `(let ((_ (%cset ,dst/v 1 ,tmp)))
            ,(next))))))
 
-(define-interrupt-ir (make-closure (scm! dst) (const offset) (const nfree))
+(define-interrupt-ir (make-closure (procedure! dst) (const offset)
+                                   (const nfree))
   (let* ((dst/v (var-ref dst))
          (tag (logior %tc7-program (ash nfree 16)))
          (nwords (+ nfree 2)))
