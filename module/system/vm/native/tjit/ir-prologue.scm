@@ -137,8 +137,12 @@
 
 (define-scan (bind-rest dst)
   (let* ((stack-size (vector-length locals))
-         (diff (- stack-size (+ dst 1))))
+         (diff (- stack-size (+ dst 1)))
+         (sp-offset (env-sp-offset env)))
     (set-scan-initial-fields! env)
+    (do ((i dst (- i 1)))
+        ((< i 0))
+      (set-entry-type! env (+ i sp-offset) &scm))
     (unless (zero? diff)
       (pop-scan-sp-offset! env diff))))
 
