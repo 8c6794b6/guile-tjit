@@ -20,6 +20,7 @@
 #define _SCM_VM_TJIT_H_
 
 #include <libguile.h>
+#include <libguile/vm-operations.h>
 
 enum scm_tjit_vm_state
   {
@@ -98,6 +99,8 @@ SCM_API SCM scm_tjit_max_retries (void);
 SCM_API SCM scm_set_tjit_max_retries_x (SCM val);
 SCM_API SCM scm_tjit_max_sides (void);
 SCM_API SCM scm_set_tjit_max_sides_x (SCM val);
+SCM_API SCM scm_tjit_try_sides (void);
+SCM_API SCM scm_set_tjit_try_sides_x (SCM val);
 SCM_API SCM scm_tjit_num_unrolls (void);
 SCM_API SCM scm_set_tjit_num_unrolls_x (SCM val);
 SCM_API SCM scm_tjit_scheme_engine (void);

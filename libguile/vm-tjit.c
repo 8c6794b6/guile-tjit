@@ -136,6 +136,9 @@ SCM_TJIT_PARAM (max_retries, max-retries, 5)
 /* Maximum number of side traces from root trace. */
 SCM_TJIT_PARAM (max_sides, max-sides, 100)
 
+/* Maximum number of side traces from root trace. */
+SCM_TJIT_PARAM (try_sides, try-sides, 2)
+
 /* Number of recursive procedure calls to unroll. */
 SCM_TJIT_PARAM (num_unrolls, num-unrolls, 2)
 
@@ -299,7 +302,7 @@ tjit_matching_fragment_inner (SCM locals, SCM fragments)
 }
 
 static inline SCM
-tjit_matching_fragment (struct scm_vm *vp, SCM s_ip)
+tjit_matching_fragment (scm_i_thread *thread, struct scm_vm *vp, SCM s_ip)
 {
   int i, nlocals;
   SCM ret, locals;
@@ -312,10 +315,11 @@ tjit_matching_fragment (struct scm_vm *vp, SCM s_ip)
     return ret;
 
   nlocals = FRAME_LOCALS_COUNT ();
-  locals = scm_c_make_vector (nlocals, SCM_UNDEFINED);
+  locals = scm_inline_words (thread, nlocals << 8 | scm_tc7_vector,
+                             nlocals + 1);
 
   for (i = 0; i < nlocals; ++i)
-    scm_c_vector_set_x (locals, i, sp[i].as_scm);
+    SCM_SIMPLE_VECTOR_SET (locals, i, sp[i].as_scm);
 
   scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
   ret = tjit_matching_fragment_inner (locals, ret);
@@ -340,7 +344,7 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
   if (has_root_trace)
     {
       vp->ip = ip;
-      fragment = tjit_matching_fragment (vp, s_ip);
+      fragment = tjit_matching_fragment (thread, vp, s_ip);
       sp = vp->sp;
     }
   else
@@ -426,9 +430,10 @@ static inline scm_t_uint32*
 call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
-  SCM s_ip, code, origin, exit_counts, count;
+  SCM s_ip, code, origin;
+  SCM exit_counts, count, ret_fragment;
+  size_t max_retries, exit_id;
   scm_t_native_code native_code;
-  size_t exit_id;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
   code = SCM_FRAGMENT_CODE (fragment);
@@ -440,26 +445,33 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   /* Back to interpreter. Native code sets some of the fields in tj
      during bailout, using them to decide what to do next. */
   origin = SCM_PACK (tj->ret_origin);
+  ret_fragment = SCM_PACK (tj->ret_fragment);
+  exit_id = tj->ret_exit_id;
+  exit_counts = SCM_FRAGMENT_EXIT_COUNTS (ret_fragment);
+  count = SCM_SIMPLE_VECTOR_REF (exit_counts, exit_id);
+  max_retries = SCM_I_INUM (tjit_hot_exit) + SCM_I_INUM (tjit_try_sides);
 
-  if (SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
+  if (SCM_I_INUM (count) < max_retries
+      && SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
     {
-      fragment = SCM_PACK (tj->ret_fragment);
-      exit_id = tj->ret_exit_id;
-      exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
-      count = SCM_SIMPLE_VECTOR_REF (exit_counts, exit_id);
       count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
       SCM_SIMPLE_VECTOR_SET (exit_counts, exit_id, count);
 
-      if (SCM_TJIT_IS_HOT (tjit_hot_exit, vp->ip, count))
+      if (tjit_hot_exit < count)
         {
+          SCM parent_fragment_id = SCM_FRAGMENT_ID (ret_fragment);
           scm_t_uint32 *start = vp->ip;
           scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-          tj->parent_fragment_id = SCM_I_INUM (SCM_FRAGMENT_ID (fragment));
+          tj->parent_fragment_id = SCM_I_INUM (parent_fragment_id);
           tj->parent_exit_id = (int) exit_id;
           start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP);
         }
     }
+
+  scm_remember_upto_here (SCM_PACK_POINTER (vp->ip),
+                          SCM_PACK_POINTER (vp->sp),
+                          SCM_PACK_POINTER (vp->fp));
 
   /* Return the possibly updated IP. */
   return vp->ip;
@@ -530,7 +542,7 @@ scm_acquire_tjit_state (void)
                                                                         \
         s_ip = SCM_I_MAKINUM (ip + JUMP);                               \
         SYNC_IP ();                                                     \
-        fragment = tjit_matching_fragment (vp, s_ip);                   \
+        fragment = tjit_matching_fragment (thread, vp, s_ip);           \
         CACHE_SP ();                                                    \
         if (scm_is_true (fragment))                                     \
           {                                                             \

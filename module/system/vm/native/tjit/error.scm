@@ -54,9 +54,8 @@
 
 (define (call-with-tjitc-error-handler env thunk)
   (define (increment! amount)
-    ;; (unless (env-parent-fragment env)
-    ;;   (tjit-increment-compilation-failure! (env-entry-ip env) amount))
-    (tjit-increment-compilation-failure! (env-entry-ip env) amount))
+    (unless (env-parent-fragment env)
+      (tjit-increment-compilation-failure! (env-entry-ip env) amount)))
   (call-with-prompt *tjitc-error-prompt-tag*
     thunk
     (lambda (k kind meta fmt . args)
