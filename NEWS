@@ -38,6 +38,10 @@ is equivalent to an unbuffered port.  Ports may set their default buffer
 sizes, and some ports (for example soft ports) are unbuffered by default
 for historical reasons.
 
+** Support for non-blocking I/O
+
+See "Non-Blocking I/O" in the manual, for more.
+
 ** Removal of port locks
 
 As part of the 2.2 series, we introduced recursive locks on each port,

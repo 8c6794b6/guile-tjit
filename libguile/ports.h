@@ -90,6 +90,10 @@ SCM_API scm_t_port_type *scm_make_port_type
          size_t (*write) (SCM port, SCM src, size_t start, size_t count));
 SCM_API void scm_set_port_scm_read (scm_t_port_type *ptob, SCM read);
 SCM_API void scm_set_port_scm_write (scm_t_port_type *ptob, SCM write);
+SCM_API void scm_set_port_read_wait_fd (scm_t_port_type *ptob,
+                                        int (*wait_fd) (SCM port));
+SCM_API void scm_set_port_write_wait_fd (scm_t_port_type *ptob,
+                                         int (*wait_fd) (SCM port));
 SCM_API void scm_set_port_print (scm_t_port_type *ptob,
 				 int (*print) (SCM exp,
 					       SCM port,

@@ -573,14 +573,24 @@ fport_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 static size_t
 fport_read (SCM port, SCM dst, size_t start, size_t count)
 {
-  long res;
   scm_t_fport *fp = SCM_FSTREAM (port);
   signed char *ptr = SCM_BYTEVECTOR_CONTENTS (dst) + start;
+  ssize_t ret;
 
-  SCM_SYSCALL (res = read (fp->fdes, ptr, count));
-  if (res == -1)
-    scm_syserror ("fport_read");
-  return res;
+ retry:
+  ret = read (fp->fdes, ptr, count);
+  if (ret < 0)
+    {
+      if (errno == EINTR)
+        {
+          SCM_ASYNC_TICK;
+          goto retry;
+        }
+      if (errno == EWOULDBLOCK || errno == EAGAIN)
+        return -1;
+      scm_syserror ("fport_read");
+    }
+  return ret;
 }
 
 static size_t
@@ -588,11 +598,23 @@ fport_write (SCM port, SCM src, size_t start, size_t count)
 {
   int fd = SCM_FPORT_FDES (port);
   signed char *ptr = SCM_BYTEVECTOR_CONTENTS (src) + start;
+  ssize_t ret;
 
-  if (full_write (fd, ptr, count) < count)
-    scm_syserror ("fport_write");
+ retry:
+  ret = write (fd, ptr, count);
+  if (ret < 0)
+    {
+      if (errno == EINTR)
+        {
+          SCM_ASYNC_TICK;
+          goto retry;
+        }
+      if (errno == EWOULDBLOCK || errno == EAGAIN)
+        return -1;
+      scm_syserror ("fport_write");
+    }
 
-  return count;
+  return ret;
 }
 
 static scm_t_off
@@ -637,6 +659,12 @@ fport_random_access_p (SCM port)
   return SCM_FDES_RANDOM_P (SCM_FSTREAM (port)->fdes);
 }
 
+static int
+fport_wait_fd (SCM port)
+{
+  return SCM_FSTREAM (port)->fdes;
+}
+
 /* Query the OS to get the natural buffering for FPORT, if available.  */
 static void
 fport_get_natural_buffer_sizes (SCM port, size_t *read_size, size_t *write_size)
@@ -660,6 +688,8 @@ scm_make_fptob ()
   scm_set_port_close                    (ptob, fport_close);
   scm_set_port_seek                     (ptob, fport_seek);
   scm_set_port_truncate                 (ptob, fport_truncate);
+  scm_set_port_read_wait_fd             (ptob, fport_wait_fd);
+  scm_set_port_write_wait_fd            (ptob, fport_wait_fd);
   scm_set_port_input_waiting            (ptob, fport_input_waiting);
   scm_set_port_random_access_p          (ptob, fport_random_access_p);
   scm_set_port_get_natural_buffer_sizes (ptob, fport_get_natural_buffer_sizes);

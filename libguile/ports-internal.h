@@ -44,6 +44,9 @@ struct scm_t_port_type
   SCM scm_read;
   SCM scm_write;
 
+  int (*read_wait_fd) (SCM port);
+  int (*write_wait_fd) (SCM port);
+
   scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
   void (*close) (SCM port);
 

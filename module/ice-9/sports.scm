@@ -54,7 +54,9 @@
   #:replace (peek-char
              read-char)
   #:export (lookahead-u8
-            get-u8))
+            get-u8
+            current-read-waiter
+            current-write-waiter))
 
 (define (write-bytes port src start count)
   (let ((written ((port-write port) port src start count)))
@@ -77,11 +79,25 @@
       (set-port-buffer-end! buf 0)
       (write-bytes port (port-buffer-bytevector buf) cur (- end cur)))))
 
+(define (default-read-waiter port) (port-poll port "r"))
+(define (default-write-waiter port) (port-poll port "w"))
+
+(define current-read-waiter  (make-parameter default-read-waiter))
+(define current-write-waiter (make-parameter default-write-waiter))
+
+(define (wait-for-readable port) ((current-read-waiter) port))
+(define (wait-for-writable port) ((current-write-waiter) port))
+
 (define (read-bytes port dst start count)
-  (let ((read ((port-read port) port dst start count)))
-    (unless (<= 0 read count)
-      (error "bad return from port read function" read))
-    read))
+  (cond
+   (((port-read port) port dst start count)
+    => (lambda (read)
+         (unless (<= 0 read count)
+           (error "bad return from port read function" read))
+         read))
+   (else
+    (wait-for-readable port)
+    (read-bytes port dst start count))))
 
 (define utf8-bom #vu8(#xEF #xBB #xBF))
 (define utf16be-bom #vu8(#xFE #xFF))

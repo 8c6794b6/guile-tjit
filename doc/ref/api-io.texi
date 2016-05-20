@@ -20,6 +20,7 @@
 * Port Types::                  Types of port and how to make them.
 * R6RS I/O Ports::              The R6RS port API.
 * I/O Extensions::              Implementing new port types in C.
+* Non-Blocking I/O::            How Guile deals with EWOULDBLOCK.
 * BOM Handling::                Handling of Unicode byte order marks.
 @end menu
 
@@ -2302,6 +2303,24 @@ It should write out bytes from the supplied bytevector @code{src},
 starting at offset @code{start} and continuing for @code{count} bytes,
 and return the number of bytes that were written.
 
+@item read_wait_fd
+@itemx write_wait_fd
+If a port's @code{read} or @code{write} function returns @code{(size_t)
+-1}, that indicates that reading or writing would block.  In that case
+to preserve the illusion of a blocking read or write operation, Guile's
+C port run-time will @code{poll} on the file descriptor returned by
+either the port's @code{read_wait_fd} or @code{write_wait_fd} function.
+Set using
+
+@deftypefun void scm_set_port_read_wait_fd (scm_t_port_type *type, int (*wait_fd) (SCM port))
+@deftypefunx void scm_set_port_write_wait_fd (scm_t_port_type *type, int (*wait_fd) (SCM port))
+@end deftypefun
+
+Only a port type which implements the @code{read_wait_fd} or
+@code{write_wait_fd} port methods can usefully return @code{(size_t) -1}
+from a read or write function.  @xref{Non-Blocking I/O}, for more on
+non-blocking I/O in Guile.
+
 @item print
 Called when @code{write} is called on the port, to print a port
 description.  For example, for a file port it may produce something
@@ -2383,6 +2402,74 @@ File ports implement a @code{get_natural_buffer_sizes} to let the
 operating system inform Guile about the appropriate buffer sizes for the
 particular file opened by the port.
 @end table
+
+@node Non-Blocking I/O
+@subsection Non-Blocking I/O
+
+Most ports in Guile are @dfn{blocking}: when you try to read a character
+from a port, Guile will block on the read until a character is ready, or
+end-of-stream is detected.  Likewise whenever Guile goes to write
+(possibly buffered) data to an output port, Guile will block until all
+the data is written.
+
+Interacting with ports in blocking mode is very convenient: you can
+write straightforward, sequential algorithms whose code flow reflects
+the flow of data.  However, blocking I/O has two main limitations.
+
+The first is that it's easy to get into a situation where code is
+waiting on data.  Time spent waiting on data when code could be doing
+something else is wasteful and prevents your program from reaching its
+peak throughput.  If you implement a web server that sequentially
+handles requests from clients, it's very easy for the server to end up
+waiting on a client to finish its HTTP request, or waiting on it to
+consume the response.  The end result is that you are able to serve
+fewer requests per second than you'd like to serve.
+
+The second limitation is related: a blocking parser over user-controlled
+input is a denial-of-service vulnerability.  Indeed the so-called ``slow
+loris'' attack of the early 2010s was just that: an attack on common web
+servers that drip-fed HTTP requests, one character at a time.  All it
+took was a handful of slow loris connections to occupy an entire web
+server.
+
+In Guile we would like to preserve the ability to write straightforward
+blocking networking processes of all kinds, but under the hood to allow
+those processes to suspend their requests if they would block.
+
+To do this, the first piece is to allow Guile ports to declare
+themselves as being nonblocking.  This is currently supported only for
+file ports, which also includes sockets, terminals, or any other port
+that is backed by a file descriptor.  To do that, we use an arcane UNIX
+incantation:
+
+@example
+(let ((flags (fcntl socket F_GETFL)))
+  (fcntl socket F_SETFL (logior O_NONBLOCK flags)))
+@end example
+
+Now the file descriptor is open in non-blocking mode.  If Guile tries to
+read or write from this file descriptor in C, it will block by polling
+on the socket's @code{read_wait_fd}, to preserve the illusion of a
+blocking read or write.  @xref{I/O Extensions} for more on that internal
+interface.
+
+However if a user uses the new and experimental Scheme implementation of
+ports in @code{(ice-9 sports)}, Guile instead calls the value of the
+@code{current-read-waiter} or @code{current-write-waiter} parameters on
+the port before re-trying the read or write.  The default value of these
+parameters does the same thing as the C port runtime: it blocks.
+However it's possible to dynamically bind these parameters to handlers
+that can suspend the current coroutine to a scheduler, to be later
+re-animated once the port becomes readable or writable in the future.
+In the mean-time the scheduler can run other code, for example servicing
+other web requests.
+
+Guile does not currently include such a scheduler.  Currently we want to
+make sure that we're providing the right primitives that can be used to
+build schedulers and other user-space concurrency patterns.  In the
+meantime, have a look at 8sync (@url{https://gnu.org/software/8sync})
+for a prototype of an asynchronous I/O and concurrency facility.
+
 
 @node BOM Handling
 @subsection Handling of Unicode byte order marks.

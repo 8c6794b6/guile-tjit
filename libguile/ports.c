@@ -33,6 +33,7 @@
 #include <fcntl.h>  /* for chsize on mingw */
 #include <assert.h>
 #include <iconv.h>
+#include <poll.h>
 #include <uniconv.h>
 #include <unistr.h>
 #include <striconveh.h>
@@ -126,6 +127,18 @@ default_random_access_p (SCM port)
   return SCM_PORT_TYPE (port)->seek != NULL;
 }
 
+static int
+default_read_wait_fd (SCM port)
+{
+  scm_misc_error ("read_wait_fd", "unimplemented", SCM_EOL);
+}
+
+static int
+default_write_wait_fd (SCM port)
+{
+  scm_misc_error ("write_wait_fd", "unimplemented", SCM_EOL);
+}
+
 scm_t_port_type *
 scm_make_port_type (char *name,
                     size_t (*read) (SCM port, SCM dst, size_t start,
@@ -144,6 +157,8 @@ scm_make_port_type (char *name,
   desc->c_write = write;
   desc->scm_read = read ? trampoline_to_c_read_subr : SCM_BOOL_F;
   desc->scm_write = write ? trampoline_to_c_write_subr : SCM_BOOL_F;
+  desc->read_wait_fd = default_read_wait_fd;
+  desc->write_wait_fd = default_write_wait_fd;
   desc->random_access_p = default_random_access_p;
   scm_make_port_classes (desc);
 
@@ -154,7 +169,7 @@ static SCM
 trampoline_to_c_read (SCM port, SCM dst, SCM start, SCM count)
 #define FUNC_NAME "port-read"
 {
-  size_t c_start, c_count;
+  size_t c_start, c_count, ret;
 
   SCM_VALIDATE_OPPORT (1, port);
   c_start = scm_to_size_t (start);
@@ -162,24 +177,25 @@ trampoline_to_c_read (SCM port, SCM dst, SCM start, SCM count)
   SCM_ASSERT_RANGE (2, start, c_start <= c_count);
   SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (dst));
 
-  return scm_from_size_t
-    (SCM_PORT_TYPE (port)->c_read (port, dst, c_start, c_count));
+  ret = SCM_PORT_TYPE (port)->c_read (port, dst, c_start, c_count);
+
+  return ret == (size_t) -1 ? SCM_BOOL_F : scm_from_size_t (ret);
 }
 #undef FUNC_NAME
 
 static size_t
 trampoline_to_scm_read (SCM port, SCM dst, size_t start, size_t count)
 {
-  return scm_to_size_t
-    (scm_call_4 (SCM_PORT_TYPE (port)->scm_read, port, dst,
-                 scm_from_size_t (start), scm_from_size_t (count)));
+  SCM ret = scm_call_4 (SCM_PORT_TYPE (port)->scm_read, port, dst,
+                        scm_from_size_t (start), scm_from_size_t (count));
+  return scm_is_true (ret) ? scm_to_size_t (ret) : (size_t) -1;
 }
 
 static SCM
 trampoline_to_c_write (SCM port, SCM src, SCM start, SCM count)
 #define FUNC_NAME "port-write"
 {
-  size_t c_start, c_count;
+  size_t c_start, c_count, ret;
 
   SCM_VALIDATE_OPPORT (1, port);
   c_start = scm_to_size_t (start);
@@ -187,17 +203,18 @@ trampoline_to_c_write (SCM port, SCM src, SCM start, SCM count)
   SCM_ASSERT_RANGE (2, start, c_start <= c_count);
   SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (src));
 
-  return scm_from_size_t
-    (SCM_PORT_TYPE (port)->c_write (port, src, c_start, c_count));
+  ret = SCM_PORT_TYPE (port)->c_write (port, src, c_start, c_count);
+
+  return ret == (size_t) -1 ? SCM_BOOL_F : scm_from_size_t (ret);
 }
 #undef FUNC_NAME
 
 static size_t
 trampoline_to_scm_write (SCM port, SCM src, size_t start, size_t count)
 {
-  return scm_to_size_t
-    (scm_call_4 (SCM_PORT_TYPE (port)->scm_write, port, src,
-                 scm_from_size_t (start), scm_from_size_t (count)));
+  SCM ret = scm_call_4 (SCM_PORT_TYPE (port)->scm_write, port, src,
+                        scm_from_size_t (start), scm_from_size_t (count));
+  return scm_is_true (ret) ? scm_to_size_t (ret) : (size_t) -1;
 }
 
 void
@@ -212,6 +229,18 @@ scm_set_port_scm_write (scm_t_port_type *ptob, SCM write)
 {
   ptob->scm_write = write;
   ptob->c_write = trampoline_to_scm_write;
+}
+
+void
+scm_set_port_read_wait_fd (scm_t_port_type *ptob, int (*get_fd) (SCM))
+{
+  ptob->read_wait_fd = get_fd;
+}
+
+void
+scm_set_port_write_wait_fd (scm_t_port_type *ptob, int (*get_fd) (SCM))
+{
+  ptob->write_wait_fd = get_fd;
 }
 
 void
@@ -1232,6 +1261,116 @@ SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
 
 
 
+/* Non-blocking I/O.  */
+
+static int
+port_read_wait_fd (SCM port)
+{
+  scm_t_port_type *ptob = SCM_PORT_TYPE (port);
+  return ptob->read_wait_fd (port);
+}
+
+static int
+port_write_wait_fd (SCM port)
+{
+  scm_t_port_type *ptob = SCM_PORT_TYPE (port);
+  return ptob->write_wait_fd (port);
+}
+
+SCM_INTERNAL SCM scm_port_read_wait_fd (SCM);
+SCM_DEFINE (scm_port_read_wait_fd, "port-read-wait-fd", 1, 0, 0,
+            (SCM port), "")
+#define FUNC_NAME s_scm_port_read_wait_fd
+{
+  int fd;
+
+  port = SCM_COERCE_OUTPORT (port);
+  SCM_VALIDATE_OPINPORT (1, port);
+
+  fd = port_read_wait_fd (port);
+  return fd < 0 ? SCM_BOOL_F : scm_from_int (fd);
+}
+#undef FUNC_NAME
+
+SCM_INTERNAL SCM scm_port_write_wait_fd (SCM);
+SCM_DEFINE (scm_port_write_wait_fd, "port-write-wait-fd", 1, 0, 0,
+            (SCM port), "")
+#define FUNC_NAME s_scm_port_write_wait_fd
+{
+  int fd;
+
+  port = SCM_COERCE_OUTPORT (port);
+  SCM_VALIDATE_OPOUTPORT (1, port);
+
+  fd = port_write_wait_fd (port);
+  return fd < 0 ? SCM_BOOL_F : scm_from_int (fd);
+}
+#undef FUNC_NAME
+
+static int
+port_poll (SCM port, short events, int timeout)
+#define FUNC_NAME "port-poll"
+{
+  struct pollfd pollfd[2];
+  int nfds = 0, rv = 0;
+
+  if (events & POLLIN)
+    {
+      pollfd[nfds].fd = port_read_wait_fd (port);
+      pollfd[nfds].events = events & (POLLIN | POLLPRI);
+      pollfd[nfds].revents = 0;
+      nfds++;
+    }
+  if (events & POLLOUT)
+    {
+      pollfd[nfds].fd = port_write_wait_fd (port);
+      pollfd[nfds].events = events & (POLLOUT | POLLPRI);
+      pollfd[nfds].revents = 0;
+      nfds++;
+    }
+
+  if (nfds == 2 && pollfd[0].fd == pollfd[1].fd)
+    {
+      pollfd[0].events |= pollfd[1].events;
+      nfds--;
+    }
+
+  SCM_SYSCALL (rv = poll (pollfd, nfds, timeout));
+  if (rv < 0)
+    SCM_SYSERROR;
+
+  return rv;
+}
+#undef FUNC_NAME
+
+SCM_INTERNAL SCM scm_port_poll (SCM, SCM, SCM);
+SCM_DEFINE (scm_port_poll, "port-poll", 2, 1, 0,
+            (SCM port, SCM events, SCM timeout),
+            "")
+#define FUNC_NAME s_scm_port_poll
+{
+  short c_events = 0;
+  int c_timeout;
+
+  port = SCM_COERCE_OUTPORT (port);
+  SCM_VALIDATE_PORT (1, port);
+  SCM_VALIDATE_STRING (2, events);
+  c_timeout = SCM_UNBNDP (timeout) ? -1 : SCM_NUM2INT (3, timeout);
+
+  if (scm_i_string_contains_char (events, 'r'))
+    c_events |= POLLIN;
+  if (scm_i_string_contains_char (events, '!'))
+    c_events |= POLLPRI;
+  if (scm_i_string_contains_char (events, 'w'))
+    c_events |= POLLIN;
+
+  return scm_from_int (port_poll (port, c_events, c_timeout));
+}
+#undef FUNC_NAME
+
+
+
+
 /* Input.  */
 
 static int
@@ -1330,7 +1469,14 @@ scm_i_read_bytes (SCM port, SCM dst, size_t start, size_t count)
   assert (count <= SCM_BYTEVECTOR_LENGTH (dst));
   assert (start + count <= SCM_BYTEVECTOR_LENGTH (dst));
 
+ retry:
   filled = ptob->c_read (port, dst, start, count);
+
+  if (filled == (size_t) -1)
+    {
+      port_poll (port, POLLIN, -1);
+      goto retry;
+    }
 
   assert (filled <= count);
 
@@ -2508,7 +2654,14 @@ scm_i_write_bytes (SCM port, SCM src, size_t start, size_t count)
   assert (start + count <= SCM_BYTEVECTOR_LENGTH (src));
 
   do
-    written += ptob->c_write (port, src, start + written, count - written);
+    {
+      size_t ret = ptob->c_write (port, src, start + written, count - written);
+
+      if (ret == (size_t) -1)
+        port_poll (port, POLLOUT, -1);
+      else
+        written += ret;
+    }
   while (written < count);
 
   assert (written == count);
