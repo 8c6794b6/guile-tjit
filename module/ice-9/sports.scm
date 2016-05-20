@@ -51,12 +51,15 @@
 (define-module (ice-9 sports)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 ports internal)
+  #:use-module (ice-9 match)
   #:replace (peek-char
              read-char)
   #:export (lookahead-u8
             get-u8
             current-read-waiter
-            current-write-waiter))
+            current-write-waiter
+            install-sports!
+            uninstall-sports!))
 
 (define (write-bytes port src start count)
   (let ((written ((port-write port) port src start count)))
@@ -426,3 +429,35 @@
         (else (slow-path)))))
   (peek-bytes port 1 fast-path
               (lambda (buf bv cur buffered) (slow-path))))
+
+(define saved-port-bindings #f)
+(define port-bindings
+  '(((guile) read-char peek-char)
+    ((ice-9 binary-ports) get-u8 lookahead-u8)))
+(define (install-sports!)
+  (unless saved-port-bindings
+    (set! saved-port-bindings (make-hash-table))
+    (for-each
+     (match-lambda
+       ((mod . syms)
+        (let ((mod (resolve-module mod)))
+          (for-each (lambda (sym)
+                      (hashq-set! saved-port-bindings sym
+                                  (module-ref mod sym))
+                      (module-set! mod sym
+                                   (module-ref (current-module) sym)))
+                    syms))))
+     port-bindings)))
+
+(define (uninstall-sports!)
+  (when saved-port-bindings
+    (for-each
+     (match-lambda
+       ((mod . syms)
+        (let ((mod (resolve-module mod)))
+          (for-each (lambda (sym)
+                      (let ((saved (hashq-ref saved-port-bindings sym)))
+                        (module-set! mod sym saved)))
+                    syms))))
+     port-bindings)
+    (set! saved-port-bindings #f)))
