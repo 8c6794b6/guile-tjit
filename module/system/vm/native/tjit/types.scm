@@ -409,6 +409,7 @@ false."
    ((eq? flag 'fixnum) &fixnum)
    ((eq? flag 'flonum) &flonum)
    ((eq? flag 'fraction) &fraction)
+   ((eq? flag 'char) &char)
    ((eq? flag 'procedure) &procedure)
    ((eq? flag 'pair) &pair)
    ((eq? flag 'vector) &vector)

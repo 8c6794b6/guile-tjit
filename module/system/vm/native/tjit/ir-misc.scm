@@ -100,3 +100,21 @@
 ;; XXX: s64->scm
 
 ;; XXX: current-thread
+
+(define-ir (integer->char (char! dst) (u64 src))
+  (let ((r2 (make-tmpvar 2))
+        (src/v (var-ref src))
+        (dst/v (var-ref dst))
+        (codepoint-max #x10ffff))
+    `(let ((_ ,(take-snapshot! ip 0)))
+       (let ((_ (%gt ,codepoint-max ,src/v)))
+         (let ((,r2 (%lsh ,src/v 8)))
+           (let ((,dst/v (%add ,r2 ,%tc8-char)))
+             ,(next)))))))
+
+(define-ir (char->integer (u64! dst) (char src))
+  (let ((dst/v (var-ref dst))
+        (src/v (var-ref src)))
+    (with-type-guard &char src
+      `(let ((,dst/v (%rsh ,src/v 8)))
+        ,(next)))))
