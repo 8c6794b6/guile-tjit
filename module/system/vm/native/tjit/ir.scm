@@ -298,7 +298,7 @@ returns, current call-num, and current return-num."
     `(let ((,var ,(dynamic-link-offset type)))
        ,(next . args)))
    ((return-address? type)
-    `(let ((,var ,(pointer-address (return-address-ip type))))
+    `(let ((,var ,(return-address-ip type)))
        ,(next . args)))
    ((or (eq? type &flonum)
         (eq? type &f64))

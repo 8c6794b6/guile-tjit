@@ -103,8 +103,7 @@
          (sp-offset (current-sp-for-ti))
          (fp (- stack-size proc))
          (sp-proc (- stack-size proc 1))
-         (ra/t (make-return-address
-                (make-pointer (+ ip (* 4 (if label? 3 2))))))
+         (ra/t (make-return-address (+ ip (* 4 (if label? 3 2)))))
          (dl/t (make-dynamic-link proc)))
     (set-inferred-type! env (+ sp-offset fp) ra/t)
     (set-inferred-type! env (+ sp-offset fp 1) dl/t)

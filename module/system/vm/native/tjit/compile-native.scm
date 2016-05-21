@@ -92,7 +92,7 @@
       ;; frame need to be recovered when taking exit from inlined procedure
       ;; call. The actual value for return address is captured at the time of
       ;; Scheme IR conversion and stored in snapshot.
-      (jit-movi r0 (return-address-ip type))
+      (jit-movi r0 (imm (return-address-ip type)))
       (sp-set! local r0))
 
      ((dynamic-link? type)

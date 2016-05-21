@@ -116,7 +116,7 @@
 ;;         (dst/v (var-ref 1))
 ;;         (cont/l (scm-ref 0))
 ;;         (r2 (make-tmpvar 2)))
-;;     (debug 0 ";;; [IR] call/cc, cont/l=~a program-code=~x~%"
+;;     (debug 1 ";;; [IR] call/cc, cont/l=~a program-code=~x~%"
 ;;            cont/l (program-code cont/l))
 ;;     `(let ((_ ,(take-snapshot! ip 0)))
 ;;        (let ((,r2 (%cref ,cont/v 1)))

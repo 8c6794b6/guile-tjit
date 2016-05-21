@@ -398,7 +398,7 @@ false."
     (let ((diff (number->string (dynamic-link-offset type))))
       (string-append "dl:" (cyan diff))))
    ((return-address? type)
-    (let* ((addr (pointer-address (return-address-ip type)))
+    (let* ((addr (return-address-ip type))
            (hex-ip (number->string addr 16)))
       (string-append "ra:" (cyan hex-ip))))
    (else type)))
