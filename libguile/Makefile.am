@@ -455,7 +455,7 @@ EXTRA_libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES = _scm.h		\
     memmove.c strerror.c			\
     dynl.c regex-posix.c			\
     posix.c net_db.c socket.c			\
-    debug-malloc.c mkstemp.c			\
+    debug-malloc.c				\
     win32-uname.c				\
     locale-categories.h
 
@@ -815,13 +815,13 @@ MKDEP = gcc -M -MG $(DEFS) $(AM_CPPFLAGS) $(CPPFLAGS) $(CFLAGS)
 
 # Write $(srcdir)/cpp-{E,SIG}.syms.NEW if there are any not-yet-seen
 # ("new" to us) E* or SIG* symbols in <errno.h> or <signal.h>, respectively.
-chknew-E chknew-SIG:						\
+chknew-E chknew-SIG:
 	@bit=`echo $@ | sed s/^chknew-//` ;			\
 	old="$(srcdir)/cpp-$$bit.syms" ;			\
 	echo "#include <$${bit}.h>"				\
 	 | sed 's/E/errno/;s/SIG/signal/'			\
 	 | gcc -dM -E -						\
-	 | sed 's/^#define //;/^'$$bit'[A-Z][A-Z]*/!d;s/ .*//'	\
+	 | sed 's/^#define //;/^'$$bit'[0-9A-Z][0-9A-Z]* /!d;s/ .*//'	\
 	 | sort | diff -u $$old - | sed '1,2d;/^+/!d;s/^.//'	\
 	 > TMP ;						\
 	if [ -s TMP ] ; then new="$$old.NEW" ;			\

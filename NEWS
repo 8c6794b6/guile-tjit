@@ -739,6 +739,26 @@ users, but packagers may be interested.
 
 
 
+Changes in 2.0.12 (since 2.0.11):
+
+[Note: these changes come to 2.2 via 2.0 branch, but 2.0.12 hasn't been
+released yet at the time of this writing.]
+
+* Notable changes
+
+** The #!r6rs directive now influences read syntax
+
+The #!r6rs directive now changes the per-port reader options to make
+Guile's reader conform more closely to the R6RS syntax. In particular:
+
+- It makes the reader case sensitive.
+- It disables the recognition of keyword syntax in conflict with the
+  R6RS (and R5RS).
+- It enables the `square-brackets', `hungry-eol-escapes' and
+  `r6rs-hex-escapes' reader options.
+
+
+
 Changes in 2.0.11 (since 2.0.10):
 
 This release fixes an embarrassing regression introduced in the C
