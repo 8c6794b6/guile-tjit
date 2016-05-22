@@ -172,10 +172,11 @@ trampoline_to_c_read (SCM port, SCM dst, SCM start, SCM count)
   size_t c_start, c_count, ret;
 
   SCM_VALIDATE_OPPORT (1, port);
+  SCM_VALIDATE_BYTEVECTOR (2, dst);
   c_start = scm_to_size_t (start);
   c_count = scm_to_size_t (count);
-  SCM_ASSERT_RANGE (2, start, c_start <= c_count);
-  SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (dst));
+  SCM_ASSERT_RANGE (3, start, c_start <= SCM_BYTEVECTOR_LENGTH (dst));
+  SCM_ASSERT_RANGE (4, count, c_count <= SCM_BYTEVECTOR_LENGTH (dst) - c_start);
 
   ret = SCM_PORT_TYPE (port)->c_read (port, dst, c_start, c_count);
 
@@ -198,10 +199,11 @@ trampoline_to_c_write (SCM port, SCM src, SCM start, SCM count)
   size_t c_start, c_count, ret;
 
   SCM_VALIDATE_OPPORT (1, port);
+  SCM_VALIDATE_BYTEVECTOR (2, src);
   c_start = scm_to_size_t (start);
   c_count = scm_to_size_t (count);
-  SCM_ASSERT_RANGE (2, start, c_start <= c_count);
-  SCM_ASSERT_RANGE (3, count, c_start+c_count <= scm_c_bytevector_length (src));
+  SCM_ASSERT_RANGE (3, start, c_start <= SCM_BYTEVECTOR_LENGTH (src));
+  SCM_ASSERT_RANGE (4, count, c_count <= SCM_BYTEVECTOR_LENGTH (src) - c_start);
 
   ret = SCM_PORT_TYPE (port)->c_write (port, src, c_start, c_count);
 
