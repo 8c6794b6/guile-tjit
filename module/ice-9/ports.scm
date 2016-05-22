@@ -169,9 +169,14 @@ interpret its input and output."
             port-buffer-cur
             port-buffer-end
             port-buffer-has-eof?
+            port-buffer-position
             set-port-buffer-cur!
             set-port-buffer-end!
             set-port-buffer-has-eof?!
+            port-position-line
+            port-position-column
+            set-port-position-line!
+            set-port-position-column!
             port-read
             port-write
             port-clear-stream-start-for-bom-read
@@ -188,6 +193,7 @@ interpret its input and output."
 (define-syntax-rule (port-buffer-cur buf) (vector-ref buf 1))
 (define-syntax-rule (port-buffer-end buf) (vector-ref buf 2))
 (define-syntax-rule (port-buffer-has-eof? buf) (vector-ref buf 3))
+(define-syntax-rule (port-buffer-position buf) (vector-ref buf 4))
 
 (define-syntax-rule (set-port-buffer-cur! buf cur)
   (vector-set! buf 1 cur))
@@ -195,6 +201,15 @@ interpret its input and output."
   (vector-set! buf 2 end))
 (define-syntax-rule (set-port-buffer-has-eof?! buf has-eof?)
   (vector-set! buf 3 has-eof?))
+
+(define-syntax-rule (port-position-line position)
+  (car position))
+(define-syntax-rule (port-position-column position)
+  (cdr position))
+(define-syntax-rule (set-port-position-line! position line)
+  (set-car! position line))
+(define-syntax-rule (set-port-position-column! position column)
+  (set-cdr! position column))
 
 (eval-when (expand)
   (define-syntax-rule (private-port-bindings binding ...)

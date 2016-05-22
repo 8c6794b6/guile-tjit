@@ -494,13 +494,15 @@ scm_i_dynwind_current_load_port (SCM port)
 
 /* Port buffers.  */
 
-SCM
-scm_c_make_port_buffer (size_t size)
+static SCM
+make_port_buffer (SCM port, size_t size)
 {
   SCM ret = scm_c_make_vector (SCM_PORT_BUFFER_FIELD_COUNT, SCM_INUM0);
 
   SCM_SIMPLE_VECTOR_SET (ret, SCM_PORT_BUFFER_FIELD_BYTEVECTOR,
                          scm_c_make_bytevector (size));
+  SCM_SIMPLE_VECTOR_SET (ret, SCM_PORT_BUFFER_FIELD_POSITION,
+                         SCM_PORT (port)->position);
   scm_port_buffer_set_has_eof_p (ret, SCM_BOOL_F);
 
   return ret;
@@ -649,8 +651,8 @@ initialize_port_buffers (SCM port)
     write_buf_size = 1;
 
   pt->read_buffering = read_buf_size;
-  pt->read_buf = scm_c_make_port_buffer (read_buf_size);
-  pt->write_buf = scm_c_make_port_buffer (write_buf_size);
+  pt->read_buf = make_port_buffer (port, read_buf_size);
+  pt->write_buf = make_port_buffer (port, write_buf_size);
 }
 
 SCM
@@ -672,6 +674,7 @@ scm_c_make_port_with_encoding (scm_t_port_type *ptob, unsigned long mode_bits,
   pt->conversion_strategy = conversion_strategy;
   pt->file_name = SCM_BOOL_F;
   pt->iconv_descriptors = NULL;
+  pt->position = scm_cons (SCM_INUM0, SCM_INUM0);
 
   pt->at_stream_start_for_bom_read  = 1;
   pt->at_stream_start_for_bom_write = 1;
@@ -1598,27 +1601,34 @@ scm_c_read (SCM port, void *buffer, size_t size)
 
 /* Update the line and column number of PORT after consumption of C.  */
 static inline void
-update_port_lf (scm_t_wchar c, SCM port)
+update_port_position (SCM port, scm_t_wchar c)
 {
+  SCM position = SCM_PORT (port)->position;
+  long line = scm_to_long (scm_port_position_line (position));
+  int column = scm_to_int (scm_port_position_column (position));
+
   switch (c)
     {
     case '\a':
     case EOF:
       break;
     case '\b':
-      SCM_DECCOL (port);
+      if (column > 0)
+        scm_port_position_set_column (position, scm_from_int (column - 1));
       break;
     case '\n':
-      SCM_INCLINE (port);
+      scm_port_position_set_line (position, scm_from_long (line + 1));
+      scm_port_position_set_column (position, SCM_INUM0);
       break;
     case '\r':
-      SCM_ZEROCOL (port);
+      scm_port_position_set_column (position, SCM_INUM0);
       break;
     case '\t':
-      SCM_TABCOL (port);
+      scm_port_position_set_column (position,
+                                    scm_from_int (column + 8 - column % 8));
       break;
     default:
-      SCM_INCCOL (port);
+      scm_port_position_set_column (position, scm_from_int (column + 1));
       break;
     }
 }
@@ -1898,7 +1908,7 @@ scm_getc (SCM port)
   scm_port_buffer_did_take (SCM_PORT (port)->read_buf, len);
   if (codepoint == EOF)
     scm_i_clear_pending_eof (port);
-  update_port_lf (codepoint, port);
+  update_port_position (port, codepoint);
 
   return codepoint;
 }
@@ -2031,9 +2041,18 @@ scm_ungetc (scm_t_wchar c, SCM port)
   if (SCM_UNLIKELY (result != result_buf))
     free (result);
 
-  if (c == '\n')
-    SCM_LINUM (port) -= 1;
-  SCM_DECCOL (port);
+  {
+    long line;
+    int column;
+
+    line = scm_to_long (scm_port_position_line (pt->position));
+    column = scm_to_int (scm_port_position_column (pt->position));
+
+    if (c == '\n')
+      scm_port_position_set_line (pt->position, scm_from_long (line - 1));
+    if (column > 0)
+      scm_port_position_set_column (pt->position, scm_from_int (column - 1));
+  }
 }
 #undef FUNC_NAME
 
@@ -2216,8 +2235,8 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
 
   SCM_SET_CELL_WORD_0 (port, tag_word);
   pt->read_buffering = read_buf_size;
-  pt->read_buf = scm_c_make_port_buffer (read_buf_size);
-  pt->write_buf = scm_c_make_port_buffer (write_buf_size);
+  pt->read_buf = make_port_buffer (port, read_buf_size);
+  pt->write_buf = make_port_buffer (port, write_buf_size);
 
   if (saved_read_buf)
     scm_unget_bytes (scm_port_buffer_take_pointer (saved_read_buf),
@@ -2563,7 +2582,7 @@ SCM_DEFINE (scm_expand_port_read_buffer_x, "expand-port-read-buffer!", 2, 1, 0,
   if (SCM_UNBNDP (putback_p))
     putback_p = SCM_BOOL_F;
 
-  new_buf = scm_c_make_port_buffer (c_size);
+  new_buf = make_port_buffer (port, c_size);
   scm_port_buffer_set_has_eof_p (new_buf,
                                  scm_port_buffer_has_eof_p (pt->read_buf));
   if (scm_is_true (putback_p))
@@ -2780,7 +2799,7 @@ scm_c_write (SCM port, const void *ptr, size_t size)
 void
 scm_lfwrite (const char *ptr, size_t size, SCM port)
 {
-  int saved_line;
+  SCM position, saved_line;
 
   if (size == 0)
     return;
@@ -2789,12 +2808,14 @@ scm_lfwrite (const char *ptr, size_t size, SCM port)
 
   scm_c_write (port, ptr, size);
 
-  saved_line = SCM_LINUM (port);
+  position = SCM_PORT (port)->position;
+  saved_line = scm_port_position_line (position);
   for (; size; ptr++, size--)
-    update_port_lf ((scm_t_wchar) (unsigned char) *ptr, port);
+    update_port_position (port, (scm_t_wchar) (unsigned char) *ptr);
 
   /* Handle line buffering.  */
-  if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) && saved_line != SCM_LINUM (port))
+  if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) &&
+      !scm_is_eq (saved_line, scm_port_position_line (position)))
     scm_flush (port);
 }
 
@@ -3046,7 +3067,7 @@ SCM_DEFINE (scm_port_line, "port-line", 1, 0, 0,
 {
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
-  return scm_from_long (SCM_LINUM (port));
+  return scm_port_position_line (SCM_PORT (port)->position);
 }
 #undef FUNC_NAME
 
@@ -3058,7 +3079,8 @@ SCM_DEFINE (scm_set_port_line_x, "set-port-line!", 2, 0, 0,
 {
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
-  SCM_PORT (port)->line_number = scm_to_long (line);
+  scm_to_long (line);
+  scm_port_position_set_line (SCM_PORT (port)->position, line);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -3077,7 +3099,7 @@ SCM_DEFINE (scm_port_column, "port-column", 1, 0, 0,
 {
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
-  return scm_from_int (SCM_COL (port));
+  return scm_port_position_column (SCM_PORT (port)->position);
 }
 #undef FUNC_NAME
 
@@ -3089,7 +3111,8 @@ SCM_DEFINE (scm_set_port_column_x, "set-port-column!", 2, 0, 0,
 {
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
-  SCM_PORT (port)->column_number = scm_to_int (column);
+  scm_to_int (column);
+  scm_port_position_set_column (SCM_PORT (port)->position, column);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME

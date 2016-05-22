@@ -94,6 +94,7 @@ enum scm_port_buffer_field {
   SCM_PORT_BUFFER_FIELD_CUR,
   SCM_PORT_BUFFER_FIELD_END,
   SCM_PORT_BUFFER_FIELD_HAS_EOF_P,
+  SCM_PORT_BUFFER_FIELD_POSITION,
   SCM_PORT_BUFFER_FIELD_COUNT
 };
 
@@ -150,6 +151,39 @@ scm_port_buffer_set_has_eof_p (SCM buf, SCM has_eof_p)
 {
   SCM_SIMPLE_VECTOR_SET (buf, SCM_PORT_BUFFER_FIELD_HAS_EOF_P,
                          has_eof_p);
+}
+
+/* The port position object is a pair that is referenced by the port.
+   To make things easier for Scheme port code, it is also referenced by
+   port buffers.  */
+static inline SCM
+scm_port_buffer_position (SCM buf)
+{
+  return SCM_SIMPLE_VECTOR_REF (buf, SCM_PORT_BUFFER_FIELD_POSITION);
+}
+
+static inline SCM
+scm_port_position_line (SCM position)
+{
+  return scm_car (position);
+}
+
+static inline void
+scm_port_position_set_line (SCM position, SCM line)
+{
+  scm_set_car_x (position, line);
+}
+
+static inline SCM
+scm_port_position_column (SCM position)
+{
+  return scm_cdr (position);
+}
+
+static inline void
+scm_port_position_set_column (SCM position, SCM column)
+{
+  scm_set_cdr_x (position, column);
 }
 
 static inline size_t
@@ -290,8 +324,7 @@ struct scm_t_port
 {
   /* Source location information.  */
   SCM file_name;
-  long line_number;
-  int column_number;
+  SCM position;
 
   /* Port buffers.  */
   SCM read_buf;
@@ -325,14 +358,6 @@ struct scm_t_port
 
 #define SCM_FILENAME(x)           (SCM_PORT (x)->file_name)
 #define SCM_SET_FILENAME(x, n)    (SCM_PORT (x)->file_name = (n))
-#define SCM_LINUM(x)              (SCM_PORT (x)->line_number)
-#define SCM_COL(x)                (SCM_PORT (x)->column_number)
-
-#define SCM_INCLINE(port)  	do {SCM_LINUM (port) += 1; SCM_COL (port) = 0;} while (0)
-#define SCM_ZEROCOL(port)  	do {SCM_COL (port) = 0;} while (0)
-#define SCM_INCCOL(port)  	do {SCM_COL (port) += 1;} while (0)
-#define SCM_DECCOL(port)  	do {if (SCM_COL (port) > 0) SCM_COL (port) -= 1;} while (0)
-#define SCM_TABCOL(port)  	do {SCM_COL (port) += 8 - SCM_COL (port) % 8;} while (0)
 
 SCM_INTERNAL scm_t_iconv_descriptors * scm_i_port_iconv_descriptors (SCM port);
 

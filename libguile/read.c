@@ -149,8 +149,8 @@ scm_i_input_error (char const *function,
   scm_simple_format (string_port,
 		     scm_from_locale_string ("~A:~S:~S: ~A"),
 		     scm_list_4 (fn,
-				 scm_from_long (SCM_LINUM (port) + 1),
-				 scm_from_int (SCM_COL (port) + 1),
+				 scm_sum (scm_port_line (port), SCM_INUM1),
+				 scm_sum (scm_port_column (port), SCM_INUM1),
 				 scm_from_locale_string (message)));
     
   string = scm_get_output_string (string_port);
@@ -434,8 +434,8 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
                                    : ')'));
 
   /* Need to capture line and column numbers here. */
-  long line = SCM_LINUM (port);
-  int column = SCM_COL (port) - 1;
+  long line = scm_to_long (scm_port_line (port));
+  int column = scm_to_int (scm_port_column (port)) - 1;
 
   c = flush_ws (port, opts, FUNC_NAME);
   if (terminating_char == c)
@@ -612,8 +612,8 @@ scm_read_string_like_syntax (int chr, SCM port, scm_t_read_opts *opts)
   scm_t_wchar c, c_str[READER_STRING_BUFFER_SIZE];
 
   /* Need to capture line and column numbers here. */
-  long line = SCM_LINUM (port);
-  int column = SCM_COL (port) - 1;
+  long line = scm_to_long (scm_port_line (port));
+  int column = scm_to_int (scm_port_column (port)) - 1;
 
   while (chr != (c = scm_getc (port)))
     {
@@ -739,8 +739,8 @@ scm_read_number (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   size_t bytes_read;
 
   /* Need to capture line and column numbers here. */
-  long line = SCM_LINUM (port);
-  int column = SCM_COL (port) - 1;
+  long line = scm_to_long (scm_port_line (port));
+  int column = scm_to_int (scm_port_column (port)) - 1;
 
   scm_ungetc (chr, port);
   buffer = read_complete_token (port, opts, local_buffer, sizeof local_buffer,
@@ -759,7 +759,9 @@ scm_read_number (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   else if (SCM_NIMP (result))
     result = maybe_annotate_source (result, port, opts, line, column);
 
-  SCM_COL (port) += scm_i_string_length (str);
+  scm_set_port_column_x (port,
+                         scm_sum (scm_port_column (port),
+                                  scm_string_length (str)));
   return result;
 }
 
@@ -796,7 +798,9 @@ scm_read_mixed_case_symbol (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
       result = scm_string_to_symbol (str);
     }
 
-  SCM_COL (port) += scm_i_string_length (str);
+  scm_set_port_column_x (port,
+                         scm_sum (scm_port_column (port),
+                                  scm_string_length (str)));
   return result;
 }
 
@@ -845,7 +849,9 @@ scm_read_number_and_radix (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
 
   result = scm_string_to_number (str, scm_from_uint (radix));
 
-  SCM_COL (port) += scm_i_string_length (str);
+  scm_set_port_column_x (port,
+                         scm_sum (scm_port_column (port),
+                                  scm_string_length (str)));
 
   if (scm_is_true (result))
     return result;
@@ -860,8 +866,8 @@ static SCM
 scm_read_quote (int chr, SCM port, scm_t_read_opts *opts)
 {
   SCM p;
-  long line = SCM_LINUM (port);
-  int column = SCM_COL (port) - 1;
+  long line = scm_to_long (scm_port_line (port));
+  int column = scm_to_int (scm_port_column (port)) - 1;
 
   switch (chr)
     {
@@ -907,8 +913,8 @@ static SCM
 scm_read_syntax (int chr, SCM port, scm_t_read_opts *opts)
 {
   SCM p;
-  long line = SCM_LINUM (port);
-  int column = SCM_COL (port) - 1;
+  long line = scm_to_long (scm_port_line (port));
+  int column = scm_to_int (scm_port_column (port)) - 1;
 
   switch (chr)
     {
@@ -1068,7 +1074,7 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
       ((unsigned char) buffer[0] <= 127
        || scm_is_eq (pt->encoding, sym_ISO_8859_1)))
     {
-      SCM_COL (port) += 1;
+      scm_set_port_column_x (port, scm_sum (scm_port_column (port), SCM_INUM1));
       return SCM_MAKE_CHAR (buffer[0]);
     }
 
@@ -1076,7 +1082,9 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
      processing.  */
   charname = scm_from_port_stringn (buffer, bytes_read, port);
   charname_len = scm_i_string_length (charname);
-  SCM_COL (port) += charname_len;
+  scm_set_port_column_x (port,
+                         scm_sum (scm_port_column (port),
+                                  scm_from_size_t (charname_len)));
   cp = scm_i_string_ref (charname, 0);
   if (charname_len == 1)
     return SCM_MAKE_CHAR (cp);
@@ -1629,8 +1637,8 @@ scm_read_sharp_extension (int chr, SCM port, scm_t_read_opts *opts)
   proc = scm_get_hash_procedure (chr);
   if (scm_is_true (scm_procedure_p (proc)))
     {
-      long line = SCM_LINUM (port);
-      int column = SCM_COL (port) - 2;
+      long line = scm_to_long (scm_port_line (port));
+      int column = scm_to_int (scm_port_column (port)) - 2;
       SCM got;
 
       got = scm_call_2 (proc, SCM_MAKE_CHAR (chr), port);
@@ -1782,8 +1790,8 @@ read_inner_expression (SCM port, scm_t_read_opts *opts)
                  be part of an unescaped symbol.  We might as well do
                  something useful with it, so we adopt Kawa's convention:
                  [...] => ($bracket-list$ ...) */
-              long line = SCM_LINUM (port);
-              int column = SCM_COL (port) - 1;
+              long line = scm_to_long (scm_port_line (port));
+              int column = scm_to_int (scm_port_column (port)) - 1;
               return maybe_annotate_source
                 (scm_cons (sym_bracket_list, scm_read_sexp (chr, port, opts)),
                  port, opts, line, column);
@@ -1805,8 +1813,8 @@ read_inner_expression (SCM port, scm_t_read_opts *opts)
 	  return (scm_read_quote (chr, port, opts));
 	case '#':
 	  {
-            long line  = SCM_LINUM (port);
-            int column = SCM_COL (port) - 1;
+            long line = scm_to_long (scm_port_line (port));
+            int column = scm_to_int (scm_port_column (port)) - 1;
 	    SCM result = scm_read_sharp (chr, port, opts, line, column);
 	    if (scm_is_eq (result, SCM_UNSPECIFIED))
 	      /* We read a comment or some such.  */
@@ -1870,8 +1878,8 @@ scm_read_expression (SCM port, scm_t_read_opts *opts)
           if (c == EOF)
             return SCM_EOF_VAL;
           scm_ungetc (c, port);
-          line = SCM_LINUM (port);
-          column = SCM_COL (port);
+          line = scm_to_long (scm_port_line (port));
+          column = scm_to_int (scm_port_column (port));
         }
 
       expr = read_inner_expression (port, opts);

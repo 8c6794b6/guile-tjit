@@ -131,9 +131,6 @@ SCM_API void scm_dynwind_current_output_port (SCM port);
 SCM_API void scm_dynwind_current_error_port (SCM port);
 SCM_INTERNAL void scm_i_dynwind_current_load_port (SCM port);
 
-/* Port buffers.  */
-SCM_INTERNAL SCM scm_c_make_port_buffer (size_t size);
-
 /* Mode bits.  */
 SCM_INTERNAL long scm_i_mode_bits (SCM modes);
 SCM_API long scm_mode_bits (char *modes);

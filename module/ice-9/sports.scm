@@ -384,34 +384,34 @@
   (peek-bytes port 1 fast-path
               (lambda (buf bv cur buffered) (slow-path))))
 
-(define-inlinable (port-advance-position! port char)
+(define-inlinable (advance-port-position! pos char)
   ;; FIXME: this cond is a speed hack; really we should just compile
   ;; `case' better.
   (cond
    ;; FIXME: char>? et al should compile well.
    ((<= (char->integer #\space) (char->integer char))
-    (set-port-column! port (1+ (port-column port))))
+    (set-port-position-column! pos (1+ (port-position-column pos))))
    (else
     (case char
       ((#\alarm) #t)                    ; No change.
       ((#\backspace)
-       (let ((col (port-column port)))
+       (let ((col (port-position-column pos)))
          (when (> col 0)
-           (set-port-column! port (1- col)))))
+           (set-port-position-column! pos (1- col)))))
       ((#\newline)
-       (set-port-line! port (1+ (port-line port)))
-       (set-port-column! port 0))
+       (set-port-position-line! pos (1+ (port-position-line pos)))
+       (set-port-position-column! pos 0))
       ((#\return)
-       (set-port-column! port 0))
+       (set-port-position-column! pos 0))
       ((#\tab)
-       (let ((col (port-column port)))
-         (set-port-column! port (- (+ col 8) (remainder col 8)))))
+       (let ((col (port-position-column pos)))
+         (set-port-position-column! pos (- (+ col 8) (remainder col 8)))))
       (else
-       (set-port-column! port (1+ (port-column port))))))))
+       (set-port-position-column! pos (1+ (port-position-column pos))))))))
 
 (define* (read-char #:optional (port (current-input-port)))
-  (define (finish char)
-    (port-advance-position! port char)
+  (define (finish buf char)
+    (advance-port-position! (port-buffer-position buf) char)
     char)
   (define (slow-path)
     (call-with-values (lambda () (peek-char-and-len port))
@@ -422,7 +422,7 @@
               (begin
                 (set-port-buffer-has-eof?! buf #f)
                 char)
-              (finish char))))))
+              (finish buf char))))))
   (define (fast-path buf bv cur buffered)
     (let ((u8 (bytevector-u8-ref bv cur))
           (enc (%port-encoding port)))
@@ -431,11 +431,11 @@
          (decode-utf8 bv cur buffered u8
                       (lambda (char len)
                         (set-port-buffer-cur! buf (+ cur len))
-                        (finish char))
+                        (finish buf char))
                       slow-path))
         ((ISO-8859-1)
          (set-port-buffer-cur! buf (+ cur 1))
-         (finish (integer->char u8)))
+         (finish buf (integer->char u8)))
         (else (slow-path)))))
   (peek-bytes port 1 fast-path
               (lambda (buf bv cur buffered) (slow-path))))
@@ -460,7 +460,7 @@
           (let ((ch (integer->char (bytevector-u8-ref bv cur)))
                 (cur (1+ cur)))
             (set-port-buffer-cur! buf cur)
-            (port-advance-position! port ch)
+            (advance-port-position! (port-buffer-position buf) ch)
             (call-with-values (lambda () (proc ch seed))
               (lambda (seed done?)
                 (if done? seed (fold-chars cur seed)))))))))))
