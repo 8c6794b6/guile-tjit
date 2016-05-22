@@ -56,6 +56,9 @@
              read-char)
   #:export (lookahead-u8
             get-u8
+            %read-line
+            read-line
+            read-delimited
             current-read-waiter
             current-write-waiter
             install-sports!
@@ -524,21 +527,23 @@
 (define saved-port-bindings #f)
 (define port-bindings
   '(((guile) read-char peek-char)
-    ((ice-9 binary-ports) get-u8 lookahead-u8)))
+    ((ice-9 binary-ports) get-u8 lookahead-u8)
+    ((ice-9 rdelim) %read-line read-line read-delimited)))
 (define (install-sports!)
   (unless saved-port-bindings
     (set! saved-port-bindings (make-hash-table))
-    (for-each
-     (match-lambda
-       ((mod . syms)
-        (let ((mod (resolve-module mod)))
-          (for-each (lambda (sym)
-                      (hashq-set! saved-port-bindings sym
-                                  (module-ref mod sym))
-                      (module-set! mod sym
-                                   (module-ref (current-module) sym)))
-                    syms))))
-     port-bindings)))
+    (let ((sports (resolve-module '(ice-9 sports))))
+      (for-each
+       (match-lambda
+         ((mod . syms)
+          (let ((mod (resolve-module mod)))
+            (for-each (lambda (sym)
+                        (hashq-set! saved-port-bindings sym
+                                    (module-ref mod sym))
+                        (module-set! mod sym
+                                     (module-ref sports sym)))
+                      syms))))
+       port-bindings))))
 
 (define (uninstall-sports!)
   (when saved-port-bindings
