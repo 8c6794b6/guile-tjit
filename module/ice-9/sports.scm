@@ -440,6 +440,87 @@
   (peek-bytes port 1 fast-path
               (lambda (buf bv cur buffered) (slow-path))))
 
+(define-inlinable (port-fold-chars/iso-8859-1 port proc seed)
+  (let fold-buffer ((buf (port-read-buffer port))
+                    (seed seed))
+    (let ((bv (port-buffer-bytevector buf))
+          (end (port-buffer-end buf)))
+      (let fold-chars ((cur (port-buffer-cur buf))
+                       (seed seed))
+        (cond
+         ((= end cur)
+          (call-with-values (lambda () (fill-input port))
+            (lambda (buf buffered)
+              (if (zero? buffered)
+                  (call-with-values (lambda () (proc the-eof-object seed))
+                    (lambda (seed done?)
+                      (if done? seed (fold-buffer buf seed))))
+                  (fold-buffer buf seed)))))
+         (else
+          (let ((ch (integer->char (bytevector-u8-ref bv cur)))
+                (cur (1+ cur)))
+            (set-port-buffer-cur! buf cur)
+            (port-advance-position! port ch)
+            (call-with-values (lambda () (proc ch seed))
+              (lambda (seed done?)
+                (if done? seed (fold-chars cur seed)))))))))))
+
+(define-inlinable (port-fold-chars port proc seed)
+  (case (%port-encoding port)
+    ((ISO-8859-1) (port-fold-chars/iso-8859-1 port proc seed))
+    (else
+     (let lp ((seed seed))
+       (let ((ch (read-char port)))
+         (call-with-values (lambda () (proc ch seed))
+           (lambda (seed done?)
+             (if done? seed (lp seed)))))))))
+
+(define* (read-delimited delims #:optional (port (current-input-port))
+                         (handle-delim 'trim))
+  ;; Currently this function conses characters into a list, then uses
+  ;; reverse-list->string.  It wastes 2 words per character but it still
+  ;; seems to be the fastest thing at the moment.
+  (define (finish delim chars)
+    (define (->string chars)
+      (if (and (null? chars) (not (char? delim)))
+          the-eof-object
+          (reverse-list->string chars)))
+    (case handle-delim
+      ((trim) (->string chars))
+      ((split) (cons (->string chars) delim))
+      ((concat)
+       (->string (if (char? delim) (cons delim chars) chars)))
+      ((peek)
+       (when (char? delim) (unread-char delim port))
+       (->string chars))
+      (else
+       (error "unexpected handle-delim value: " handle-delim))))
+  (define-syntax-rule (make-folder delimiter?)
+    (lambda (char chars)
+      (if (or (not (char? char)) (delimiter? char))
+          (values (finish char chars) #t)
+          (values (cons char chars) #f))))
+  (define-syntax-rule (specialized-fold delimiter?)
+    (port-fold-chars port (make-folder delimiter?) '()))
+  (case (string-length delims)
+    ((0) (specialized-fold (lambda (char) #f)))
+    ((1) (let ((delim (string-ref delims 0)))
+           (specialized-fold (lambda (char) (eqv? char delim)))))
+    (else => (lambda (ndelims)
+               (specialized-fold
+                (lambda (char)
+                  (let lp ((i 0))
+                    (and (< i ndelims)
+                         (or (eqv? char (string-ref delims i))
+                             (lp (1+ i)))))))))))
+
+(define* (read-line #:optional (port (current-input-port))
+                    (handle-delim 'trim))
+  (read-delimited "\n" port handle-delim))
+
+(define* (%read-line port)
+  (read-line port 'split))
+
 (define saved-port-bindings #f)
 (define port-bindings
   '(((guile) read-char peek-char)
