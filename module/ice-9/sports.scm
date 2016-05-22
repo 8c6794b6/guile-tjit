@@ -56,6 +56,7 @@
              read-char)
   #:export (lookahead-u8
             get-u8
+            get-bytevector-n
             %read-line
             read-line
             read-delimited
@@ -148,8 +149,8 @@
          (maybe-consume-bom utf32be-bom)
          (specialize-port-encoding! port 'UTF-32BE)))))))
 
-(define* (fill-input port #:optional (minimum-buffering 1))
-  (clear-stream-start-for-bom-read port 'text)
+(define* (fill-input port #:optional (minimum-buffering 1) (io-mode 'text))
+  (clear-stream-start-for-bom-read port io-mode)
   (let* ((buf (port-read-buffer port))
          (cur (port-buffer-cur buf))
          (buffered (- (port-buffer-end buf) cur)))
@@ -225,6 +226,52 @@
           the-eof-object)
         (fast-path buf bv cur buffered)))
   (peek-bytes port 1 fast-path slow-path))
+
+(define* (get-bytevector-n port count)
+  (let ((ret (make-bytevector count)))
+    (define (port-buffer-take! pos buf cur to-copy)
+      (bytevector-copy! (port-buffer-bytevector buf) cur
+                        ret pos to-copy)
+      (set-port-buffer-cur! buf (+ cur to-copy))
+      (+ pos to-copy))
+    (define (take-already-buffered)
+      (let* ((buf (port-read-buffer port))
+             (cur (port-buffer-cur buf))
+             (buffered (- (port-buffer-end buf) cur)))
+        (port-buffer-take! 0 buf cur (min count buffered))))
+    (define (trim-and-return len)
+      (if (zero? len)
+          the-eof-object
+          (let ((partial (make-bytevector len)))
+            (bytevector-copy! ret 0 partial 0 len)
+            partial)))
+    (define (buffer-and-fill pos)
+      (call-with-values (lambda () (fill-input port 1 'binary))
+        (lambda (buf buffered)
+          (if (zero? buffered)
+              (begin
+                (set-port-buffer-has-eof?! buf #f)
+                (trim-and-return pos))
+              (let ((pos (port-buffer-take! pos buf (port-buffer-cur buf)
+                                            (min (- count pos) buffered))))
+                (if (= pos count)
+                    ret
+                    (buffer-and-fill pos)))))))
+    (define (fill-directly pos)
+      (when (port-random-access? port)
+        (flush-output port))
+      (port-clear-stream-start-for-bom-read port)
+      (let lp ((pos pos))
+        (let ((read (read-bytes port ret pos (- count pos))))
+          (cond
+           ((= read (- count pos)) ret)
+           ((zero? read) (trim-and-return pos))
+           (else (lp (+ pos read)))))))
+    (let ((pos (take-already-buffered)))
+      (cond
+       ((= pos count) (if (zero? pos) the-eof-object ret))
+       ((< (- count pos) (port-read-buffering port)) (buffer-and-fill pos))
+       (else (fill-directly pos))))))
 
 (define (decoding-error subr port)
   ;; GNU definition; fixme?
@@ -527,7 +574,7 @@
 (define saved-port-bindings #f)
 (define port-bindings
   '(((guile) read-char peek-char)
-    ((ice-9 binary-ports) get-u8 lookahead-u8)
+    ((ice-9 binary-ports) get-u8 lookahead-u8 get-bytevector-n)
     ((ice-9 rdelim) %read-line read-line read-delimited)))
 (define (install-sports!)
   (unless saved-port-bindings

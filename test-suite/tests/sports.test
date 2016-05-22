@@ -53,5 +53,6 @@
 
 (include-tests "tests/ports.test")
 (include-tests "tests/rdelim.test")
+(include-tests "tests/r6rs-ports.test")
 
 (uninstall-sports!)
