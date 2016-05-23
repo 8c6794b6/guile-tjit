@@ -23,6 +23,7 @@
 #define SCM_PORTS_INTERNAL
 
 #include <assert.h>
+#include <iconv.h>
 
 #include "libguile/_scm.h"
 #include "libguile/ports.h"
@@ -302,24 +303,6 @@ scm_port_buffer_putback (SCM buf, const scm_t_uint8 *src, size_t count)
            src, count);
 }
 
-/* This is a separate object so that only those ports that use iconv
-   cause finalizers to be registered.  */
-struct scm_iconv_descriptors
-{
-  /* This is the same as pt->encoding, except if pt->encoding is UTF-16
-     or UTF-32, in which case this is UTF-16LE or a similar
-     byte-order-specialed version of UTF-16 or UTF-32.  We don't re-set
-     pt->encoding because being just plain UTF-16 or UTF-32 has an
-     additional meaning, being that we should consume and produce byte
-     order marker codepoints as appropriate. */
-  SCM precise_encoding;
-  /* input/output iconv conversion descriptors */
-  void *input_cd;
-  void *output_cd;
-};
-
-typedef struct scm_iconv_descriptors scm_t_iconv_descriptors;
-
 struct scm_t_port
 {
   /* Source location information.  */
@@ -342,15 +325,26 @@ struct scm_t_port
   /* True if the port is random access.  Implies that the buffers must
      be flushed before switching between reading and writing, seeking,
      and so on.  */
-  int rw_random;
+  unsigned rw_random : 1;
+  unsigned at_stream_start_for_bom_read  : 1;
+  unsigned at_stream_start_for_bom_write : 1;
 
   /* Character encoding support.  */
   SCM encoding;  /* A symbol of upper-case ASCII.  */
   SCM conversion_strategy; /* A symbol; either substitute, error, or escape.  */
 
-  unsigned at_stream_start_for_bom_read  : 1;
-  unsigned at_stream_start_for_bom_write : 1;
-  scm_t_iconv_descriptors *iconv_descriptors;
+  /* This is the same as pt->encoding, except if `encoding' is UTF-16 or
+     UTF-32, in which case this is UTF-16LE or a similar
+     byte-order-specialed version of UTF-16 or UTF-32.  This is a
+     separate field from `encoding' because being just plain UTF-16 or
+     UTF-32 has an additional meaning, being that we should consume and
+     produce byte order marker codepoints as appropriate.  Set to #f
+     before the iconv descriptors have been opened.  */
+  SCM precise_encoding;  /* with iconv_lock */
+  iconv_t input_cd;      /* with iconv_lock */
+  iconv_t output_cd;     /* with iconv_lock */
+
+  /* Port properties.  */
   SCM alist;
 };
 
@@ -359,6 +353,9 @@ struct scm_t_port
 #define SCM_FILENAME(x)           (SCM_PORT (x)->file_name)
 #define SCM_SET_FILENAME(x, n)    (SCM_PORT (x)->file_name = (n))
 
-SCM_INTERNAL scm_t_iconv_descriptors * scm_i_port_iconv_descriptors (SCM port);
+SCM_INTERNAL void scm_port_acquire_iconv_descriptors (SCM port,
+                                                      iconv_t *input_cd,
+                                                      iconv_t *output_cd);
+SCM_INTERNAL void scm_port_release_iconv_descriptors (SCM port);
 
 #endif

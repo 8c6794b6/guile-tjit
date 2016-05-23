@@ -24,7 +24,6 @@
 #endif
 
 #include <errno.h>
-#include <iconv.h>
 #include <stdio.h>
 #include <assert.h>
 
@@ -1026,9 +1025,7 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
 			    scm_t_string_failed_conversion_handler strategy)
 {
   size_t printed;
-  scm_t_iconv_descriptors *id;
-
-  id = scm_i_port_iconv_descriptors (port);
+  iconv_t output_cd;
 
   printed = 0;
 
@@ -1057,8 +1054,9 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
       output = encoded_output;
       output_left = sizeof (encoded_output);
 
-      done = iconv (id->output_cd, &input, &input_left,
-		    &output, &output_left);
+      scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
+      done = iconv (output_cd, &input, &input_left, &output, &output_left);
+      scm_port_release_iconv_descriptors (port);
 
       output_len = sizeof (encoded_output) - output_left;
 
@@ -1067,7 +1065,9 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
           int errno_save = errno;
 
 	  /* Reset the `iconv' state.  */
-	  iconv (id->output_cd, NULL, NULL, NULL, NULL);
+          scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
+	  iconv (output_cd, NULL, NULL, NULL, NULL);
+          scm_port_release_iconv_descriptors (port);
 
 	  /* Print the OUTPUT_LEN bytes successfully converted.  */
 	  scm_lfwrite (encoded_output, output_len, port);

@@ -112,6 +112,11 @@ static SCM sym_escape;
 
 
 
+/* We have to serialize operations on any given iconv descriptor.  */
+static scm_i_pthread_mutex_t iconv_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
+
+
+
 /* See Unicode 8.0 section 5.22, "Best Practice for U+FFFD
    Substitution".  */
 static const scm_t_wchar UNICODE_REPLACEMENT_CHARACTER = 0xFFFD;
@@ -675,11 +680,14 @@ scm_c_make_port_with_encoding (scm_t_port_type *ptob, unsigned long mode_bits,
   pt->encoding = encoding;
   pt->conversion_strategy = conversion_strategy;
   pt->file_name = SCM_BOOL_F;
-  pt->iconv_descriptors = NULL;
   pt->position = scm_cons (SCM_INUM0, SCM_INUM0);
 
   pt->at_stream_start_for_bom_read  = 1;
   pt->at_stream_start_for_bom_write = 1;
+
+  pt->precise_encoding = SCM_BOOL_F;
+  pt->input_cd = (iconv_t) -1;
+  pt->output_cd = (iconv_t) -1;
 
   pt->alist = SCM_EOL;
 
@@ -770,12 +778,6 @@ SCM_DEFINE (scm_eof_object_p, "eof-object?", 1, 0, 0,
 
 /* Closing ports.  */
 
-static void close_iconv_descriptors (scm_t_iconv_descriptors *id);
-
-/* scm_close_port
- * Call the close operation on a port object. 
- * see also scm_close.
- */
 SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
            (SCM port),
 	    "Close the specified port object.  Return @code{#t} if it\n"
@@ -809,13 +811,17 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
        should be resilient to non-local exits.  */
     SCM_PORT_TYPE (port)->close (port);
 
-  if (pt->iconv_descriptors)
+  scm_i_pthread_mutex_lock (&iconv_lock);
+  if (scm_is_true (pt->precise_encoding))
     {
-      /* If we don't get here, the iconv_descriptors finalizer will
-         clean up. */
-      close_iconv_descriptors (pt->iconv_descriptors);
-      pt->iconv_descriptors = NULL;
+      if (pt->input_cd != (iconv_t) -1)
+        iconv_close (pt->input_cd);
+      if (pt->output_cd != (iconv_t) -1)
+        iconv_close (pt->output_cd);
+      pt->precise_encoding = SCM_BOOL_F;
+      pt->input_cd = pt->output_cd = (iconv_t) -1;
     }
+  scm_i_pthread_mutex_unlock (&iconv_lock);
 
   return SCM_BOOL_T;
 }
@@ -979,51 +985,53 @@ static const unsigned char scm_utf16le_bom[2] = {0xFF, 0xFE};
 static const unsigned char scm_utf32be_bom[4] = {0x00, 0x00, 0xFE, 0xFF};
 static const unsigned char scm_utf32le_bom[4] = {0xFF, 0xFE, 0x00, 0x00};
 
+/* Called with the iconv lock.  Will release the lock before throwing
+   any error.  */
 static void
-finalize_iconv_descriptors (void *ptr, void *data)
+prepare_iconv_descriptors (SCM port, SCM precise_encoding)
 {
-  close_iconv_descriptors (ptr);
-}
-
-static scm_t_iconv_descriptors *
-open_iconv_descriptors (SCM precise_encoding, int reading, int writing)
-{
-  const char *encoding;
-  scm_t_iconv_descriptors *id;
+  scm_t_port *pt = SCM_PORT (port);
   iconv_t input_cd, output_cd;
+  const char *encoding;
   size_t i;
 
-  input_cd = (iconv_t) -1;
-  output_cd = (iconv_t) -1;
+  /* If the specified encoding is UTF-16 or UTF-32, then default to
+     big-endian byte order.  This fallback isn't necessary if you read
+     on the port before writing to it, as the read will sniff the BOM if
+     any and specialize the encoding; see the manual.  */
+  if (scm_is_eq (precise_encoding, sym_UTF_16))
+    precise_encoding = sym_UTF_16BE;
+  else if (scm_is_eq (precise_encoding, sym_UTF_32))
+    precise_encoding = sym_UTF_32BE;
+
+  if (scm_is_eq (pt->precise_encoding, precise_encoding))
+    return;
+
+  input_cd = output_cd = (iconv_t) -1;
+
+  if (!scm_is_symbol (precise_encoding))
+    goto invalid_encoding;
 
   encoding = scm_i_symbol_chars (precise_encoding);
   for (i = 0; encoding[i]; i++)
     if (encoding[i] > 127)
       goto invalid_encoding;
 
-  if (reading)
+  /* Open a iconv conversion descriptors between ENCODING and UTF-8.  We
+     choose UTF-8, not UTF-32, because iconv implementations can
+     typically convert from anything to UTF-8, but not to UTF-32 (see
+     http://lists.gnu.org/archive/html/bug-libunistring/2010-09/msg00007.html,
+     for more details).  */
+
+  if (SCM_INPUT_PORT_P (port))
     {
-      /* Open an input iconv conversion descriptor, from ENCODING
-         to UTF-8.  We choose UTF-8, not UTF-32, because iconv
-         implementations can typically convert from anything to
-         UTF-8, but not to UTF-32 (see
-         <http://lists.gnu.org/archive/html/bug-libunistring/2010-09/msg00007.html>).  */
-
-      /* Assume opening an iconv descriptor causes about 16 KB of
-         allocation.  */
-      scm_gc_register_allocation (16 * 1024);
-
       input_cd = iconv_open ("UTF-8", encoding);
       if (input_cd == (iconv_t) -1)
         goto invalid_encoding;
     }
 
-  if (writing)
+  if (SCM_OUTPUT_PORT_P (port))
     {
-      /* Assume opening an iconv descriptor causes about 16 KB of
-         allocation.  */
-      scm_gc_register_allocation (16 * 1024);
-
       output_cd = iconv_open (encoding, "UTF-8");
       if (output_cd == (iconv_t) -1)
         {
@@ -1033,53 +1041,25 @@ open_iconv_descriptors (SCM precise_encoding, int reading, int writing)
         }
     }
 
-  id = scm_gc_malloc_pointerless (sizeof (*id), "iconv descriptors");
-  id->precise_encoding = precise_encoding;
-  id->input_cd = input_cd;
-  id->output_cd = output_cd;
+  if (pt->input_cd != (iconv_t) -1)
+    iconv_close (pt->input_cd);
+  if (pt->output_cd != (iconv_t) -1)
+    iconv_close (pt->output_cd);
 
-  /* Register a finalizer to close the descriptors.  */
-  scm_i_set_finalizer (id, finalize_iconv_descriptors, NULL);
+  pt->precise_encoding = precise_encoding;
+  pt->input_cd = input_cd;
+  pt->output_cd = output_cd;
 
-  return id;
+  /* Make sure this port has a finalizer.  */
+  scm_i_set_finalizer (SCM2PTR (port), finalize_port, NULL);
+
+  return;
 
  invalid_encoding:
+  scm_i_pthread_mutex_unlock (&iconv_lock);
   scm_misc_error ("open_iconv_descriptors",
                   "invalid or unknown character encoding ~s",
                   scm_list_1 (precise_encoding));
-}
-
-static void
-close_iconv_descriptors (scm_t_iconv_descriptors *id)
-{
-  if (id->input_cd != (iconv_t) -1)
-    iconv_close (id->input_cd);
-  if (id->output_cd != (iconv_t) -1)
-    iconv_close (id->output_cd);
-  id->input_cd = (void *) -1;
-  id->output_cd = (void *) -1;
-}
-
-static void
-prepare_iconv_descriptors (SCM port, SCM encoding)
-{
-  scm_t_port *pt = SCM_PORT (port);
-  scm_t_iconv_descriptors *desc = pt->iconv_descriptors;
-
-  /* If the specified encoding is UTF-16 or UTF-32, then default to
-     big-endian byte order.  This fallback isn't necessary if you read
-     on the port before writing to it, as the read will sniff the BOM if
-     any and specialize the encoding; see the manual.  */
-  if (scm_is_eq (encoding, sym_UTF_16))
-    encoding = sym_UTF_16BE;
-  else if (scm_is_eq (encoding, sym_UTF_32))
-    encoding = sym_UTF_32BE;
-
-  if (desc && scm_is_eq (desc->precise_encoding, encoding))
-    return;
-
-  pt->iconv_descriptors = open_iconv_descriptors
-    (encoding, SCM_INPUT_PORT_P (port), SCM_OUTPUT_PORT_P (port));
 }
 
 SCM_INTERNAL SCM scm_specialize_port_encoding_x (SCM port, SCM encoding);
@@ -1107,33 +1087,41 @@ SCM_DEFINE (scm_specialize_port_encoding_x,
   else
     SCM_OUT_OF_RANGE (2, encoding);
 
+  scm_i_pthread_mutex_lock (&iconv_lock);
   prepare_iconv_descriptors (port, encoding);
+  scm_i_pthread_mutex_unlock (&iconv_lock);
 
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
-scm_t_iconv_descriptors *
-scm_i_port_iconv_descriptors (SCM port)
+/* Acquire the iconv lock and fill in *INPUT_CD and/or *OUTPUT_CD.  */
+void
+scm_port_acquire_iconv_descriptors (SCM port, iconv_t *input_cd,
+                                    iconv_t *output_cd)
 {
   scm_t_port *pt = SCM_PORT (port);
 
-  if (!pt->iconv_descriptors)
+  scm_i_pthread_mutex_lock (&iconv_lock);
+  if (scm_is_false (pt->precise_encoding))
     prepare_iconv_descriptors (port, pt->encoding);
+  if (input_cd)
+    *input_cd = pt->input_cd;
+  if (output_cd)
+    *output_cd = pt->output_cd;
+}
 
-  return pt->iconv_descriptors;
+void
+scm_port_release_iconv_descriptors (SCM port)
+{
+  scm_i_pthread_mutex_unlock (&iconv_lock);
 }
 
 /* The name of the encoding is itself encoded in ASCII.  */
 void
 scm_i_set_port_encoding_x (SCM port, const char *encoding)
 {
-  scm_t_port *pt;
-  scm_t_iconv_descriptors *prev;
-
-  /* Set the character encoding for this port.  */
-  pt = SCM_PORT (port);
-  prev = pt->iconv_descriptors;
+  scm_t_port *pt = SCM_PORT (port);
 
   /* In order to handle cases where the encoding changes mid-stream
      (e.g. within an HTTP stream, or within a file that is composed of
@@ -1144,9 +1132,14 @@ scm_i_set_port_encoding_x (SCM port, const char *encoding)
   pt->at_stream_start_for_bom_write = 1;
   pt->encoding = canonicalize_encoding (encoding);
 
-  pt->iconv_descriptors = NULL;
-  if (prev)
-    close_iconv_descriptors (prev);
+  scm_i_pthread_mutex_lock (&iconv_lock);
+  if (pt->input_cd != (iconv_t) -1)
+    iconv_close (pt->input_cd);
+  if (pt->output_cd != (iconv_t) -1)
+    iconv_close (pt->output_cd);
+  pt->precise_encoding = SCM_BOOL_F;
+  pt->input_cd = pt->output_cd = (iconv_t) -1;
+  scm_i_pthread_mutex_unlock (&iconv_lock);
 }
 
 SCM_DEFINE (scm_sys_port_encoding, "%port-encoding", 1, 0, 0,
@@ -1783,7 +1776,7 @@ SCM_DEFINE (scm_port_decode_char, "port-decode-char", 4, 0, 0,
 {
   char *input, *output;
   scm_t_uint8 utf8_buf[SCM_MBCHAR_BUF_SIZE];
-  scm_t_iconv_descriptors *id;
+  iconv_t input_cd;
   size_t c_start, c_count;
   size_t input_left, output_left, done;
 
@@ -1794,14 +1787,15 @@ SCM_DEFINE (scm_port_decode_char, "port-decode-char", 4, 0, 0,
   SCM_ASSERT_RANGE (3, start, c_start <= SCM_BYTEVECTOR_LENGTH (bv));
   SCM_ASSERT_RANGE (4, count, c_count <= SCM_BYTEVECTOR_LENGTH (bv) - c_start);
 
-  id = scm_i_port_iconv_descriptors (port);
   input = (char *) SCM_BYTEVECTOR_CONTENTS (bv) + c_start;
   input_left = c_count;
   output = (char *) utf8_buf;
   output_left = sizeof (utf8_buf);
 
   /* FIXME: locking!  */
-  done = iconv (id->input_cd, &input, &input_left, &output, &output_left);
+  scm_port_acquire_iconv_descriptors (port, &input_cd, NULL);
+  done = iconv (input_cd, &input, &input_left, &output, &output_left);
+  scm_port_release_iconv_descriptors (port);
 
   if (done == (size_t) -1)
     {
@@ -1856,7 +1850,8 @@ peek_iconv_codepoint (SCM port, size_t *len)
               /* Make sure iconv descriptors have been opened even if
                  there were no bytes, to be sure that a decoding error
                  is signalled if the encoding itself was invalid.  */
-              scm_i_port_iconv_descriptors (port);
+              scm_port_acquire_iconv_descriptors (port, NULL, NULL);
+              scm_port_release_iconv_descriptors (port);
               return EOF;
             }
 
@@ -2469,16 +2464,22 @@ port_clear_stream_start_for_bom_write (SCM port, enum bom_io_mode io_mode)
   /* Write a BOM if appropriate.  */
   if (scm_is_eq (pt->encoding, sym_UTF_16))
     {
-      scm_t_iconv_descriptors *id = scm_i_port_iconv_descriptors (port);
-      if (scm_is_eq (id->precise_encoding, sym_UTF_16LE))
+      SCM precise_encoding;
+      scm_port_acquire_iconv_descriptors (port, NULL, NULL);
+      precise_encoding = pt->precise_encoding;
+      scm_port_release_iconv_descriptors (port);
+      if (scm_is_eq (precise_encoding, sym_UTF_16LE))
         scm_c_write (port, scm_utf16le_bom, sizeof (scm_utf16le_bom));
       else
         scm_c_write (port, scm_utf16be_bom, sizeof (scm_utf16be_bom));
     }
   else if (scm_is_eq (pt->encoding, sym_UTF_32))
     {
-      scm_t_iconv_descriptors *id = scm_i_port_iconv_descriptors (port);
-      if (scm_is_eq (id->precise_encoding, sym_UTF_32LE))
+      SCM precise_encoding;
+      scm_port_acquire_iconv_descriptors (port, NULL, NULL);
+      precise_encoding = pt->precise_encoding;
+      scm_port_release_iconv_descriptors (port);
+      if (scm_is_eq (precise_encoding, sym_UTF_32LE))
         scm_c_write (port, scm_utf32le_bom, sizeof (scm_utf32le_bom));
       else
         scm_c_write (port, scm_utf32be_bom, sizeof (scm_utf32be_bom));
