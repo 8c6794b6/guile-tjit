@@ -110,18 +110,8 @@
 ;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
 ;;; F1, and F2 for floating point.
 
-(define *native-prim-arities* (make-hash-table))
 (define *native-prim-procedures* (make-hash-table))
 (define *native-prim-types* (make-hash-table))
-
-(define (arity-of-args args)
-  (cond
-   ((null? args)
-    '(0 . 0))
-   ((eq? (car args) 'dst)
-    `(1 . ,(length (cdr args))))
-   (else
-    `(0 . ,(length args)))))
 
 (define-syntax-parameter asm
   (lambda (x)
@@ -160,7 +150,6 @@
                            arg ...)))))
            <body>))
        (hashq-set! *native-prim-procedures* 'name name)
-       (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
 
 
