@@ -433,14 +433,14 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   SCM s_ip, code, origin;
   SCM exit_counts, count, ret_fragment;
   size_t max_retries, exit_id;
-  scm_t_native_code native_code;
+  scm_t_native_code fn;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
   code = SCM_FRAGMENT_CODE (fragment);
-  native_code = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
+  fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
 
   /* Run the native code. */
-  native_code (thread, vp, registers);
+  fn (thread, vp, registers);
 
   /* Back to interpreter. Native code sets some of the fields in tj
      during bailout, using them to decide what to do next. */

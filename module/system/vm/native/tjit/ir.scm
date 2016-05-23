@@ -435,7 +435,10 @@ index referenced by dst, a, and b values at runtime."
               #t))
            (ti-proc
             (lambda (%env %ip %dl %locals arg ...)
-              (syntax-parameterize ((env (identifier-syntax %env)))
+              (syntax-parameterize ((env (identifier-syntax %env))
+                                    (ip (identifier-syntax %ip))
+                                    (dl (identifier-syntax %dl))
+                                    (locals (identifier-syntax %locals)))
                 (gen-infer-type (flag arg) ...))))
            (anf-proc
             (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
