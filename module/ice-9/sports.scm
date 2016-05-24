@@ -62,6 +62,7 @@
             lookahead-u8
             get-u8
             get-bytevector-n
+            put-u8
             put-bytevector
 
             %read-line
@@ -306,6 +307,18 @@
        ((= pos count) (if (zero? pos) the-eof-object ret))
        ((< (- count pos) (port-read-buffering port)) (buffer-and-fill pos))
        (else (fill-directly pos))))))
+
+(define (put-u8 port byte)
+  (when (port-random-access? port)
+    (flush-input port))
+  (let* ((buf (port-write-buffer port))
+         (bv (port-buffer-bytevector buf))
+         (end (port-buffer-end buf)))
+    (unless (<= 0 end (bytevector-length bv))
+      (error "not an output port" port))
+    (bytevector-u8-set! bv end byte)
+    (set-port-buffer-end! buf (1+ end))
+    (when (= (1+ end) (bytevector-length bv)) (flush-output port))))
 
 (define* (put-bytevector port src #:optional (start 0)
                          (count (- (bytevector-length src) start)))
@@ -643,7 +656,9 @@
 (define saved-port-bindings #f)
 (define port-bindings
   '(((guile) read-char peek-char force-output close-port)
-    ((ice-9 binary-ports) get-u8 lookahead-u8 get-bytevector-n put-bytevector)
+    ((ice-9 binary-ports)
+     get-u8 lookahead-u8 get-bytevector-n
+     put-u8 put-bytevector)
     ((ice-9 rdelim) %read-line read-line read-delimited)))
 (define (install-sports!)
   (unless saved-port-bindings
