@@ -46,6 +46,11 @@
             dynamic-link?
             dynamic-link-offset
 
+            $constant
+            make-constant
+            constant?
+            constant-value
+
             &fixnum
             &undefined
             &scm
@@ -136,6 +141,12 @@
   (make-dynamic-link offset)
   dynamic-link?
   (offset dynamic-link-offset))
+
+;; Record type to represent constant value in frame.
+(define-record-type $constant
+  (make-constant value)
+  constant?
+  (value constant-value))
 
 
 ;;;
@@ -401,6 +412,8 @@ false."
     (let* ((addr (return-address-ip type))
            (hex-ip (number->string addr 16)))
       (string-append "ra:" (cyan hex-ip))))
+   ((constant? type)
+    (string-append "cn:" (cyan (number->string (constant-value type)))))
    (else type)))
 
 (define (flag->type flag)

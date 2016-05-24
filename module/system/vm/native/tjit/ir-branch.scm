@@ -53,7 +53,7 @@
   (syntax-rules ()
     ((_ name op-scm op-t op-f args)
      (define-ir (name (scm test) (const invert) (const offset))
-       (let* ((test/v (var-ref test))
+       (let* ((test/v (src-ref test))
               (test/l (scm-ref test))
               (test/r (op-scm test/l))
               (dest (if test/r
@@ -70,8 +70,8 @@
     ((_ a b invert offset test a-ref b-ref a/l b/l a/v b/v dest . body)
      (let* ((a/l (a-ref a))
             (b/l (b-ref b))
-            (a/v (var-ref a))
-            (b/v (var-ref b))
+            (a/v (src-ref a))
+            (b/v (src-ref b))
             (dest (if (test a/l b/l)
                       (if invert offset 3)
                       (if invert 3 offset))))
@@ -108,7 +108,7 @@
 (define-br-unary br-if-struct struct? %tceq %tcne (7 ,%tc3-struct))
 
 (define-ir (br-if-char (scm test) (const invert) (const offset))
-  (let* ((test/v (var-ref test))
+  (let* ((test/v (src-ref test))
          (test/l (scm-ref test))
          (test/r (char? test/l))
          (dest (if test/r
@@ -131,7 +131,7 @@
 
 (define-ir (br-if-tc7 (scm test) (const invert) (const tc7) (const offset))
   (let* ((test/l (scm-ref test))
-         (test/v (var-ref test))
+         (test/v (src-ref test))
          (tc7/l (obj->tc7 test/l))
          (dest (if (eq? tc7 tc7/l)
                    (if invert offset 2)

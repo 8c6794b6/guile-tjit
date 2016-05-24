@@ -45,21 +45,21 @@
     (set-inferred-type! env (+ dst sp-offset) (type-of v))))
 
 (define-anf (make-short-immediate dst low-bits)
-  `(let ((,(var-ref dst) ,low-bits))
+  `(let ((,(dst-ref dst) ,low-bits))
      ,(next)))
 
 (define-ir (make-long-immediate (scm! dst) (const low-bits))
-  `(let ((,(var-ref dst) ,low-bits))
+  `(let ((,(dst-ref dst) ,low-bits))
      ,(next)))
 
 (define-ir (make-long-long-immediate (scm! dst)
                                      (const high-bits)
                                      (const low-bits))
-  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
+  `(let ((,(dst-ref dst) ,(logior (ash high-bits 32) low-bits)))
      ,(next)))
 
 (define-ir (make-non-immediate (scm! dst) (const offset))
-  `(let ((,(var-ref dst) ,(+ ip (* 4 offset))))
+  `(let ((,(dst-ref dst) ,(+ ip (* 4 offset))))
      ,(next)))
 
 (define-scan (static-ref dst offset)
@@ -81,7 +81,7 @@
   (let* ((ptr (make-pointer (+ ip (* 4 offset))))
          (ref (dereference-pointer ptr))
          (src/l (pointer->scm ref)))
-    `(let ((,(var-ref dst) ,(if (flonum? src/l)
+    `(let ((,(dst-ref dst) ,(if (flonum? src/l)
                                 src/l
                                 (pointer-address ref))))
        ,(next))))
@@ -90,7 +90,7 @@
 ;; XXX: static-patch!
 
 (define-ir (load-f64 (f64! dst) (const high-bits) (const low-bits))
-  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
+  `(let ((,(dst-ref dst) ,(logior (ash high-bits 32) low-bits)))
      ,(next)))
 
 (define-scan (load-u64 dst high low)
@@ -99,11 +99,20 @@
     (set-scan-initial-fields! env)))
 
 (define-ti (load-u64 dst high low)
-  (let ((sp-offset (env-sp-offset env)))
+  (let ((sp-offset (env-sp-offset env))
+        (v (logior (ash high 32) low)))
     (set-inferred-type! env (+ dst sp-offset) &u64)))
 
-(define-anf (load-u64 dst high-bits low-bits)
-  `(let ((,(var-ref dst) ,(logior (ash high-bits 32) low-bits)))
+(define-anf (load-u64 dst high low)
+  `(let ((,(dst-ref dst) ,(logior (ash high 32) low)))
      ,(next)))
+
+;; (define-ti (load-u64 dst high low)
+;;   (let ((sp-offset (env-sp-offset env))
+;;         (v (logior (ash high 32) low)))
+;;     (set-inferred-type! env (+ dst sp-offset) (make-constant v))))
+
+;; (define-anf (load-u64 dst high low)
+;;   (next))
 
 ;; XXX: load-s64

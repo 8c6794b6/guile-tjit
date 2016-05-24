@@ -160,12 +160,17 @@ Currently does nothing, returns the given argument."
                  (lp vars)
                  (begin
                    (hashq-set! loaded-vars n guard)
-                   ;; XXX: Any other way to select preferred register between GPR
-                   ;; and FPR?
+                   ;; XXX: Any other way to select preferred register between
+                   ;; GPR and FPR?
                    (if (or (eq? type &flonum)
                            (eq? type &f64))
                        (with-frame-ref var type n lp vars)
-                       (with-frame-ref var guard n lp vars))))))))
+                       (begin
+                         ;; XXX: Updating inferred type of loaded variable,
+                         ;; again.
+                         (when (env-parent-snapshot env)
+                           (set-inferred-type! env n guard))
+                         (with-frame-ref var guard n lp vars)))))))))
         (()
          (let ((live-indices (sort (hash-fold (lambda (k v acc)
                                                 (if (memq k acc)

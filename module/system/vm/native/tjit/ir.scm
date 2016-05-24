@@ -58,6 +58,8 @@
             scm-ref
             u64-ref
             var-ref
+            src-ref
+            dst-ref
             type-ref
             with-boxing
             with-type-guard
@@ -513,6 +515,16 @@ index referenced by dst, a, and b values at runtime."
   (object-address (vector-ref locals n)))
 
 (define-syntax-rule (var-ref n)
+  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
+
+(define-syntax-rule (src-ref n)
+  (let* ((sp-offset (current-sp-offset))
+         (type (assq-ref (env-inferred-types env) (+ n sp-offset))))
+    (if (constant? type)
+        (constant-value type)
+        (assq-ref (ir-vars ir) (+ n sp-offset)))))
+
+(define-syntax-rule (dst-ref n)
   (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
 
 (define-syntax-rule (type-ref n)

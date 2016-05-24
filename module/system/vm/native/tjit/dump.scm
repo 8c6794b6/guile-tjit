@@ -215,7 +215,7 @@ option was set to true."
              (reverse! acc))))))
   (define (pretty-constant arg)
     (if (and (ref? arg)
-             (constant? arg))
+             (con? arg))
         (let ((x (cdr arg)))
           (cond
            ((exact-integer? x)
@@ -236,7 +236,7 @@ option was set to true."
       arg)
      ((or (gpr? arg) (fpr? arg) (memory? arg))
       (physical-name arg))
-     ((constant? arg)
+     ((con? arg)
       (pretty-constant arg))
      (else
       arg)))

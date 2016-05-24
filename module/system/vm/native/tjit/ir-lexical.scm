@@ -61,11 +61,13 @@
           (set-inferred-type! env dst+sp type)))))
 
 (define-anf (mov dst src)
-  (let ((dst/i (+ dst (current-sp-offset)))
-        (live-indices (env-live-indices env)))
+  (let* ((dst/i (+ dst (current-sp-offset)))
+         (src/v (src-ref src))
+         (dst/v (dst-ref dst))
+         (live-indices (env-live-indices env)))
     (unless (memq dst/i live-indices)
       (set-env-live-indices! env (cons dst/i live-indices)))
-    `(let ((,(var-ref dst) ,(var-ref src)))
+    `(let ((,dst/v ,src/v))
        ,(next))))
 
 
@@ -74,11 +76,11 @@
 ;; XXX: box
 
 (define-interrupt-ir (box (scm! dst) (scm src))
-  (let ((r1 (make-tmpvar 1))
-        (r2 (make-tmpvar 2))
-        (dst/v (var-ref dst))
-        (src/v (var-ref src))
-        (src/t (type-ref src)))
+  (let* ((r1 (make-tmpvar 1))
+         (r2 (make-tmpvar 2))
+         (src/v (src-ref src))
+         (dst/v (dst-ref dst))
+         (src/t (type-ref src)))
     (with-boxing src/t src/v r1
       (lambda (boxed)
         `(let ((,dst/v (%cell ,%tc7-variable ,boxed)))
@@ -88,20 +90,17 @@
 ;; Boxing back tagged value every time will make the loop slow, need
 ;; more analysis when the storing could be removed from native code loop
 ;; and delayed to side exit code.
-;;
-;; XXX: Add test for nested boxes.
-;; XXX: Add test for box contents not being other type than scm (no u64, no f64).
 
 (define-ir (box-ref (scm! dst) (box src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     `(let ((,dst/v (%cref ,src/v 1)))
        ,(next))))
 
 (define-ir (box-set! (box dst) (scm src))
   (let* ((src/t (type-ref src))
-         (dst/v (var-ref dst))
-         (src/v (var-ref src))
+         (src/v (src-ref src))
+         (dst/v (src-ref dst))
          (r1 (make-tmpvar 1)))
     (with-boxing src/t src/v r1
       (lambda (tmp)
@@ -110,7 +109,7 @@
 
 (define-interrupt-ir (make-closure (procedure! dst) (const offset)
                                    (const nfree))
-  (let* ((dst/v (var-ref dst))
+  (let* ((dst/v (dst-ref dst))
          (tag (logior %tc7-program (ash nfree 16)))
          (nwords (+ nfree 2)))
     `(let ((,dst/v (%words ,tag ,nwords)))
@@ -118,14 +117,14 @@
          ,(next)))))
 
 (define-ir (free-ref (scm! dst) (procedure src) (const idx))
-  (let* ((dst/v (var-ref dst))
-         (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     `(let ((,dst/v (%cref ,src/v ,(+ idx 2))))
        ,(next))))
 
 (define-ir (free-set! (procedure dst) (scm src) (const idx))
-  (let* ((dst/v (var-ref dst))
-         (src/v (var-ref src))
+  (let* ((src/v (src-ref src))
+         (dst/v (src-ref dst))
          (src/t (type-ref src))
          (r1 (make-tmpvar 1)))
     (with-boxing src/t src/v r1

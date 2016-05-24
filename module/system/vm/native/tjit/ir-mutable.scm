@@ -30,26 +30,36 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
-  #:use-module (system vm native tjit snapshot))
+  #:use-module (system vm native tjit snapshot)
+  #:use-module (system vm native tjit types))
 
 ;; XXX: current-module
 ;; XXX: resolve
 ;; XXX: define!
 
-(define-ir (toplevel-box (box! dst) (const var-offset) (const mod-offset)
-                         (const sym-offset) (const bound?))
-  (let ((vdst (var-ref dst))
-        (var (dereference-scm (+ ip (* var-offset 4))))
-        (dst/i+sp-offset (+ dst (current-sp-offset)))
+(define-scan (toplevel-box dst var-offset mod-offset sym-offset bound?)
+  ;; XXX: Set entry type as `&any'.
+  (set-scan-initial-fields! env))
+
+(define-ti (toplevel-box dst var-offset mod-offset sym-offset bound?)
+  (let* ((sp-offset (env-sp-offset env))
+         (var (dereference-scm (+ ip (* var-offset 4))))
+         (s (make-constant (object-address var))))
+    (set-inferred-type! env (+ dst sp-offset) s)))
+
+(define-anf (toplevel-box dst var-offset mod-offset sym-offset bound?)
+  (let ((var (dereference-scm (+ ip (* var-offset 4))))
+        (dst/i+sp (+ dst (current-sp-offset)))
         (live-indices (env-live-indices env)))
+    (unless (memq dst/i+sp live-indices)
+      (set-env-live-indices! env (cons dst/i+sp live-indices)))
     (if (variable? var)
-        `(let ((,vdst ,(object-address var)))
-           ,(next))
+        (next)
         (nyi "toplevel-box: not a variable ~s" var))))
 
 (define-ir (module-box (box! dst) (const var-offset) (const mod-offset)
                        (const sym-offset) (const bound?))
-  (let ((vdst (var-ref dst))
+  (let ((vdst (dst-ref dst))
         (var (dereference-scm (+ ip (* var-offset 4))))
         (dst/i+sp-offset (+ dst (current-sp-offset)))
         (live-indices (env-live-indices env)))

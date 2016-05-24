@@ -102,11 +102,15 @@
       (jit-movi r0 (imm (dynamic-link-offset type)))
       (sp-set! local r0))
 
+     ((constant? type)
+      (jit-movi r0 (imm (constant-value type)))
+      (sp-set! local r0))
+
      ;; Floating point values
      ((eq? type &flonum)
       (case (ref-type src)
         ((con)
-         (jit-movi-d f0 (constant src))
+         (jit-movi-d f0 (con src))
          (scm-from-double r0 f0)
          (sp-set! local r0))
         ((gpr)
@@ -124,7 +128,7 @@
      ((eq? type &f64)
       (case (ref-type src)
         ((con)
-         (jit-movi-d f0 (constant src))
+         (jit-movi-d f0 (con src))
          (sp-set!/f local f0))
         ((gpr)
          (gpr->fpr f0 (gpr src))
@@ -157,7 +161,7 @@
      (else
       (case (ref-type src)
         ((con)
-         (jit-movi r0 (constant src))
+         (jit-movi r0 (con src))
          (sp-set! local r0))
         ((gpr)
          (sp-set! local (gpr src)))

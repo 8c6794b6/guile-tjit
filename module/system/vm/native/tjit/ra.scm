@@ -160,8 +160,8 @@
           (match (list types args)
             (((type . types) (arg . args))
              (cond
-              ((constant? arg)
-               (lp types args (cons (make-constant arg) acc)))
+              ((constant-value? arg)
+               (lp types args (cons (make-con arg) acc)))
               ((symbol? arg)
                (cond
                 ((hashq-ref storage arg)
@@ -191,9 +191,9 @@
     (define (ref k)
       (cond
        ((symbol? k) (hashq-ref storage k))
-       ((constant? k) (make-constant k))
+       ((constant-value? k) (make-con k))
        (else (failure 'assign-registers "ref ~s not found" k))))
-    (define (constant? x)
+    (define (constant-value? x)
       (cond
        ((boolean? x) #t)
        ((char? x) #t)
@@ -215,12 +215,12 @@
         (('let (('_ (op . args))) term1)
          (let ((prim `(,op ,@(map ref args))))
            (assign-term term1 (cons prim acc))))
-        (('let ((dst (? constant? val))) term1)
+        (('let ((dst (? constant-value? val))) term1)
          (let* ((reg (cond
                       ((ref dst) => identity)
                       ((flonum? val) (get-fpr! dst))
                       (else (get-gpr! dst))))
-                (prim `(%move ,reg ,(make-constant val))))
+                (prim `(%move ,reg ,(make-con val))))
            (assign-term term1 (cons prim acc))))
         (('let ((dst (? symbol? src))) term1)
          (let ((src-reg (ref src)))
@@ -382,6 +382,7 @@
                    (_
                     (unless (or (return-address? type)
                                 (dynamic-link? type)
+                                (constant? type)
                                 (eq? &undefined type)
                                 (eq? &false type)
                                 (eq? &any type))

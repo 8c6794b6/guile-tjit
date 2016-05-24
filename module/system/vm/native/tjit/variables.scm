@@ -32,7 +32,7 @@
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit types)
   #:export (ref? ref-value ref-type
-            make-constant constant? constant
+            make-con con? con
             register?
             make-gpr gpr? gpr
             make-fpr fpr? fpr
@@ -53,13 +53,13 @@
 (define-syntax-rule (ref-type x)
   (car x))
 
-(define (make-constant x)
+(define (make-con x)
   (cons 'con x))
 
-(define (constant? x)
+(define (con? x)
   (eq? 'con (ref-type x)))
 
-(define (constant x)
+(define (con x)
   (let ((val (ref-value x)))
     (cond
      ((and (number? val) (exact? val))

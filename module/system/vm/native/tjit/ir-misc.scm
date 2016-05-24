@@ -35,34 +35,36 @@
   #:use-module (system vm native tjit variables))
 
 (define-ir (scm->f64 (f64! dst) (scm src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     `(let ((,dst/v (%cref/f ,src/v 2)))
        ,(next))))
 
 (define-ir (scm->f64 (f64! dst) (fixnum src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src))
-        (r2 (make-tmpvar 2)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst))
+         (r2 (make-tmpvar 2)))
     `(let ((,r2 (%rsh ,src/v 2)))
        (let ((,dst/v (%i2d ,r2)))
          ,(next)))))
 
 (define-ir (scm->f64 (f64! dst) (flonum src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     `(let ((,dst/v ,src/v))
        ,(next))))
 
 (define-ir (f64->scm (flonum! dst) (f64 src))
-  `(let ((,(var-ref dst) ,(var-ref src)))
-     ,(next)))
+  (let ((src/v (src-ref src))
+        (dst/v (dst-ref dst)))
+    `(let ((,dst/v ,src/v))
+       ,(next))))
 
 ;; XXX: apply-non-program
 
 (define-ir (scm->u64 (u64! dst) (scm src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     `(let ((,dst/v (%rsh ,src/v 2)))
        ,(next))))
 
@@ -70,11 +72,11 @@
   (nyi "scm->u64/truncate et=scm it=~a" (type-ref src)))
 
 (define-ir (scm->u64/truncate (u64! dst) (fixnum src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     (with-type-guard &fixnum src
       `(let ((,dst/v (%rsh ,src/v 2)))
-        ,(next)))))
+         ,(next)))))
 
 (define-scan (u64->scm dst src)
   (set-entry-type! env (+ src (env-sp-offset env)) &u64)
@@ -90,8 +92,8 @@
     (set-inferred-type! env (+ dst sp-offset) type)))
 
 (define-anf (u64->scm dst src)
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     `(let ((,dst/v (%lsh ,src/v 2)))
        (let ((,dst/v (%add ,dst/v 2)))
          ,(next)))))
@@ -102,10 +104,10 @@
 ;; XXX: current-thread
 
 (define-ir (integer->char (char! dst) (u64 src))
-  (let ((r2 (make-tmpvar 2))
-        (src/v (var-ref src))
-        (dst/v (var-ref dst))
-        (codepoint-max #x10ffff))
+  (let* ((r2 (make-tmpvar 2))
+         (src/v (src-ref src))
+         (dst/v (dst-ref dst))
+         (codepoint-max #x10ffff))
     `(let ((_ ,(take-snapshot! ip 0)))
        (let ((_ (%gt ,codepoint-max ,src/v)))
          (let ((,r2 (%lsh ,src/v 8)))
@@ -113,8 +115,8 @@
              ,(next)))))))
 
 (define-ir (char->integer (u64! dst) (char src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     (with-type-guard &char src
       `(let ((,dst/v (%rsh ,src/v 8)))
-        ,(next)))))
+         ,(next)))))
