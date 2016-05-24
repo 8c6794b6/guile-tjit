@@ -426,7 +426,7 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
   return sp;
 }
 
-static inline scm_t_uint32*
+static inline void
 call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
@@ -469,12 +469,10 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
         }
     }
 
+  /* Tell GC to keep fields in VP. */
   scm_remember_upto_here (SCM_PACK_POINTER (vp->ip),
                           SCM_PACK_POINTER (vp->sp),
                           SCM_PACK_POINTER (vp->fp));
-
-  /* Return the possibly updated IP. */
-  return vp->ip;
 }
 
 static inline struct scm_tjit_state*
@@ -534,25 +532,25 @@ scm_acquire_tjit_state (void)
   do {                                                                  \
     scm_t_uintptr next_ip = (scm_t_uintptr) (ip + JUMP);                \
                                                                         \
-    /* When when matching fragment was found, call the native code. */  \
-    /* Then jump to the IP set by the native code. */                   \
     if (root_ip_ref (next_ip))                                          \
       {                                                                 \
         SCM s_ip, fragment;                                             \
                                                                         \
-        s_ip = SCM_I_MAKINUM (ip + JUMP);                               \
+        s_ip = SCM_I_MAKINUM (next_ip);                                 \
         SYNC_IP ();                                                     \
         fragment = tjit_matching_fragment (thread, vp, s_ip);           \
         CACHE_SP ();                                                    \
         if (scm_is_true (fragment))                                     \
           {                                                             \
-            ip = call_native (fragment, thread, vp, registers, tj);     \
-            CACHE_SP ();                                                \
+            /* Call native code, update ip and sp variables in C, */    \
+            /* and jump to the IP set by the native code. */            \
+            call_native (fragment, thread, vp, registers, tj);          \
+            CACHE_REGISTER ();                                          \
             NEXT (0);                                                   \
           }                                                             \
       }                                                                 \
                                                                         \
-    /* Increment hot ip counter if current IP is not black-listed. */   \
+    /* Increment hot ip counter unless current IP is black-listed. */   \
     if (SCM_I_MAKINUM (failed_ip_ref (next_ip)) < tjit_max_retries)     \
       {                                                                 \
         scm_t_uint16 count = hot_ip_ref (next_ip);                      \

@@ -209,8 +209,8 @@
     (vm-sync-sp %sp))
    (else
     ;; Stack space might ran out in the middle of next run, expand stack with
-    ;; twice of the spaces used for current iteration to ensure enough
-    ;; space were allocated. Then adjust with SP offset saved in snapshot.
+    ;; twice of the spaces used for current iteration to ensure enough space
+    ;; allocated. Then adjust with SP offset saved in snapshot.
     (let* ((next-offset (* (env-min-sp-offset env) 2))
            (diff (- offset next-offset)))
       (vm-expand-stack %asm next-offset)
@@ -592,6 +592,9 @@ DST-TYPES, and SRC-TYPES are local index number."
 
          ;; Choose order to shift SP and store frame by sign of SP.
          (cond
+          ((= sp-offset 0)
+           (store-locals 0)
+           (shift-fp nlocals))
           ((< sp-offset 0)
            (shift-sp env %asm sp-offset)
            (store-locals sp-offset)
@@ -715,6 +718,9 @@ DST-TYPES, and SRC-TYPES are local index number."
                  ;; then shift FP with nlocals. This order is taken to preserve
                  ;; stored locals from garbage collection.
                  (cond
+                  ((= 0 sp-offset)
+                   (maybe-store %asm locals args ref-table 0)
+                   (shift-fp nlocals))
                   ((< sp-offset 0)
                    (shift-sp env %asm sp-offset)
                    (maybe-store %asm locals args ref-table sp-offset)
@@ -749,7 +755,7 @@ DST-TYPES, and SRC-TYPES are local index number."
            (match (cons locals vars)
              ((((n . t) . locals) . (v . vars))
               (if (< n sp-offset)
-                  (debug 2 ";;; [compile-downrec] skiiping ~a~%" n)
+                  (debug 2 ";;; [compile-downrec] skipping ~a~%" n)
                   (begin
                     (hashq-set! src-var-table n v)
                     (store-frame (- n sp-offset) t v)))
