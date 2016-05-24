@@ -53,7 +53,8 @@
   #:use-module (ice-9 ports internal)
   #:use-module (ice-9 match)
   #:replace (peek-char
-             read-char)
+             read-char
+             force-output)
   #:export (lookahead-u8
             get-u8
             get-bytevector-n
@@ -85,6 +86,11 @@
       (set-port-buffer-cur! buf 0)
       (set-port-buffer-end! buf 0)
       (write-bytes port (port-buffer-bytevector buf) cur (- end cur)))))
+
+(define* (force-output #:optional (port (current-output-port)))
+  (unless (and (output-port? port) (not (port-closed? port)))
+    (error "not an open output port" port))
+  (flush-output port))
 
 (define (default-read-waiter port) (port-poll port "r"))
 (define (default-write-waiter port) (port-poll port "w"))
@@ -573,7 +579,7 @@
 
 (define saved-port-bindings #f)
 (define port-bindings
-  '(((guile) read-char peek-char)
+  '(((guile) read-char peek-char force-output)
     ((ice-9 binary-ports) get-u8 lookahead-u8 get-bytevector-n)
     ((ice-9 rdelim) %read-line read-line read-delimited)))
 (define (install-sports!)
