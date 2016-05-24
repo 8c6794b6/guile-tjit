@@ -67,41 +67,6 @@
             install-sports!
             uninstall-sports!))
 
-(define (write-bytes port src start count)
-  (let ((written ((port-write port) port src start count)))
-    (unless (<= 0 written count)
-      (error "bad return from port write function" written))
-    (when (< written count)
-      (write-bytes port src (+ start written) (- count written)))))
-
-(define (flush-output port)
-  (let* ((buf (port-write-buffer port))
-         (cur (port-buffer-cur buf))
-         (end (port-buffer-end buf)))
-    (when (< cur end)
-      ;; Update cursors before attempting to write, assuming that I/O
-      ;; errors are sticky.  That way if the write throws an error,
-      ;; causing the computation to abort, and possibly causing the port
-      ;; to be collected by GC when it's open, any subsequent close-port
-      ;; or force-output won't signal *another* error.
-      (set-port-buffer-cur! buf 0)
-      (set-port-buffer-end! buf 0)
-      (write-bytes port (port-buffer-bytevector buf) cur (- end cur)))))
-
-(define* (force-output #:optional (port (current-output-port)))
-  (unless (and (output-port? port) (not (port-closed? port)))
-    (error "not an open output port" port))
-  (flush-output port))
-
-(define close-port
-  (let ((%close-port (@ (guile) close-port)))
-    (lambda (port)
-      (cond
-       ((port-closed? port) #f)
-       (else
-        (when (output-port? port) (flush-output port))
-        (%close-port port))))))
-
 (define (default-read-waiter port) (port-poll port "r"))
 (define (default-write-waiter port) (port-poll port "w"))
 
@@ -121,6 +86,32 @@
    (else
     (wait-for-readable port)
     (read-bytes port dst start count))))
+
+(define (write-bytes port src start count)
+  (cond
+   (((port-write port) port src start count)
+    => (lambda (written)
+         (unless (<= 0 written count)
+           (error "bad return from port write function" written))
+         (when (< written count)
+           (write-bytes port src (+ start written) (- count written)))))
+   (else
+    (wait-for-writable port)
+    (write-bytes port src start count))))
+
+(define (flush-output port)
+  (let* ((buf (port-write-buffer port))
+         (cur (port-buffer-cur buf))
+         (end (port-buffer-end buf)))
+    (when (< cur end)
+      ;; Update cursors before attempting to write, assuming that I/O
+      ;; errors are sticky.  That way if the write throws an error,
+      ;; causing the computation to abort, and possibly causing the port
+      ;; to be collected by GC when it's open, any subsequent close-port
+      ;; or force-output won't signal *another* error.
+      (set-port-buffer-cur! buf 0)
+      (set-port-buffer-end! buf 0)
+      (write-bytes port (port-buffer-bytevector buf) cur (- end cur)))))
 
 (define utf8-bom #vu8(#xEF #xBB #xBF))
 (define utf16be-bom #vu8(#xFE #xFF))
@@ -202,6 +193,20 @@
                     (if (< buffered minimum-buffering)
                         (lp buffered)
                         (values buf buffered)))))))))))))))
+
+(define* (force-output #:optional (port (current-output-port)))
+  (unless (and (output-port? port) (not (port-closed? port)))
+    (error "not an open output port" port))
+  (flush-output port))
+
+(define close-port
+  (let ((%close-port (@ (guile) close-port)))
+    (lambda (port)
+      (cond
+       ((port-closed? port) #f)
+       (else
+        (when (output-port? port) (flush-output port))
+        (%close-port port))))))
 
 (define-inlinable (peek-bytes port count kfast kslow)
   (let* ((buf (port-read-buffer port))
