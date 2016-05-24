@@ -312,6 +312,7 @@ struct scm_t_port
   /* Port buffers.  */
   SCM read_buf;
   SCM write_buf;
+  SCM write_buf_aux;
 
   /* All ports have read and write buffers; an unbuffered port simply
      has a one-byte buffer.  However unreading bytes can expand the read

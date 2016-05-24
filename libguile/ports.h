@@ -208,6 +208,7 @@ SCM_INTERNAL SCM scm_port_read (SCM port);
 SCM_INTERNAL SCM scm_port_write (SCM port);
 SCM_INTERNAL SCM scm_port_read_buffer (SCM port);
 SCM_INTERNAL SCM scm_port_write_buffer (SCM port);
+SCM_INTERNAL SCM scm_port_auxiliary_write_buffer (SCM port);
 
 /* Output.  */
 SCM_API void scm_putc (char c, SCM port);

@@ -56,7 +56,7 @@
 #include "libguile/strings.h"
 #include "libguile/mallocs.h"
 #include "libguile/validate.h"
-//#include "libguile/ports.h"
+#include "libguile/ports.h"
 #include "libguile/ports-internal.h"
 #include "libguile/vectors.h"
 #include "libguile/weak-set.h"
@@ -108,6 +108,9 @@ static SCM sym_UTF_32BE;
 static SCM sym_error;
 static SCM sym_substitute;
 static SCM sym_escape;
+
+/* See scm_port_auxiliary_write_buffer and scm_c_write.  */
+static const size_t AUXILIARY_WRITE_BUFFER_SIZE = 256;
 
 
 
@@ -660,6 +663,7 @@ initialize_port_buffers (SCM port)
   pt->read_buffering = read_buf_size;
   pt->read_buf = make_port_buffer (port, read_buf_size);
   pt->write_buf = make_port_buffer (port, write_buf_size);
+  pt->write_buf_aux = SCM_BOOL_F;
 }
 
 SCM
@@ -2647,6 +2651,23 @@ SCM_DEFINE (scm_port_write_buffer, "port-write-buffer", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_port_auxiliary_write_buffer, "port-auxiliary-write-buffer",
+            1, 0, 0, (SCM port),
+	    "Return the auxiliary write buffer for a port.")
+#define FUNC_NAME s_scm_port_auxiliary_write_buffer
+{
+  scm_t_port *pt;
+
+  SCM_VALIDATE_OPPORT (1, port);
+
+  pt = SCM_PORT (port);
+  if (scm_is_false (pt->write_buf_aux))
+    pt->write_buf_aux = make_port_buffer (port, AUXILIARY_WRITE_BUFFER_SIZE);
+
+  return pt->write_buf_aux;
+}
+#undef FUNC_NAME
+
 
 
 
@@ -2774,22 +2795,45 @@ scm_c_write (SCM port, const void *ptr, size_t size)
   scm_t_port *pt;
   SCM write_buf;
   size_t written = 0;
+  int using_aux_buffer = 0;
   const scm_t_uint8 *src = ptr;
 
   SCM_VALIDATE_OPOUTPORT (1, port);
 
   pt = SCM_PORT (port);
-  write_buf = pt->write_buf;
 
   if (pt->rw_random)
     scm_end_input (port);
+
+  /* Imagine we are writing 40 bytes on an unbuffered port.  If we were
+     writing from a bytevector we could pass that write directly to the
+     port.  But since we aren't, we need to go through a bytevector, and
+     if we went through the port buffer we'd have to make 40 individual
+     calls to the write function.  That would be terrible.  Really we
+     need an intermediate bytevector.  But, we shouldn't use a trick
+     analogous to what we do with expand-port-read-buffer!, because the
+     way we use the cur and end cursors doesn't seem to facilitate that.
+     So instead we buffer through an auxiliary write buffer if needed.
+     To avoid re-allocating this buffer all the time, we store it on the
+     port.  It should never be left with buffered data.
+
+     Use of an auxiliary write buffer is triggered if the buffer is
+     smaller than the size we would make for an auxiliary write buffer,
+     and the write is bigger than the buffer.  */
+  write_buf = pt->write_buf;
+  if (scm_port_buffer_size (write_buf) < size &&
+      scm_port_buffer_size (write_buf) < AUXILIARY_WRITE_BUFFER_SIZE)
+    {
+      using_aux_buffer = 1;
+      write_buf = scm_port_auxiliary_write_buffer (port);
+    }
 
   while (written < size)
     {
       size_t did_put = scm_port_buffer_put (write_buf, src, size - written);
       written += did_put;
       src += did_put;
-      if (scm_port_buffer_can_put (write_buf) == 0)
+      if (using_aux_buffer || scm_port_buffer_can_put (write_buf) == 0)
         scm_i_write (port, write_buf);
     }
 }
