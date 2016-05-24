@@ -56,14 +56,18 @@
              read-char
              force-output
              close-port)
-  #:export (lookahead-u8
+  #:export (current-read-waiter
+            current-write-waiter
+
+            lookahead-u8
             get-u8
             get-bytevector-n
+            put-bytevector
+
             %read-line
             read-line
             read-delimited
-            current-read-waiter
-            current-write-waiter
+
             install-sports!
             uninstall-sports!))
 
@@ -98,6 +102,15 @@
    (else
     (wait-for-writable port)
     (write-bytes port src start count))))
+
+(define (flush-input port)
+  (let* ((buf (port-read-buffer port))
+         (cur (port-buffer-cur buf))
+         (end (port-buffer-end buf)))
+    (when (< cur end)
+      (set-port-buffer-cur! buf 0)
+      (set-port-buffer-end! buf 0)
+      (seek port (- cur end) SEEK_CUR))))
 
 (define (flush-output port)
   (let* ((buf (port-write-buffer port))
@@ -293,6 +306,41 @@
        ((= pos count) (if (zero? pos) the-eof-object ret))
        ((< (- count pos) (port-read-buffering port)) (buffer-and-fill pos))
        (else (fill-directly pos))))))
+
+(define* (put-bytevector port src #:optional (start 0)
+                         (count (- (bytevector-length src) start)))
+  (unless (<= 0 start (+ start count) (bytevector-length src))
+    (error "invalid start/count" start count))
+  (when (port-random-access? port)
+    (flush-input port))
+  (let* ((buf (port-write-buffer port))
+         (bv (port-buffer-bytevector buf))
+         (size (bytevector-length bv))
+         (cur (port-buffer-cur buf))
+         (end (port-buffer-end buf))
+         (buffered (- end cur)))
+    (cond
+     ((<= size count)
+      ;; The write won't fit in the buffer at all; write directly.
+      ;; Write directly.  Flush write buffer first if needed.
+      (when (< cur end) (flush-output port))
+      (write-bytes port src start count))
+     ((< (- size buffered) count)
+      ;; The write won't fit into the buffer along with what's already
+      ;; buffered.  Flush and fill.
+      (flush-output port)
+      (set-port-buffer-end! buf count)
+      (bytevector-copy! src start bv 0 count))
+     (else
+      ;; The write will fit in the buffer, but we need to shuffle the
+      ;; already-buffered bytes (if any) down.
+      (set-port-buffer-cur! buf 0)
+      (set-port-buffer-end! buf (+ buffered count))
+      (bytevector-copy! bv cur bv 0 buffered)
+      (bytevector-copy! src start bv buffered count)
+      ;; If the buffer completely fills, we flush.
+      (when (= (+ buffered count) size)
+        (flush-output port))))))
 
 (define (decoding-error subr port)
   ;; GNU definition; fixme?
@@ -595,7 +643,7 @@
 (define saved-port-bindings #f)
 (define port-bindings
   '(((guile) read-char peek-char force-output close-port)
-    ((ice-9 binary-ports) get-u8 lookahead-u8 get-bytevector-n)
+    ((ice-9 binary-ports) get-u8 lookahead-u8 get-bytevector-n put-bytevector)
     ((ice-9 rdelim) %read-line read-line read-delimited)))
 (define (install-sports!)
   (unless saved-port-bindings
