@@ -54,7 +54,8 @@
   #:use-module (ice-9 match)
   #:replace (peek-char
              read-char
-             force-output)
+             force-output
+             close-port)
   #:export (lookahead-u8
             get-u8
             get-bytevector-n
@@ -91,6 +92,15 @@
   (unless (and (output-port? port) (not (port-closed? port)))
     (error "not an open output port" port))
   (flush-output port))
+
+(define close-port
+  (let ((%close-port (@ (guile) close-port)))
+    (lambda (port)
+      (cond
+       ((port-closed? port) #f)
+       (else
+        (when (output-port? port) (flush-output port))
+        (%close-port port))))))
 
 (define (default-read-waiter port) (port-poll port "r"))
 (define (default-write-waiter port) (port-poll port "w"))
@@ -579,7 +589,7 @@
 
 (define saved-port-bindings #f)
 (define port-bindings
-  '(((guile) read-char peek-char force-output)
+  '(((guile) read-char peek-char force-output close-port)
     ((ice-9 binary-ports) get-u8 lookahead-u8 get-bytevector-n)
     ((ice-9 rdelim) %read-line read-line read-delimited)))
 (define (install-sports!)
