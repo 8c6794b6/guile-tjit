@@ -2703,6 +2703,17 @@ SCM_DEFINE (scm_port_auxiliary_write_buffer, "port-auxiliary-write-buffer",
 }
 #undef FUNC_NAME
 
+SCM_INTERNAL SCM scm_port_line_buffered_p (SCM);
+SCM_DEFINE (scm_port_line_buffered_p, "port-line-buffered?", 1, 0, 0,
+            (SCM port),
+	    "Return true if the port is line buffered.")
+#define FUNC_NAME s_scm_port_line_buffered_p
+{
+  SCM_VALIDATE_OPPORT (1, port);
+  return scm_from_bool (SCM_CELL_WORD_0 (port) & SCM_BUFLINE);
+}
+#undef FUNC_NAME
+
 
 
 

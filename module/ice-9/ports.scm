@@ -164,6 +164,8 @@ interpret its input and output."
   #:use-module (ice-9 ports)
   #:export (port-read-buffer
             port-write-buffer
+            port-auxiliary-write-buffer
+            port-line-buffered?
             expand-port-read-buffer!
             port-buffer-bytevector
             port-buffer-cur
@@ -219,6 +221,8 @@ interpret its input and output."
 
 (private-port-bindings port-read-buffer
                        port-write-buffer
+                       port-auxiliary-write-buffer
+                       port-line-buffered?
                        expand-port-read-buffer!
                        port-read
                        port-write
