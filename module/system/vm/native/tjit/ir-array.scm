@@ -38,7 +38,7 @@
 ;; XXX: make-array
 
 ;; XXX: Bound check not yet done.
-(define-ir (bv-u8-ref (u64 dst) (bytevector src) (u64 idx))
+(define-ir (bv-u8-ref (u64! dst) (bytevector src) (u64 idx))
   (let* ((src/v (src-ref src))
          (idx/v (src-ref idx))
          (dst/v (dst-ref dst))
