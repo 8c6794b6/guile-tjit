@@ -2452,42 +2452,77 @@ SCM_DEFINE (scm_port_clear_stream_start_for_bom_read,
 }
 #undef FUNC_NAME
 
-static void
-port_clear_stream_start_for_bom_write (SCM port, enum bom_io_mode io_mode)
+SCM_INTERNAL SCM scm_port_clear_stream_start_for_bom_write (SCM port);
+SCM_DEFINE (scm_port_clear_stream_start_for_bom_write,
+            "port-clear-stream-start-for-bom-write", 1, 0, 0,
+            (SCM port),
+            "")
+#define FUNC_NAME s_scm_port_clear_stream_start_for_bom_write
 {
-  scm_t_port *pt = SCM_PORT (port);
+  scm_t_port *pt;
 
+  SCM_VALIDATE_PORT (1, port);
+
+  pt = SCM_PORT (port);
   if (!pt->at_stream_start_for_bom_write)
-    return;
+    return SCM_BOOL_F;
+
+  pt->at_stream_start_for_bom_write = 0;
+  if (pt->rw_random)
+    pt->at_stream_start_for_bom_read = 0;
 
   /* Record that we're no longer at stream start.  */
   pt->at_stream_start_for_bom_write = 0;
   if (pt->rw_random)
     pt->at_stream_start_for_bom_read = 0;
 
-  /* Write a BOM if appropriate.  */
+  /* Return a BOM if appropriate.  */
   if (scm_is_eq (pt->encoding, sym_UTF_16))
     {
       SCM precise_encoding;
+      SCM bom = scm_c_make_bytevector (sizeof (scm_utf16be_bom));
       scm_port_acquire_iconv_descriptors (port, NULL, NULL);
       precise_encoding = pt->precise_encoding;
       scm_port_release_iconv_descriptors (port);
-      if (scm_is_eq (precise_encoding, sym_UTF_16LE))
-        scm_c_write (port, scm_utf16le_bom, sizeof (scm_utf16le_bom));
-      else
-        scm_c_write (port, scm_utf16be_bom, sizeof (scm_utf16be_bom));
+      memcpy (SCM_BYTEVECTOR_CONTENTS (bom),
+              scm_is_eq (precise_encoding, sym_UTF_16LE)
+              ? scm_utf16le_bom : scm_utf16be_bom,
+              SCM_BYTEVECTOR_LENGTH (bom));
+      return bom;
     }
   else if (scm_is_eq (pt->encoding, sym_UTF_32))
     {
       SCM precise_encoding;
+      SCM bom = scm_c_make_bytevector (sizeof (scm_utf32be_bom));
       scm_port_acquire_iconv_descriptors (port, NULL, NULL);
       precise_encoding = pt->precise_encoding;
       scm_port_release_iconv_descriptors (port);
-      if (scm_is_eq (precise_encoding, sym_UTF_32LE))
-        scm_c_write (port, scm_utf32le_bom, sizeof (scm_utf32le_bom));
-      else
-        scm_c_write (port, scm_utf32be_bom, sizeof (scm_utf32be_bom));
+      memcpy (SCM_BYTEVECTOR_CONTENTS (bom),
+              scm_is_eq (precise_encoding, sym_UTF_32LE)
+              ? scm_utf32le_bom : scm_utf32be_bom,
+              SCM_BYTEVECTOR_LENGTH (bom));
+      return bom;
     }
+
+  return SCM_BOOL_F;
+}
+#undef FUNC_NAME
+
+static void
+port_clear_stream_start_for_bom_write (SCM port, enum bom_io_mode io_mode)
+{
+  scm_t_port *pt = SCM_PORT (port);
+  SCM bom;
+
+  /* Fast path.  */
+  if (!pt->at_stream_start_for_bom_write)
+    return;
+
+  bom = scm_port_clear_stream_start_for_bom_write (port);
+
+  if (// io_mode == BOM_IO_TEXT &&
+      scm_is_true (bom))
+    scm_c_write_bytes (port, bom, 0, SCM_BYTEVECTOR_LENGTH (bom));
 }
 
 SCM
