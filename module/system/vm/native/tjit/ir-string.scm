@@ -34,18 +34,18 @@
   #:use-module (system vm native tjit variables))
 
 (define-ir (string-length (u64! dst) (string src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     (with-type-guard &string src
       `(let ((,dst/v (%cref ,src/v 3)))
          ,(next)))))
 
 ;; XXX: Inline with `scm_i_string_ref'.
 (define-ir (string-ref (char! dst) (string src) (u64 idx))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src))
-        (idx/v (var-ref idx))
-        (r2 (make-tmpvar 2)))
+  (let* ((src/v (src-ref src))
+         (idx/v (src-ref idx))
+         (dst/v (dst-ref dst))
+         (r2 (make-tmpvar 2)))
     (with-type-guard &string src
       `(let ((,r2 (%lsh ,idx/v 2)))
          (let ((,r2 (%add ,r2 2)))
@@ -55,8 +55,8 @@
                  ,(next)))))))))
 
 (define-ir (string->number (scm! dst) (string src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     (with-type-guard &string src
       `(let ((_ (%carg #x904)))
          (let ((_ (%carg ,src/v)))
@@ -64,16 +64,16 @@
              ,(next)))))))
 
 (define-ir (string->symbol (scm! dst) (string src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     (with-type-guard &string src
       `(let ((_ (%carg ,src/v)))
          (let ((,dst/v (%ccall ,(object-address string->symbol))))
            ,(next))))))
 
 (define-ir (symbol->keyword (scm! dst) (scm src))
-  (let ((dst/v (var-ref dst))
-        (src/v (var-ref src)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     `(let ((_ (%carg ,src/v)))
        (let ((,dst/v (%ccall ,(object-address symbol->keyword))))
          ,(next)))))

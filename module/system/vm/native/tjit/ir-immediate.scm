@@ -39,6 +39,17 @@
     (set-entry-type! env (+ dst sp-offset) &any)
     (set-scan-initial-fields! env)))
 
+;; (define-ti (make-short-immediate dst low-bits)
+;;   (let ((sp-offset (env-sp-offset env)))
+;;     (set-inferred-type! env (+ dst sp-offset) (make-constant low-bits))))
+
+;; (define-anf (make-short-immediate dst low-bits)
+;;   (let ((dst/i+sp (+ dst (current-sp-offset)))
+;;         (live-indices (env-live-indices env)))
+;;     (unless (memq dst/i+sp live-indices)
+;;       (set-env-live-indices! env (cons dst/i+sp live-indices)))
+;;     (next)))
+
 (define-ti (make-short-immediate dst low-bits)
   (let* ((sp-offset (env-sp-offset env))
          (v (pointer->scm (make-pointer low-bits))))
@@ -113,6 +124,10 @@
 ;;     (set-inferred-type! env (+ dst sp-offset) (make-constant v))))
 
 ;; (define-anf (load-u64 dst high low)
-;;   (next))
+;;   (let ((dst/i+sp (+ dst (current-sp-offset)))
+;;         (live-indices (env-live-indices env)))
+;;     (unless (memq dst/i+sp live-indices)
+;;       (set-env-live-indices! env (cons dst/i+sp live-indices)))
+;;     (next)))
 
 ;; XXX: load-s64

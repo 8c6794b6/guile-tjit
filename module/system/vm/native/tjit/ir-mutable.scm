@@ -59,11 +59,11 @@
 
 (define-ir (module-box (box! dst) (const var-offset) (const mod-offset)
                        (const sym-offset) (const bound?))
-  (let ((vdst (dst-ref dst))
+  (let ((dst/v (dst-ref dst))
         (var (dereference-scm (+ ip (* var-offset 4))))
         (dst/i+sp-offset (+ dst (current-sp-offset)))
         (live-indices (env-live-indices env)))
     (if (variable? var)
-        `(let ((,vdst ,(object-address var)))
+        `(let ((,dst/v ,(object-address var)))
            ,(next))
         (nyi "module-box: not a variable ~s" var))))

@@ -74,12 +74,10 @@
 ;; inlined alternative.
 (define-anf (subr-call)
   (let* ((stack-size (vector-length locals))
-         (dst/v (var-ref (- stack-size 2)))
+         (dst/v (dst-ref (- stack-size 2)))
          (subr/l (scm-ref (- stack-size 1)))
          (ccode (and (program? subr/l)
                      (program-code subr/l)))
-         (ra/v (var-ref stack-size))
-         (dl/v (var-ref (+ stack-size 1)))
          (proc-addr (object-address subr/l))
          (emit-ccall
           (lambda ()
@@ -94,7 +92,7 @@
     (if (primitive-code? ccode)
         (let lp ((n 0))
           (if (< n (- stack-size 1))
-              (let ((n/v (var-ref n))
+              (let ((n/v (src-ref n))
                     (n/l (scm-ref n))
                     (r1 (make-tmpvar 2))
                     (t (type-ref n)))
@@ -138,5 +136,5 @@
                ((4) call-with-current-continuation)
                (else
                 (failure 'builtin-ref "unknown builtin ~a" idx)))))
-    `(let ((,(var-ref dst) ,(object-address ref)))
+    `(let ((,(dst-ref dst) ,(object-address ref)))
        ,(next))))
