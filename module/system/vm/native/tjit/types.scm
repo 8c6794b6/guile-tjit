@@ -289,6 +289,9 @@ false."
                   (or (not ti)
                       (memq ti ignored-types)
                       (eq? t ti)
+                      (and (constant? ti)
+                           (let ((ptr (make-pointer (constant-value ti))))
+                             (eq? t (type-of (pointer->scm ptr)))))
                       (and (pair? ti) (eq? 'copy (car ti)))))))
              (else
               (failure 'type-checker "unknown hint ~a" hint))))

@@ -282,6 +282,14 @@ DST-TYPES, and SRC-TYPES are local index number."
              (sort (map (match-lambda ((n . t) (cons n (pretty-type t))))
                         (hash-map->list cons tbl))
                    car-<)))
+    (define (move-typed d/v d/t s/v s/t)
+      (cond
+       ((constant? d/t)
+        (values))
+       ((constant? s/t)
+        (move d/v (make-con (constant-value s/t))))
+       (else
+        (move d/v s/v))))
     (dump-regs 'dsts (hash-map->list cons dsts))
     (dump-regs 'srcs (hash-map->list cons srcs))
     (dump-types 'dsts dst-types)
@@ -296,9 +304,13 @@ DST-TYPES, and SRC-TYPES are local index number."
              => (lambda (src-var)
                   (cond
                    ((equal? dst-var src-var)
-                    (when (and (eq? &scm src-type)
-                               (eq? &flonum dst-type))
+                    (cond
+                     ((and (eq? &scm src-type)
+                           (eq? &flonum dst-type))
                       (unbox dst-var src-var dst-type local))
+                     ((and (constant? src-type)
+                           (not (constant? dst-type)))
+                      (move dst-var (make-con (constant-value src-type)))))
                     (hashq-remove! srcs local)
                     (lp rest))
                    ((dst-is-full? (map cdr dsts)
@@ -311,7 +323,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                                    (make-gpr -2)))
                           (src-local (find-src-local src-var)))
                       (dump-move local tmp src-var)
-                      (move tmp src-var)
+                      (move-typed tmp #f src-var src-type)
                       (hashq-set! srcs src-local tmp)
                       (lp dsts)))
                    (else
@@ -322,13 +334,16 @@ DST-TYPES, and SRC-TYPES are local index number."
                   (debug 3 ";;; molc: [local ~a] ~a:~a => ~a:~a~%" local
                          (physical-name src-var) (pretty-type src-type)
                          (physical-name dst-var) (pretty-type dst-type))
-                  (unless (equal? src-var dst-var)
-                    (if (and (eq? &scm src-type)
-                             (eq? &flonum dst-type))
-                        (unbox dst-var src-var dst-type local)
-                        (begin
-                          (dump-move local dst-var src-var)
-                          (move dst-var src-var))))
+                  (if (equal? src-var dst-var)
+                      (when (and (constant? src-type)
+                                 (not (constant? dst-type)))
+                        (move dst-var (make-con (constant-value src-type))))
+                      (if (and (eq? &scm src-type)
+                               (eq? &flonum dst-type))
+                          (unbox dst-var src-var dst-type local)
+                          (begin
+                            (dump-move local dst-var src-var)
+                            (move-typed dst-var dst-type src-var src-type))))
                   (hashq-remove! srcs local)
                   (lp rest)))
             (else
