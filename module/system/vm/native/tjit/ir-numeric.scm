@@ -464,12 +464,12 @@
 
 (define-interrupt-ir (make-vector/immediate (vector! dst) (const len)
                                             (scm ini))
-  (let ((ini/v (src-ref ini))
-        (dst/v (dst-ref dst))
-        (r1 (make-tmpvar 1))
-        (r2 (make-tmpvar 2))
-        (nwords (+ len 1))
-        (head (logior %tc7-vector (ash len 8))))
+  (let* ((ini/v (src-ref ini))
+         (dst/v (dst-ref dst))
+         (r1 (make-tmpvar 1))
+         (r2 (make-tmpvar 2))
+         (nwords (+ len 1))
+         (head (logior %tc7-vector (ash len 8))))
     `(let ((,r2 (%words ,head ,nwords)))
        ,(with-boxing (type-ref ini) ini/v r1
           (lambda (boxed)
@@ -482,8 +482,8 @@
                      ,(next)))))))))
 
 (define-ir (vector-length (u64! dst) (vector src))
-  (let ((src/v (src-ref src))
-        (dst/v (dst-ref dst)))
+  (let* ((src/v (src-ref src))
+         (dst/v (dst-ref dst)))
     (with-type-guard &vector src
       `(let ((,dst/v (%cref ,src/v 0)))
          (let ((,dst/v (%rsh ,dst/v 8)))

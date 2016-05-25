@@ -39,25 +39,16 @@
     (set-entry-type! env (+ dst sp-offset) &any)
     (set-scan-initial-fields! env)))
 
-;; (define-ti (make-short-immediate dst low-bits)
-;;   (let ((sp-offset (env-sp-offset env)))
-;;     (set-inferred-type! env (+ dst sp-offset) (make-constant low-bits))))
-
-;; (define-anf (make-short-immediate dst low-bits)
-;;   (let ((dst/i+sp (+ dst (current-sp-offset)))
-;;         (live-indices (env-live-indices env)))
-;;     (unless (memq dst/i+sp live-indices)
-;;       (set-env-live-indices! env (cons dst/i+sp live-indices)))
-;;     (next)))
-
 (define-ti (make-short-immediate dst low-bits)
-  (let* ((sp-offset (env-sp-offset env))
-         (v (pointer->scm (make-pointer low-bits))))
-    (set-inferred-type! env (+ dst sp-offset) (type-of v))))
+  (let ((sp-offset (env-sp-offset env)))
+    (set-inferred-type! env (+ dst sp-offset) (make-constant low-bits))))
 
 (define-anf (make-short-immediate dst low-bits)
-  `(let ((,(dst-ref dst) ,low-bits))
-     ,(next)))
+  (let ((dst/i+sp (+ dst (current-sp-offset)))
+        (live-indices (env-live-indices env)))
+    (unless (memq dst/i+sp live-indices)
+      (set-env-live-indices! env (cons dst/i+sp live-indices)))
+    (next)))
 
 (define-ir (make-long-immediate (scm! dst) (const low-bits))
   `(let ((,(dst-ref dst) ,low-bits))
@@ -109,25 +100,25 @@
     (set-entry-type! env (+ dst sp-offset) &any)
     (set-scan-initial-fields! env)))
 
-(define-ti (load-u64 dst high low)
-  (let ((sp-offset (env-sp-offset env))
-        (v (logior (ash high 32) low)))
-    (set-inferred-type! env (+ dst sp-offset) &u64)))
-
-(define-anf (load-u64 dst high low)
-  `(let ((,(dst-ref dst) ,(logior (ash high 32) low)))
-     ,(next)))
-
 ;; (define-ti (load-u64 dst high low)
 ;;   (let ((sp-offset (env-sp-offset env))
 ;;         (v (logior (ash high 32) low)))
-;;     (set-inferred-type! env (+ dst sp-offset) (make-constant v))))
+;;     (set-inferred-type! env (+ dst sp-offset) &u64)))
 
 ;; (define-anf (load-u64 dst high low)
-;;   (let ((dst/i+sp (+ dst (current-sp-offset)))
-;;         (live-indices (env-live-indices env)))
-;;     (unless (memq dst/i+sp live-indices)
-;;       (set-env-live-indices! env (cons dst/i+sp live-indices)))
-;;     (next)))
+;;   `(let ((,(dst-ref dst) ,(logior (ash high 32) low)))
+;;      ,(next)))
+
+(define-ti (load-u64 dst high low)
+  (let ((sp-offset (env-sp-offset env))
+        (v (logior (ash high 32) low)))
+    (set-inferred-type! env (+ dst sp-offset) (make-constant v))))
+
+(define-anf (load-u64 dst high low)
+  (let ((dst/i+sp (+ dst (current-sp-offset)))
+        (live-indices (env-live-indices env)))
+    (unless (memq dst/i+sp live-indices)
+      (set-env-live-indices! env (cons dst/i+sp live-indices)))
+    (next)))
 
 ;; XXX: load-s64

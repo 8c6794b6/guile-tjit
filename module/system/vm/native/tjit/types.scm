@@ -272,61 +272,69 @@ LOCALS is a vector containing stack elements. The returned procedure will return
 true if all of the types in ARG-TYPES matched with LOCALS, otherwise return
 false."
   (lambda (hint)
-    (let* ((ignored-types (list #f &scm &u64 &f64 &s64 &any))
-           (checker
-            (cond
-             ((vector? hint)
-              (lambda (n t)
-                (let ((tr (and (<= 0 n (- (vector-length hint) 1))
-                               (type-of (vector-ref hint n)))))
-                  (eq? t tr))))
-             ((null? hint)
-              (lambda (n t)
-                #t))
-             ((pair? hint)
-              (lambda (n t)
-                (let ((ti (assq-ref hint n)))
-                  (or (not ti)
-                      (memq ti ignored-types)
-                      (eq? t ti)
-                      (and (constant? ti)
-                           (let ((ptr (make-pointer (constant-value ti))))
-                             (eq? t (type-of (pointer->scm ptr)))))
-                      (and (pair? ti) (eq? 'copy (car ti)))))))
-             (else
-              (failure 'type-checker "unknown hint ~a" hint))))
-           (dump-debug
-            (lambda (n t)
-              (let ((f (lambda (ts)
-                         (map (lambda (nt)
-                                (cons (car nt) (pretty-type (cdr nt))))
-                              (sort ts (lambda (a b)
-                                         (< (car a) (car b))))))))
-                (debug 2 ";;; trace ~a: types=~a~%" id (f arg-types))
-                (debug 2 ";;; trace ~a: hint=~a~%" id
-                       (cond
-                        ((vector? hint)
-                         (do ((v (make-vector (vector-length hint)))
-                              (i (- (vector-length hint) 1) (- i 1)))
-                             ((< i 0) v)
-                           (vector-set! v i (scm->pointer
-                                             (vector-ref hint i)))))
-                        ((pair? hint)
-                         (f hint))
-                        (else hint)))
-                (debug 2 ";;; trace ~a: local ~a expect ~a, got ~a from ~a~%"
-                       id n
-                       (pretty-type t)
-                       (pretty-type
-                        (if (vector? hint)
-                            (and (<= 0 n (- (vector-length hint) 1))
-                                 (type-of (vector-ref hint n)))
-                            (assq-ref hint n)))
-                       (if (vector? hint) 'vector 'list))))))
+    (let ((checker
+           (cond
+            ((vector? hint)
+             (lambda (n t)
+               (let ((tr (and (<= 0 n (- (vector-length hint) 1))
+                              (type-of (vector-ref hint n)))))
+                 (eq? t tr))))
+            ((null? hint)
+             (lambda (n t)
+               #t))
+            ((pair? hint)
+             (lambda (n t)
+               (let ((ti (assq-ref hint n)))
+                 (or (not ti)
+                     (eq? ti &scm)
+                     (eq? ti &u64)
+                     (eq? ti &f64)
+                     (eq? ti &s64)
+                     (eq? ti &any)
+                     (eq? t ti)
+                     (and (constant? ti)
+                          (let ((ptr (make-pointer (constant-value ti))))
+                            (eq? t (type-of (pointer->scm ptr)))))
+                     (and (pair? ti) (eq? 'copy (car ti)))))))
+            (else
+             (failure 'type-checker "unknown hint ~a" hint))))
+          (dump-debug
+           (lambda (n t)
+             (let ((f (lambda (ts)
+                        (map (lambda (nt)
+                               (cons (car nt) (pretty-type (cdr nt))))
+                             (sort ts (lambda (a b)
+                                        (< (car a) (car b))))))))
+               (debug 2 ";;; trace ~a: types=~a~%" id (f arg-types))
+               (debug 2 ";;; trace ~a: hint=~a~%" id
+                      (cond
+                       ((vector? hint)
+                        (do ((v (make-vector (vector-length hint)))
+                             (i (- (vector-length hint) 1) (- i 1)))
+                            ((< i 0) v)
+                          (vector-set! v i (scm->pointer
+                                            (vector-ref hint i)))))
+                       ((pair? hint)
+                        (f hint))
+                       (else hint)))
+               (debug 2 ";;; trace ~a: local ~a expect ~a, got ~a from ~a~%"
+                      id n
+                      (pretty-type t)
+                      (pretty-type
+                       (if (vector? hint)
+                           (and (<= 0 n (- (vector-length hint) 1))
+                                (type-of (vector-ref hint n)))
+                           (assq-ref hint n)))
+                      (if (vector? hint) 'vector 'list))))))
       (let lp ((types arg-types))
         (match types
           (((n . t) . types)
-           (if (or (memq t ignored-types)
+           (if (or (not t)
+                   (eq? t &scm)
+                   (eq? t &u64)
+                   (eq? t &f64)
+                   (eq? t &s64)
+                   (eq? t &any)
                    (checker n t))
                (lp types)
                (begin

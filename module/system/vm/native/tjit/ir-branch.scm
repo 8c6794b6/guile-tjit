@@ -61,9 +61,11 @@
                         (if invert 2 offset)))
               (op (if test/r 'op-t 'op-f)))
          (ensure-loop test/r invert offset 2)
-         `(let ((_ ,(take-snapshot! ip dest)))
-            (let ((_ (,op ,test/v . args)))
-              ,(next))))))))
+         (if (symbol? test/v)
+             `(let ((_ ,(take-snapshot! ip dest)))
+                (let ((_ (,op ,test/v . args)))
+                  ,(next)))
+             (next)))))))
 
 (define-syntax br-binary-body
   (syntax-rules ()

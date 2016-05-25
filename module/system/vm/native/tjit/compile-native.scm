@@ -263,9 +263,10 @@ DST-TYPES, and SRC-TYPES are local index number."
          (unbox-stack-element dst r0 type))
         (else
          (failure 'move-or-load-carefully "unbox ~a ~a ~a" dst src type))))
-    (define (dump-move local dst src)
-      (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local
-             (physical-name dst) (physical-name src)))
+    (define (dump-move local dst/v dst/t src/v src/t)
+      (debug 3 ";;; molc: [local ~a] (move ~a:~a ~a:~a)~%" local
+             (physical-name dst/v) (pretty-type dst/t)
+             (physical-name src/v) (pretty-type src/t)))
     (define (dump-load local dst type)
       (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
              (physical-name dst) (pretty-type type)))
@@ -310,6 +311,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                       (unbox dst-var src-var dst-type local))
                      ((and (constant? src-type)
                            (not (constant? dst-type)))
+                      (dump-move local dst-var dst-type src-var src-type)
                       (move dst-var (make-con (constant-value src-type)))))
                     (hashq-remove! srcs local)
                     (lp rest))
@@ -322,8 +324,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                                    (make-fpr -2)
                                    (make-gpr -2)))
                           (src-local (find-src-local src-var)))
-                      (dump-move local tmp src-var)
-                      (move-typed tmp #f src-var src-type)
+                      (dump-move local tmp dst-type src-var src-type)
+                      (move-typed tmp #f src-var dst-type)
                       (hashq-set! srcs src-local tmp)
                       (lp dsts)))
                    (else
@@ -331,18 +333,16 @@ DST-TYPES, and SRC-TYPES are local index number."
                     (lp (append rest (list (cons local dst-var))))))))
             ((hashq-ref srcs local)
              => (lambda (src-var)
-                  (debug 3 ";;; molc: [local ~a] ~a:~a => ~a:~a~%" local
-                         (physical-name src-var) (pretty-type src-type)
-                         (physical-name dst-var) (pretty-type dst-type))
                   (if (equal? src-var dst-var)
                       (when (and (constant? src-type)
                                  (not (constant? dst-type)))
+                        (dump-move local dst-var dst-type src-var src-type)
                         (move dst-var (make-con (constant-value src-type))))
                       (if (and (eq? &scm src-type)
                                (eq? &flonum dst-type))
                           (unbox dst-var src-var dst-type local)
                           (begin
-                            (dump-move local dst-var src-var)
+                            (dump-move local dst-var dst-type src-var src-type)
                             (move-typed dst-var dst-type src-var src-type))))
                   (hashq-remove! srcs local)
                   (lp rest)))
@@ -664,9 +664,14 @@ DST-TYPES, and SRC-TYPES are local index number."
   (with-jit-state
    (jit-prolog)
    (jit-tramp (imm (* 4 %word-size)))
-   (let ((entries (map (lambda (proc)
-                         (proc end-address self-fragment origin))
-                       bailouts)))
+   (let ((entries (let lp ((bailouts bailouts) (acc '()))
+                    (if (null? bailouts)
+                        acc
+                        (let ((bailouts (cdr bailouts))
+                              (proc (car bailouts)))
+                          (lp bailouts
+                              (cons (proc end-address self-fragment origin)
+                                    acc)))))))
      (jit-epilog)
      (jit-realize)
      (let* ((estimated-size (jit-code-size))

@@ -567,8 +567,10 @@ index referenced by dst, a, and b values at runtime."
     (proc var))))
 
 (define-syntax-rule (with-type-guard type src expr)
-  (if (or (eq? type (type-ref src))
-          (eq? type (applied-guard env (+ src (current-sp-offset)))))
+  (if (let ((src/t (type-ref src)))
+        (or (eq? type src/t)
+            (constant? src/t)
+            (eq? type (applied-guard env (+ src (current-sp-offset))))))
       expr
       (begin
         (set-applied-guard! env (+ src (current-sp-offset)) type)
