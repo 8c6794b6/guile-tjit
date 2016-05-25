@@ -35,8 +35,8 @@
 
 ;; XXX: struct-vtable
 ;; (define-ir (struct-vtable (struct! dst) (struct src))
-;;   (let ((dst/v (var-ref dst))
-;;         (src/v (var-ref src))
+;;   (let ((src/v (src-ref src))
+;;         (dst/v (dst-ref dst))
 ;;         (r2 (make-tmpvar 2)))
 ;;     (with-type-guard &struct src
 ;;       `(let ((,r2 (%cref ,src/v 0)))
@@ -51,8 +51,8 @@
 ;; XXX: allocate-struct/immediate
 ;; (define-ir (allocate-struct/immediate (struct! dst) (struct vtable)
 ;;                                       (const nfields))
-;;   (let ((dst/v (var-ref dst))
-;;         (vt/v (var-ref vtable)))
+;;   (let ((vt/v (src-ref vtable))
+;;         (dst/v (dst-ref dst)))
 ;;     `(let ((_ (%carg ,(+ (ash nfields 2) 2))))
 ;;        (let ((_ (%carg ,vt/v)))
 ;;          (let ((,dst/v (%ccall ,(object-address allocate-struct))))
@@ -60,8 +60,8 @@
 
 ;; XXX: struct-ref/immediate
 ;; (define-ir (struct-ref/immediate (scm! dst) (struct src) (const idx))
-;;   (let ((dst/v (var-ref dst))
-;;         (src/v (var-ref src))
+;;   (let ((src/v (src-ref src))
+;;         (dst/v (dst-ref dst))
 ;;         (r2 (make-tmpvar 2)))
 ;;     (with-type-guard &struct src
 ;;       `(let ((,r2 (%cref ,src/v 1)))
@@ -70,8 +70,8 @@
 
 ;; XXX: struct-set!/immediate
 ;; (define-ir (struct-set!/immediate (struct dst) (const idx) (scm src))
-;;   (let ((dst/v (var-ref dst))
-;;         (src/v (var-ref src))
+;;   (let ((src/v (src-ref src))
+;;         (dst/v (src-ref dst))
 ;;         (r2 (make-tmpvar 2)))
 ;;     (with-type-guard &struct dst
 ;;       `(let ((,r2 (%cref ,dst/v 1)))
