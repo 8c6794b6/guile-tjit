@@ -37,25 +37,12 @@
 ;; XXX: resolve
 ;; XXX: define!
 
-(define-scan (toplevel-box dst var-offset mod-offset sym-offset bound?)
-  ;; XXX: Set entry type as `&any'.
-  (set-scan-initial-fields! env))
+;; No need to worry about resovling variable in `toplevel-box' and `module-box',
+;; since the variables are already resolved at the time of recording the trace.
 
-(define-ti (toplevel-box dst var-offset mod-offset sym-offset bound?)
-  (let* ((sp-offset (env-sp-offset env))
-         (var (dereference-scm (+ ip (* var-offset 4))))
-         (s (make-constant (object-address var))))
-    (set-inferred-type! env (+ dst sp-offset) s)))
-
-(define-anf (toplevel-box dst var-offset mod-offset sym-offset bound?)
-  (let ((var (dereference-scm (+ ip (* var-offset 4))))
-        (dst/i+sp (+ dst (current-sp-offset)))
-        (live-indices (env-live-indices env)))
-    (unless (memq dst/i+sp live-indices)
-      (set-env-live-indices! env (cons dst/i+sp live-indices)))
-    (if (variable? var)
-        (next)
-        (nyi "toplevel-box: not a variable ~s" var))))
+(define-constant (toplevel-box var-offset mod-offset sym-offset bound?)
+  (let ((var (dereference-scm (+ ip (* var-offset 4)))))
+    (object-address var)))
 
 (define-constant (module-box var-offset mod-offset sym-offset bound?)
   (let ((var (dereference-scm (+ ip (* var-offset 4)))))

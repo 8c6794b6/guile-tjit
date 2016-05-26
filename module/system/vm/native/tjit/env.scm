@@ -278,7 +278,12 @@ inline depth by one."
          (entry (let lp ((current entry) (acc entry))
                   (match current
                     (((i 'copy . (? (lambda (x) (= x n)))) . current)
-                     (lp current (assq-set! acc i t)))
+                     ;; Unless the given type was `&any', update the copied
+                     ;; type. If copy was marked as `&any', initial stack load
+                     ;; might skip necessary locals.
+                     (lp current (if (eq? t &any)
+                                     acc
+                                     (assq-set! acc i t))))
                     ((_ . current)
                      (lp current acc))
                     (() acc)))))
