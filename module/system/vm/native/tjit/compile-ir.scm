@@ -142,35 +142,33 @@ Currently does nothing, returns the given argument."
                         (pretty-type parent-type)
                         (pretty-type snapshot-type)
                         (pretty-type entry-type))
-                 (and (env-parent-snapshot env)
-                      (or (not (memq n (env-read-indices env)))
-                          (and (memq var live-vars-in-parent)
-                               (or (and parent-type
-                                        snapshot-type
-                                        (eq? parent-type snapshot-type))
-                                   (or (dynamic-link? parent-type)
-                                       (return-address? parent-type))
-                                   (and (<= 0 initial-sp-offset)
-                                        (< n 0))))))))
+                 (or (eq? &any entry-type)
+                     (and (env-parent-snapshot env)
+                          (or (not (memq n (env-read-indices env)))
+                              (and (memq var live-vars-in-parent)
+                                   (or (and parent-type
+                                            snapshot-type
+                                            (eq? parent-type snapshot-type))
+                                       (or (dynamic-link? parent-type)
+                                           (return-address? parent-type))
+                                       (and (<= 0 initial-sp-offset)
+                                            (< n 0)))))))))
            (lp vars))
           (else
            (let ((guard (assq-ref (env-entry-types env) n))
                  (type (assq-ref (env-inferred-types env) n)))
-             (if (eq? &any guard)
-                 (lp vars)
+             (hashq-set! loaded-vars n guard)
+             ;; XXX: Any other way to select preferred register between
+             ;; GPR and FPR?
+             (if (or (eq? type &flonum)
+                     (eq? type &f64))
+                 (with-frame-ref var type n lp vars)
                  (begin
-                   (hashq-set! loaded-vars n guard)
-                   ;; XXX: Any other way to select preferred register between
-                   ;; GPR and FPR?
-                   (if (or (eq? type &flonum)
-                           (eq? type &f64))
-                       (with-frame-ref var type n lp vars)
-                       (begin
-                         ;; XXX: Updating inferred type of loaded variable,
-                         ;; again.
-                         (when (env-parent-snapshot env)
-                           (set-inferred-type! env n guard))
-                         (with-frame-ref var guard n lp vars)))))))))
+                   ;; XXX: Updating inferred type of loaded variable,
+                   ;; again.
+                   (when (env-parent-snapshot env)
+                     (set-inferred-type! env n guard))
+                   (with-frame-ref var guard n lp vars)))))))
         (()
          (let ((live-indices (sort (hash-fold (lambda (k v acc)
                                                 (if (memq k acc)

@@ -139,6 +139,8 @@ After successufl parse, this procedure will update fields in ENV."
                                        (lp (cdr types)
                                            (cons (car (car types)) acc)))))
                              (buf (env-write-buf env))
+                             ;; XXX: Avoid sorting indices after each step. May
+                             ;; use other data type than list.
                              (buf (cons (sort! ws <) buf)))
                         (increment-env-call-return-num! env op)
                         (set-env-write-buf! env buf)
@@ -150,15 +152,16 @@ After successufl parse, this procedure will update fields in ENV."
         (()
          (let* ((linked-ip (env-linked-ip env))
                 (last-sp-offset (env-sp-offset env))
-                (inferred
-                 (let lp ((inferred (env-inferred-types env)) (acc '()))
-                   (match inferred
-                     (((n . t) . inferred)
-                      (lp inferred (cons (cons (- n last-sp-offset) t) acc)))
-                     (() acc))))
                 (linked-fragment
                  (if linked-ip
-                     (get-root-trace inferred linked-ip)
+                     (let ((hint (let lp ((ts (env-inferred-types env))
+                                          (acc '()))
+                                   (match ts
+                                     (((n . t) . ts)
+                                      (let ((e (cons (- n last-sp-offset) t)))
+                                        (lp ts (cons e acc))))
+                                     (() acc)))))
+                       (get-root-trace hint linked-ip))
                      #f))
                 (origin-id (and=> (get-origin-fragment
                                    (env-parent-fragment env))

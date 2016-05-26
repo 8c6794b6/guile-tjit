@@ -671,13 +671,12 @@ DST-TYPES, and SRC-TYPES are local index number."
    (jit-prolog)
    (jit-tramp (imm (* 4 %word-size)))
    (let ((entries (let lp ((bailouts bailouts) (acc '()))
-                    (if (null? bailouts)
-                        acc
-                        (let ((bailouts (cdr bailouts))
-                              (proc (car bailouts)))
-                          (lp bailouts
-                              (cons (proc end-address self-fragment origin)
-                                    acc)))))))
+                    (match bailouts
+                      ((proc . bailouts)
+                       (let ((entry (proc end-address self-fragment origin)))
+                         (lp bailouts (cons entry acc))))
+                      (()
+                       acc)))))
      (jit-epilog)
      (jit-realize)
      (let* ((estimated-size (jit-code-size))
