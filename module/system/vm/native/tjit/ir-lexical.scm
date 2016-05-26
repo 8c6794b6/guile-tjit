@@ -41,9 +41,9 @@
          (src+sp (+ src sp-offset))
          (entry (env-entry-types env)))
     ;; Resolving expcting and inferred type for dst and src. There are no SCM
-    ;; type clue here, use existing data stored in env. If src could not
-    ;; resolved, a tagged `copy' type with local index are stored, to be
-    ;; resolved later .
+    ;; type clue here, use existing data stored in env. If src could not be
+    ;; resolved, a tagged `copy' type with local index are stored, to resolve
+    ;; later.
     (unless (or (assq-ref (env-inferred-types env) src+sp)
                 (assq-ref (env-entry-types env) src+sp))
       (set-entry-type! env src+sp `(copy . ,dst+sp)))

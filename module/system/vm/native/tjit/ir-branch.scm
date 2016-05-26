@@ -189,14 +189,20 @@
      (cond
       ((and (eq? &flonum a/t) (eq? &flonum b/t))
        (emit-next a/v b/v))
+      ((and (eq? &flonum a/t) (constant? b/t))
+       `(let ((,f1 (%cref/f ,(object-address (constant-value b/t)) 2)))
+          ,(emit-next a/v f1)))
+      ((and (constant? a/t) (eq? &flonum b/t))
+       `(let ((,f1 (%cref/f ,(object-address (constant-value a/t)) 2)))
+          ,(emit-next f1 b/v)))
       ((and (eq? &flonum a/t) (eq? &scm b/t))
        (with-type-guard-always &flonum b
-         `(let ((,f1 (%cref/f ,a/v 2)))
-            ,(emit-next f1 b/v))))
+         `(let ((,f1 (%cref/f ,b/v 2)))
+            ,(emit-next a/v f1))))
       ((and (eq? &scm a/t) (eq? &flonum b/t))
        (with-type-guard-always &flonum a
-         `(let ((,f2 (%cref/f ,b/v 2)))
-            ,(emit-next a/v f2))))
+         `(let ((,f2 (%cref/f ,a/v 2)))
+            ,(emit-next f2 b/v))))
       ((and (eq? &scm a/t) (eq? &scm b/t))
        (with-type-guard-always &flonum a
          (with-type-guard-always &flonum b
@@ -283,19 +289,22 @@
                  (b/t (type-ref b))
                  (f1 (make-tmpvar/f 1))
                  (f2 (make-tmpvar/f 2))
+                 (flo-or-const? (lambda (x)
+                                  (or (eq? x &flonum)
+                                      (constant? x))))
                  (emit-next (lambda (x y)
                               `(let ((_ (,op ,x ,y)))
                                  ,(next)))))
             (ensure-loop (op-scm ra rb) invert offset 3)
             (cond
-             ((and (eq? &flonum a/t) (eq? &flonum b/t))
+             ((and (flo-or-const? a/t) (flo-or-const? b/t))
               `(let ((_ ,(take-snapshot! ip dest)))
                  ,(emit-next va vb)))
-             ((and (eq? &flonum a/t) (eq? &scm b/t))
+             ((and (flo-or-const? a/t) (eq? &scm b/t))
               (with-type-guard-always &flonum b
                 `(let ((,f2 (%cref/f ,vb 2)))
                    ,(emit-next va f2))))
-             ((and (eq? &scm a/t) (eq? &flonum b/t))
+             ((and (eq? &scm a/t) (flo-or-const? b/t))
               (with-type-guard-always &flonum a
                 `(let ((,f2 (%cref/f ,va 2)))
                    ,(emit-next f2 vb))))

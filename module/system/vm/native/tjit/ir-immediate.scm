@@ -26,6 +26,7 @@
 ;;; Code:
 
 (define-module (system vm native tjit ir-immediate)
+  #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit error)
@@ -46,36 +47,21 @@
 (define-constant (make-non-immediate offset)
   (+ ip (* 4 offset)))
 
-(define-scan (static-ref dst offset)
-  (let ((sp-offset (env-sp-offset env)))
-    (set-entry-type! env (+ dst sp-offset) &any)
-    (set-scan-initial-fields! env)))
-
-(define-ti (static-ref dst offset)
-  (let* ((sp-offset (env-sp-offset env))
-         (ptr (make-pointer (+ ip (* 4 offset))))
-         (ref (dereference-pointer ptr))
-         (ty (if (and (zero? (logand (pointer-address ref) 1))
-                      (flonum? (pointer->scm ref)))
-                 &flonum
-                 &scm)))
-    (set-inferred-type! env (+ dst sp-offset) ty)))
-
-(define-anf (static-ref dst offset)
-  (let* ((ptr (make-pointer (+ ip (* 4 offset))))
-         (ref (dereference-pointer ptr))
-         (src/l (pointer->scm ref)))
-    `(let ((,(dst-ref dst) ,(if (flonum? src/l)
-                                src/l
-                                (pointer-address ref))))
-       ,(next))))
+(define-constant (static-ref offset)
+  (let* ((ref (dereference-pointer (make-pointer (+ ip (* 4 offset)))))
+         (src (pointer->scm ref)))
+    (if (flonum? src)
+        src
+        (pointer-address ref))))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!
 
-(define-ir (load-f64 (f64! dst) (const high-bits) (const low-bits))
-  `(let ((,(dst-ref dst) ,(logior (ash high-bits 32) low-bits)))
-     ,(next)))
+(define-constant (load-f64 high-bits low-bits)
+  ;; Convert bits to SCM flonum by storing to bytevector once.
+  (let ((bv (make-bytevector 8)))
+    (bytevector-u64-native-set! bv 0 (logior (ash high-bits 32) low-bits))
+    (bytevector-ieee-double-native-ref bv 0)))
 
 (define-constant (load-u64 high-bits low-bits)
   (logior (ash high-bits 32) low-bits))

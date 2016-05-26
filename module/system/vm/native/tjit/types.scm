@@ -293,8 +293,12 @@ false."
                      (eq? ti &any)
                      (eq? t ti)
                      (and (constant? ti)
-                          (let ((ptr (make-pointer (constant-value ti))))
-                            (eq? t (type-of (pointer->scm ptr)))))
+                          (let* ((val (constant-value ti))
+                                 (tr (if (flonum? val)
+                                         &flonum
+                                         (let ((ptr (make-pointer val)))
+                                           (type-of (pointer->scm ptr))))))
+                            (eq? t tr)))
                      (and (pair? ti) (eq? 'copy (car ti)))))))
             (else
              (failure 'type-checker "unknown hint ~a" hint))))

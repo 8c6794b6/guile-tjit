@@ -103,8 +103,14 @@
       (sp-set! local r0))
 
      ((constant? type)
-      (jit-movi r0 (imm (constant-value type)))
-      (sp-set! local r0))
+      (let ((val (constant-value type)))
+        (cond
+         ((flonum? val)
+          (jit-movi r0 (scm->pointer val))
+          (sp-set! local r0))
+         (else
+          (jit-movi r0 (imm (constant-value type)))
+          (sp-set! local r0)))))
 
      ;; Floating point values
      ((eq? type &flonum)
