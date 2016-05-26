@@ -257,8 +257,8 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
 #define JIT_PTR(u) (SCM_POINTER_VALUE (u))
 #define JIT_INT32(u) ((intptr_t) SCM_POINTER_VALUE (u))
 #define JIT_WORD(u) ((jit_word_t) SCM_POINTER_VALUE (u))
-#define JIT_FLOAT32(u) ((float) scm_to_double (SCM_POINTER_VALUE (u)))
-#define JIT_FLOAT64(u) (scm_to_double (SCM_POINTER_VALUE (u)))
+#define JIT_FLOAT32(u) ((float) SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
+#define JIT_FLOAT64(u) (SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
 
 
 VOID_0 (jit_clear_state, "jit-clear-state")
