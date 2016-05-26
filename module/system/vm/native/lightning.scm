@@ -206,7 +206,7 @@
    jit-truncr-d-i jit-truncr-d-l jit-truncr-d ;; x86
    jit-extr-d jit-extr-f-d jit-movr-d jit-movi-d
 
-   jit-ldr-d jit-ldr-i jit-ldxr-d jit-ldxi-d
+   jit-ldr-d jit-ldi-d jit-ldxr-d jit-ldxi-d
    jit-str-d jit-sti-d jit-stxr-d jit-stxi-d
 
    jit-bltr-d jit-blti-d jit-bler-d jit-blei-d
