@@ -82,6 +82,7 @@
             define-scan
             define-ti
             define-anf
+            define-constant
 
             push-scan-sp-offset!
             pop-scan-sp-offset!
@@ -617,3 +618,26 @@ index referenced by dst, a, and b values at runtime."
                         (env (identifier-syntax %env)))
                      . body))))
     (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
+
+
+;;;
+;;; Macro for defining constant
+;;;
+
+(define-syntax define-constant
+  (syntax-rules ()
+    ((_ (name . args) expr)
+     (begin
+       (define-scan (name dst . args)
+         (let ((sp-offset (env-sp-offset env)))
+           (set-entry-type! env (+ dst sp-offset) &any)
+           (set-scan-initial-fields! env)))
+       (define-ti (name dst . args)
+         (let ((dst/i+sp (+ dst (env-sp-offset env))))
+           (set-inferred-type! env dst/i+sp (make-constant expr))))
+       (define-anf (name dst . args)
+         (let ((dst/i+sp (+ dst (current-sp-offset)))
+               (live-indices (env-live-indices env)))
+           (unless (memq dst/i+sp live-indices)
+             (set-env-live-indices! env (cons dst/i+sp live-indices)))
+           (next)))))))
