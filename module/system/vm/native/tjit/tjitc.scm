@@ -145,12 +145,12 @@
         (cond
          ((not implemented?)
           (tjit-increment-compilation-failure! entry-ip 3))
-         (uprec?
-          (nyi "up recursion"))
          ((and downrec?
                (not parent-snapshot)
                (unsupported-downrec-prologue? first-op))
           (nyi "down recursion starting with ~a" first-op))
+         (uprec?
+          (nyi "up recursion"))
          ((and uprec? (<= (env-last-sp-offset env) 0))
           (nyi "up recursion with down SP shift"))
          ((and uprec? (not (eq? 'return-values last-op)))
