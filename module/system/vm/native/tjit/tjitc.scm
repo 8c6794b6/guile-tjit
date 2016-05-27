@@ -68,7 +68,7 @@
                                          parent-exit-id)
                               #f))
          (origin (and=> parent-fragment get-origin-fragment))
-         (entry-ip (vector-ref (last traces) 1))
+         (entry-ip (vector-ref (car traces) 1))
          (dump-option (tjit-dump-option))
          (sline (addr->source-line entry-ip))
          (env
@@ -129,13 +129,10 @@
            exp))))
 
     (with-tjitc-error-handler env
-      (let*-values (((traces implemented?)
-                     (parse-bytecode env bytecode traces))
-                    ((last-op) (and (pair? traces)
-                                    (car (vector-ref (last traces) 0))))
-                    ((first-op) (and (pair? traces)
-                                     (car (vector-ref (car traces) 0))))
-                    ((port) (tjit-dump-log)))
+      (let ((implemented? (parse-bytecode env bytecode traces))
+            (last-op (car (vector-ref (last traces) 0)))
+            (first-op (car (vector-ref (car traces) 0)))
+            (port (tjit-dump-log)))
         (define (dump-sline-and-bytecode test)
           (dump tjit-dump-jitc? test (show-sline port))
           (dump tjit-dump-bytecode? test

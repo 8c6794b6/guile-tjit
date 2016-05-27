@@ -216,8 +216,10 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
   uprec_p = tj->trace_type == SCM_TJIT_TRACE_RETURN ? SCM_BOOL_T : SCM_BOOL_F;
 
   scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
-  scm_call_9 (tjitc_var, s_id, s_bytecode, tj->traces, s_parent_fragment_id,
-              s_parent_exit_id, linked_ip, loop_p, downrec_p, uprec_p);
+  scm_call_9 (tjitc_var, s_id, s_bytecode,
+              scm_reverse_x (tj->traces, SCM_EOL),
+              s_parent_fragment_id, s_parent_exit_id,
+              linked_ip, loop_p, downrec_p, uprec_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 }
 

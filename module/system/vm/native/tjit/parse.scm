@@ -93,6 +93,13 @@ After successufl parse, this procedure will update fields in ENV."
            dsts)))))
   (define (set-reversed-vector! setter getter)
     (setter env (list->vector (reverse! (getter env)))))
+  (define (%nyi op)
+    (let ((verbosity (lightning-verbosity)))
+      (if (and (number? verbosity) (<= 1 verbosity))
+          (lambda (op)
+            (debug 1 "NYI: ~a~%" (car op))
+            #f)
+          (nyi "~a" op))))
   (define (scan-trace env op ip dl locals)
     ;; Compute local indices and stack element types in op.
     ;;
@@ -103,13 +110,6 @@ After successufl parse, this procedure will update fields in ENV."
     ;; before `call', snapshot will recover a frame higher than the one used to
     ;; enter the native call.
     ;;
-    (define %nyi
-      (let ((verbosity (lightning-verbosity)))
-        (if (and (number? verbosity) (<= 1 verbosity))
-            (lambda ()
-              (debug 1 "NYI: ~a~%" (car op))
-              #f)
-            nyi)))
     (debug 2 ";;; [parse] call=~a return=~a op=~a~%"
            (env-call-num env) (env-return-num env) op)
     (let lp ((procs (hashq-ref *scan-procedures* (car op))))
@@ -118,10 +118,9 @@ After successufl parse, this procedure will update fields in ENV."
          (if (test op locals)
              (apply work env ip dl locals (cdr op))
              (lp procs)))
-        (_ (%nyi)))))
+        (_ (%nyi op)))))
   (define (go)
-    (let lp ((acc '()) (offset 0) (traces (reverse! traces))
-             (so-far-so-good? #t))
+    (let lp ((offset 0) (traces traces) (so-far-so-good? #t))
       (match traces
         ((trace . traces)
          (match trace
@@ -138,16 +137,15 @@ After successufl parse, this procedure will update fields in ENV."
                                        acc
                                        (lp (cdr types)
                                            (cons (car (car types)) acc)))))
-                             (buf (env-write-buf env))
                              ;; XXX: Avoid sorting indices after each step. May
                              ;; use other data type than list.
-                             (buf (cons (sort! ws <) buf)))
+                             (buf (cons (sort! ws <) (env-write-buf env))))
                         (increment-env-call-return-num! env op)
                         (set-env-write-buf! env buf)
                         ret)
                       #f)))
               (vector-set! trace 0 op)
-              (lp (cons trace acc) (+ offset len) traces implemented?)))
+              (lp (+ offset len) traces implemented?)))
            (_ (error "malformed trace" trace))))
         (()
          (let* ((linked-ip (env-linked-ip env))
@@ -199,9 +197,9 @@ After successufl parse, this procedure will update fields in ENV."
            (set-env-sp-offset! env initial-sp-offset)
            (set-env-fp-offset! env initial-fp-offset)
            (set-env-initialized! env #t))
-         (values (reverse! acc) so-far-so-good?)))))
+         so-far-so-good?))))
 
   (catch #t go
     (lambda (x y fmt args . z)
       (debug 2 "parse-bytecode: ~a~%" (apply format #f fmt args))
-      (values '() #f))))
+      #f)))
