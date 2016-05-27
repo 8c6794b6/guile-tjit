@@ -410,9 +410,10 @@ defines procedure for scanning locals and types. E.g:
   (define-ir (add (fixnum! dst) (fixnum a) (fixnum b))
     ...)
 
-will define two procedures: one for IR compilation taking three arguments, and
-another procedure for scanning locals and types. The procedure for scanner saves
-index referenced by dst, a, and b values at runtime."
+will define three procedures: one for IR compilation taking three arguments,
+another for type inference, and one more for scanning locals and types. The
+procedure for scanner saves index values referenced by dst, a, and b at
+runtime."
     ((_ (name (flag arg) ...) . body)
      (let ((test-proc
             (lambda (op locals)

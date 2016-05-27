@@ -275,18 +275,19 @@ inline depth by one."
                          (not (assq-ref inferred n)))
                     (assq-set! entry n t)
                     entry))
-         (entry (let lp ((current entry) (acc entry))
-                  (match current
-                    (((i 'copy . (? (lambda (x) (= x n)))) . current)
-                     ;; Unless the given type was `&any', update the copied
-                     ;; type. If copy was marked as `&any', initial stack load
-                     ;; might skip necessary locals.
-                     (lp current (if (eq? t &any)
-                                     acc
-                                     (assq-set! acc i t))))
-                    ((_ . current)
-                     (lp current acc))
-                    (() acc)))))
+         (n? (lambda (x) (= x n)))
+         (entry (if (eq? t &any)
+                    entry
+                    (let lp ((current entry) (acc entry))
+                      (match current
+                        (((i 'copy . (? n?)) . current)
+                         ;; Unless the given type was `&any', update the copied
+                         ;; type. If copy was marked as `&any', initial stack
+                         ;; load might skip necessary locals.
+                         (lp current (assq-set! acc i t)))
+                        ((_ . current)
+                         (lp current acc))
+                        (() acc))))))
     (set-env-entry-types! env entry)))
 
 (define (set-inferred-type! env n t)

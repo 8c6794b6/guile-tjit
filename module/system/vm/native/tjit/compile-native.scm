@@ -25,6 +25,7 @@
 ;;; Code:
 
 (define-module (system vm native tjit compile-native)
+  #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (ice-9 binary-ports)
@@ -243,15 +244,19 @@ DST-TYPES, and SRC-TYPES are local index number."
           ((a . as) (and (member a bs) (lp as)))
           (() #t))))
     (define (in-srcs? var)
-      (hash-fold (lambda (k v acc)
-                   (or acc (and (equal? v var) (hashq-ref dsts k))))
-                 #f
-                 srcs))
+      (call/ec
+       (lambda (escape)
+         (hash-fold (lambda (k v acc)
+                      (and (equal? v var) (escape (hashq-ref dsts k))))
+                    #f
+                    srcs))))
     (define (find-src-local var)
-      (hash-fold (lambda (k v ret)
-                   (or ret (and (equal? v var) k)))
-                 #f
-                 srcs))
+      (call/ec
+       (lambda (escape)
+         (hash-fold (lambda (k v ret)
+                      (and (equal? v var) (escape k)))
+                    #f
+                    srcs))))
     (define (unbox dst src type local)
       (debug 3 ";;; molc [local ~a] unbox ~a ~a ~a~%"
              local (physical-name dst) (physical-name src) (pretty-type type))
