@@ -140,9 +140,10 @@
          (diff (- stack-size (+ dst 1)))
          (sp-offset (env-sp-offset env)))
     (set-scan-initial-fields! env)
-    (do ((i dst (- i 1)))
-        ((< i 0))
-      (set-entry-type! env (+ i sp-offset) &scm))
+    (let lp ((i dst) (types '()))
+      (if (< i 0)
+          (set-entry-types! env types)
+          (lp (- i 1) (cons (cons i &scm) types))))
     (unless (zero? diff)
       (pop-scan-sp-offset! env diff))))
 

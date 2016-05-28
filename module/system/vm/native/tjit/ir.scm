@@ -322,30 +322,52 @@ returns, current call-num, and current return-num."
 
 (define-ir-syntax-parameters env ir ip ra dl locals next)
 
-(define-syntax-rule (gen-entry-type ty arg rest)
-  (let ((i (+ arg (env-sp-offset env))))
-    (set-entry-type! env i ty)
-    (gen-scan-type . rest)))
+(define-syntax maybe-update-live-indices
+  (syntax-rules ()
+    ((_ idx)
+     (let ((live-indices (env-live-indices env))
+           (idx+sp-offset (+ idx (current-sp-offset))))
+       (unless (memq idx+sp-offset live-indices)
+         (set-env-live-indices! env (cons idx+sp-offset live-indices)))))))
 
-(define-syntax gen-scan-type
+(define-syntax gen-scan-types*
   (syntax-rules (scm fixnum flonum fraction char procedure pair vector box
                      struct string bytevector u64 f64)
-    ((_) (values))
-    ((_ (scm arg) . rest) (gen-entry-type &scm arg rest))
-    ((_ (fixnum arg) . rest) (gen-entry-type &fixnum arg rest))
-    ((_ (flonum arg) . rest) (gen-entry-type &flonum arg rest))
-    ((_ (fraction arg) . rest) (gen-entry-type &fraction arg rest))
-    ((_ (char arg) . rest) (gen-entry-type &char arg rest))
-    ((_ (pair arg) . rest) (gen-entry-type &pair arg rest))
-    ((_ (procedure arg) . rest) (gen-entry-type &procedure arg rest))
-    ((_ (vector arg) . rest) (gen-entry-type &vector arg rest))
-    ((_ (box arg) . rest) (gen-entry-type &box arg rest))
-    ((_ (struct arg) . rest) (gen-entry-type &struct arg rest))
-    ((_ (string arg) . rest) (gen-entry-type &string arg rest))
-    ((_ (bytevector arg) . rest) (gen-entry-type &bytevector arg rest))
-    ((_ (u64 arg) . rest) (gen-entry-type &u64 arg rest))
-    ((_ (f64 arg) . rest) (gen-entry-type &f64 arg rest))
-    ((_ (other arg) . rest) (gen-scan-type . rest))))
+    ((_ acc (scm n) . rest)
+     (gen-scan-types* (`(,n . ,&scm) . acc) . rest))
+    ((_ acc (fixnum n) . rest)
+     (gen-scan-types* (`(,n . ,&fixnum) . acc) . rest))
+    ((_ acc (flonum n) . rest)
+     (gen-scan-types* (`(,n . ,&flonum) . acc) . rest))
+    ((_ acc (fraction n) . rest)
+     (gen-scan-types* (`(,n . ,&fraction) . acc) . rest))
+    ((_ acc (char n) . rest)
+     (gen-scan-types* (`(,n . ,&char) . acc) . rest))
+    ((_ acc (procedure n) . rest)
+     (gen-scan-types* (`(,n . ,&procedure) . acc) . rest))
+    ((_ acc (pair n) . rest)
+     (gen-scan-types* (`(,n . ,&pair) . acc) . rest))
+    ((_ acc (vector n) . rest)
+     (gen-scan-types* (`(,n . ,&vector) . acc) . rest))
+    ((_ acc (box n) . rest)
+     (gen-scan-types* (`(,n . ,&box) . acc) . rest))
+    ((_ acc (struct n) . rest)
+     (gen-scan-types* (`(,n . ,&struct) . acc) . rest))
+    ((_ acc (string n) . rest)
+     (gen-scan-types* (`(,n . ,&string) . acc) . rest))
+    ((_ acc (bytevector n) . rest)
+     (gen-scan-types* (`(,n . ,&bytevector) . acc) . rest))
+    ((_ acc (u64 n) . rest)
+     (gen-scan-types* (`(,n . ,&u64) . acc) . rest))
+    ((_ acc (f64 n) . rest)
+     (gen-scan-types* (`(,n . ,&f64) . acc) . rest))
+    ((_ acc (other n) . rest)
+     (gen-scan-types* acc . rest))
+    ((_ acc)
+     (set-entry-types! env (list . acc)))))
+
+(define-syntax-rule (gen-scan-types . expr)
+  (gen-scan-types* () . expr))
 
 (define-syntax gen-infer-type
   (syntax-rules (scm! fixnum! flonum! fraction! char! pair! vector!
@@ -377,14 +399,6 @@ returns, current call-num, and current return-num."
     ((_ (f64! arg) . rest)
      (set-inferred-type! env (+ arg (env-sp-offset env)) &f64))
     ((_ . other) (values))))
-
-(define-syntax maybe-update-live-indices
-  (syntax-rules ()
-    ((_ idx)
-     (let ((live-indices (env-live-indices env))
-           (idx+sp-offset (+ idx (current-sp-offset))))
-       (unless (memq idx+sp-offset live-indices)
-         (set-env-live-indices! env (cons idx+sp-offset live-indices)))))))
 
 (define-syntax gen-update-live-indices
   (syntax-rules (scm! fixnum! flonum! char! pair! vector! box! procedure!
@@ -434,7 +448,7 @@ runtime."
            (scan-proc
             (lambda (%env %ip %dl %locals arg ...)
               (syntax-parameterize ((env (identifier-syntax %env)))
-                (gen-scan-type (flag arg) ...))
+                (gen-scan-types (flag arg) ...))
               (set-scan-initial-fields! %env)
               #t))
            (ti-proc

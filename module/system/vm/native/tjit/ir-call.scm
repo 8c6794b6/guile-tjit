@@ -75,24 +75,31 @@
          (proc+offset (+ sp-proc sp-offset))
          (ra+offset (+ proc+offset 1))
          (dl+offset (+ ra+offset 1)))
-    (unless label?
-      (set-entry-type! env proc+offset &procedure))
-    ;; Using `&scm' type to fill in locals for return address and dynamic link,
-    ;; to skip the type guards.
+
+    ;; Using `&any' or `&procedure' type to fill in locals for procedure, `&scm'
+    ;; for return address and dynamic link, to suppress type guards.  Specifying
+    ;; each types in sequence, not using batch update procedure
+    ;; `set-entry-types!'.
+    ;;
+    ;; XXX: Batch update of proc, ra, and dle made some recursive codes to not
+    ;; work with dump option.
+    ;;
+    (set-entry-type! env proc+offset (if label? &any &procedure))
     (set-entry-type! env ra+offset &scm)
     (set-entry-type! env dl+offset &scm)
+
+    ;; Filling in arguments as `&scm' type. Also resolving copy entry type when
+    ;; the copy source index in inferred type matched with one of the arguments.
     (do ((n 1 (+ n 1)))
         ((<= nlocals n))
-      (let ((i (- (+ sp-proc sp-offset) n)))
-        (set-entry-type! env i &scm)))
-    (do ((n 0 (+ n 1)))
-        ((<= nlocals n))
-      (let ((i (- (+ sp-proc sp-offset) n)))
+      (let ((i (- proc+offset n)))
         (match (assq-ref (env-inferred-types env) i)
           (('copy . dst)
            (set-entry-type! env dst &scm))
           (_
-           (values)))))
+           (values)))
+        (set-entry-type! env i &scm)))
+
     (set-scan-initial-fields! env)
     (add-env-call! env)
     (push-scan-fp-offset! env proc)

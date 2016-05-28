@@ -74,6 +74,7 @@
             add-env-return!
             env-local-indices
             set-entry-type!
+            set-entry-types!
             set-inferred-type!
             applied-guard
             set-applied-guard!))
@@ -279,15 +280,44 @@ inline depth by one."
          (entry (if (eq? t &any)
                     entry
                     (let lp ((current entry) (acc entry))
+                      ;; Unless the given type was `&any', update the copied
+                      ;; type. If copy was marked as `&any', initial stack load
+                      ;; might skip necessary locals.
                       (match current
                         (((i 'copy . (? n?)) . current)
-                         ;; Unless the given type was `&any', update the copied
-                         ;; type. If copy was marked as `&any', initial stack
-                         ;; load might skip necessary locals.
                          (lp current (assq-set! acc i t)))
                         ((_ . current)
                          (lp current acc))
                         (() acc))))))
+    (set-env-entry-types! env entry)))
+
+;;; Variant ot `set-entry-type!' for batch update.
+(define (set-entry-types! env types)
+  (let* ((sp-offset (env-sp-offset env))
+         (inferred (env-inferred-types env))
+         (found? (lambda (i)
+                   (assq-ref (- i sp-offset) types)))
+         (entry (let lp ((types types) (entry (env-entry-types env)))
+                  (match types
+                    (((n . t) . types)
+                     (let ((i (+ n sp-offset)))
+                       (if (and (not (assq-ref entry i))
+                                (not (assq-ref inferred i)))
+                           (lp types (assq-set! entry i t))
+                           (lp types entry))))
+                    (()
+                     entry))))
+         (entry (let lp ((current entry) (acc entry))
+                  (match current
+                    (((i 'copy . (? found? t)) . current)
+                     ;; Test type with `&any', as in `set-entry-type!'.
+                     (lp current (if (eq? t &any)
+                                     acc
+                                     (assq-set! acc i t))))
+                    ((_ . current)
+                     (lp current acc))
+                    (_
+                     acc)))))
     (set-env-entry-types! env entry)))
 
 (define (set-inferred-type! env n t)
