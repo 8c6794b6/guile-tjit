@@ -1420,17 +1420,21 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                  ((fpr) (fpr->gpr r2 (fpr dst)))
                  ((mem) (memory-ref r2 dst))
                  (else (err))))
-        (n/r (case (ref-type n)
-               ((gpr) (gpr n))
-               ((fpr) (fpr->gpr r0 (fpr n)))
-               ((mem) (memory-ref r0 n))
-               (else (err))))
         (src/r (case (ref-type src)
                  ((gpr) (gpr src))
                  ((fpr) (fpr->gpr r1 (fpr src)))
                  ((mem) (memory-ref r1 src))
                  (else (err)))))
-    (jit-stxr-c n/r dst/r src/r)))
+    (case (ref-type n)
+      ((con)
+       (jit-stxi-c (con n) dst/r src/r))
+      (else
+       (let ((n/r (case (ref-type n)
+                    ((gpr) (gpr n))
+                    ((fpr) (fpr->gpr r0 (fpr n)))
+                    ((mem) (memory-ref r0 n))
+                    (else (err)))))
+         (jit-stxr-c n/r dst/r src/r))))))
 
 ;; Fill memory from DST for N words with SRC. The address of DST itself is not
 ;; filled, use %cset for such case.
