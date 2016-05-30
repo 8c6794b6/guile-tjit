@@ -717,7 +717,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	  {
 	    size_t len, printed;
 
-	    len = scm_i_string_length (exp);
+	    printed = len = scm_i_string_length (exp);
 	    if (SCM_WRITINGP (pstate))
 	      {
 		printed = write_string (scm_i_string_data (exp),
@@ -727,10 +727,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 		len += 2;		    /* account for the quotes */
 	      }
 	    else
-	      printed = display_string (scm_i_string_data (exp),
-					scm_i_is_narrow_string (exp),
-					len, port,
-					PORT_CONVERSION_HANDLER (port));
+              scm_c_put_string (port, exp, 0, len);
 
 	    if (SCM_UNLIKELY (printed < len))
 	      scm_encoding_error (__func__, errno,
