@@ -220,6 +220,8 @@ SCM_API void scm_c_put_utf32_chars (SCM port, const scm_t_uint32 *buf,
 SCM_API void scm_c_put_string (SCM port, SCM str, size_t start, size_t count);
 SCM_API SCM scm_put_string (SCM port, SCM str, SCM start, SCM count);
 SCM_API void scm_c_put_char (SCM port, scm_t_wchar ch);
+SCM_INTERNAL void scm_c_put_escaped_char (SCM port, scm_t_wchar ch);
+SCM_INTERNAL int scm_c_can_put_char (SCM port, scm_t_wchar ch);
 SCM_API void scm_putc (char c, SCM port);
 SCM_API void scm_puts (const char *str_data, SCM port);
 SCM_API void scm_lfwrite (const char *ptr, size_t size, SCM port);

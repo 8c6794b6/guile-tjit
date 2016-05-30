@@ -2937,6 +2937,14 @@ encode_escape_sequence (scm_t_wchar ch, scm_t_uint8 buf[ESCAPE_BUFFER_SIZE])
   return i;
 }
 
+void
+scm_c_put_escaped_char (SCM port, scm_t_wchar ch)
+{
+  scm_t_uint8 escape[ESCAPE_BUFFER_SIZE];
+  size_t len = encode_escape_sequence (ch, escape);
+  scm_c_put_latin1_chars (port, escape, len);
+}
+
 /* Convert CODEPOINT to UTF-8 and store the result in UTF8.  Return the
    number of bytes of the UTF-8-encoded string.  */
 static size_t
@@ -3277,6 +3285,45 @@ scm_c_put_char (SCM port, scm_t_wchar ch)
     }
 }
 
+/* Return 0 unless the port can be written out to the port's encoding
+   without errors, substitutions, or escapes.  */
+int
+scm_c_can_put_char (SCM port, scm_t_wchar ch)
+{
+  SCM encoding = SCM_PORT (port)->encoding;
+
+  if (scm_is_eq (encoding, sym_UTF_8)
+      || (scm_is_eq (encoding, sym_ISO_8859_1) && ch <= 0xff)
+      || scm_is_eq (encoding, sym_UTF_16)
+      || scm_is_eq (encoding, sym_UTF_16LE)
+      || scm_is_eq (encoding, sym_UTF_16BE)
+      || scm_is_eq (encoding, sym_UTF_32)
+      || scm_is_eq (encoding, sym_UTF_32LE)
+      || scm_is_eq (encoding, sym_UTF_32BE))
+    return 1;
+
+  {
+    SCM bv = scm_port_buffer_bytevector (scm_port_auxiliary_write_buffer (port));
+    scm_t_uint8 buf[UTF8_BUFFER_SIZE];
+    char *input = (char *) buf;
+    size_t input_len;
+    char *output = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
+    size_t output_len = SCM_BYTEVECTOR_LENGTH (bv);
+    size_t result;
+    iconv_t output_cd;
+
+    input_len = codepoint_to_utf8 (ch, buf);
+
+    scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
+    iconv (output_cd, NULL, NULL, &output, &output_len);
+    result = iconv (output_cd, &input, &input_len, &output, &output_len);
+    iconv (output_cd, NULL, NULL, &output, &output_len);
+    scm_port_release_iconv_descriptors (port);
+
+    return result != (size_t) -1;
+  }
+}
+
 void
 scm_c_put_string (SCM port, SCM string, size_t start, size_t count)
 {
@@ -3361,7 +3408,7 @@ scm_lfwrite_substr (SCM str, size_t start, size_t end, SCM port)
   if (end == (size_t) -1)
     end = scm_i_string_length (str);
 
-  scm_i_display_substring (str, start, end, port);
+  scm_c_put_string (port, str, start, end - start);
 }
 
 
