@@ -60,26 +60,8 @@
 
 /* Character printers.  */
 
-#define PORT_CONVERSION_HANDLER(port)		\
-  scm_i_string_failed_conversion_handler (scm_port_conversion_strategy (port))
-
-SCM_SYMBOL (sym_UTF_8, "UTF-8");
-SCM_SYMBOL (sym_ISO_8859_1, "ISO-8859-1");
-SCM_SYMBOL (sym_UTF_16, "UTF-16");
-SCM_SYMBOL (sym_UTF_32, "UTF-32");
-
-static size_t display_string (const void *, int, size_t, SCM,
-			      scm_t_string_failed_conversion_handler);
-
-static size_t write_string (const void *, int, size_t, SCM,
-			    scm_t_string_failed_conversion_handler);
-
-static int display_character (scm_t_wchar, SCM,
-			      scm_t_string_failed_conversion_handler);
-
-static void write_character (scm_t_wchar, SCM, int);
-
-static void write_character_escaped (scm_t_wchar, int, SCM);
+static void write_string (const void *, int, size_t, SCM);
+static void write_character (scm_t_wchar, SCM);
 
 
 
@@ -454,11 +436,8 @@ static void
 print_extended_symbol (SCM sym, SCM port)
 {
   size_t pos, len;
-  scm_t_string_failed_conversion_handler strategy;
 
   len = scm_i_symbol_length (sym);
-  strategy = PORT_CONVERSION_HANDLER (port);
-
   scm_lfwrite ("#{", 2, port);
 
   for (pos = 0; pos < len; pos++)
@@ -468,13 +447,7 @@ print_extended_symbol (SCM sym, SCM port)
       if (uc_is_general_category_withtable (c,
                                             SUBSEQUENT_IDENTIFIER_MASK
                                             | UC_CATEGORY_MASK_Zs))
-        {
-          if (!display_character (c, port, strategy)
-              || (c == '\\' && !display_character (c, port, strategy)))
-            scm_encoding_error ("print_extended_symbol", errno,
-                                "cannot convert to output locale",
-                                port, SCM_MAKE_CHAR (c));
-        }
+        scm_c_put_char (port, c);
       else
         {
           scm_lfwrite ("\\x", 2, port);
@@ -490,10 +463,8 @@ static void
 print_r7rs_extended_symbol (SCM sym, SCM port)
 {
   size_t pos, len;
-  scm_t_string_failed_conversion_handler strategy;
 
   len = scm_i_symbol_length (sym);
-  strategy = PORT_CONVERSION_HANDLER (port);
 
   scm_putc ('|', port);
 
@@ -518,12 +489,7 @@ print_r7rs_extended_symbol (SCM sym, SCM port)
                                                 | UC_CATEGORY_MASK_P
                                                 | UC_CATEGORY_MASK_S)
               || (c == ' '))
-            {
-              if (!display_character (c, port, strategy))
-                scm_encoding_error ("print_r7rs_extended_symbol", errno,
-                                    "cannot convert to output locale",
-                                    port, SCM_MAKE_CHAR (c));
-            }
+            scm_c_put_char (port, c);
           else
             {
               scm_lfwrite ("\\x", 2, port);
@@ -564,21 +530,6 @@ SCM_GPROC(s_display, "display", 1, 1, 0, scm_display, g_display);
 static void iprin1 (SCM exp, SCM port, scm_print_state *pstate);
 
 
-/* Print a character as an octal or hex escape.  */
-#define PRINT_CHAR_ESCAPE(i, port)              \
-  do                                            \
-    {                                           \
-      if (!SCM_R6RS_ESCAPES_P)                  \
-        scm_intprint (i, 8, port);              \
-      else                                      \
-        {                                       \
-          scm_puts ("x", port);                 \
-          scm_intprint (i, 16, port);           \
-        }                                       \
-    }                                           \
-  while (0)
-
-  
 void 
 scm_iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 {
@@ -641,15 +592,9 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
       if (SCM_CHARP (exp))
 	{
 	  if (SCM_WRITINGP (pstate))
-	    write_character (SCM_CHAR (exp), port, 0);
+	    write_character (SCM_CHAR (exp), port);
 	  else
-	    {
-	      if (!display_character (SCM_CHAR (exp), port,
-				      PORT_CONVERSION_HANDLER (port)))
-		scm_encoding_error (__func__, errno,
-				    "cannot convert to output locale",
-				    port, exp);
-	    }
+            scm_c_put_char (port, SCM_CHAR (exp));
 	}
       else if (SCM_IFLAGP (exp)
 	       && ((size_t) SCM_IFLAGNUM (exp) < (sizeof iflagnames / sizeof (char *))))
@@ -715,26 +660,15 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
           break;
         case scm_tc7_string:
 	  {
-	    size_t len, printed;
+	    size_t len = scm_i_string_length (exp);
 
-	    printed = len = scm_i_string_length (exp);
 	    if (SCM_WRITINGP (pstate))
-	      {
-		printed = write_string (scm_i_string_data (exp),
-					scm_i_is_narrow_string (exp),
-					len, port,
-					PORT_CONVERSION_HANDLER (port));
-		len += 2;		    /* account for the quotes */
-	      }
+              write_string (scm_i_string_data (exp),
+                            scm_i_is_narrow_string (exp),
+                            len, port);
 	    else
               scm_c_put_string (port, exp, 0, len);
-
-	    if (SCM_UNLIKELY (printed < len))
-	      scm_encoding_error (__func__, errno,
-				  "cannot convert to output locale",
-				  port, scm_c_string_ref (exp, printed));
 	  }
-
           scm_remember_upto_here_1 (exp);
           break;
 	case scm_tc7_symbol:
@@ -889,471 +823,89 @@ scm_prin1 (SCM exp, SCM port, int writingp)
     }
 }
 
-/* Convert codepoint CH to UTF-8 and store the result in UTF8.  Return
-   the number of bytes of the UTF-8-encoded string.  */
-static size_t
-codepoint_to_utf8 (scm_t_wchar ch, scm_t_uint8 utf8[4])
-{
-  size_t len;
-  scm_t_uint32 codepoint;
-
-  codepoint = (scm_t_uint32) ch;
-
-  if (codepoint <= 0x7f)
-    {
-      len = 1;
-      utf8[0] = (scm_t_uint8) codepoint;
-    }
-  else if (codepoint <= 0x7ffUL)
-    {
-      len = 2;
-      utf8[0] = 0xc0 | (codepoint >> 6);
-      utf8[1] = 0x80 | (codepoint & 0x3f);
-    }
-  else if (codepoint <= 0xffffUL)
-    {
-      len = 3;
-      utf8[0] = 0xe0 | (codepoint >> 12);
-      utf8[1] = 0x80 | ((codepoint >> 6) & 0x3f);
-      utf8[2] = 0x80 | (codepoint & 0x3f);
-    }
-  else
-    {
-      len = 4;
-      utf8[0] = 0xf0 | (codepoint >> 18);
-      utf8[1] = 0x80 | ((codepoint >> 12) & 0x3f);
-      utf8[2] = 0x80 | ((codepoint >> 6) & 0x3f);
-      utf8[3] = 0x80 | (codepoint & 0x3f);
-    }
-
-  return len;
-}
-
-#define STR_REF(s, x)				\
-  (narrow_p					\
-   ? (scm_t_wchar) ((unsigned char *) (s))[x]	\
-   : ((scm_t_wchar *) (s))[x])
-
-/* Write STR to PORT as UTF-8.  STR is a LEN-codepoint string; it is
-   narrow if NARROW_P is true, wide otherwise.  Return LEN.  */
-static size_t
-display_string_as_utf8 (const void *str, int narrow_p, size_t len,
-			SCM port)
-{
-  size_t printed = 0;
-
-  while (len > printed)
-    {
-      size_t utf8_len, i;
-      char *input, utf8_buf[256];
-
-      /* Convert STR to UTF-8.  */
-      for (i = printed, utf8_len = 0, input = utf8_buf;
-	   i < len && utf8_len + 4 < sizeof (utf8_buf);
-	   i++)
-	{
-	  utf8_len += codepoint_to_utf8 (STR_REF (str, i),
-					 (scm_t_uint8 *) input);
-	  input = utf8_buf + utf8_len;
-	}
-
-      /* INPUT was successfully converted, entirely; print the
-	 result.  */
-      scm_lfwrite (utf8_buf, utf8_len, port);
-      printed += i - printed;
-    }
-
-  assert (printed == len);
-
-  return len;
-}
-
-/* Write STR to PORT as ISO-8859-1.  STR is a LEN-codepoint string; it
-   is narrow if NARROW_P is true, wide otherwise.  Return LEN.  */
-static size_t
-display_string_as_latin1 (const void *str, int narrow_p, size_t len,
-                          SCM port,
-                          scm_t_string_failed_conversion_handler strategy)
-{
-  size_t printed = 0;
-
-  if (narrow_p)
-    {
-      scm_lfwrite (str, len, port);
-      return len;
-    }
-
-  while (printed < len)
-    {
-      char buf[256];
-      size_t i;
-
-      for (i = 0; i < sizeof(buf) && printed < len; i++, printed++)
-        {
-          scm_t_wchar c = STR_REF (str, printed);
-
-          if (c < 256)
-            buf[i] = c;
-          else
-            break;
-        }
-
-      scm_lfwrite (buf, i, port);
-
-      if (i < sizeof(buf) && printed < len)
-        {
-          if (strategy == SCM_FAILED_CONVERSION_ERROR)
-            break;
-          else if (strategy == SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE)
-            write_character_escaped (STR_REF (str, printed), 1, port);
-          else
-            /* STRATEGY is `SCM_FAILED_CONVERSION_QUESTION_MARK'.  */
-            display_string ("?", 1, 1, port, strategy);
-          printed++;
-        }
-    }
-
-  return printed;
-}
-
-/* Convert STR through PORT's output conversion descriptor and write the
-   output to PORT.  Return the number of codepoints written.  */
-static size_t
-display_string_using_iconv (const void *str, int narrow_p, size_t len,
-			    SCM port,
-			    scm_t_string_failed_conversion_handler strategy)
-{
-  size_t printed;
-  iconv_t output_cd;
-
-  printed = 0;
-
-  while (len > printed)
-    {
-      size_t done, utf8_len, input_left, output_left, i;
-      size_t codepoints_read, output_len;
-      char *input, *output;
-      char utf8_buf[256], encoded_output[256];
-      size_t offsets[256];
-
-      /* Convert STR to UTF-8.  */
-      for (i = printed, utf8_len = 0, input = utf8_buf;
-	   i < len && utf8_len + 4 < sizeof (utf8_buf);
-	   i++)
-	{
-	  offsets[utf8_len] = i;
-	  utf8_len += codepoint_to_utf8 (STR_REF (str, i),
-					 (scm_t_uint8 *) input);
-	  input = utf8_buf + utf8_len;
-	}
-
-      input = utf8_buf;
-      input_left = utf8_len;
-
-      output = encoded_output;
-      output_left = sizeof (encoded_output);
-
-      scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
-      done = iconv (output_cd, &input, &input_left, &output, &output_left);
-      scm_port_release_iconv_descriptors (port);
-
-      output_len = sizeof (encoded_output) - output_left;
-
-      if (SCM_UNLIKELY (done == (size_t) -1))
-	{
-          int errno_save = errno;
-
-	  /* Reset the `iconv' state.  */
-          scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
-	  iconv (output_cd, NULL, NULL, NULL, NULL);
-          scm_port_release_iconv_descriptors (port);
-
-	  /* Print the OUTPUT_LEN bytes successfully converted.  */
-	  scm_lfwrite (encoded_output, output_len, port);
-
-	  /* See how many input codepoints these OUTPUT_LEN bytes
-	     corresponds to.  */
-	  codepoints_read = offsets[input - utf8_buf] - printed;
-	  printed += codepoints_read;
-
-	  if (errno_save == EILSEQ &&
-	      strategy != SCM_FAILED_CONVERSION_ERROR)
-	    {
-	      /* Conversion failed somewhere in INPUT and we want to
-		 escape or substitute the offending input character.  */
-
-	      if (strategy == SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE)
-		{
-		  scm_t_wchar ch;
-
-		  /* Find CH, the offending codepoint, and escape it.  */
-		  ch = STR_REF (str, offsets[input - utf8_buf]);
-		  write_character_escaped (ch, 1, port);
-		}
-	      else
-		/* STRATEGY is `SCM_FAILED_CONVERSION_QUESTION_MARK'.  */
-		display_string ("?", 1, 1, port, strategy);
-
-	      printed++;
-	    }
-	  else
-	    /* Something bad happened that we can't handle: bail out.  */
-	    break;
-	}
-      else
-	{
-	  /* INPUT was successfully converted, entirely; print the
-	     result.  */
-	  scm_lfwrite (encoded_output, output_len, port);
-	  codepoints_read = i - printed;
-	  printed += codepoints_read;
-	}
-    }
-
-  return printed;
-}
-
-/* Display the LEN codepoints in STR to PORT according to STRATEGY;
-   return the number of codepoints successfully displayed.  If NARROW_P,
-   then STR is interpreted as a sequence of `char', denoting a Latin-1
-   string; otherwise it's interpreted as a sequence of
-   `scm_t_wchar'.  */
-static size_t
-display_string (const void *str, int narrow_p,
-		size_t len, SCM port,
-		scm_t_string_failed_conversion_handler strategy)
-{
-  scm_t_port *pt;
-
-  pt = SCM_PORT (port);
-
-  if (scm_is_eq (pt->encoding, sym_UTF_8))
-    return display_string_as_utf8 (str, narrow_p, len, port);
-  else if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
-    return display_string_as_latin1 (str, narrow_p, len, port, strategy);
-  else
-    return display_string_using_iconv (str, narrow_p, len, port, strategy);
-}
-
-/* Attempt to display CH to PORT according to STRATEGY.  Return one if
-   CH was successfully displayed, zero otherwise (e.g., if it was not
-   representable in PORT's encoding.)  */
-static int
-display_character (scm_t_wchar ch, SCM port,
-		   scm_t_string_failed_conversion_handler strategy)
-{
-  return display_string (&ch, 0, 1, port, strategy) == 1;
-}
-
-/* Same as 'display_string', but using the 'write' syntax.  */
-static size_t
-write_string (const void *str, int narrow_p,
-	      size_t len, SCM port,
-	      scm_t_string_failed_conversion_handler strategy)
-{
-  size_t printed;
-
-  printed = display_character ('"', port, strategy);
-
-  if (printed > 0)
-    {
-      size_t i;
-
-      for (i = 0; i < len; ++i)
-	{
-	  write_character (STR_REF (str, i), port, 1);
-	  printed++;
-	}
-
-      printed += display_character ('"', port, strategy);
-    }
-
-  return printed;
-}
-
-#undef STR_REF
-
-/* Attempt to pretty-print CH, a combining character, to PORT.  Return
-   zero upon failure, non-zero otherwise.  The idea is to print CH above
-   a dotted circle to make it more visible.  */
-static int
-write_combining_character (scm_t_wchar ch, SCM port)
-{
-  scm_t_wchar str[2];
-
-  str[0] = SCM_CODEPOINT_DOTTED_CIRCLE;
-  str[1] = ch;
-
-  return display_string (str, 0, 2, port, iconveh_error) == 2;
-}
-
-/* Write CH to PORT in its escaped form, using the string escape syntax
-   if STRING_ESCAPES_P is non-zero.  */
 static void
-write_character_escaped (scm_t_wchar ch, int string_escapes_p, SCM port)
+write_string (const void *str, int narrow_p, size_t len, SCM port)
 {
-  if (string_escapes_p)
+  size_t i;
+
+  scm_c_put_char (port, (scm_t_uint8) '"');
+
+  for (i = 0; i < len; ++i)
     {
-      /* Represent CH using the in-string escape syntax.  */
-
-      static const char hex[] = "0123456789abcdef";
-      static const char escapes[7] = "abtnvfr";
-      char buf[9];
-
-      if (ch >= 0x07 && ch <= 0x0D && ch != 0x0A)
-	{
-	  /* Use special escapes for some C0 controls.  */
-	  buf[0] = '\\';
-	  buf[1] = escapes[ch - 0x07];
-	  scm_lfwrite (buf, 2, port);
-	}
-      else if (!SCM_R6RS_ESCAPES_P)
-	{
-	  if (ch <= 0xFF)
-	    {
-	      buf[0] = '\\';
-	      buf[1] = 'x';
-	      buf[2] = hex[ch / 16];
-	      buf[3] = hex[ch % 16];
-	      scm_lfwrite (buf, 4, port);
-	    }
-	  else if (ch <= 0xFFFF)
-	    {
-	      buf[0] = '\\';
-	      buf[1] = 'u';
-	      buf[2] = hex[(ch & 0xF000) >> 12];
-	      buf[3] = hex[(ch & 0xF00) >> 8];
-	      buf[4] = hex[(ch & 0xF0) >> 4];
-	      buf[5] = hex[(ch & 0xF)];
-	      scm_lfwrite (buf, 6, port);
-	    }
-	  else if (ch > 0xFFFF)
-	    {
-	      buf[0] = '\\';
-	      buf[1] = 'U';
-	      buf[2] = hex[(ch & 0xF00000) >> 20];
-	      buf[3] = hex[(ch & 0xF0000) >> 16];
-	      buf[4] = hex[(ch & 0xF000) >> 12];
-	      buf[5] = hex[(ch & 0xF00) >> 8];
-	      buf[6] = hex[(ch & 0xF0) >> 4];
-	      buf[7] = hex[(ch & 0xF)];
-	      scm_lfwrite (buf, 8, port);
-	    }
-	}
+      scm_t_wchar ch;
+      if (narrow_p)
+        ch = (scm_t_wchar) ((unsigned char *) (str))[i];
       else
-	{
-	  /* Print an R6RS variable-length hex escape: "\xNNNN;".  */
-	  scm_t_wchar ch2 = ch;
+        ch = ((scm_t_wchar *) (str))[i];
 
-	  int i = 8;
-	  buf[i] = ';';
-	  i --;
-	  if (ch == 0)
-	    buf[i--] = '0';
-	  else
-	    while (ch2 > 0)
-	      {
-		buf[i] = hex[ch2 & 0xF];
-		ch2 >>= 4;
-		i --;
-	      }
-	  buf[i] = 'x';
-	  i --;
-	  buf[i] = '\\';
-	  scm_lfwrite (buf + i, 9 - i, port);
-	}
+      /* Write CH to PORT, escaping it if it's non-graphic or not
+         representable in PORT's encoding.  If CH needs to be escaped,
+         it is escaped using the in-string escape syntax.  */
+      if (ch == '"')
+        scm_c_put_latin1_chars (port, (const scm_t_uint8 *) "\\\"", 2);
+      else if (ch == '\\')
+        scm_c_put_latin1_chars (port, (const scm_t_uint8 *) "\\\\", 2);
+      else if (ch == '\n' && SCM_PRINT_ESCAPE_NEWLINES_P)
+        scm_c_put_latin1_chars (port, (const scm_t_uint8 *) "\\n", 2);
+      else if (ch == ' ' || ch == '\n'
+               || (uc_is_general_category_withtable (ch,
+                                                     UC_CATEGORY_MASK_L |
+                                                     UC_CATEGORY_MASK_M |
+                                                     UC_CATEGORY_MASK_N |
+                                                     UC_CATEGORY_MASK_P |
+                                                     UC_CATEGORY_MASK_S)
+                   && scm_c_can_put_char (port, ch)))
+        scm_c_put_char (port, ch);
+      else
+        scm_c_put_escaped_char (port, ch);
     }
+
+  scm_c_put_char (port, (scm_t_uint8) '"');
+}
+
+/* Write CH to PORT, escaping it if it's non-graphic or not
+   representable in PORT's encoding.  The character escape syntax is
+   used.  */
+static void
+write_character (scm_t_wchar ch, SCM port)
+{
+  scm_puts ("#\\", port);
+
+  /* Pretty-print a combining characters over dotted circles, if
+     possible, to make them more visible.  */
+  if (uc_combining_class (ch) != UC_CCC_NR
+      && scm_c_can_put_char (port, SCM_CODEPOINT_DOTTED_CIRCLE)
+      && scm_c_can_put_char (port, ch))
+    {
+      scm_c_put_char (port, SCM_CODEPOINT_DOTTED_CIRCLE);
+      scm_c_put_char (port, ch);
+    }
+  else if (uc_is_general_category_withtable (ch,
+                                             UC_CATEGORY_MASK_L |
+                                             UC_CATEGORY_MASK_M |
+                                             UC_CATEGORY_MASK_N |
+                                             UC_CATEGORY_MASK_P |
+                                             UC_CATEGORY_MASK_S)
+           && scm_c_can_put_char (port, ch))
+    /* CH is graphic and encodeable; display it.  */
+    scm_c_put_char (port, ch);
   else
+    /* CH isn't graphic or cannot be represented in PORT's encoding.  */
     {
       /* Represent CH using the character escape syntax.  */
       const char *name;
 
       name = scm_i_charname (SCM_MAKE_CHAR (ch));
       if (name != NULL)
-	scm_puts (name, port);
+        scm_puts (name, port);
+      else if (!SCM_R6RS_ESCAPES_P)
+        scm_intprint (ch, 8, port);
       else
-	PRINT_CHAR_ESCAPE (ch, port);
-    }
-}
-
-/* Write CH to PORT, escaping it if it's non-graphic or not
-   representable in PORT's encoding.  If STRING_ESCAPES_P is true and CH
-   needs to be escaped, it is escaped using the in-string escape syntax;
-   otherwise the character escape syntax is used.  */
-static void
-write_character (scm_t_wchar ch, SCM port, int string_escapes_p)
-{
-  int printed = 0;
-  scm_t_string_failed_conversion_handler strategy;
-
-  strategy = PORT_CONVERSION_HANDLER (port);
-
-  if (string_escapes_p)
-    {
-      /* Check if CH deserves special treatment.  */
-      if (ch == '"' || ch == '\\')
-	{
-	  display_character ('\\', port, iconveh_question_mark);
-	  display_character (ch, port, strategy);
-	  printed = 1;
-	}
-      else if (ch == '\n' && SCM_PRINT_ESCAPE_NEWLINES_P)
         {
-	  display_character ('\\', port, iconveh_question_mark);
-	  display_character ('n', port, strategy);
-	  printed = 1;
+          scm_puts ("x", port);
+          scm_intprint (ch, 16, port);
         }
-      else if (ch == ' ' || ch == '\n')
-	{
-	  display_character (ch, port, strategy);
-	  printed = 1;
-	}
     }
-  else
-    {
-      display_string ("#\\", 1, 2, port, iconveh_question_mark);
-
-      if (uc_combining_class (ch) != UC_CCC_NR)
-	/* Character is a combining character, so attempt to
-	   pretty-print it.  */
-	printed = write_combining_character (ch, port);
-    }
-
-  if (!printed
-      && uc_is_general_category_withtable (ch,
-					   UC_CATEGORY_MASK_L |
-					   UC_CATEGORY_MASK_M |
-					   UC_CATEGORY_MASK_N |
-					   UC_CATEGORY_MASK_P |
-					   UC_CATEGORY_MASK_S))
-    /* CH is graphic; attempt to display it.  */
-    printed = display_character (ch, port, iconveh_error);
-
-  if (!printed)
-    /* CH isn't graphic or cannot be represented in PORT's encoding.  */
-    write_character_escaped (ch, string_escapes_p, port);
-}
-
-/* Display STR to PORT from START inclusive to END exclusive.  */
-void
-scm_i_display_substring (SCM str, size_t start, size_t end, SCM port)
-{
-  int narrow_p;
-  const char *buf;
-  size_t len, printed;
-
-  buf = scm_i_string_data (str);
-  len = end - start;
-  narrow_p = scm_i_is_narrow_string (str);
-  buf += start * (narrow_p ? sizeof (char) : sizeof (scm_t_wchar));
-
-  printed = display_string (buf, narrow_p, end - start, port,
-			    PORT_CONVERSION_HANDLER (port));
-
-  if (SCM_UNLIKELY (printed < len))
-    scm_encoding_error (__func__, errno,
-			"cannot convert to output locale",
-			port, scm_c_string_ref (str, printed + start));
 }
 
 
@@ -1655,16 +1207,13 @@ SCM_DEFINE (scm_write_char, "write-char", 1, 1, 0,
 {
   if (SCM_UNBNDP (port))
     port = scm_current_output_port ();
+  else
+    port = SCM_COERCE_OUTPORT (port);
 
   SCM_VALIDATE_CHAR (1, chr);
-  SCM_VALIDATE_OPORT_VALUE (2, port);
+  SCM_VALIDATE_OPOUTPORT (2, port);
 
-  port = SCM_COERCE_OUTPORT (port);
-  if (!display_character (SCM_CHAR (chr), port,
-			  PORT_CONVERSION_HANDLER (port)))
-    scm_encoding_error (__func__, errno,
-			"cannot convert to output locale",
-			port, chr);
+  scm_c_put_char (port, SCM_CHAR (chr));
 
   return SCM_UNSPECIFIED;
 }

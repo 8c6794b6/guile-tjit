@@ -79,8 +79,6 @@ SCM_API SCM scm_print_options (SCM setting);
 SCM_API SCM scm_make_print_state (void);
 SCM_API void scm_free_print_state (SCM print_state);
 SCM_INTERNAL SCM scm_i_port_with_print_state (SCM port, SCM print_state);
-SCM_INTERNAL void scm_i_display_substring (SCM str, size_t start, size_t end,
-					   SCM port);
 SCM_API void scm_intprint (scm_t_intmax n, int radix, SCM port);
 SCM_API void scm_uintprint (scm_t_uintmax n, int radix, SCM port);
 SCM_API void scm_ipruk (char *hdr, SCM ptr, SCM port);
