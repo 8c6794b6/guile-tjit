@@ -436,16 +436,18 @@ symbol_has_extended_read_syntax (SCM sym)
 static void
 print_normal_symbol (SCM sym, SCM port)
 {
-  size_t len;
-  scm_t_string_failed_conversion_handler strategy;
-
-  len = scm_i_symbol_length (sym);
-  strategy = PORT_CONVERSION_HANDLER (port);
+  size_t len = scm_i_symbol_length (sym);
 
   if (scm_i_is_narrow_symbol (sym))
-    display_string (scm_i_symbol_chars (sym), 1, len, port, strategy);
+    {
+      const char *ptr = scm_i_symbol_chars (sym);
+      scm_c_put_latin1_chars (port, (const scm_t_uint8 *) ptr, len);
+    }
   else
-    display_string (scm_i_symbol_wide_chars (sym), 0, len, port, strategy);
+    {
+      const scm_t_wchar *ptr = scm_i_symbol_wide_chars (sym);
+      scm_c_put_utf32_chars (port, (const scm_t_uint32 *) ptr, len);
+    }
 }
 
 static void
