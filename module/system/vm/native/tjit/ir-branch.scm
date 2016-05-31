@@ -31,6 +31,7 @@
   #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
@@ -232,10 +233,10 @@
 
 (define-syntax define-br-binary-arith-scm-scm
   (syntax-rules ()
-    ((_  name op-scm op-fx-t op-fx-f op-fl-t op-fl-f)
+    ((_  name op-scm op-fx-t op-fx-f op-fl-t op-fl-f op-c)
      (begin
        (define-ir (name (scm a) (scm b) (const invert) (const offset))
-         ;; XXX: Delegate bignum, complex, and rational to C function.
+         ;; XXX: Delegate to C function `op-c'.
          (nyi "~s: et=(scm scm) it=(~a ~a)" 'name
               (pretty-type (type-ref a)) (pretty-type (type-ref b))))
        (define-ir (name (fixnum a) (fixnum b) (const invert) (const offset))
@@ -243,11 +244,7 @@
           a b invert offset op-scm ra rb va vb dest
           (let* ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
                  (a/t (type-ref a))
-                 (b/t (type-ref b))
-                 (next-thunk (lambda ()
-                               `(let ((_ ,(take-snapshot! ip dest)))
-                                  (let ((_ (,op ,va ,vb)))
-                                    ,(next))))))
+                 (b/t (type-ref b)))
             (ensure-loop (op-scm ra rb) invert offset 3)
             (with-type-guard &fixnum a
               (with-type-guard &fixnum b
@@ -318,9 +315,9 @@
               (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
                    (pretty-type a/t) (pretty-type b/t)))))))))))
 
-(define-br-binary-arith-scm-scm br-if-= = %eq %ne %feq %fne)
-(define-br-binary-arith-scm-scm br-if-< < %lt %ge %flt %fge)
-(define-br-binary-arith-scm-scm br-if-<= <= %le %gt %fle %fgt)
+(define-br-binary-arith-scm-scm br-if-= = %eq %ne %feq %fne %ceq)
+(define-br-binary-arith-scm-scm br-if-< < %lt %ge %flt %fge %clt)
+(define-br-binary-arith-scm-scm br-if-<= <= %le %gt %fle %fgt %cle)
 
 (define-syntax define-br-binary-arith-u64-u64
   (syntax-rules ()
@@ -339,9 +336,10 @@
 
 (define-syntax define-br-binary-arith-u64-scm
   (syntax-rules ()
-    ((_ name op-scm op-fx-t op-fx-f op-fl-t op-fl-f)
+    ((_ name op-scm op-fx-t op-fx-f op-fl-t op-fl-f op-c)
      (begin
        (define-ir (name (u64 a) (scm b) (const invert) (const offset))
+         ;; XXX: Delegate to C function `op-c'.
          (nyi "~s: et=(u64 scm) it=(u64 ~a)" 'name
               (pretty-type (type-ref b))))
        (define-ir (name (u64 a) (flonum b) (const invert) (const offset))
@@ -380,8 +378,8 @@
                    (let ((_ (,op ,va ,r2)))
                      ,(next))))))))))))
 
-(define-br-binary-arith-u64-scm br-if-u64-=-scm = %eq %ne %eq %ne)
-(define-br-binary-arith-u64-scm br-if-u64-<-scm < %lt %ge %flt %fge)
-(define-br-binary-arith-u64-scm br-if-u64-<=-scm <= %le %gt %fle %fgt)
-(define-br-binary-arith-u64-scm br-if-u64->-scm > %gt %le %fgt %fle)
-(define-br-binary-arith-u64-scm br-if-u64->=-scm >= %ge %lt %fge %flt)
+(define-br-binary-arith-u64-scm br-if-u64-=-scm = %eq %ne %eq %ne %ceq)
+(define-br-binary-arith-u64-scm br-if-u64-<-scm < %lt %ge %flt %fge %clt)
+(define-br-binary-arith-u64-scm br-if-u64-<=-scm <= %le %gt %fle %fgt %cle)
+(define-br-binary-arith-u64-scm br-if-u64->-scm > %gt %le %fgt %fle %cgt)
+(define-br-binary-arith-u64-scm br-if-u64->=-scm >= %ge %lt %fge %flt %cge)

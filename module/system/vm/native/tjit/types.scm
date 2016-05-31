@@ -90,7 +90,9 @@
             %tc7-array
             %tc7-bitvector
             %tc7-port
+            %tc16-bignum
             %tc16-real
+            %tc16-complex
             %tc16-fraction
 
             *ti-procedures*
@@ -162,29 +164,21 @@
        ...))))
 
 (define-tcx
-  %tc2-int
-  %tc3-imm24
-  %tc3-cons
-  %tc8-char
-  %tc3-struct
-  %tc7-symbol
-  %tc7-variable
-  %tc7-vector
-  %tc7-wvect
-  %tc7-string
-  %tc7-number
-  %tc7-hashtable
-  %tc7-pointer
-  %tc7-fluid
-  %tc7-stringbuf
-  %tc7-keyword
-  %tc7-program
-  %tc7-bytevector
-  %tc7-array
-  %tc7-bitvector
-  %tc7-port
-  %tc16-real
-  %tc16-fraction)
+  ;; Immediate values.
+  %tc2-int %tc3-imm24
+
+  %tc3-cons %tc3-int1 %tc3-int2
+
+  %tc8-char %tc8-flag
+
+  ;; Cell types.
+  %tc3-struct %tc7-symbol %tc7-variable %tc7-vector %tc7-wvect %tc7-string
+  %tc7-number %tc7-hashtable %tc7-pointer %tc7-fluid %tc7-stringbuf
+  %tc7-dynamic-state %tc7-frame %tc7-keyword %tc7-program %tc7-vm-continuation
+  %tc7-bytevector %tc7-weak-set %tc7-weak-table %tc7-array %tc7-bitvector
+  %tc7-port %tc7-smob
+
+  %tc16-bignum %tc16-real %tc16-complex %tc16-fraction)
 
 ;;;
 ;;; Exported hash table

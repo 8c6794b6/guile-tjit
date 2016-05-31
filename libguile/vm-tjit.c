@@ -906,6 +906,20 @@ scm_init_vm_tjit (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/vm-tjit.x"
 #endif
+
+  /* Define gsubr for not fixnum or flonum SCM types. */
+  scm_c_define_gsubr ("%cadd", 2, 0, 0, scm_sum);
+  scm_c_define_gsubr ("%csub", 2, 0, 0, scm_difference);
+  scm_c_define_gsubr ("%cmul", 2, 0, 0, scm_product);
+  scm_c_define_gsubr ("%cdiv", 2, 0, 0, scm_divide);
+  scm_c_define_gsubr ("%cquo", 2, 0, 0, scm_quotient);
+  scm_c_define_gsubr ("%crem", 2, 0, 0, scm_remainder);
+  scm_c_define_gsubr ("%cmod", 2, 0, 0, scm_modulo);
+  scm_c_define_gsubr ("%ceq", 2, 0, 0, scm_num_eq_p);
+  scm_c_define_gsubr ("%clt", 2, 0, 0, scm_less_p);
+  scm_c_define_gsubr ("%cle", 2, 0, 0, scm_leq_p);
+  scm_c_define_gsubr ("%cgt", 2, 0, 0, scm_gr_p);
+  scm_c_define_gsubr ("%cge", 2, 0, 0, scm_geq_p);
 }
 
 /*

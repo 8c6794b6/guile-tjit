@@ -64,6 +64,10 @@
             tjit-register-gdb-jit-entry!
             make-negative-pointer
 
+            %cadd %csub %cmul %cdiv
+            %cquo %crem %cmod
+            %ceq %clt %cle %cgt %cge
+
             tjit-dump-abort?
             tjit-dump-bytecode?
             tjit-dump-dwarf?

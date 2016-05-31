@@ -27,9 +27,10 @@
 (define-module (system vm native tjit ir-numeric)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit env)
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
@@ -43,11 +44,22 @@
        (scm-ref a) (pretty-type (type-ref a))
        (scm-ref b) (pretty-type (type-ref b))))
 
+(define-syntax-rule (define-binary-scm-scm-c name op-c)
+  (define-ir (name (scm! dst) (scm a) (scm b))
+    (let* ((a/v (src-ref a))
+           (b/v (src-ref b))
+           (dst/v (dst-ref dst)))
+      `(let ((_ (%carg ,b/v)))
+         (let ((_ (%carg ,a/v)))
+           (let ((,dst/v (%ccall ,(object-address op-c))))
+             ,(next)))))))
+
 ;; Definition order matters, define general types first, then follows
 ;; more specific types.
-(define-syntax-rule (define-add-sub-scm-scm name op-fx1 op-fx2 op-fl)
+(define-syntax-rule (define-add-sub-scm-scm name op-fx1 op-fx2 op-fl op-c)
   (begin
     (define-ir (name (scm! dst) (scm a) (scm b))
+      ;; XXX: Use op-c.
       (nyi-binary 'name 'scm 'scm a b))
     (define-ir (name (fixnum! dst) (fixnum a) (fixnum b))
       (let* ((a/v (src-ref a))
@@ -209,14 +221,15 @@
           `(let ((,dst/v (op-fx ,src/v ,(* imm 4))))
              ,(next)))))))
 
-(define-add-sub-scm-scm add %add %sub %fadd)
+(define-add-sub-scm-scm add %add %sub %fadd %cadd)
 (define-add-sub-scm-imm add/immediate %add)
-(define-add-sub-scm-scm sub %sub %add %fsub)
+(define-add-sub-scm-scm sub %sub %add %fsub %csub)
 (define-add-sub-scm-imm sub/immediate %sub)
 
-(define-syntax-rule (define-mul-div-scm-scm name op-fx op-fl)
+(define-syntax-rule (define-mul-div-scm-scm name op-fx op-fl op-c)
   (begin
     (define-ir (name (scm! dst) (scm a) (scm b))
+      ;; XXX: Use op-c.
       (nyi-binary 'name 'scm 'scm a b))
     (define-ir (name (flonum! dst) (flonum a) (fraction b))
       (let* ((a/v (src-ref a))
@@ -373,8 +386,8 @@
          (else
           (nyi-binary 'name 'flonum 'flonum a b)))))))
 
-(define-mul-div-scm-scm mul %mulov %fmul)
-(define-mul-div-scm-scm div %div %fdiv)
+(define-mul-div-scm-scm mul %mulov %fmul %cmul)
+(define-mul-div-scm-scm div %div %fdiv %cdiv)
 
 (define-ir (div (fraction! dst) (fixnum a) (fixnum b))
   (let* ((a/v (src-ref a))
@@ -422,6 +435,10 @@
 (define-nyi-binary-scm-scm mod)
 (define-nyi-binary-scm-scm quo)
 (define-nyi-binary-scm-scm rem)
+
+;; (define-binary-scm-scm-c mod %cmod)
+;; (define-binary-scm-scm-c quo %cquo)
+;; (define-binary-scm-scm-c rem %crem)
 
 (define-binary-arith-fx-fx mul %mulov #f)
 (define-binary-arith-fx-fx mod %mod #t)
