@@ -3238,6 +3238,25 @@ SCM_DEFINE (scm_port_encode_chars, "port-encode-chars", 5, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM scm_port_encode_char (SCM, SCM, SCM);
+SCM_DEFINE (scm_port_encode_char, "port-encode-char", 3, 0, 0,
+            (SCM port, SCM buf, SCM ch),
+            "")
+#define FUNC_NAME s_scm_port_encode_char
+{
+  scm_t_uint32 codepoint;
+
+  SCM_VALIDATE_OPOUTPORT (1, port);
+  SCM_VALIDATE_VECTOR (2, buf);
+  SCM_VALIDATE_CHAR (3, ch);
+
+  codepoint = SCM_CHAR (ch);
+  encode_utf32_chars (port, buf, &codepoint, 1);
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 void
 scm_c_put_latin1_chars (SCM port, const scm_t_uint8 *chars, size_t len)
 {

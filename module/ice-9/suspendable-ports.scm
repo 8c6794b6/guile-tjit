@@ -660,15 +660,26 @@
                (port-line-buffered? port))
       (flush-output port))))
 
+(define* (put-char port char)
+  (let ((aux (port-auxiliary-write-buffer port)))
+    (set-port-buffer-cur! aux 0)
+    (port-clear-stream-start-for-bom-write port aux)
+    (port-encode-char port aux char)
+    (let ((end (port-buffer-end aux)))
+      (set-port-buffer-end! aux 0)
+      (put-bytevector port (port-buffer-bytevector aux) 0 end))
+    (when (and (eqv? char #\newline) (port-line-buffered? port))
+      (flush-output port))))
+
 (define saved-port-bindings #f)
 (define port-bindings
-  '(((guile) read-char peek-char force-output close-port)
+  '(((guile)
+     read-char peek-char force-output close-port)
     ((ice-9 binary-ports)
      get-u8 lookahead-u8 get-bytevector-n
      put-u8 put-bytevector)
     ((ice-9 textual-ports)
-     ;; FIXME: put-char
-     put-string)
+     put-char put-string)
     ((ice-9 rdelim) %read-line read-line read-delimited)))
 (define (install-suspendable-ports!)
   (unless saved-port-bindings

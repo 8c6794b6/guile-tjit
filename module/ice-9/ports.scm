@@ -187,6 +187,7 @@ interpret its input and output."
             specialize-port-encoding!
             port-random-access?
             port-decode-char
+            port-encode-char
             port-encode-chars
             port-read-buffering
             port-poll
@@ -235,6 +236,7 @@ interpret its input and output."
                        %port-encoding
                        specialize-port-encoding!
                        port-decode-char
+                       port-encode-char
                        port-encode-chars
                        port-random-access?
                        port-read-buffering
