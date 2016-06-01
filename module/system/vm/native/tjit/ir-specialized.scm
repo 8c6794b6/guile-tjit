@@ -109,22 +109,24 @@
 ;; XXX: compose-continuation
 ;; XXX: tail-apply
 
-;; XXX: call/cc
-;; (define-ir (call/cc)
-;;   (let ((cont/v (var-ref 0))
-;;         (dst/v (var-ref 1))
-;;         (cont/l (scm-ref 0))
-;;         (r2 (make-tmpvar 2)))
-;;     (debug 1 ";;; [IR] call/cc, cont/l=~a program-code=~x~%"
-;;            cont/l (program-code cont/l))
-;;     `(let ((_ ,(take-snapshot! ip 0)))
-;;        (let ((,r2 (%cref ,cont/v 1)))
-;;          (let ((_ (%eq ,r2 ,(program-code cont/l))))
-;;            (let ((,r2 (%cont)))
-;;              (let ((_ (%ne ,r2 #x904)))
-;;                (let ((,dst/v ,cont/v))
-;;                  (let ((,cont/v ,r2))
-;;                    ,(next))))))))))
+(define-ir (call/cc)
+  (let ((cont/v (var-ref 0))
+        (dst/v (var-ref 1))
+        (cont/l (scm-ref 0))
+        (r2 (make-tmpvar 2)))
+
+    (debug 1 ";;; [IR] call/cc, cont/l=~a program-code=~x ra=~x dl=~x~%"
+           cont/l (program-code cont/l) ra dl)
+
+    ;; Using special IP key to skip restoring stack element on bailout.
+    ;;
+    ;; Before bailout code of call/cc, stack elements have been filled in with
+    ;; captured data data by continuation-call.
+    `(let ((_ ,(take-snapshot! *ip-key-longjmp* 0)))
+       (let ((,r2 (%cont ,(- (ir-snapshot-id ir) 1))))
+         (let ((,dst/v ,cont/v))
+           (let ((,cont/v ,r2))
+             ,(next)))))))
 
 ;; XXX: abort
 

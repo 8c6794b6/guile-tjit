@@ -79,107 +79,6 @@
   (sp-ref r0 local)
   (unbox-stack-element dst r0 type))
 
-;; Uses `guard-type', which requires syntax-parameter `asm', hence this is
-;; defined as macro.
-(define-syntax-rule (store-frame local type src)
-  (let ((err (lambda ()
-               (failure 'store-frame "~s ~a ~s"
-                        local (pretty-type type) src))))
-    (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
-           local (pretty-type type) (and src (physical-name src)))
-    (cond
-     ((return-address? type)
-      ;; Moving value coupled with type to frame local. Return address of VM
-      ;; frame need to be recovered when taking exit from inlined procedure
-      ;; call. The actual value for return address is captured at the time of
-      ;; Scheme IR conversion and stored in snapshot.
-      (jit-movi r0 (imm (return-address-ip type)))
-      (sp-set! local r0))
-
-     ((dynamic-link? type)
-      ;; Storing dynamid link to local. Dynamic link record type contains offset
-      ;; in the field. VM may use different value at the time of compilation and
-      ;; execution.
-      (jit-movi r0 (imm (dynamic-link-offset type)))
-      (sp-set! local r0))
-
-     ((constant? type)
-      (let ((val (constant-value type)))
-        (cond
-         ((flonum? val)
-          (jit-movi r0 (scm->pointer val))
-          (sp-set! local r0))
-         (else
-          (jit-movi r0 (imm (constant-value type)))
-          (sp-set! local r0)))))
-
-     ;; Floating point values
-     ((eq? type &flonum)
-      (case (ref-type src)
-        ((con)
-         (jit-movi-d f0 (con src))
-         (scm-from-double r0 f0)
-         (sp-set! local r0))
-        ((gpr)
-         (gpr->fpr f0 (gpr src))
-         (scm-from-double r0 f0)
-         (sp-set! local r0))
-        ((fpr)
-         (scm-from-double r0 (fpr src))
-         (sp-set! local r0))
-        ((mem)
-         (memory-ref/f f0 src)
-         (scm-from-double r0 f0)
-         (sp-set! local r0))
-        (else (err))))
-     ((eq? type &f64)
-      (case (ref-type src)
-        ((con)
-         (jit-movi-d f0 (con src))
-         (sp-set!/f local f0))
-        ((gpr)
-         (gpr->fpr f0 (gpr src))
-         (sp-set!/f local f0))
-        ((fpr)
-         (sp-set!/f local (fpr src)))
-        ((mem)
-         (memory-ref/f f0 src)
-         (sp-set!/f local f0))
-        (else (err))))
-
-     ;; Refilled immediates
-     ((eq? type &false)
-      (jit-movi r0 *scm-false*)
-      (sp-set! local r0))
-     ((eq? type &undefined)
-      (jit-movi r0 *scm-undefined*)
-      (sp-set! local r0))
-     ((eq? type &unspecified)
-      (jit-movi r0 *scm-unspecified*)
-      (sp-set! local r0))
-
-     ((not src)
-      (values))
-
-     ;; XXX: `fixnum' need boxing when the value was greater than
-     ;; `most-positive-fixnum' or less than `most-negative-fixnum'.
-
-     ;; Cell values
-     (else
-      (case (ref-type src)
-        ((con)
-         (jit-movi r0 (con src))
-         (sp-set! local r0))
-        ((gpr)
-         (sp-set! local (gpr src)))
-        ((fpr)
-         (fpr->gpr r0 (fpr src))
-         (sp-set! local r0))
-        ((mem)
-         (memory-ref r0 src)
-         (sp-set! local r0))
-        (else (err)))))))
-
 (define (maybe-store %asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES."
   (debug 3 ";;; maybe-store:~%")
@@ -386,6 +285,7 @@ DST-TYPES, and SRC-TYPES are local index number."
      (let* ((epilog-label (jit-label))
             (_ (begin
                  (jit-patch epilog-label)
+                 (jit-retr %retval)
                  (jit-epilog)
                  (jit-realize)))
             (estimated-size (jit-code-size))
@@ -501,7 +401,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                      (vars0 (snapshot-variables snap0))
                      (references (make-hash-table))
                      (storage (fragment-storage parent-fragment))
-                     (asm (make-asm storage #f #t #f)))
+                     (asm (make-asm storage #f #t #f #f)))
                 (let lp ((locals0 locals0) (vars0 vars0))
                   (match (cons locals0 vars0)
                     ((((local . _) . locals0) . (var . vars0))
@@ -597,7 +497,7 @@ DST-TYPES, and SRC-TYPES are local index number."
      (let* ((linked-fragment (env-linked-fragment env))
             (end-address (and=> linked-fragment fragment-end-address))
             (save-volatiles? (env-save-volatiles? env))
-            (asm (make-asm storage end-address #t save-volatiles?))
+            (asm (make-asm storage end-address #t save-volatiles? snapshots))
             (gen-bailouts (compile-ops asm entry storage '())))
        (let-values (((loop-label gen-bailouts)
                      (compile-loop asm loop storage gen-bailouts)))
@@ -621,29 +521,30 @@ DST-TYPES, and SRC-TYPES are local index number."
                (_ (values)))))
 
          ;; Choose order to shift SP and store frame by sign of SP.
-         (cond
-          ((= sp-offset 0)
-           (store-locals 0)
-           (shift-fp nlocals))
-          ((< sp-offset 0)
-           (shift-sp env %asm sp-offset)
-           (store-locals sp-offset)
-           (shift-fp nlocals))
-          (else
-           (store-locals 0)
-           (shift-sp env %asm sp-offset)
-           (shift-fp nlocals)))
+         (unless (snapshot-longjmp? snapshot)
+           (cond
+            ((= sp-offset 0)
+             (store-locals 0)
+             (shift-fp nlocals))
+            ((< sp-offset 0)
+             (shift-sp env %asm sp-offset)
+             (store-locals sp-offset)
+             (shift-fp nlocals))
+            (else
+             (store-locals 0)
+             (shift-sp env %asm sp-offset)
+             (shift-fp nlocals)))
 
-         ;; Sync next IP with vp->ip for VM.
-         (jit-movi r0 (imm ip))
-         (vm-sync-ip r0)
+           ;; Sync next IP with vp->ip for VM.
+           (jit-movi r0 (imm ip))
+           (vm-sync-ip r0)
 
-         ;; Set tjit return values for VM interpreter.
-         (jit-prepare)
-         (jit-pushargi (imm id))
-         (jit-pushargi (scm->pointer self-fragment))
-         (jit-pushargi (scm->pointer origin))
-         (jit-calli %scm-set-tjit-retval)
+           ;; Set tjit return values for VM interpreter.
+           (jit-prepare)
+           (jit-pushargi (imm id))
+           (jit-pushargi (scm->pointer self-fragment))
+           (jit-pushargi (scm->pointer origin))
+           (jit-calli %scm-set-tjit-retval))
 
          ;; Debug code to dump tjit-retval and locals.
          (let ((dump-option (tjit-dump-option)))
@@ -659,7 +560,12 @@ DST-TYPES, and SRC-TYPES are local index number."
                (load-vp r0)
                (jit-pushargr r0)
                (jit-calli %scm-tjit-dump-locals))))
+
+         (if (snapshot-longjmp? snapshot)
+             (jit-movi %retval (imm 0))
+             (jit-movi %retval (imm 1)))
          (jumpi end-address)
+
          (cons id entry))
         (_
          (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot))))))

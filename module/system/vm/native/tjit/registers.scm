@@ -41,6 +41,7 @@
             %fp
             %sp
             %thread
+            %retval
             register-name))
 
 ;;;
@@ -82,6 +83,9 @@
 
 ;; Non-volatile register to hold thread.
 (define-syntax %thread (identifier-syntax r13))
+
+;; Volatile register to hold retval.
+(define-syntax %retval (identifier-syntax r0))
 
 ;; Non-volatile registers. `r3' from Lightning is R12, which is non-volatile in
 ;; Linux's calling convention sense, but Lightning sometimes internally uses

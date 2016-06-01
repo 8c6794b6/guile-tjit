@@ -89,6 +89,9 @@ TESTS = \
 	t-call-label-02.scm \
 	t-call-label-03.scm \
 	t-call-label-04.scm \
+	t-call-cc-01.scm \
+	t-call-cc-02.scm \
+	t-call-cc-03.scm \
 	t-div-01.scm \
 	t-div-02.scm \
 	t-div-03.scm \

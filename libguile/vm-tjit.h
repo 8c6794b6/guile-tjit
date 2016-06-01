@@ -54,9 +54,8 @@ struct scm_tjit_state
 };
 
 /* Function pointer type of compiled trace */
-typedef void (*scm_t_native_code) (scm_i_thread *thread,
-                                   struct scm_vm *vp,
-                                   scm_i_jmp_buf *registers);
+typedef int (*scm_t_native_code) (scm_i_thread *thread, struct scm_vm *vp,
+                                  scm_i_jmp_buf *registers);
 
 SCM_API void
 scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits exit_ip,

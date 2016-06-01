@@ -56,9 +56,11 @@
             snapshot-link?
             snapshot-downrec?
             snapshot-uprec?
+            snapshot-longjmp?
             *ip-key-link*
             *ip-key-downrec*
-            *ip-key-uprec*))
+            *ip-key-uprec*
+            *ip-key-longjmp*))
 
 
 ;; Record type for snapshot.
@@ -140,6 +142,7 @@
 (define *ip-key-link* 0)
 (define *ip-key-downrec* 1)
 (define *ip-key-uprec* 2)
+(define *ip-key-longjmp* 3)
 
 (define (snapshot-link? snapshot)
   (= (snapshot-ip snapshot) *ip-key-link*))
@@ -149,3 +152,6 @@
 
 (define (snapshot-uprec? snapshot)
   (= (snapshot-ip snapshot) *ip-key-uprec*))
+
+(define (snapshot-longjmp? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-longjmp*))

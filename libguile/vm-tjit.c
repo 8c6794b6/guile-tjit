@@ -436,45 +436,49 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   SCM exit_counts, count, ret_fragment;
   size_t max_retries, exit_id;
   scm_t_native_code fn;
+  int has_retval;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
   code = SCM_FRAGMENT_CODE (fragment);
   fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
 
   /* Run the native code. */
-  fn (thread, vp, registers);
+  has_retval = fn (thread, vp, registers);
 
   /* Back to interpreter. Native code sets some of the fields in tj
      during bailout, using them to decide what to do next. */
-  origin = SCM_PACK (tj->ret_origin);
-  ret_fragment = SCM_PACK (tj->ret_fragment);
-  exit_id = tj->ret_exit_id;
-  exit_counts = SCM_FRAGMENT_EXIT_COUNTS (ret_fragment);
-  count = SCM_SIMPLE_VECTOR_REF (exit_counts, exit_id);
-  max_retries = SCM_I_INUM (tjit_hot_exit) + SCM_I_INUM (tjit_try_sides);
-
-  if (SCM_I_INUM (count) < max_retries
-      && SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
+  if (has_retval)
     {
-      count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
-      SCM_SIMPLE_VECTOR_SET (exit_counts, exit_id, count);
+      origin = SCM_PACK (tj->ret_origin);
+      ret_fragment = SCM_PACK (tj->ret_fragment);
+      exit_id = tj->ret_exit_id;
+      exit_counts = SCM_FRAGMENT_EXIT_COUNTS (ret_fragment);
+      count = SCM_SIMPLE_VECTOR_REF (exit_counts, exit_id);
+      max_retries = SCM_I_INUM (tjit_hot_exit) + SCM_I_INUM (tjit_try_sides);
 
-      if (tjit_hot_exit < count)
+      if (SCM_I_INUM (count) < max_retries
+          && SCM_FRAGMENT_NUM_CHILD (origin) < tjit_max_sides)
         {
-          SCM parent_fragment_id = SCM_FRAGMENT_ID (ret_fragment);
-          scm_t_uint32 *start = vp->ip;
-          scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
+          count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
+          SCM_SIMPLE_VECTOR_SET (exit_counts, exit_id, count);
 
-          tj->parent_fragment_id = SCM_I_INUM (parent_fragment_id);
-          tj->parent_exit_id = (int) exit_id;
-          start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP);
+          if (tjit_hot_exit < count)
+            {
+              SCM parent_fragment_id = SCM_FRAGMENT_ID (ret_fragment);
+              scm_t_uint32 *start = vp->ip;
+              scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
+
+              tj->parent_fragment_id = SCM_I_INUM (parent_fragment_id);
+              tj->parent_exit_id = (int) exit_id;
+              start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP);
+            }
         }
     }
 
-  /* Tell GC to keep fields in VP. */
-  scm_remember_upto_here (SCM_PACK_POINTER (vp->ip),
-                          SCM_PACK_POINTER (vp->sp),
-                          SCM_PACK_POINTER (vp->fp));
+ /* Tell GC to keep fields in VP. */
+  scm_remember_upto_here_1 (SCM_PACK_POINTER (vp->ip));
+  scm_remember_upto_here_1 (SCM_PACK_POINTER (vp->sp));
+  scm_remember_upto_here_1 (SCM_PACK_POINTER (vp->fp));
 }
 
 static inline struct scm_tjit_state*
@@ -737,7 +741,7 @@ scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
 SCM
 scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp)
 {
-  SCM vm_cont;
+  SCM vm_cont, cont;
   scm_t_dynstack *dynstack;
   int first;
 
@@ -748,9 +752,9 @@ scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp)
                                     SCM_FRAME_RETURN_ADDRESS (vp->fp),
                                     dynstack,
                                     0);
+  cont = scm_i_make_continuation (&first, vp, vm_cont);
 
-  /* XXX: Return the contents of `first'. */
-  return scm_i_make_continuation (&first, vp, vm_cont);
+  return cont;
 }
 
 void

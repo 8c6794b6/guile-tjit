@@ -84,7 +84,8 @@
             vm-handle-interrupts
             vm-expand-stack
             unbox-stack-element
-            guard-type))
+            guard-type
+            store-frame))
 
 (define (make-signed-pointer addr)
   (if (<= 0 addr)
@@ -437,7 +438,7 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm volatiles exit end-address cargs gc-inline?)
+  (%make-asm volatiles exit end-address cargs gc-inline? snapshots)
   asm?
 
   ;; Volatile registers in use.
@@ -453,9 +454,12 @@
   (cargs asm-cargs set-asm-cargs!)
 
   ;; Flag to use C functions from "libguile/gc-inline.h".
-  (gc-inline? asm-gc-inline?))
+  (gc-inline? asm-gc-inline?)
 
-(define (make-asm storage end-address gc-inline save-volatiles?)
+  ;; Snapshots, used when capturing stack.
+  (snapshots asm-snapshots))
+
+(define (make-asm storage end-address gc-inline save-volatiles? snapshots)
   (define (volatile-regs-in-use storage)
     (hash-fold (lambda (_ reg acc)
                  (if (or (and reg (gpr? reg)
@@ -470,7 +474,7 @@
   (let ((volatiles (volatile-regs-in-use storage)))
     (when save-volatiles?
       (for-each store-volatile volatiles))
-    (%make-asm volatiles #f end-address '() gc-inline)))
+    (%make-asm volatiles #f end-address '() gc-inline snapshots)))
 
 (define-syntax jump
   (syntax-rules ()
@@ -1195,6 +1199,105 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (else
          (failure 'unbox-stack-element "~s ~s ~s" dst src type)))))
 
+(define-syntax-rule (store-frame local type src)
+  (let ((err (lambda ()
+               (failure 'store-frame "~s ~a ~s"
+                        local (pretty-type type) src))))
+    (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
+           local (pretty-type type) (and src (physical-name src)))
+    (cond
+     ((return-address? type)
+      ;; Moving value coupled with type to frame local. Return address of VM
+      ;; frame need to be recovered when taking exit from inlined procedure
+      ;; call. The actual value for return address is captured at the time of
+      ;; Scheme IR conversion and stored in snapshot.
+      (jit-movi r0 (imm (return-address-ip type)))
+      (sp-set! local r0))
+
+     ((dynamic-link? type)
+      ;; Storing dynamid link to local. Dynamic link record type contains offset
+      ;; in the field. VM may use different value at the time of compilation and
+      ;; execution.
+      (jit-movi r0 (imm (dynamic-link-offset type)))
+      (sp-set! local r0))
+
+     ((constant? type)
+      (let ((val (constant-value type)))
+        (cond
+         ((flonum? val)
+          (jit-movi r0 (scm->pointer val))
+          (sp-set! local r0))
+         (else
+          (jit-movi r0 (imm (constant-value type)))
+          (sp-set! local r0)))))
+
+     ;; Floating point values
+     ((eq? type &flonum)
+      (case (ref-type src)
+        ((con)
+         (jit-movi-d f0 (con src))
+         (scm-from-double r0 f0)
+         (sp-set! local r0))
+        ((gpr)
+         (gpr->fpr f0 (gpr src))
+         (scm-from-double r0 f0)
+         (sp-set! local r0))
+        ((fpr)
+         (scm-from-double r0 (fpr src))
+         (sp-set! local r0))
+        ((mem)
+         (memory-ref/f f0 src)
+         (scm-from-double r0 f0)
+         (sp-set! local r0))
+        (else (err))))
+     ((eq? type &f64)
+      (case (ref-type src)
+        ((con)
+         (jit-movi-d f0 (con src))
+         (sp-set!/f local f0))
+        ((gpr)
+         (gpr->fpr f0 (gpr src))
+         (sp-set!/f local f0))
+        ((fpr)
+         (sp-set!/f local (fpr src)))
+        ((mem)
+         (memory-ref/f f0 src)
+         (sp-set!/f local f0))
+        (else (err))))
+
+     ;; Refilled immediates
+     ((eq? type &false)
+      (jit-movi r0 *scm-false*)
+      (sp-set! local r0))
+     ((eq? type &undefined)
+      (jit-movi r0 *scm-undefined*)
+      (sp-set! local r0))
+     ((eq? type &unspecified)
+      (jit-movi r0 *scm-unspecified*)
+      (sp-set! local r0))
+
+     ((not src)
+      (values))
+
+     ;; XXX: `fixnum' need boxing when the value was greater than
+     ;; `most-positive-fixnum' or less than `most-negative-fixnum'.
+
+     ;; Cell values
+     (else
+      (case (ref-type src)
+        ((con)
+         (jit-movi r0 (con src))
+         (sp-set! local r0))
+        ((gpr)
+         (sp-set! local (gpr src)))
+        ((fpr)
+         (fpr->gpr r0 (fpr src))
+         (sp-set! local r0))
+        ((mem)
+         (memory-ref r0 src)
+         (sp-set! local r0))
+        (else (err)))))))
+
 ;; Type check local N with TYPE and load to gpr or memory DST.
 (define-native (%fref (int dst) (void n) (void type))
   (let ((tref (ref-value type)))
@@ -1637,8 +1740,26 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-native (%move (int dst) (int src))
   (move dst src))
 
-(define-native (%cont (int dst))
-  (let ((volatiles (asm-volatiles asm)))
+(define-native (%cont (int dst) (void id))
+  (let ((volatiles (asm-volatiles asm))
+        (proceed (jit-forward)))
+
+    ;; While making continuation, stack contents will get copied to continuation
+    ;; data. Store register contents to stack before calling
+    ;; `scm-make-continuation', to use updated stack element.
+    (match (hashq-ref (asm-snapshots asm) (ref-value id))
+      (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
+       (let lp ((locals locals) (vars vars))
+         (match (cons locals vars)
+           ((((n . t) . locals) . (v . vars))
+            (store-frame n t v)
+            (lp locals vars))
+           (_
+            (values)))))
+      (_
+       (failure '%cont "not a snapshot")))
+
+    ;; Make continuation data via C function.
     (for-each store-volatile volatiles)
     (jit-prepare)
     (jit-pushargr %thread)
@@ -1649,4 +1770,15 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (for-each (lambda (reg)
                 (unless (equal? reg dst)
                   (load-volatile reg)))
-              volatiles)))
+              volatiles)
+
+    ;; Bailout when returned continuation was #<undefined>.
+    (let ((dst/r (case (ref-type dst)
+                   ((gpr) (gpr dst))
+                   ((fpr) (fpr->gpr r0 (fpr dst)))
+                   ((mem) (memory-ref r0 dst)))))
+      (jump (jit-bnei dst/r *scm-undefined*) proceed)
+      (jump (bailout)))
+
+    ;; Made new continuation, proceed.
+    (jit-link proceed)))

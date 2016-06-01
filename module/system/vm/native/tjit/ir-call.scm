@@ -66,7 +66,10 @@
   (zero? (logand pflag scm-f-program-is-bytecode-mask)))
 
 (define (primitive-program? pflag)
-  (not (zero? (logand pflag #x200))))
+  (not (zero? (logand pflag scm-f-program-is-primitive))))
+
+(define (continuation-program? pflag)
+  (not (zero? (logand pflag scm-f-program-is-continuation))))
 
 (define-syntax-rule (scan-call proc nlocals label?)
   (let* ((stack-size (vector-length locals))
@@ -157,6 +160,14 @@
                  (let ((,r2 (%cref ,r2 1)))
                    (let ((_ (%eq ,r2 ,(pointer-address free-ref0))))
                      ,(thunk)))))))))
+     ((continuation-program? flag)
+      (let ((code (program-code proc)))
+        `(let ((,r2 (%cref ,var 0)))
+           (let ((,r2 (%band ,r2 ,scm-f-program-is-continuation)))
+             (let ((_ (%ne ,r2 0)))
+               (let ((,r2 (%cref ,var 1)))
+                 (let ((_ (%eq ,r2 ,code)))
+                   ,(thunk))))))))
      (else
       (nyi "with-callee-guard: ~a" proc)))))
 

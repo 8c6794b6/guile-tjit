@@ -73,7 +73,7 @@
         (_
          ;; Call to inlined GC functions caused segfault when running
          ;; tests. Passing false to `gc-inline?' argument in `make-asm'.
-         (let ((asm (make-asm t #f #f #f)))
+         (let ((asm (make-asm t #f #f #f #f)))
            (set-asm-exit! asm exit)
            (let lp ((ops (reverse! acc)))
              (match ops
