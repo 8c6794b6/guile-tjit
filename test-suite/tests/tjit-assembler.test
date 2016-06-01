@@ -43,7 +43,7 @@
 
 (define (reify-asm-variable x)
   (cond
-   ((number? x)   (make-constant x))
+   ((number? x)   (make-con x))
    ((eq? x 'ret)  (make-gpr -1))
    ((eq? x 'arg1) (make-gpr -1))
    ((eq? x 'arg2) (make-gpr -2))
