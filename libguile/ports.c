@@ -1497,7 +1497,6 @@ scm_i_read_bytes (SCM port, SCM dst, size_t start, size_t count)
    caller. */
 enum bom_io_mode { BOM_IO_TEXT, BOM_IO_BINARY };
 static size_t port_clear_stream_start_for_bom_read (SCM, enum bom_io_mode);
-static void port_clear_stream_start_for_bom_write (SCM, enum bom_io_mode);
 
 /* Used by an application to read arbitrary number of bytes from an SCM
    port.  Same semantics as libc read, except that scm_c_read_bytes only
@@ -2455,10 +2454,10 @@ SCM_DEFINE (scm_port_clear_stream_start_for_bom_read,
 }
 #undef FUNC_NAME
 
-SCM_INTERNAL SCM scm_port_clear_stream_start_for_bom_write (SCM port);
+SCM_INTERNAL SCM scm_port_clear_stream_start_for_bom_write (SCM, SCM);
 SCM_DEFINE (scm_port_clear_stream_start_for_bom_write,
-            "port-clear-stream-start-for-bom-write", 1, 0, 0,
-            (SCM port),
+            "port-clear-stream-start-for-bom-write", 1, 1, 0,
+            (SCM port, SCM buf),
             "")
 #define FUNC_NAME s_scm_port_clear_stream_start_for_bom_write
 {
@@ -2468,64 +2467,56 @@ SCM_DEFINE (scm_port_clear_stream_start_for_bom_write,
 
   pt = SCM_PORT (port);
   if (!pt->at_stream_start_for_bom_write)
-    return SCM_BOOL_F;
+    return SCM_INUM0;
 
   pt->at_stream_start_for_bom_write = 0;
   if (pt->rw_random)
     pt->at_stream_start_for_bom_read = 0;
 
-  /* Record that we're no longer at stream start.  */
-  pt->at_stream_start_for_bom_write = 0;
-  if (pt->rw_random)
-    pt->at_stream_start_for_bom_read = 0;
+  if (SCM_UNBNDP (buf))
+    return SCM_INUM0;
 
-  /* Return a BOM if appropriate.  */
+  /* Write a BOM if appropriate.  */
   if (scm_is_eq (pt->encoding, sym_UTF_16))
     {
       SCM precise_encoding;
-      SCM bom = scm_c_make_bytevector (sizeof (scm_utf16be_bom));
+      size_t ret;
+
       scm_port_acquire_iconv_descriptors (port, NULL, NULL);
       precise_encoding = pt->precise_encoding;
       scm_port_release_iconv_descriptors (port);
-      memcpy (SCM_BYTEVECTOR_CONTENTS (bom),
-              scm_is_eq (precise_encoding, sym_UTF_16LE)
-              ? scm_utf16le_bom : scm_utf16be_bom,
-              SCM_BYTEVECTOR_LENGTH (bom));
-      return bom;
+
+      if (scm_is_eq (precise_encoding, sym_UTF_16LE))
+        ret = scm_port_buffer_put (buf, scm_utf16le_bom,
+                                   sizeof (scm_utf16le_bom));
+      else
+        ret = scm_port_buffer_put (buf, scm_utf16be_bom,
+                                   sizeof (scm_utf16be_bom));
+
+      return scm_from_size_t (ret);
     }
   else if (scm_is_eq (pt->encoding, sym_UTF_32))
     {
       SCM precise_encoding;
-      SCM bom = scm_c_make_bytevector (sizeof (scm_utf32be_bom));
+      size_t ret;
+
       scm_port_acquire_iconv_descriptors (port, NULL, NULL);
       precise_encoding = pt->precise_encoding;
       scm_port_release_iconv_descriptors (port);
-      memcpy (SCM_BYTEVECTOR_CONTENTS (bom),
-              scm_is_eq (precise_encoding, sym_UTF_32LE)
-              ? scm_utf32le_bom : scm_utf32be_bom,
-              SCM_BYTEVECTOR_LENGTH (bom));
-      return bom;
+
+      if (scm_is_eq (precise_encoding, sym_UTF_32LE))
+        ret = scm_port_buffer_put (buf, scm_utf32le_bom,
+                                   sizeof (scm_utf32le_bom));
+      else
+        ret = scm_port_buffer_put (buf, scm_utf32be_bom,
+                                   sizeof (scm_utf32be_bom));
+
+      return scm_from_size_t (ret);
     }
 
-  return SCM_BOOL_F;
+  return SCM_INUM0;
 }
 #undef FUNC_NAME
-
-static void
-port_clear_stream_start_for_bom_write (SCM port, enum bom_io_mode io_mode)
-{
-  scm_t_port *pt = SCM_PORT (port);
-  SCM bom;
-
-  /* Fast path.  */
-  if (!pt->at_stream_start_for_bom_write)
-    return;
-
-  bom = scm_port_clear_stream_start_for_bom_write (port);
-
-  if (io_mode == BOM_IO_TEXT && scm_is_true (bom))
-    scm_c_write_bytes (port, bom, 0, SCM_BYTEVECTOR_LENGTH (bom));
-}
 
 SCM
 scm_fill_input (SCM port, size_t minimum_size)
@@ -2752,10 +2743,7 @@ scm_i_write (SCM port, SCM buf)
 {
   size_t start, count;
 
-  /* The default is BOM_IO_TEXT.  Binary output procedures should
-     port_clear_stream_start_for_bom_write with BOM_IO_BINARY before
-     filling the input buffers.  */
-  port_clear_stream_start_for_bom_write (port, BOM_IO_TEXT);
+  scm_port_clear_stream_start_for_bom_write (port, SCM_UNDEFINED);
 
   /* Update cursors before attempting to write, assuming that I/O errors
      are sticky.  That way if the write throws an error, causing the
@@ -2982,257 +2970,294 @@ codepoint_to_utf8 (scm_t_uint32 codepoint, scm_t_uint8 utf8[UTF8_BUFFER_SIZE])
   return len;
 }
 
-/* We writing, we always iconv from UTF-8.  Also in this function we
-   only see complete codepoints.  */
-static void
-put_utf8_chars_to_iconv_port (SCM port, const scm_t_uint8 *buf, size_t len)
+static size_t
+try_encode_char_to_iconv_buf (SCM port, SCM buf, scm_t_uint32 ch)
 {
-  SCM bv = scm_port_buffer_bytevector (scm_port_auxiliary_write_buffer (port));
-  scm_t_uint8 *aux = (scm_t_uint8*) SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t aux_len = SCM_BYTEVECTOR_LENGTH (bv);
+  scm_t_uint8 utf8[UTF8_BUFFER_SIZE];
+  size_t utf8_len = codepoint_to_utf8 (ch, utf8);
+  scm_t_uint8 *aux = scm_port_buffer_put_pointer (buf);
+  size_t can_put = scm_port_buffer_can_put (buf);
   iconv_t output_cd;
-  scm_t_wchar bad_codepoint;
   int saved_errno;
 
-  while (len)
+  char *input = (char *) utf8;
+  size_t input_left = utf8_len;
+  char *output = (char *) aux;
+  size_t output_left = can_put;
+  size_t res;
+
+  scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
+  res = iconv (output_cd, &input, &input_left, &output, &output_left);
+  saved_errno = errno;
+  /* Emit bytes needed to get back to initial state, if needed.  */
+  iconv (output_cd, NULL, NULL, &output, &output_left);
+  scm_port_release_iconv_descriptors (port);
+
+  if (res != (size_t) -1)
     {
-      char *input, *output;
-      size_t done, input_left, output_left;
+      /* Success.  */
+      scm_port_buffer_did_put (buf, can_put - output_left);
+      return 1;
+    }
 
-      input = (char *) buf;
-      input_left = len;
-      output = (char *) aux;
-      output_left = aux_len;
+  if (saved_errno == E2BIG)
+    /* No space to encode the character; try again next time.  */
+    return 0;
 
+  /* Otherwise, re-set the output buffer and try to escape or substitute
+     the character, as appropriate.  */
+  output = (char *) aux;
+  output_left = can_put;
+
+  /* The source buffer is valid UTF-8, so we shouldn't get EILSEQ
+     because of the input encoding; if we get EILSEQ, that means the
+     codepoint is not accessible in the target encoding.  We have whole
+     codepoints in the source buffer, so we shouldn't get EINVAL.  We
+     already handled E2BIG.  The descriptor should be valid so we
+     shouldn't get EBADF.  In summary, we only need to handle EILSEQ.  */
+
+  if (scm_is_eq (SCM_PORT (port)->conversion_strategy, sym_escape))
+    {
+      scm_t_uint8 escape[ESCAPE_BUFFER_SIZE];
+      input = (char *) escape;
+      input_left = encode_escape_sequence (ch, escape);
       scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
-      done = iconv (output_cd, &input, &input_left, &output, &output_left);
+      res = iconv (output_cd, &input, &input_left, &output, &output_left);
       saved_errno = errno;
-      /* Emit bytes needed to get back to initial state, if needed.  */
-      if (done != (size_t) -1)
-        iconv (output_cd, NULL, NULL, &output, &output_left);
+      iconv (output_cd, NULL, NULL, &output, &output_left);
       scm_port_release_iconv_descriptors (port);
-
-      buf += (len - input_left);
-      len -= (len - input_left);
-      scm_c_write_bytes (port, bv, 0, aux_len - output_left);
-
-      if (done == (size_t) -1)
-        {
-          scm_t_port *pt = SCM_PORT (port);
-
-          /* The source buffer is valid UTF-8, so we shouldn't get
-             EILSEQ because of the input encoding; if we get EILSEQ,
-             that means the codepoint is not accessible in the target
-             encoding.  We have whole codepoints in the source buffer,
-             so we shouldn't get EINVAL.  We can get E2BIG, meaning we
-             just need to process the next chunk.  The descriptor should
-             be valid so we shouldn't get EBADF.  In summary, we should
-             only do E2BIG and EILSEQ.  */
-
-          if (saved_errno == E2BIG)
-            continue;
-
-          bad_codepoint = utf8_to_codepoint (buf, len);
-
-          if (saved_errno != EILSEQ)
-            goto error;
-
-          /* Advance the input past the utf8 sequence. */
-          {
-            size_t advance = codepoint_to_utf8 (bad_codepoint, aux);
-            buf += advance;
-            len -= advance;
-          }
-
-          /* Convert substitutes or escapes into the aux buf.  */
-          output = (char *) aux;
-          output_left = aux_len;
-
-          /* Substitute or escape.  Note that this re-sets "done",
-             "saved_errno", "output", and "output_left".  */
-          if (scm_is_eq (pt->conversion_strategy, sym_escape))
-            {
-              scm_t_uint8 escape[ESCAPE_BUFFER_SIZE];
-              input = (char *) escape;
-              input_left = encode_escape_sequence (bad_codepoint, escape);
-              scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
-              done = iconv (output_cd, &input, &input_left, &output, &output_left);
-              saved_errno = errno;
-              scm_port_release_iconv_descriptors (port);
-            }
-          else if (scm_is_eq (pt->conversion_strategy, sym_substitute))
-            {
-              scm_t_uint8 substitute[2] = "?";
-              input = (char *) substitute;
-              input_left = 1;
-              scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
-              done = iconv (output_cd, &input, &input_left, &output, &output_left);
-              saved_errno = errno;
-              scm_port_release_iconv_descriptors (port);
-            }
-
-          /* This catches both the "error" conversion strategy case, and
-             any error while substituting or escaping the character.  */
-          if (done == (size_t) -1)
-            goto error;
-
-          /* The substitution or escape succeeded; print it.  */
-          scm_c_write_bytes (port, bv, 0, aux_len - output_left);
-        }
     }
-
-  return;
-
- error:
-  scm_encoding_error ("put-char", saved_errno,
-                      "conversion to port encoding failed",
-                      port, SCM_MAKE_CHAR (bad_codepoint));
-}
-
-static void
-put_latin1_chars_to_utf8_port (SCM port, const scm_t_uint8 *buf, size_t len)
-{
-  SCM bv = scm_port_buffer_bytevector (scm_port_auxiliary_write_buffer (port));
-  scm_t_uint8 *utf8 = (scm_t_uint8*) SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t utf8_len = SCM_BYTEVECTOR_LENGTH (bv);
-
-  while (len)
+  else if (scm_is_eq (SCM_PORT (port)->conversion_strategy, sym_substitute))
     {
-      size_t read, written;
-      for (read = 0, written = 0;
-           read < len && written + UTF8_BUFFER_SIZE < utf8_len;
-           read++)
-        written += codepoint_to_utf8 (buf[read], utf8 + written);
-
-      buf += read;
-      len -= read;
-      scm_c_write_bytes (port, bv, 0, written);
+      scm_t_uint8 substitute[2] = "?";
+      input = (char *) substitute;
+      input_left = 1;
+      scm_port_acquire_iconv_descriptors (port, NULL, &output_cd);
+      res = iconv (output_cd, &input, &input_left, &output, &output_left);
+      saved_errno = errno;
+      iconv (output_cd, NULL, NULL, &output, &output_left);
+      scm_port_release_iconv_descriptors (port);
     }
-}
 
-static void
-put_latin1_chars_to_iconv_port (SCM port, const scm_t_uint8 *buf, size_t len)
-{
-  scm_t_uint8 utf8[AUXILIARY_WRITE_BUFFER_SIZE];
-  size_t utf8_len = AUXILIARY_WRITE_BUFFER_SIZE;
-
-  /* Convert through UTF-8, as most non-GNU iconvs can only convert
-     between a limited number of encodings.  */
-  while (len)
+  if (res != (size_t) -1)
     {
-      size_t read, written;
-      for (read = 0, written = 0;
-           read < len && written + UTF8_BUFFER_SIZE < utf8_len;
-           read++)
-        written += codepoint_to_utf8 (buf[read], utf8 + written);
-
-      buf += read;
-      len -= read;
-      put_utf8_chars_to_iconv_port (port, utf8, written);
+      scm_port_buffer_did_put (buf, can_put - output_left);
+      return 1;
     }
+
+  /* No space to write the substitution or escape, or maybe there was an
+     error.  If there are buffered bytes, the caller should flush and
+     try again; otherwise the caller should raise an error.  */
+  return 0;
 }
 
-static void
-put_utf32_chars_to_latin1_port (SCM port, const scm_t_uint32 *buf, size_t len)
+static size_t
+encode_latin1_chars_to_latin1_buf (SCM port, SCM buf,
+                                   const scm_t_uint8 *chars, size_t count)
 {
-  SCM bv = scm_port_buffer_bytevector (scm_port_auxiliary_write_buffer (port));
-  scm_t_uint8 *latin1 = (scm_t_uint8*) SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t latin1_len = SCM_BYTEVECTOR_LENGTH (bv);
-
-  while (len)
-    {
-      size_t read = 0, written = 0;
-      while (read < len && written + ESCAPE_BUFFER_SIZE <= latin1_len)
-        {
-          scm_t_port *pt = SCM_PORT (port);
-          scm_t_uint32 ch = buf[read++];
-          if (ch <= 0xff)
-            latin1[written++] = ch;
-          else if (scm_is_eq (pt->conversion_strategy, sym_substitute))
-            latin1[written++] = '?';
-          else if (scm_is_eq (pt->conversion_strategy, sym_escape))
-            written += encode_escape_sequence (ch, latin1 + written);
-          else
-            {
-              scm_c_write_bytes (port, bv, 0, written);
-              scm_encoding_error ("put-char", EILSEQ,
-                                  "conversion to port encoding failed",
-                                  port, SCM_MAKE_CHAR (ch));
-            }
-        }
-
-      buf += read;
-      len -= read;
-      scm_c_write_bytes (port, bv, 0, written);
-    }
+  return scm_port_buffer_put (buf, chars, count);
 }
 
-static void
-put_utf32_chars_to_utf8_port (SCM port, const scm_t_uint32 *buf, size_t len)
+static size_t
+encode_latin1_chars_to_utf8_buf (SCM port, SCM buf, const scm_t_uint8 *chars,
+                                 size_t count)
 {
-  SCM bv = scm_port_buffer_bytevector (scm_port_auxiliary_write_buffer (port));
-  scm_t_uint8 *utf8 = (scm_t_uint8*) SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t utf8_len = SCM_BYTEVECTOR_LENGTH (bv);
-
-  while (len)
-    {
-      size_t read, written;
-      for (read = 0, written = 0;
-           read < len && written + UTF8_BUFFER_SIZE < utf8_len;
-           read++)
-        written += codepoint_to_utf8 (buf[read], utf8 + written);
-
-      buf += read;
-      len -= read;
-      scm_c_write_bytes (port, bv, 0, written);
-    }
+  scm_t_uint8 *dst = scm_port_buffer_put_pointer (buf);
+  size_t buf_size = scm_port_buffer_can_put (buf);
+  size_t read, written;
+  for (read = 0, written = 0;
+       read < count && written + UTF8_BUFFER_SIZE < buf_size;
+       read++)
+    written += codepoint_to_utf8 (chars[read], dst + written);
+  scm_port_buffer_did_put (buf, written);
+  return read;
 }
 
-static void
-put_utf32_chars_to_iconv_port (SCM port, const scm_t_uint32 *buf, size_t len)
+static size_t
+encode_latin1_chars_to_iconv_buf (SCM port, SCM buf, const scm_t_uint8 *chars,
+                                  size_t count)
 {
-  scm_t_uint8 utf8[AUXILIARY_WRITE_BUFFER_SIZE];
-  size_t utf8_len = AUXILIARY_WRITE_BUFFER_SIZE;
-
-  /* Convert through UTF-8, as most non-GNU iconvs can only convert
-     between a limited number of encodings.  */
-  while (len)
-    {
-      size_t read, written;
-      for (read = 0, written = 0;
-           read < len && written + UTF8_BUFFER_SIZE < utf8_len;
-           read++)
-        written += codepoint_to_utf8 (buf[read], utf8 + written);
-
-      buf += read;
-      len -= read;
-      put_utf8_chars_to_iconv_port (port, utf8, written);
-    }
+  size_t read;
+  for (read = 0; read < count; read++)
+    if (!try_encode_char_to_iconv_buf (port, buf, chars[read]))
+      break;
+  return read;
 }
 
-void
-scm_c_put_latin1_chars (SCM port, const scm_t_uint8 *buf, size_t len)
+static size_t
+encode_latin1_chars (SCM port, SCM buf, const scm_t_uint8 *chars, size_t count)
 {
   scm_t_port *pt = SCM_PORT (port);
-  SCM position, saved_line;
-  size_t i;
-
-  if (len == 0)
-    return;
-
-  port_clear_stream_start_for_bom_write (port, BOM_IO_TEXT);
+  SCM position;
+  size_t ret, i;
 
   if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
-    scm_c_write (port, buf, len);
+    ret = encode_latin1_chars_to_latin1_buf (port, buf, chars, count);
   else if (scm_is_eq (pt->encoding, sym_UTF_8))
-    put_latin1_chars_to_utf8_port (port, buf, len);
+    ret = encode_latin1_chars_to_utf8_buf (port, buf, chars, count);
   else
-    put_latin1_chars_to_iconv_port (port, buf, len);
+    ret = encode_latin1_chars_to_iconv_buf (port, buf, chars, count);
+
+  if (ret == 0 && count > 0)
+    scm_encoding_error ("put-char", EILSEQ,
+                        "conversion to port encoding failed",
+                        port, SCM_MAKE_CHAR (chars[0]));
 
   position = pt->position;
-  saved_line = scm_port_position_line (position);
-  for (i = 0; i < len; i++)
-    update_port_position (position, buf[i]);
+  for (i = 0; i < ret; i++)
+    update_port_position (position, chars[i]);
+
+  return ret;
+}
+
+static size_t
+encode_utf32_chars_to_latin1_buf (SCM port, SCM buf,
+                                  const scm_t_uint32 *chars, size_t count)
+{
+  scm_t_port *pt = SCM_PORT (port);
+  scm_t_uint8 *dst = scm_port_buffer_put_pointer (buf);
+  size_t buf_size = scm_port_buffer_can_put (buf);
+  size_t read, written;
+  for (read = 0, written = 0; read < count && written < buf_size; read++)
+    {
+      scm_t_uint32 ch = chars[read];
+      if (ch <= 0xff)
+        dst[written++] = ch;
+      else if (scm_is_eq (pt->conversion_strategy, sym_substitute))
+        dst[written++] = '?';
+      else if (scm_is_eq (pt->conversion_strategy, sym_escape))
+        {
+          scm_t_uint8 escape[ESCAPE_BUFFER_SIZE];
+          size_t escape_len = encode_escape_sequence (ch, escape);
+          if (escape_len > buf_size - written)
+            break;
+          memcpy (dst + written, escape, escape_len);
+          written += escape_len;
+        }
+      else
+        break;
+    }
+  scm_port_buffer_did_put (buf, written);
+  return read;
+}
+
+static size_t
+encode_utf32_chars_to_utf8_buf (SCM port, SCM buf, const scm_t_uint32 *chars,
+                                size_t count)
+{
+  scm_t_uint8 *dst = scm_port_buffer_put_pointer (buf);
+  size_t buf_size = scm_port_buffer_can_put (buf);
+  size_t read, written;
+  for (read = 0, written = 0;
+       read < count && written + UTF8_BUFFER_SIZE < buf_size;
+       read++)
+    written += codepoint_to_utf8 (chars[read], dst + written);
+  scm_port_buffer_did_put (buf, written);
+  return read;
+}
+
+static size_t
+encode_utf32_chars_to_iconv_buf (SCM port, SCM buf, const scm_t_uint32 *chars,
+                                 size_t count)
+{
+  size_t read;
+  for (read = 0; read < count; read++)
+    if (!try_encode_char_to_iconv_buf (port, buf, chars[read]))
+      break;
+  return read;
+}
+
+static size_t
+encode_utf32_chars (SCM port, SCM buf, const scm_t_uint32 *chars, size_t count)
+{
+  scm_t_port *pt = SCM_PORT (port);
+  SCM position;
+  size_t ret, i;
+
+  if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
+    ret = encode_utf32_chars_to_latin1_buf (port, buf, chars, count);
+  else if (scm_is_eq (pt->encoding, sym_UTF_8))
+    ret = encode_utf32_chars_to_utf8_buf (port, buf, chars, count);
+  else
+    ret = encode_utf32_chars_to_iconv_buf (port, buf, chars, count);
+
+  if (ret == 0 && count > 0)
+    scm_encoding_error ("put-char", EILSEQ,
+                        "conversion to port encoding failed",
+                        port, SCM_MAKE_CHAR (chars[0]));
+
+  position = pt->position;
+  for (i = 0; i < ret; i++)
+    update_port_position (position, chars[i]);
+
+  return ret;
+}
+
+static size_t
+port_encode_chars (SCM port, SCM buf, SCM str, size_t start, size_t count)
+{
+  if (count == 0)
+    return 0;
+
+  if (scm_i_is_narrow_string (str))
+    {
+      const char *chars = scm_i_string_chars (str);
+      return encode_latin1_chars (port, buf,
+                                  ((const scm_t_uint8 *) chars) + start,
+                                  count);
+    }
+  else
+    {
+      const scm_t_wchar *chars = scm_i_string_wide_chars (str);
+      return encode_utf32_chars (port, buf,
+                                 ((const scm_t_uint32 *) chars) + start,
+                                 count);
+    }
+}
+
+SCM scm_port_encode_chars (SCM, SCM, SCM, SCM, SCM);
+SCM_DEFINE (scm_port_encode_chars, "port-encode-chars", 5, 0, 0,
+            (SCM port, SCM buf, SCM str, SCM start, SCM count),
+            "")
+#define FUNC_NAME s_scm_port_encode_chars
+{
+  size_t c_start, c_count, c_len, encoded;
+
+  SCM_VALIDATE_OPOUTPORT (1, port);
+  SCM_VALIDATE_VECTOR (2, buf);
+  SCM_VALIDATE_STRING (3, str);
+  c_len = scm_i_string_length (str);
+  SCM_VALIDATE_SIZE_COPY (4, start, c_start);
+  SCM_ASSERT_RANGE (4, start, c_start <= c_len);
+  SCM_VALIDATE_SIZE_COPY (5, count, c_count);
+  SCM_ASSERT_RANGE (5, count, c_count <= c_len - c_start);
+
+  encoded = port_encode_chars (port, buf, str, c_start, c_count);
+
+  return scm_from_size_t (encoded);
+}
+#undef FUNC_NAME
+
+void
+scm_c_put_latin1_chars (SCM port, const scm_t_uint8 *chars, size_t len)
+{
+  SCM aux_buf = scm_port_auxiliary_write_buffer (port);
+  SCM aux_bv = scm_port_buffer_bytevector (aux_buf);
+  SCM position = SCM_PORT (port)->position;
+  SCM saved_line = scm_port_position_line (position);
+
+  scm_port_clear_stream_start_for_bom_write (port, aux_buf);
+
+  while (len)
+    {
+      size_t encoded = encode_latin1_chars (port, aux_buf, chars, len);
+      assert(encoded <= len);
+      scm_c_write_bytes (port, aux_bv, 0,
+                         scm_to_size_t (scm_port_buffer_end (aux_buf)));
+      scm_port_buffer_reset (aux_buf);
+      chars += encoded;
+      len -= encoded;
+    }
 
   /* Handle line buffering.  */
   if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) &&
@@ -3241,28 +3266,25 @@ scm_c_put_latin1_chars (SCM port, const scm_t_uint8 *buf, size_t len)
 }
 
 void
-scm_c_put_utf32_chars (SCM port, const scm_t_uint32 *buf, size_t len)
+scm_c_put_utf32_chars (SCM port, const scm_t_uint32 *chars, size_t len)
 {
-  scm_t_port *pt = SCM_PORT (port);
-  SCM position, saved_line;
-  size_t i;
+  SCM aux_buf = scm_port_auxiliary_write_buffer (port);
+  SCM aux_bv = scm_port_buffer_bytevector (aux_buf);
+  SCM position = SCM_PORT (port)->position;
+  SCM saved_line = scm_port_position_line (position);
 
-  if (len == 0)
-    return;
+  scm_port_clear_stream_start_for_bom_write (port, aux_buf);
 
-  port_clear_stream_start_for_bom_write (port, BOM_IO_TEXT);
-
-  if (scm_is_eq (pt->encoding, sym_ISO_8859_1))
-    put_utf32_chars_to_latin1_port (port, buf, len);
-  else if (scm_is_eq (pt->encoding, sym_UTF_8))
-    put_utf32_chars_to_utf8_port (port, buf, len);
-  else
-    put_utf32_chars_to_iconv_port (port, buf, len);
-
-  position = pt->position;
-  saved_line = scm_port_position_line (position);
-  for (i = 0; i < len; i++)
-    update_port_position (position, buf[i]);
+  while (len)
+    {
+      size_t encoded = encode_utf32_chars (port, aux_buf, chars, len);
+      assert(encoded <= len);
+      scm_c_write_bytes (port, aux_bv, 0,
+                         scm_to_size_t (scm_port_buffer_end (aux_buf)));
+      scm_port_buffer_reset (aux_buf);
+      chars += encoded;
+      len -= encoded;
+    }
 
   /* Handle line buffering.  */
   if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) &&
@@ -3346,7 +3368,7 @@ SCM_DEFINE (scm_put_string, "put-string", 2, 2, 0,
 {
   size_t c_start, c_count, c_len;
 
-  SCM_VALIDATE_OPINPORT (1, port);
+  SCM_VALIDATE_OPOUTPORT (1, port);
   SCM_VALIDATE_STRING (2, string);
   c_len = scm_i_string_length (string);
   c_start = SCM_UNBNDP (start) ? 0 : scm_to_size_t (start);
@@ -3381,24 +3403,7 @@ scm_puts (const char *s, SCM port)
 void
 scm_lfwrite (const char *ptr, size_t size, SCM port)
 {
-  SCM position, saved_line;
-
-  if (size == 0)
-    return;
-
-  port_clear_stream_start_for_bom_write (port, BOM_IO_TEXT);
-
-  scm_c_write (port, ptr, size);
-
-  position = SCM_PORT (port)->position;
-  saved_line = scm_port_position_line (position);
-  for (; size; ptr++, size--)
-    update_port_position (position, (scm_t_wchar) (unsigned char) *ptr);
-
-  /* Handle line buffering.  */
-  if ((SCM_CELL_WORD_0 (port) & SCM_BUFLINE) &&
-      !scm_is_eq (saved_line, scm_port_position_line (position)))
-    scm_flush (port);
+  scm_c_put_latin1_chars (port, (const scm_t_uint8 *) ptr, size);
 }
 
 /* Write STR to PORT from START inclusive to END exclusive.  */
