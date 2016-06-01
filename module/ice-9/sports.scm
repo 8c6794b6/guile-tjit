@@ -64,6 +64,7 @@
             get-bytevector-n
             put-u8
             put-bytevector
+            put-string
 
             %read-line
             read-line
@@ -652,6 +653,27 @@
 
 (define* (%read-line port)
   (read-line port 'split))
+
+(define* (put-string port str #:optional (start 0)
+                     (count (- (string-length str) start)))
+  (let* ((aux (port-auxiliary-write-buffer port))
+         (pos (port-buffer-position aux))
+         (line (port-position-line pos)))
+    (set-port-buffer-cur! aux 0)
+    (port-clear-stream-start-for-bom-write port aux)
+    (let lp ((encoded 0))
+      (when (< encoded count)
+        (let ((encoded (+ encoded
+                          (port-encode-chars port aux str
+                                             (+ start encoded)
+                                             (- count encoded)))))
+          (let ((end (port-buffer-end aux)))
+            (set-port-buffer-end! aux 0)
+            (put-bytevector port (port-buffer-bytevector aux) 0 end)
+            (lp encoded)))))
+    (when (and (not (eqv? line (port-position-line pos)))
+               (port-line-buffered? port))
+      (flush-output port))))
 
 (define saved-port-bindings #f)
 (define port-bindings

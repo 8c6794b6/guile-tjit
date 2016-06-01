@@ -182,10 +182,12 @@ interpret its input and output."
             port-read
             port-write
             port-clear-stream-start-for-bom-read
+            port-clear-stream-start-for-bom-write
             %port-encoding
             specialize-port-encoding!
             port-random-access?
             port-decode-char
+            port-encode-chars
             port-read-buffering
             port-poll
             port-read-wait-fd
@@ -227,9 +229,11 @@ interpret its input and output."
                        port-read
                        port-write
                        port-clear-stream-start-for-bom-read
+                       port-clear-stream-start-for-bom-write
                        %port-encoding
                        specialize-port-encoding!
                        port-decode-char
+                       port-encode-chars
                        port-random-access?
                        port-read-buffering
                        port-poll
