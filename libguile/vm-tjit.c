@@ -128,7 +128,7 @@ SCM_TJIT_PARAM (hot_loop, hot-loop, 59)
 SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 
 /* Maximum length of traced bytecodes. */
-SCM_TJIT_PARAM (max_record, max-record, 3000)
+SCM_TJIT_PARAM (max_record, max-record, 5000)
 
 /* Maximum count of retries for failed compilation. */
 SCM_TJIT_PARAM (max_retries, max-retries, 10)
