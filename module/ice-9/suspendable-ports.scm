@@ -671,10 +671,31 @@
     (when (and (eqv? char #\newline) (port-line-buffered? port))
       (flush-output port))))
 
+(define accept
+  (let ((%accept (@ (guile) accept)))
+    (lambda (port)
+      (let lp ()
+        (or (%accept port)
+            (begin
+              (wait-for-readable port)
+              (lp)))))))
+
+(define connect
+  (let ((%connect (@ (guile) connect)))
+    (lambda (port sockaddr . args)
+      (unless (apply %connect port sockaddr args)
+        ;; Clownshoes semantics; see connect(2).
+        (wait-for-writable port)
+        (let ((err (getsockopt port SOL_SOCKET SO_ERROR)))
+          (unless (zero? err)
+            (scm-error 'system-error "connect" "~A"
+                       (list (strerror err)) #f)))))))
+
 (define saved-port-bindings #f)
 (define port-bindings
   '(((guile)
-     read-char peek-char force-output close-port)
+     read-char peek-char force-output close-port
+     accept connect)
     ((ice-9 binary-ports)
      get-u8 lookahead-u8 get-bytevector-n
      put-u8 put-bytevector)
