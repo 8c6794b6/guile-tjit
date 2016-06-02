@@ -1740,7 +1740,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-native (%move (int dst) (int src))
   (move dst src))
 
-(define-native (%cont (int dst) (void id))
+(define-native (%call/cc (int dst) (void id))
   (let ((volatiles (asm-volatiles asm))
         (proceed (jit-forward)))
 

@@ -118,12 +118,11 @@
     (debug 1 ";;; [IR] call/cc, cont/l=~a program-code=~x ra=~x dl=~x~%"
            cont/l (program-code cont/l) ra dl)
 
-    ;; Using special IP key to skip restoring stack element on bailout.
-    ;;
-    ;; Before bailout code of call/cc, stack elements have been filled in with
-    ;; captured data data by continuation-call.
+    ;; Using special IP key to skip restoring stack element on bailout. Before
+    ;; bailout code of call/cc, stack elements have been filled in with captured
+    ;; data data by continuation-call.
     `(let ((_ ,(take-snapshot! *ip-key-longjmp* 0)))
-       (let ((,r2 (%cont ,(- (ir-snapshot-id ir) 1))))
+       (let ((,r2 (%call/cc ,(- (ir-snapshot-id ir) 1))))
          (let ((,dst/v ,cont/v))
            (let ((,cont/v ,r2))
              ,(next)))))))
