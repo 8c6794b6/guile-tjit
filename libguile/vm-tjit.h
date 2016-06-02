@@ -70,6 +70,9 @@ SCM_API SCM scm_do_inline_cell (scm_i_thread *thread,
 SCM_API SCM scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
                                  scm_t_uint32 n_words);
 SCM_API SCM scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp);
+SCM_API SCM scm_do_return_to_continuation (SCM cont, size_t n,
+                                           union scm_vm_stack_element *argv,
+                                           scm_t_uint32 *ip);
 SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
                                      union scm_vm_stack_element *new_sp);
 
@@ -110,6 +113,7 @@ SCM_API SCM scm_tjit_increment_compilation_failure_x (SCM ip, SCM inc);
 SCM_API SCM scm_tjit_add_root_ip_x (SCM ip);
 SCM_API SCM scm_tjit_remove_root_ip_x (SCM ip);
 SCM_API SCM scm_make_negative_pointer (SCM amount);
+SCM_API SCM scm_continuation_next_ip (SCM cont);
 
 SCM_API SCM scm_tjit_register_gdb_jit_entry_x (SCM elf);
 

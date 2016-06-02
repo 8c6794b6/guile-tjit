@@ -136,7 +136,7 @@ SCM_TJIT_PARAM (max_retries, max-retries, 10)
 /* Maximum number of side traces from root trace. */
 SCM_TJIT_PARAM (max_sides, max-sides, 100)
 
-/* Maximum number of side traces from root trace. */
+/* Maximum number to try compiling a side trace. */
 SCM_TJIT_PARAM (try_sides, try-sides, 2)
 
 /* Number of recursive procedure calls to unroll. */
@@ -436,18 +436,18 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
   SCM exit_counts, count, ret_fragment;
   size_t max_retries, exit_id;
   scm_t_native_code fn;
-  int has_retval;
+  int retval;
 
   s_ip = SCM_FRAGMENT_ENTRY_IP (fragment);
   code = SCM_FRAGMENT_CODE (fragment);
   fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
 
   /* Run the native code. */
-  has_retval = fn (thread, vp, registers);
+  retval = fn (thread, vp, registers);
 
   /* Back to interpreter. Native code sets some of the fields in tj
      during bailout, using them to decide what to do next. */
-  if (has_retval)
+  if (retval)
     {
       origin = SCM_PACK (tj->ret_origin);
       ret_fragment = SCM_PACK (tj->ret_fragment);
@@ -649,9 +649,25 @@ SCM_DEFINE (scm_make_negative_pointer, "make-negative-pointer", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_continuation_next_ip, "continuation-next-ip", 1, 0, 0,
+            (SCM cont),
+            "Returns next IP of continuation.")
+#define FUNC_NAME s_scm_continuation_next_ip
+{
+  struct scm_vm_cont *cp;
+
+  cp = SCM_VM_CONT_DATA (scm_i_contregs_vm_cont (cont));
+
+  return SCM_I_MAKINUM (cp->ra);
+}
+#undef FUNC_NAME
+
 
 /*
  * Gluing functions
+ *
+ * Following functions are not called from Scheme code, but inlined and
+ * called from JIT compiled native code.
  */
 
 void
@@ -755,6 +771,24 @@ scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp)
   cont = scm_i_make_continuation (&first, vp, vm_cont);
 
   return cont;
+}
+
+SCM
+scm_do_return_to_continuation (SCM contreg, size_t n,
+                               union scm_vm_stack_element *argv,
+                               scm_t_uint32 *ip)
+{
+  SCM vm_cont;
+
+  scm_i_check_continuation (contreg);
+  vm_cont = scm_i_contregs_vm_cont (contreg);
+  vm_return_to_continuation (scm_i_contregs_vp (contreg), vm_cont, n, argv);
+
+  /* Using SCM_I_LONGJMP. */
+  scm_i_reinstate_continuation (contreg);
+
+  /* Never reached. */
+  return SCM_UNDEFINED;
 }
 
 void
@@ -911,7 +945,7 @@ scm_init_vm_tjit (void)
 #include "libguile/vm-tjit.x"
 #endif
 
-  /* Define gsubr for not fixnum or flonum SCM types. */
+  /* Define gsubr for non fixnum or flonum arithmetic. */
   scm_c_define_gsubr ("%cadd", 2, 0, 0, scm_sum);
   scm_c_define_gsubr ("%csub", 2, 0, 0, scm_difference);
   scm_c_define_gsubr ("%cmul", 2, 0, 0, scm_product);

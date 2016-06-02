@@ -231,6 +231,9 @@
 (define %scm-make-continuation
   (dynamic-pointer "scm_do_make_continuation" (dynamic-link)))
 
+(define %scm-return-to-continuation
+  (dynamic-pointer "scm_do_return_to_continuation" (dynamic-link)))
+
 (define %scm-eqv
   (dynamic-pointer "scm_eqv_p" (dynamic-link)))
 
@@ -1782,3 +1785,34 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
     ;; Made new continuation, proceed.
     (jit-link proceed)))
+
+(define-native (%continue (int cont) (void ncount) (void id) (void ip))
+  (let ((vp r0))
+    ;; Storing stack elements from snapshot.
+    (match (hashq-ref (asm-snapshots asm) (ref-value id))
+      (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
+       (let lp ((locals locals) (vars vars))
+         (match (cons locals vars)
+           ((((n . t) . locals) . (v . vars))
+            (store-frame n t v)
+            (lp locals vars))
+           (_
+            ;; Sync SP.
+            (load-vp vp)
+            (if (< sp-offset 0)
+                (jit-subi %sp %sp (imm (* (- sp-offset) %word-size)))
+                (jit-addi %sp %sp (imm (* sp-offset %word-size))))
+            (vm-sync-sp %sp vp)
+
+            ;; Call the C function doing longjmp.
+            (jit-prepare)
+            (push-as-gpr cont (equal? cont (argr 1)))
+            (jit-pushargi (imm (ref-value ncount)))
+            (jit-pushargr %sp)
+            (jit-pushargi (imm (ref-value ip)))
+            (jit-calli %scm-return-to-continuation)
+
+            (load-vp vp)
+            (vm-cache-sp vp)))))
+      (_
+       (failure '%cont "not a snapshot")))))

@@ -63,6 +63,7 @@
             tjit-remove-root-ip!
             tjit-register-gdb-jit-entry!
             make-negative-pointer
+            continuation-next-ip
 
             %cadd %csub %cmul %cdiv
             %cquo %crem %cmod

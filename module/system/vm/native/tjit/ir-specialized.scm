@@ -31,6 +31,7 @@
   #:use-module (system vm native tjit error)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit env)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit types)
   #:use-module (system vm native tjit variables))
@@ -105,7 +106,24 @@
         (failure 'subr-call "not a primitive ~s" subr/l))))
 
 ;; XXX: foreign-call
+
 ;; XXX: continuation-call
+;; (define-ir (continuation-call (const contreg-idx))
+;;   (let* ((stack-size (vector-length locals))
+;;          (cont/i (- stack-size 1))
+;;          (cont/v (src-ref cont/i))
+;;          (cont/l (scm-ref cont/i))
+;;          (contreg (program-free-variable-ref cont/l contreg-idx))
+;;          (r2 (make-tmpvar 2))
+;;          (test (lambda _ #t)))
+;;     (debug 1 ";;; [IR] continuation-call, cont/l=~a contregs=~a next-ip=~x~%"
+;;            cont/l contreg (continuation-next-ip contreg))
+;;     `(let ((_ ,(take-snapshot! ip 0)))
+;;        (let ((,r2 (%cref ,cont/v ,(+ 2 contreg-idx))))
+;;          (let ((_ (%continue ,r2 ,cont/i ,(- (ir-snapshot-id ir) 1)
+;;                              ,(continuation-next-ip contreg))))
+;;            ,(next))))))
+
 ;; XXX: compose-continuation
 ;; XXX: tail-apply
 
