@@ -1236,16 +1236,15 @@ SCM_DEFINE (scm_make_socket_address, "make-socket-address", 2, 0, 1,
 
 SCM_DEFINE (scm_accept, "accept", 1, 0, 0, 
             (SCM sock),
-	    "Accept a connection on a bound, listening socket.\n"
-	    "If there\n"
-	    "are no pending connections in the queue, wait until\n"
-	    "one is available unless the non-blocking option has been\n"
-	    "set on the socket.\n\n"
-	    "The return value is a\n"
-	    "pair in which the @emph{car} is a new socket port for the\n"
-	    "connection and\n"
-	    "the @emph{cdr} is an object with address information about the\n"
-	    "client which initiated the connection.\n\n"
+	    "Accept a connection on a bound, listening socket.  If there\n"
+	    "are no pending connections in the queue, there are two\n"
+            "possibilities: if the socket has been configured as\n"
+            "non-blocking, return @code{#f} directly.  Otherwise wait\n"
+            "until a connection is available.  When a connection comes,\n"
+	    "the return value is a pair in which the @emph{car} is a new\n"
+            "socket port for the connection and the @emph{cdr} is an\n"
+            "object with address information about the client which\n"
+            "initiated the connection.\n\n"
 	    "@var{sock} does not become part of the\n"
 	    "connection and will continue to accept new requests.")
 #define FUNC_NAME s_scm_accept
@@ -1262,7 +1261,11 @@ SCM_DEFINE (scm_accept, "accept", 1, 0, 0,
   fd = SCM_FPORT_FDES (sock);
   SCM_SYSCALL (newfd = accept (fd, (struct sockaddr *) &addr, &addr_size));
   if (newfd == -1)
-    SCM_SYSERROR;
+    {
+      if (errno == EAGAIN || errno == EWOULDBLOCK)
+        return SCM_BOOL_F;
+      SCM_SYSERROR;
+    }
   newsock = SCM_SOCK_FD_TO_PORT (newfd);
   address = _scm_from_sockaddr (&addr, addr_size,
 				FUNC_NAME);

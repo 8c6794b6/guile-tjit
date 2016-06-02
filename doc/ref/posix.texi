@@ -3260,15 +3260,26 @@ The return value is unspecified.
 @deffn {Scheme Procedure} accept sock
 @deffnx {C Function} scm_accept (sock)
 Accept a connection from socket port @var{sock} which has been enabled
-for listening with @code{listen} above.  If there are no incoming
-connections in the queue, wait until one is available (unless
-@code{O_NONBLOCK} has been set on the socket, @pxref{Ports and File
-Descriptors,@code{fcntl}}).
+for listening with @code{listen} above.
+
+If there are no incoming connections in the queue, there are two
+possible behaviors, depending on whether @var{sock} has been configured
+for non-blocking operation or not:
+
+@itemize
+@item
+If there is no connection waiting and the socket was set to non-blocking
+mode with the @code{O_NONBLOCK} port option (@pxref{Ports and File
+Descriptors,@code{fcntl}}), return @code{#f} directly.
+
+@item
+Otherwise wait until a connection is available.
+@end itemize
 
 The return value is a pair.  The @code{car} is a new socket port,
-connected and ready to communicate.  The @code{cdr} is a socket
-address object (@pxref{Network Socket Address}) which is where the
-remote connection is from (like @code{getpeername} below).
+connected and ready to communicate.  The @code{cdr} is a socket address
+object (@pxref{Network Socket Address}) which is where the remote
+connection is from (like @code{getpeername} below).
 
 All communication takes place using the new socket returned.  The
 given @var{sock} remains bound and listening, and @code{accept} may be
