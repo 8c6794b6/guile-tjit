@@ -131,7 +131,7 @@ SCM_TJIT_PARAM (hot_exit, hot-exit, 10)
 SCM_TJIT_PARAM (max_record, max-record, 3000)
 
 /* Maximum count of retries for failed compilation. */
-SCM_TJIT_PARAM (max_retries, max-retries, 8)
+SCM_TJIT_PARAM (max_retries, max-retries, 10)
 
 /* Maximum number of side traces from root trace. */
 SCM_TJIT_PARAM (max_sides, max-sides, 100)
