@@ -3213,10 +3213,12 @@ The return value is unspecified.
 @deffnx {Scheme Procedure} connect sock AF_INET6 ipv6addr port [flowinfo [scopeid]]
 @deffnx {Scheme Procedure} connect sock AF_UNIX path
 @deffnx {C Function} scm_connect (sock, fam, address, args)
-Initiate a connection on socket port @var{sock} to a given address.
-The destination is either a socket address object, or arguments the
-same as @code{make-socket-address} would take to make such an object
-(@pxref{Network Socket Address}).  The return value is unspecified.
+Initiate a connection on socket port @var{sock} to a given address.  The
+destination is either a socket address object, or arguments the same as
+@code{make-socket-address} would take to make such an object
+(@pxref{Network Socket Address}).  Return true unless the socket was
+configured as non-blocking and the connection could not be made
+immediately.
 
 @example
 (connect sock AF_INET INADDR_LOOPBACK 23)

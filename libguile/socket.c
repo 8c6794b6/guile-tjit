@@ -834,7 +834,8 @@ SCM_DEFINE (scm_connect, "connect", 2, 1, 1,
 	    "Alternatively, the second argument can be a socket address object "
 	    "as returned by @code{make-socket-address}, in which case the "
 	    "no additional arguments should be passed.\n\n"
-	    "The return value is unspecified.")
+	    "Return true, unless the socket was configured to be non-blocking\n"
+            "and the operation has not finished yet.\n")
 #define FUNC_NAME s_scm_connect
 {
   int fd;
@@ -859,10 +860,12 @@ SCM_DEFINE (scm_connect, "connect", 2, 1, 1,
 
       free (soka);
       errno = save_errno;
+      if (errno == EINPROGRESS)
+        return SCM_BOOL_F;
       SCM_SYSERROR;
     }
   free (soka);
-  return SCM_UNSPECIFIED;
+  return SCM_BOOL_T;
 }
 #undef FUNC_NAME
 
