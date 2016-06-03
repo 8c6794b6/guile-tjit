@@ -69,6 +69,7 @@ SCM_API SCM scm_do_inline_cell (scm_i_thread *thread,
                                 scm_t_bits x, scm_t_bits y);
 SCM_API SCM scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
                                  scm_t_uint32 n_words);
+SCM_API SCM scm_do_i_string_ref (SCM str, size_t idx);
 SCM_API SCM scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp);
 SCM_API SCM scm_do_return_to_continuation (SCM cont, size_t n,
                                            union scm_vm_stack_element *argv);

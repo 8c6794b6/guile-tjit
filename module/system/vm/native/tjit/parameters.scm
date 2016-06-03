@@ -50,6 +50,8 @@
             set-tjit-hot-exit!
             tjit-max-retries
             set-tjit-max-retries!
+            tjit-try-sides
+            set-tjit-try-sides!
             tjit-num-unrolls
             set-tjit-num-unrolls!
             tjit-scheme-engine
@@ -64,6 +66,7 @@
             tjit-register-gdb-jit-entry!
             make-negative-pointer
             continuation-next-ip
+            scm-do-i-string-ref
 
             %cadd %csub %cmul %cdiv
             %cquo %crem %cmod

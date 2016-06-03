@@ -755,6 +755,13 @@ scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
 }
 
 SCM
+scm_do_i_string_ref (SCM str, size_t idx)
+{
+  scm_t_wchar ch = scm_i_string_ref (str, idx);
+  return SCM_MAKE_CHAR (ch);
+}
+
+SCM
 scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp)
 {
   SCM vm_cont, cont;
@@ -957,6 +964,10 @@ scm_init_vm_tjit (void)
   scm_c_define_gsubr ("%cle", 2, 0, 0, scm_leq_p);
   scm_c_define_gsubr ("%cgt", 2, 0, 0, scm_gr_p);
   scm_c_define_gsubr ("%cge", 2, 0, 0, scm_geq_p);
+
+  /* Note that the second argument of `scm_do_i_string_ref' is size_t,
+     not SCM type. */
+  scm_c_define_gsubr ("scm-do-i-string-ref", 2, 0, 0, scm_do_i_string_ref);
 }
 
 /*

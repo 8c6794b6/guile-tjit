@@ -69,15 +69,11 @@
     ;; item type of the returned value is always `scm'.
     (set-inferred-type! env (- proc-offset 1) &scm)))
 
-;; XXX: Inline known subroutines.
-;;
-;; For instance, C function `scm_cons' could be replaced with `%cell'
-;; primitive. Compare the program code at runtime, add guard, and replace with
-;; inlined alternative.
 (define-anf (subr-call)
   (let* ((stack-size (vector-length locals))
          (dst/v (dst-ref (- stack-size 2)))
          (subr/l (scm-ref (- stack-size 1)))
+         (subr/a (object-address subr/l))
          (ccode (and (program? subr/l)
                      (program-code subr/l)))
          (proc-addr (object-address subr/l))
@@ -89,21 +85,59 @@
                 `(let ((_ ,(take-snapshot! ip 0)))
                    (let ((_ (%return ,ra)))
                      (let ((,dst/v (%ccall ,proc-addr)))
-                       ,(next))))))))
-    (set-env-handle-interrupts! env #t)
-    (if (primitive-code? ccode)
-        (let lp ((n 0))
-          (if (< n (- stack-size 1))
-              (let ((n/v (src-ref n))
-                    (n/l (scm-ref n))
-                    (r1 (make-tmpvar 2))
-                    (t (type-ref n)))
-                (with-boxing t n/v r1
-                  (lambda (boxed)
-                    `(let ((_ (%carg ,boxed)))
-                       ,(lp (+ n 1))))))
-              (emit-ccall)))
-        (failure 'subr-call "not a primitive ~s" subr/l))))
+                       ,(next)))))))
+         (r1 (make-tmpvar 1))
+         (r2 (make-tmpvar 2)))
+
+    (when (not (primitive-code? ccode))
+      (failure 'subr-call "not a primitive ~s" subr/l))
+
+    (cond
+     ;; pairs.c
+     ((eq? subr/a (object-address cons))
+      (set-env-handle-interrupts! env #t)
+      `(let ((,dst/v (%cell ,(src-ref 1) ,(src-ref 0))))
+         ,(next)))
+     ((eq? subr/a (object-address car))
+      (with-type-guard &pair 0
+        `(let ((,dst/v (%cref ,(src-ref 0) 0)))
+           ,(next))))
+     ((eq? subr/a (object-address cdr))
+      (with-type-guard &pair 0
+        `(let ((,dst/v (%cref ,(src-ref 0) 1)))
+           ,(next))))
+
+     ;; ports.c
+     ((eq? subr/a (object-address eof-object?))
+      (if (eof-object? (scm-ref 0))
+          `(let ((_ (%eq ,(src-ref 0) #xa04)))
+             (let ((,dst/v #t))
+               ,(next)))
+          `(let ((_ (%ne ,(src-ref 0) #xa04)))
+             (let ((,dst/v #f))
+               ,(next)))))
+
+     ;; strings.c
+     ((eq? subr/a (object-address string-ref))
+      `(let ((_ (%carg ,(src-ref 0))))
+         (let ((_ (%carg ,(src-ref 1))))
+           (let ((,dst/v (%ccall ,(object-address scm-do-i-string-ref))))
+             ,(next)))))
+
+     (else
+      ;; Not inlineable, emit `%ccall' primitive.
+      (set-env-handle-interrupts! env #t)
+      (let lp ((n 0))
+        (if (< n (- stack-size 1))
+            (let ((n/v (src-ref n))
+                  (n/l (scm-ref n))
+                  (r1 (make-tmpvar 2))
+                  (t (type-ref n)))
+              (with-boxing t n/v r1
+                (lambda (boxed)
+                  `(let ((_ (%carg ,boxed)))
+                     ,(lp (+ n 1))))))
+            (emit-ccall)))))))
 
 ;; XXX: foreign-call
 
