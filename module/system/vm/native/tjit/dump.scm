@@ -259,31 +259,31 @@ option was set to true."
        (let ((mark (mark-op op)))
          (match op
            (('%fref dst n type)
-            (format port "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
+            (format port "~4,,,'0@a ~a (~8a ~a ~a ~a)~%" idx mark
                     '%fref
                     (pretty-storage dst)
                     (pretty-constant n)
                     (if (cdr type) (pretty-type (cdr type)) "---")))
            (('%fref/f dst n type)
-            (format port "~4,,,'0@a ~a (~7a ~a ~a ~a)~%" idx mark
+            (format port "~4,,,'0@a ~a (~8a ~a ~a ~a)~%" idx mark
                     '%fref/f
                     (pretty-storage dst)
                     (pretty-constant n)
                     (pretty-type (cdr type))))
            (('%typeq src type)
-            (format port "~4,,,'0@a ~a (~7a ~a ~a)~%" idx mark
+            (format port "~4,,,'0@a ~a (~8a ~a ~a)~%" idx mark
                     '%typeq
                     (pretty-storage src)
                     (pretty-type (cdr type))))
            (('%return (const . ra))
             (let ((sinfo (addr->source-line ra)))
-              (format port "~4,,,'0@a ~a (~7a ~a/~a:~a)~%" idx mark
+              (format port "~4,,,'0@a ~a (~8a ~a/~a:~a)~%" idx mark
                       '%return
                       (cyan (number->string ra 16))
                       (basename (car sinfo))
                       (cdr sinfo))))
            (('%ccall dst (const . addr))
-            (format port "~4,,,'0@a ~a (~7a ~a ~a:0x~x)~%" idx mark
+            (format port "~4,,,'0@a ~a (~8a ~a ~a:0x~x)~%" idx mark
                     '%ccall
                     (pretty-storage dst)
                     (let ((proc (pointer->scm (make-pointer addr))))
@@ -294,7 +294,7 @@ option was set to true."
                            (pointer-address
                             (program-free-variable-ref proc 0))))))
            (_
-            (format port "~4,,,'0@a ~a (~7a ~{~a~^ ~})~%" idx mark
+            (format port "~4,,,'0@a ~a (~8a ~{~a~^ ~})~%" idx mark
                     (car op)
                     (map pretty-storage (cdr op)))))))))
   (define (dump-list idx ops)

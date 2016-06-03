@@ -114,14 +114,16 @@
 ;;          (cont/v (src-ref cont/i))
 ;;          (cont/l (scm-ref cont/i))
 ;;          (contreg (program-free-variable-ref cont/l contreg-idx))
+;;          (next-ip (continuation-next-ip contreg))
 ;;          (r2 (make-tmpvar 2))
-;;          (test (lambda _ #t)))
-;;     (debug 1 ";;; [IR] continuation-call, cont/l=~a contregs=~a next-ip=~x~%"
-;;            cont/l contreg (continuation-next-ip contreg))
+;;          (test (lambda _ #t))
+;;          (live-indices (env-live-indices env))
+;;          (snapshot-id (ir-snapshot-id ir)))
+;;     (debug 1 ";;; [IR] continuation-call, next-ip=~x~%" next-ip)
+;;     (set-env-live-indices! env (list (current-sp-offset)))
 ;;     `(let ((_ ,(take-snapshot! ip 0)))
 ;;        (let ((,r2 (%cref ,cont/v ,(+ 2 contreg-idx))))
-;;          (let ((_ (%continue ,r2 ,cont/i ,(- (ir-snapshot-id ir) 1)
-;;                              ,(continuation-next-ip contreg))))
+;;          (let ((_ (%cntcall ,(var-ref 0) ,cont/i ,snapshot-id ,next-ip)))
 ;;            ,(next))))))
 
 ;; XXX: compose-continuation

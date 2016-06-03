@@ -774,18 +774,17 @@ scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp)
 }
 
 SCM
-scm_do_return_to_continuation (SCM contreg, size_t n,
-                               union scm_vm_stack_element *argv,
-                               scm_t_uint32 *ip)
+scm_do_return_to_continuation (SCM cont, size_t n,
+                               union scm_vm_stack_element *argv)
 {
-  SCM vm_cont;
+  scm_t_contregs *contregs;
 
-  scm_i_check_continuation (contreg);
-  vm_cont = scm_i_contregs_vm_cont (contreg);
-  vm_return_to_continuation (scm_i_contregs_vp (contreg), vm_cont, n, argv);
+  scm_i_check_continuation (cont);
+  contregs = (scm_t_contregs *) SCM_SMOB_DATA_1 (cont);
+  vm_return_to_continuation (contregs->vp, contregs->vm_cont, n, argv);
 
   /* Using SCM_I_LONGJMP. */
-  scm_i_reinstate_continuation (contreg);
+  scm_i_reinstate_continuation (cont);
 
   /* Never reached. */
   return SCM_UNDEFINED;

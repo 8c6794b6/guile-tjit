@@ -1786,8 +1786,22 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     ;; Made new continuation, proceed.
     (jit-link proceed)))
 
-(define-native (%continue (int cont) (void ncount) (void id) (void ip))
-  (let ((vp r0))
+;; XXX: Probably x86-64 only.
+(define-syntax-rule (scm-continuation-next-ip dst src)
+  (begin
+    (jit-ldxi dst src (imm %word-size))
+    (jit-ldxi dst dst (imm (* %word-size 3)))
+    (jit-ldxi dst dst (imm %word-size))
+    (jit-ldxi dst dst (imm %word-size))))
+
+;; Primitive for `continuation-call'. The SCM continuation value is stored in
+;; r2.
+(define-native (%cntcall (int local0) (void ncount) (void id) (void ip))
+  (let ((vp r0)
+        (cont r2))
+    (scm-continuation-next-ip r1 cont)
+    (jump (jit-bnei r1 (con ip)) (bailout))
+
     ;; Storing stack elements from snapshot.
     (match (hashq-ref (asm-snapshots asm) (ref-value id))
       (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
@@ -1799,20 +1813,49 @@ was constant. And, uses OP-RR when both arguments were register or memory."
            (_
             ;; Sync SP.
             (load-vp vp)
-            (if (< sp-offset 0)
-                (jit-subi %sp %sp (imm (* (- sp-offset) %word-size)))
-                (jit-addi %sp %sp (imm (* sp-offset %word-size))))
+            (cond
+             ((= 0 sp-offset)
+              (values))
+             ((< 0 sp-offset)
+              (jit-addi %sp %sp (imm (* sp-offset %word-size))))
+             (else
+              (jit-subi %sp %sp (imm (* (- sp-offset) %word-size)))))
             (vm-sync-sp %sp vp)
 
             ;; Call the C function doing longjmp.
             (jit-prepare)
-            (push-as-gpr cont (equal? cont (argr 1)))
+            (jit-pushargr cont)
             (jit-pushargi (imm (ref-value ncount)))
             (jit-pushargr %sp)
-            (jit-pushargi (imm (ref-value ip)))
             (jit-calli %scm-return-to-continuation)
 
-            (load-vp vp)
-            (vm-cache-sp vp)))))
+            ;; Following code is used when scm-return-to-continuation didn't use
+            ;; SCM_I_LONGJMP. Currently scm-return-to-continuation does use
+            ;; SCM_I_LONGJMP, which jumps back to the place where `call/cc' were
+            ;; called, could jump back to inlined native code, or VM interpreter.
+
+            ;; ;; Restore local 0 from %sp
+            ;; (case (ref-type local0)
+            ;;   ((gpr)
+            ;;    (jit-ldr (gpr local0) %sp))
+            ;;   ((fpr)
+            ;;    (jit-ldr r0 %sp)
+            ;;    (gpr->fpr (fpr local0) r0))
+            ;;   ((mem)
+            ;;    (jit-ldr r0 %sp)
+            ;;    (memory-set! local0 r0))
+            ;;   (else (err)))
+
+            ;; ;; Shifting %sp back.
+            ;; (load-vp vp)
+            ;; (vm-cache-sp vp)
+            ;; (cond
+            ;;  ((= 0 sp-offset)
+            ;;   (values))
+            ;;  ((< 0 sp-offset)
+            ;;   (jit-subi %sp %sp (imm (* sp-offset %word-size))))
+            ;;  (else
+            ;;   (jit-addi %sp %sp (imm (* (- sp-offset) %word-size)))))
+            ))))
       (_
        (failure '%cont "not a snapshot")))))

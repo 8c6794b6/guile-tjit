@@ -71,8 +71,7 @@ SCM_API SCM scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
                                  scm_t_uint32 n_words);
 SCM_API SCM scm_do_make_continuation (scm_i_thread *thread, struct scm_vm *vp);
 SCM_API SCM scm_do_return_to_continuation (SCM cont, size_t n,
-                                           union scm_vm_stack_element *argv,
-                                           scm_t_uint32 *ip);
+                                           union scm_vm_stack_element *argv);
 SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp,
                                      union scm_vm_stack_element *new_sp);
 
