@@ -1744,8 +1744,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
   (move dst src))
 
 (define-native (%call/cc (int dst) (void id))
-  (let ((volatiles (asm-volatiles asm))
-        (proceed (jit-forward)))
+  (let ((volatiles (asm-volatiles asm)))
 
     ;; While making continuation, stack contents will get copied to continuation
     ;; data. Store register contents to stack before calling
@@ -1780,11 +1779,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                    ((gpr) (gpr dst))
                    ((fpr) (fpr->gpr r0 (fpr dst)))
                    ((mem) (memory-ref r0 dst)))))
-      (jump (jit-bnei dst/r *scm-undefined*) proceed)
-      (jump (bailout)))
-
-    ;; Made new continuation, proceed.
-    (jit-link proceed)))
+      (jump (jit-beqi dst/r *scm-undefined*) (bailout)))))
 
 ;; XXX: Probably x86-64 only.
 (define-syntax-rule (scm-continuation-next-ip dst src)
