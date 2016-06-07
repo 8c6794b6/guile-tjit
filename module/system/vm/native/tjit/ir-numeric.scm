@@ -395,16 +395,16 @@
          (dst/v (dst-ref dst))
          (a/t (type-ref a))
          (b/t (type-ref b))
-         (r1 (make-tmpvar 1))
-         (r2 (make-tmpvar 2)))
+         (r0 (make-tmpvar 0))
+         (r1 (make-tmpvar 1)))
     (when (env-parent-snapshot env)
       (set-env-save-volatiles! env #t))
     (with-type-guard &fixnum a
       (with-type-guard &fixnum b
         `(let ((_ ,(take-snapshot! ip 0)))
-           (let ((,r1 (%rsh ,a/v 2)))
-             (let ((,r2 (%rsh ,b/v 2)))
-               (let ((,dst/v (%div ,r1 ,r2)))
+           (let ((,r0 (%rsh ,a/v 2)))
+             (let ((,r1 (%rsh ,b/v 2)))
+               (let ((,dst/v (%div ,r0 ,r1)))
                  ,(next)))))))))
 
 ;; Primitive %mod, %quo, and %rem may use volatile register. Setting
