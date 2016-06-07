@@ -220,7 +220,7 @@
 #  define VM_TJIT_JUMP(n)                                               \
   do {                                                                  \
     if (n < 0 && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)           \
-      SCM_TJIT_ENTER (n, ip, SCM_TJIT_TRACE_JUMP, 1);                   \
+      SCM_TJIT_ENTER (n, ip, SCM_TJIT_TRACE_JUMP, TJIT_INC_JUMP);       \
     else                                                                \
       NEXT (n);                                                         \
   } while (0)
@@ -228,21 +228,21 @@
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
       SCM_TJIT_ENTER (0, SCM_FRAME_RETURN_ADDRESS (vp->fp),             \
-                      SCM_TJIT_TRACE_CALL, 1);                          \
+                      SCM_TJIT_TRACE_CALL, TJIT_INC_CALL);              \
     else                                                                \
       NEXT (0);                                                         \
   } while (0)
 #  define VM_TJIT_TAIL_CALL(old_ip)                                     \
   do {                                                                  \
     if (ip < old_ip && tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)     \
-      SCM_TJIT_ENTER (0, old_ip, SCM_TJIT_TRACE_TCALL, 1);              \
+      SCM_TJIT_ENTER (0, old_ip, SCM_TJIT_TRACE_TCALL, TJIT_INC_TCALL); \
     else                                                                \
       NEXT (0);                                                         \
   } while (0)
 #  define VM_TJIT_RETURN(n)                                             \
   do {                                                                  \
     if (tj->vm_state == SCM_TJIT_VM_STATE_INTERPRET)                    \
-      SCM_TJIT_ENTER (0, 0, SCM_TJIT_TRACE_RETURN, 1);                  \
+      SCM_TJIT_ENTER (0, 0, SCM_TJIT_TRACE_RETURN, TJIT_INC_RETURN);    \
     else                                                                \
       NEXT (0);                                                         \
   } while (0);                                                          \

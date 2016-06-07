@@ -116,6 +116,11 @@ static const int op_sizes[256] = {
 #define SCM_UPREC_P(fragment)                   \
   (scm_is_true (fragment) && scm_is_true (SCM_FRAGMENT_UPREC_P (fragment)))
 
+#define TJIT_INC_JUMP   1
+#define TJIT_INC_CALL   1
+#define TJIT_INC_TCALL  1
+#define TJIT_INC_RETURN 1
+
 
 /*
  * Configurable parameters
@@ -193,34 +198,37 @@ to_hex (SCM n)
 static inline void
 tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
 {
-  SCM s_id, s_bytecode, s_bytecode_ptr;
-  SCM s_parent_fragment_id, s_parent_exit_id;
-  SCM downrec_p, uprec_p;
-  size_t bytecode_len;
-
   if (scm_is_null (tj->traces))
     {
-      scm_t_uint16 retries = failed_ip_ref (tj->loop_start);
-      failed_ip_set (tj->loop_start, retries + 1);
-      return;
+      scm_t_uint16 count = failed_ip_ref (tj->loop_start);
+      failed_ip_set (tj->loop_start, count + 1);
     }
+  else
+    {
+      SCM s_id, s_bytecode, s_bytecode_ptr;
+      SCM s_parent_fragment_id, s_parent_exit_id;
+      SCM downrec_p, uprec_p;
+      size_t bytecode_len;
 
-  s_id = SCM_I_MAKINUM (tjit_trace_id);
-  s_bytecode_ptr = scm_from_pointer (tj->bytecode, NULL);
-  bytecode_len = tj->bc_idx * sizeof (scm_t_uint32);
-  s_bytecode = scm_c_take_gc_bytevector ((signed char *) tj->bytecode,
-                                         bytecode_len, s_bytecode_ptr);
-  s_parent_fragment_id = SCM_I_MAKINUM (tj->parent_fragment_id);
-  s_parent_exit_id = SCM_I_MAKINUM (tj->parent_exit_id);
-  downrec_p = tj->trace_type == SCM_TJIT_TRACE_CALL ? SCM_BOOL_T : SCM_BOOL_F;
-  uprec_p = tj->trace_type == SCM_TJIT_TRACE_RETURN ? SCM_BOOL_T : SCM_BOOL_F;
+      s_id = SCM_I_MAKINUM (tjit_trace_id);
+      s_bytecode_ptr = scm_from_pointer (tj->bytecode, NULL);
+      bytecode_len = tj->bc_idx * sizeof (scm_t_uint32);
+      s_bytecode = scm_c_take_gc_bytevector ((signed char *) tj->bytecode,
+                                             bytecode_len, s_bytecode_ptr);
+      s_parent_fragment_id = SCM_I_MAKINUM (tj->parent_fragment_id);
+      s_parent_exit_id = SCM_I_MAKINUM (tj->parent_exit_id);
+      downrec_p =
+        tj->trace_type == SCM_TJIT_TRACE_CALL ? SCM_BOOL_T : SCM_BOOL_F;
+      uprec_p =
+        tj->trace_type == SCM_TJIT_TRACE_RETURN ? SCM_BOOL_T : SCM_BOOL_F;
 
-  scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
-  scm_call_9 (tjitc_var, s_id, s_bytecode,
-              scm_reverse_x (tj->traces, SCM_EOL),
-              s_parent_fragment_id, s_parent_exit_id,
-              linked_ip, loop_p, downrec_p, uprec_p);
-  scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
+      scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
+      scm_call_9 (tjitc_var, s_id, s_bytecode,
+                  scm_reverse_x (tj->traces, SCM_EOL),
+                  s_parent_fragment_id, s_parent_exit_id,
+                  linked_ip, loop_p, downrec_p, uprec_p);
+      scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
+    }
 }
 
 static inline void
