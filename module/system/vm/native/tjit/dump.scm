@@ -116,7 +116,7 @@ option was set to true."
    (else
     (cons "(unknown source)" #f))))
 
-(define (dump-bytecode port trace-id ip-x-ops shift)
+(define (dump-bytecode port trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
     (let lp ((ip-x-ops ip-x-ops) (level 0) (lowest 0))
       (match ip-x-ops
@@ -143,7 +143,7 @@ option was set to true."
               (vector-set! v i (format #f "#x~x" addr))
               (lp (+ i 1) v))
             v))))
-  (let ((lowest (+ (lowest-level ip-x-ops) shift)))
+  (let ((lowest (lowest-level ip-x-ops)))
     (format port ";;; trace ~a: bytecode ~a~%" trace-id (length ip-x-ops))
     (let lp ((traces ip-x-ops) (level (- lowest)))
       (match traces

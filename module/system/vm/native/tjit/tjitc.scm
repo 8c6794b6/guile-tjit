@@ -136,7 +136,7 @@
         (define (dump-sline-and-bytecode test)
           (dump tjit-dump-jitc? test (show-sline port))
           (dump tjit-dump-bytecode? test
-                (dump-bytecode port trace-id traces (if uprec? 1 0))))
+                (dump-bytecode port trace-id traces)))
         (when (tjit-dump-abort? dump-option)
           (dump-sline-and-bytecode #t))
         (cond
