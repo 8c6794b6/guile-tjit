@@ -202,6 +202,8 @@ Currently does nothing, returns the given argument."
                                    vars write-indices snapshot-id
                                    initial-sp-offset initial-fp-offset
                                    (min initial-sp-offset 0)
+                                   (+ (max initial-sp-offset 0)
+                                      initial-nlocals)
                                    initial-inline-depth env)))
         (hashq-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
@@ -220,6 +222,8 @@ Currently does nothing, returns the given argument."
       (let ((emit (lambda ()
                     (let ((ir (make-ir snapshots snapshot-id vars
                                        (min initial-sp-offset 0)
+                                       (+ (max 0 initial-sp-offset)
+                                          initial-nlocals)
                                        0 #f #f))
                           (sp (vector-ref (env-sp-offsets env) 0))
                           (fp (vector-ref (env-fp-offsets env) 0)))
@@ -358,26 +362,30 @@ Currently does nothing, returns the given argument."
       (let-values (((ret snapshot)
                     (take-snapshot ip 0 locals (ir-vars ir)
                                    (env-write-indices env)
-                                   (ir-snapshot-id ir) sp-offset last-fp-offset
-                                   min-sp (env-inline-depth env) env #f
+                                   (ir-snapshot-id ir)
+                                   sp-offset last-fp-offset
+                                   min-sp
+                                   (+ sp-offset (or nlocals initial-nlocals))
+                                   (env-inline-depth env) env #f
                                    nlocals)))
         (let ((old-id (ir-snapshot-id ir)))
           (hashq-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
-    (define (nlocals-from-op op)
-      ;; Get the new `nlocals' when side trace ended with one of the call
-      ;; or operations containing `ALLOC_FRAME'. Otherwise false.
-      (match op
-        (('alloc-frame nlocals) nlocals)
-        (('reset-frame nlocals) nlocals)
-        (('assert-nargs-ee/locals expected nlocals) (+ nlocals expected))
-        (('call _ nlocals) nlocals)
-        (('call-label _ nlocals _) nlocals)
-        (('tail-call nlocals) nlocals)
-        (('tail-call-label nlocals _) nlocals)
-        (_ #f)))
-    (define (gen-last-op op ip ra locals)
+    (define (gen-last-op op ip ra dl locals)
+      (define (nlocals-from-op op)
+        ;; Get the new `nlocals' when side trace ended with one of the call
+        ;; or operations containing `ALLOC_FRAME'. Otherwise false.
+        (match op
+          (('alloc-frame nlocals) nlocals)
+          (('reset-frame nlocals) nlocals)
+          (('assert-nargs-ee/locals expected nlocals) (+ nlocals expected))
+          (('call _ nlocals) nlocals)
+          (('call-label _ nlocals _) nlocals)
+          (('tail-call nlocals) nlocals)
+          (('tail-call-label nlocals _) nlocals)
+          (('return-values nlocals) (+ nlocals dl))
+          (_ #f)))
       ;; Last operation is wrapped in a thunk, to assign snapshot ID in last
       ;; expression after taking snapshots from various works defined in `ir-*'
       ;; modules. Trace with loop will emit `loop'.  Side traces and loop-less
@@ -396,11 +404,10 @@ Currently does nothing, returns the given argument."
                (loop ,@(reverse (map cdr (ir-vars ir)))))))
          ((env-uprec? env)
           (lambda ()
-            `(let ((_ (%return ,ra)))
-               (let ((_ ,(entry-snapshot! *ip-key-uprec* locals last-sp-offset
-                                          (ir-min-sp-offset ir)
-                                          (vector-length locals))))
-                 (loop ,@(reverse (map cdr (ir-vars ir))))))))
+            `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals last-sp-offset
+                                        (ir-min-sp-offset ir)
+                                        (vector-length locals))))
+               (loop ,@(reverse (map cdr (ir-vars ir)))))))
          ((zero? last-sp-offset)
           (lambda ()
             `(loop ,@(reverse (map cdr (ir-vars ir))))))
@@ -437,6 +444,8 @@ Currently does nothing, returns the given argument."
           (set-env-fp-offset! env new-fp-offset)
           (when (< new-sp-offset (ir-min-sp-offset ir))
             (set-ir-min-sp-offset! ir new-sp-offset))
+          (when (< (ir-max-sp-offset ir) (+ new-sp-offset nlocals))
+            (set-ir-max-sp-offset! ir (+ new-sp-offset nlocals)))
           (increment-env-call-return-num! env op)
           (convert ir rest))))
     (define (convert-one ir op ip ra dl locals rest)
@@ -455,7 +464,7 @@ Currently does nothing, returns the given argument."
     (define (convert ir trace)
       (match trace
         ((#(op ip ra dl locals) . ())
-         (let ((last-op (gen-last-op op ip ra locals)))
+         (let ((last-op (gen-last-op op ip ra dl locals)))
            (set-ir-last-op! ir #t)
            (convert-one ir op ip ra dl locals last-op)))
         ((#(op ip ra dl locals) . rest)

@@ -133,7 +133,10 @@
                      (else
                       (env-entry-ip env)))))
       (when (not (= entry-ip next-ip))
-        (break 1 "last ~s to non-entry IP" message)))))
+        (break 1 "last ~s to non-entry IP, entry=~x linked=~x next=~x" message
+               (env-entry-ip env)
+               (or (and=> (env-linked-fragment env) fragment-entry-ip) 0)
+               next-ip)))))
 
 (define-syntax-rule (with-callee-guard proc flag var thunk)
   ;; Add guard to test the procedure value, to bailout when callee has been
@@ -321,8 +324,11 @@
          (sp-offset (current-sp-for-ti))
          (ra-offset (+ sp-offset stack-size))
          (dl-offset (+ ra-offset 1)))
-    (set-inferred-type! env ra-offset &false)
-    (set-inferred-type! env dl-offset &false)))
+    (when (or (not (env-uprec? env))
+              (env-parent-fragment env)
+              (inline-current-return?))
+      (set-inferred-type! env ra-offset &false)
+      (set-inferred-type! env dl-offset &false))))
 
 (define-anf (return-values nlocals)
   ;; Add guard to test return address.
