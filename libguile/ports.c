@@ -3361,9 +3361,29 @@ scm_c_put_string (SCM port, SCM string, size_t start, size_t count)
     }
 }
 
+SCM_DEFINE (scm_put_char, "put-char", 2, 0, 0, (SCM port, SCM ch),
+            "Encode @var{ch} to bytes, and send those bytes to @var{port}.")
+#define FUNC_NAME s_scm_put_char
+{
+  SCM_VALIDATE_OPOUTPORT (1, port);
+  SCM_VALIDATE_CHAR (2, ch);
+
+  scm_c_put_char (port, SCM_CHAR (ch));
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_put_string, "put-string", 2, 2, 0,
             (SCM port, SCM string, SCM start, SCM count),
-            "")
+            "Display the @var{count} characters from @var{string} to\n"
+            "@var{port}, starting with the character at index @var{start}.\n"
+            "@var{start} defaults to 0, and @var{count} defaults to\n"
+            "displaying all characters until the end of the string.\n\n"
+            "Calling @code{put-string} is equivalent in all respects to\n"
+            "calling @code{put-char} on the relevant sequence of characters,\n"
+            "except that it will attempt to write multiple characters to\n"
+            "the port at a time, even if the port is unbuffered.")
 #define FUNC_NAME s_scm_put_string
 {
   size_t c_start, c_count, c_len;

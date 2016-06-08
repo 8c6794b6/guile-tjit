@@ -191,7 +191,9 @@ interpret its input and output."
             port-read-buffering
             port-poll
             port-read-wait-fd
-            port-write-wait-fd))
+            port-write-wait-fd
+            put-char
+            put-string))
 
 (define-syntax-rule (port-buffer-bytevector buf) (vector-ref buf 0))
 (define-syntax-rule (port-buffer-cur buf) (vector-ref buf 1))
@@ -238,7 +240,9 @@ interpret its input and output."
                        port-read-buffering
                        port-poll
                        port-read-wait-fd
-                       port-write-wait-fd)
+                       port-write-wait-fd
+                       put-char
+                       put-string)
 
 ;; And we're back.
 (define-module (ice-9 ports))
