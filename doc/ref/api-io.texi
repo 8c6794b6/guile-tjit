@@ -15,7 +15,6 @@
 * Buffering::                   Controlling when data is written to ports.
 * Random Access::               Moving around a random access port.
 * Line/Delimited::              Read and write lines or delimited text.
-* Block Reading and Writing::   Reading and writing blocks of text.
 * Default Ports::               Defaults for input, output and errors.
 * Port Types::                  Types of port and how to make them.
 * R6RS I/O Ports::              The R6RS port API.
@@ -742,106 +741,6 @@ and a pair consisting of the line and its delimiter is returned.  The
 delimiter may be either a newline or the @var{eof-object}; if
 @code{%read-line} is called at the end of file, it returns the pair
 @code{(#<eof> . #<eof>)}.
-@end deffn
-
-@node Block Reading and Writing
-@subsection Block reading and writing
-@cindex Block read/write
-@cindex Port, block read/write
-
-The Block-string-I/O module can be accessed with:
-
-@lisp
-(use-modules (ice-9 rw))
-@end lisp
-
-It currently contains procedures that help to implement the
-@code{(scsh rw)} module in guile-scsh.
-
-@deffn {Scheme Procedure} read-string!/partial str [port_or_fdes [start [end]]]
-@deffnx {C Function} scm_read_string_x_partial (str, port_or_fdes, start, end)
-Read characters from a port or file descriptor into a
-string @var{str}.  A port must have an underlying file
-descriptor --- a so-called fport.  This procedure is
-scsh-compatible and can efficiently read large strings.
-It will:
-
-@itemize
-@item
-attempt to fill the entire string, unless the @var{start}
-and/or @var{end} arguments are supplied.  i.e., @var{start}
-defaults to 0 and @var{end} defaults to
-@code{(string-length str)}
-@item
-use the current input port if @var{port_or_fdes} is not
-supplied.
-@item
-return fewer than the requested number of characters in some
-cases, e.g., on end of file, if interrupted by a signal, or if
-not all the characters are immediately available.
-@item
-wait indefinitely for some input if no characters are
-currently available,
-unless the port is in non-blocking mode.
-@item
-read characters from the port's input buffers if available,
-instead from the underlying file descriptor.
-@item
-return @code{#f} if end-of-file is encountered before reading
-any characters, otherwise return the number of characters
-read.
-@item
-return 0 if the port is in non-blocking mode and no characters
-are immediately available.
-@item
-return 0 if the request is for 0 bytes, with no
-end-of-file check.
-@end itemize
-@end deffn
-
-@deffn {Scheme Procedure} write-string/partial str [port_or_fdes [start [end]]]
-@deffnx {C Function} scm_write_string_partial (str, port_or_fdes, start, end)
-Write characters from a string @var{str} to a port or file
-descriptor.  A port must have an underlying file descriptor
---- a so-called fport.  This procedure is
-scsh-compatible and can efficiently write large strings.
-It will:
-
-@itemize
-@item
-attempt to write the entire string, unless the @var{start}
-and/or @var{end} arguments are supplied.  i.e., @var{start}
-defaults to 0 and @var{end} defaults to
-@code{(string-length str)}
-@item
-use the current output port if @var{port_of_fdes} is not
-supplied.
-@item
-in the case of a buffered port, store the characters in the
-port's output buffer, if all will fit.  If they will not fit
-then any existing buffered characters will be flushed
-before attempting
-to write the new characters directly to the underlying file
-descriptor.  If the port is in non-blocking mode and
-buffered characters can not be flushed immediately, then an
-@code{EAGAIN} system-error exception will be raised (Note:
-scsh does not support the use of non-blocking buffered ports.)
-@item
-write fewer than the requested number of
-characters in some cases, e.g., if interrupted by a signal or
-if not all of the output can be accepted immediately.
-@item
-wait indefinitely for at least one character
-from @var{str} to be accepted by the port, unless the port is
-in non-blocking mode.
-@item
-return the number of characters accepted by the port.
-@item
-return 0 if the port is in non-blocking mode and can not accept
-at least one character from @var{str} immediately
-@item
-return 0 immediately if the request size is 0 bytes.
-@end itemize
 @end deffn
 
 @node Default Ports
