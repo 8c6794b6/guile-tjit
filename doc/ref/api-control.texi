@@ -1801,8 +1801,8 @@ In @code{scm_wrong_type_arg_msg}, @var{expected} is a C string
 describing the type of argument that was expected.
 
 In @code{scm_misc_error}, @var{message} is the error message string,
-possibly containing @code{simple-format} escapes (@pxref{Writing}), and
-the corresponding arguments in the @var{args} list.
+possibly containing @code{simple-format} escapes (@pxref{Simple
+Output}), and the corresponding arguments in the @var{args} list.
 @end deftypefn
 
 

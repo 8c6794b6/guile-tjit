@@ -303,7 +303,7 @@ a port.
 
 @deffn {Scheme Procedure} close fd_or_port
 @deffnx {C Function} scm_close (fd_or_port)
-Similar to @code{close-port} (@pxref{Closing, close-port}),
+Similar to @code{close-port} (@pxref{Ports, close-port}),
 but also works on file descriptors.  A side
 effect of closing a file descriptor is that any ports using that file
 descriptor are moved to a different file descriptor and have
@@ -2320,8 +2320,8 @@ terminate, and return the wait status code.  The status is as per
 it can reap a pipe's child process, causing an error from a subsequent
 @code{close-pipe}.
 
-@code{close-port} (@pxref{Closing}) can close a pipe, but it doesn't
-reap the child process.
+@code{close-port} (@pxref{Ports}) can close a pipe, but it doesn't reap
+the child process.
 
 The garbage collector will close a pipe no longer in use, and reap the
 child process with @code{waitpid}.  If the child hasn't yet terminated

@@ -8,16 +8,18 @@
 @section Input and Output
 
 @menu
-* Ports::                       The idea of the port abstraction.
-* Reading::                     Procedures for reading from a port.
-* Writing::                     Procedures for writing to a port.
-* Closing::                     Procedures to close a port.
+* Ports::                       What's a port?
+* Binary I/O::                  Reading and writing bytes.
+* Encoding::                    Characters as bytes.
+* Textual I/O::                 Reading and writing characters.
+* Simple Output::               Simple syntactic sugar solution.
 * Buffering::                   Controlling when data is written to ports.
 * Random Access::               Moving around a random access port.
 * Line/Delimited::              Read and write lines or delimited text.
 * Default Ports::               Defaults for input, output and errors.
 * Port Types::                  Types of port and how to make them.
-* R6RS I/O Ports::              The R6RS port API.
+* Venerable Port Interfaces::   Procedures from the last millenium.
+* Using Ports from C::          Nice interfaces for C.
 * I/O Extensions::              Implementing new port types in C.
 * Non-Blocking I/O::            How Guile deals with EWOULDBLOCK.
 * BOM Handling::                Handling of Unicode byte order marks.
@@ -28,49 +30,248 @@
 @subsection Ports
 @cindex Port
 
-Sequential input/output in Scheme is represented by operations on a
-@dfn{port}.  This chapter explains the operations that Guile provides
-for working with ports.
+Ports are the way that Guile performs input and output.  Guile can read
+in characters or bytes from an @dfn{input port}, or write them out to an
+@dfn{output port}.  Some ports support both interfaces.
 
-Ports are created by opening, for instance @code{open-file} for a file
-(@pxref{File Ports}).  Other kinds of ports include @dfn{soft ports} and
-@dfn{string ports} (@pxref{Soft Ports}, and @ref{String Ports}).
-Characters or bytes can be read from an input port and written to an
-output port, or both on an input/output port.  A port can be closed
-(@pxref{Closing}) when no longer required, after which any attempt to
-read or write is an error.
+There are a number of different port types implemented in Guile.  File
+ports provide input and output over files, as you might imagine.  For
+example, we might display a string to a file like this:
 
-Ports are garbage collected in the usual way (@pxref{Memory
-Management}), and will be closed at that time if not already closed.  In
-this case any errors occurring in the close will not be reported.
-Usually a program will want to explicitly close so as to be sure all its
-operations have been successful, including any buffered writes
-(@pxref{Buffering}).  Of course if a program has abandoned something due
-to an error or other condition then closing problems are probably not of
-interest.
+@example
+(let ((port (open-output-file "foo.txt")))
+  (display "Hello, world!\n" port)
+  (close-port port))
+@end example
 
-It is strongly recommended that file ports be closed explicitly when
-no longer required.  Most systems have limits on how many files can be
-open, both on a per-process and a system-wide basis.  A program that
-uses many files should take care not to hit those limits.  The same
-applies to similar system resources such as pipes and sockets.
+There are also string ports, for taking input from a string, or
+collecting output to a string; bytevector ports, for doing the same but
+using a bytevector as a source or sink of data; and soft ports, for
+arranging to call Scheme functions to provide input or handle output.
+@xref{Port Types}.
 
-Note that automatic garbage collection is triggered only by memory
-consumption, not by file or other resource usage, so a program cannot
-rely on that to keep it away from system limits.  An explicit call to
-@code{gc} can of course be relied on to pick up unreferenced ports.
-If program flow makes it hard to be certain when to close then this
-may be an acceptable way to control resource usage.
+Ports should be @dfn{closed} when they are not needed by calling
+@code{close-port} on them, as in the example above.  This will make sure
+that any pending output is successfully written out to disk, in the case
+of a file port, or otherwise to whatever mutable store is backed by the
+port.  Any error that occurs while writing out that buffered data would
+also be raised promptly at the @code{close-port}, and not later when the
+port is closed by the garbage collector.  @xref{Buffering}, for more on
+buffered output.
 
-All file access uses the ``LFS'' large file support functions when
-available, so files bigger than 2 Gbytes (@math{2^31} bytes) can be
-read and written on a 32-bit system.
+Closing a port also releases any precious resource the file might have.
+Usually in Scheme a programmer doesn't have to clean up after their data
+structures (@pxref{Memory Management}), but most systems have strict
+limits on how many files can be open, both on a per-process and a
+system-wide basis.  A program that uses many files should take care not
+to hit those limits.  The same applies to similar system resources such
+as pipes and sockets.
 
-Each port has an associated character encoding that controls how bytes
-read from the port are converted to characters and controls how
-characters written to the port are converted to bytes.  When ports are
-created, they inherit their character encoding from the current locale,
-but, that can be modified after the port is created.
+Indeed for these reasons the above example is not the most idiomatic way
+to use ports.  It is more common to acquire ports via procedures like
+@code{call-with-output-file}, which handle the @code{close-port}
+automatically:
+
+@example
+(call-with-output-file "foo.txt"
+  (lambda (port)
+    (display "Hello, world!\n" port)))
+@end example
+
+Finally, all ports have associated input and output buffers, as
+appropriate.  Buffering is a common strategy to limit the overhead of
+small reads and writes: without buffering, each character fetched from a
+file would involve at least one call into the kernel, and maybe more
+depending on the character and the encoding.  Instead, Guile will batch
+reads and writes into internal buffers.  However, sometimes you want to
+make output on a port show up immediately.  @xref{Buffering}, for more
+on interfaces to control port buffering.
+
+@deffn {Scheme Procedure} port? x
+@deffnx {C Function} scm_port_p (x)
+Return a boolean indicating whether @var{x} is a port.
+@end deffn
+
+@rnindex input-port?
+@deffn {Scheme Procedure} input-port? x
+@deffnx {C Function} scm_input_port_p (x)
+Return @code{#t} if @var{x} is an input port, otherwise return
+@code{#f}.  Any object satisfying this predicate also satisfies
+@code{port?}.
+@end deffn
+
+@rnindex output-port?
+@deffn {Scheme Procedure} output-port? x
+@deffnx {C Function} scm_output_port_p (x)
+Return @code{#t} if @var{x} is an output port, otherwise return
+@code{#f}.  Any object satisfying this predicate also satisfies
+@code{port?}.
+@end deffn
+
+@cindex Closing ports
+@cindex Port, close
+@deffn {Scheme Procedure} close-port port
+@deffnx {C Function} scm_close_port (port)
+Close the specified port object.  Return @code{#t} if it successfully
+closes a port or @code{#f} if it was already closed.  An exception may
+be raised if an error occurs, for example when flushing buffered output.
+@xref{Buffering}, for more on buffered output.  See also @ref{Ports and
+File Descriptors, close}, for a procedure which can close file
+descriptors.
+@end deffn
+
+@deffn {Scheme Procedure} port-closed? port
+@deffnx {C Function} scm_port_closed_p (port)
+Return @code{#t} if @var{port} is closed or @code{#f} if it is
+open.
+@end deffn
+
+
+@node Binary I/O
+@subsection Binary I/O
+
+Guile's ports are fundamentally binary in nature: at the lowest level,
+they work on bytes.  This section describes Guile's core binary I/O
+operations.  @xref{Textual I/O}, for input and output of strings and
+characters.
+
+To use these routines, first include the binary I/O module:
+
+@example
+(use-modules (ice-9 binary-ports))
+@end example
+
+Note that although this module's name suggests that binary ports are
+some different kind of port, that's not the case: all ports in Guile are
+both binary and textual ports.
+
+@cindex binary input
+@deffn {Scheme Procedure} get-u8 port
+@deffnx {C Function} scm_get_u8 (port)
+Return an octet read from @var{port}, an input port, blocking as
+necessary, or the end-of-file object.
+@end deffn
+
+@deffn {Scheme Procedure} lookahead-u8 port
+@deffnx {C Function} scm_lookahead_u8 (port)
+Like @code{get-u8} but does not update @var{port}'s position to point
+past the octet.
+@end deffn
+
+The end-of-file object is unlike any other kind of object: it's not a
+pair, a symbol, or anything else.  To check if a value is the
+end-of-file object, use the @code{eof-object?} predicate.
+
+@rnindex eof-object?
+@cindex End of file object
+@deffn {Scheme Procedure} eof-object? x
+@deffnx {C Function} scm_eof_object_p (x)
+Return @code{#t} if @var{x} is an end-of-file object, or @code{#f}
+otherwise.
+@end deffn
+
+Note that unlike other procedures in this module, @code{eof-object?} is
+defined in the default environment.
+
+@deffn {Scheme Procedure} get-bytevector-n port count
+@deffnx {C Function} scm_get_bytevector_n (port, count)
+Read @var{count} octets from @var{port}, blocking as necessary and
+return a bytevector containing the octets read.  If fewer bytes are
+available, a bytevector smaller than @var{count} is returned.
+@end deffn
+
+@deffn {Scheme Procedure} get-bytevector-n! port bv start count
+@deffnx {C Function} scm_get_bytevector_n_x (port, bv, start, count)
+Read @var{count} bytes from @var{port} and store them in @var{bv}
+starting at index @var{start}.  Return either the number of bytes
+actually read or the end-of-file object.
+@end deffn
+
+@deffn {Scheme Procedure} get-bytevector-some port
+@deffnx {C Function} scm_get_bytevector_some (port)
+Read from @var{port}, blocking as necessary, until bytes are available
+or an end-of-file is reached.  Return either the end-of-file object or a
+new bytevector containing some of the available bytes (at least one),
+and update the port position to point just past these bytes.
+@end deffn
+
+@deffn {Scheme Procedure} get-bytevector-all port
+@deffnx {C Function} scm_get_bytevector_all (port)
+Read from @var{port}, blocking as necessary, until the end-of-file is
+reached.  Return either a new bytevector containing the data read or the
+end-of-file object (if no data were available).
+@end deffn
+
+@deffn {Scheme Procedure} unget-bytevector port bv [start [count]]
+@deffnx {C Function} scm_unget_bytevector (port, bv, start, count)
+Place the contents of @var{bv} in @var{port}, optionally starting at
+index @var{start} and limiting to @var{count} octets, so that its bytes
+will be read from left-to-right as the next bytes from @var{port} during
+subsequent read operations.  If called multiple times, the unread bytes
+will be read again in last-in first-out order.
+@end deffn
+
+@cindex binary output
+To perform binary output on a port, use @code{put-u8} or
+@code{put-bytevector}.
+
+@deffn {Scheme Procedure} put-u8 port octet
+@deffnx {C Function} scm_put_u8 (port, octet)
+Write @var{octet}, an integer in the 0--255 range, to @var{port}, a
+binary output port.
+@end deffn
+
+@deffn {Scheme Procedure} put-bytevector port bv [start [count]]
+@deffnx {C Function} scm_put_bytevector (port, bv, start, count)
+Write the contents of @var{bv} to @var{port}, optionally starting at
+index @var{start} and limiting to @var{count} octets.
+@end deffn
+
+@node Encoding
+@subsection Encoding
+
+Textual input and output on Guile ports is layered on top of binary
+operations.  To this end, each port has an associated character encoding
+that controls how bytes read from the port are converted to characters,
+and how characters written to the port are converted to bytes.
+
+@deffn {Scheme Procedure} port-encoding port
+@deffnx {C Function} scm_port_encoding (port)
+Returns, as a string, the character encoding that @var{port} uses to
+interpret its input and output.
+@end deffn
+
+@deffn {Scheme Procedure} set-port-encoding! port enc
+@deffnx {C Function} scm_set_port_encoding_x (port, enc)
+Sets the character encoding that will be used to interpret I/O to
+@var{port}.  @var{enc} is a string containing the name of an encoding.
+Valid encoding names are those
+@url{http://www.iana.org/assignments/character-sets, defined by IANA},
+for example @code{"UTF-8"} or @code{"ISO-8859-1"}.
+@end deffn
+
+When ports are created, they are assigned an encoding.  The usual
+process to determine the initial encoding for a port is to take the
+value of the @code{%default-port-encoding} fluid.
+
+@defvr {Scheme Variable} %default-port-encoding
+A fluid containing name of the encoding to be used by default for newly
+created ports (@pxref{Fluids and Dynamic States}).  As a special case,
+the value @code{#f} is equivalent to @code{"ISO-8859-1"}.
+@end defvr
+
+The @code{%default-port-encoding} itself defaults to the encoding
+appropriate for the current locale, if @code{setlocale} has been called.
+@xref{Locales}, for more on locales and when you might need to call
+@code{setlocale} explicitly.
+
+Some port types have other ways of determining their initial locales.
+String ports, for example, default to the UTF-8 encoding, in order to be
+able to represent all characters regardless of the current locale.  File
+ports can optionally sniff their file for a @code{coding:} declaration;
+@xref{File Ports}.  Binary ports might be initialized to the ISO-8859-1
+encoding in which each codepoint between 0 and 255 corresponds to a byte
+with that value.
 
 Currently, the ports only work with @emph{non-modal} encodings.  Most
 encodings are non-modal, meaning that the conversion of bytes to a
@@ -90,92 +291,6 @@ escape, or to replace the character with a substitute character.  Port
 conversion strategies are also used when decoding characters from an
 input port.
 
-Finally, all ports have associated input and output buffers, as
-appropriate.  Buffering is a common strategy to limit the overhead of
-small reads and writes: without buffering, each character fetched from a
-file would involve at least one call into the kernel, and maybe more
-depending on the character and the encoding.  Instead, Guile will batch
-reads and writes into internal buffers.  However, sometimes you want to
-make output on a port show up immediately.  @xref{Buffering}, for more
-on interfaces to control port buffering.
-
-@rnindex input-port?
-@deffn {Scheme Procedure} input-port? x
-@deffnx {C Function} scm_input_port_p (x)
-Return @code{#t} if @var{x} is an input port, otherwise return
-@code{#f}.  Any object satisfying this predicate also satisfies
-@code{port?}.
-@end deffn
-
-@rnindex output-port?
-@deffn {Scheme Procedure} output-port? x
-@deffnx {C Function} scm_output_port_p (x)
-Return @code{#t} if @var{x} is an output port, otherwise return
-@code{#f}.  Any object satisfying this predicate also satisfies
-@code{port?}.
-@end deffn
-
-@deffn {Scheme Procedure} port? x
-@deffnx {C Function} scm_port_p (x)
-Return a boolean indicating whether @var{x} is a port.
-Equivalent to @code{(or (input-port? @var{x}) (output-port?
-@var{x}))}.
-@end deffn
-
-@deffn {Scheme Procedure} set-port-encoding! port enc
-@deffnx {C Function} scm_set_port_encoding_x (port, enc)
-Sets the character encoding that will be used to interpret all port I/O.
-@var{enc} is a string containing the name of an encoding.  Valid
-encoding names are those
-@url{http://www.iana.org/assignments/character-sets, defined by IANA}.
-@end deffn
-
-@defvr {Scheme Variable} %default-port-encoding
-A fluid containing @code{#f} or the name of the encoding to
-be used by default for newly created ports (@pxref{Fluids and Dynamic
-States}).  The value @code{#f} is equivalent to @code{"ISO-8859-1"}.
-
-New ports are created with the encoding appropriate for the current
-locale if @code{setlocale} has been called or the value specified by
-this fluid otherwise.
-@end defvr
-
-@deffn {Scheme Procedure} port-encoding port
-@deffnx {C Function} scm_port_encoding (port)
-Returns, as a string, the character encoding that @var{port} uses to interpret
-its input and output.  The value @code{#f} is equivalent to @code{"ISO-8859-1"}.
-@end deffn
-
-@deffn {Scheme Procedure} set-port-conversion-strategy! port sym
-@deffnx {C Function} scm_set_port_conversion_strategy_x (port, sym)
-Sets the behavior of Guile when outputting a character that is not
-representable in the port's current encoding, or when Guile encounters a
-decoding error when trying to read a character.  @var{sym} can be either
-@code{error}, @code{substitute}, or @code{escape}.
-
-If @var{port} is an open port, the conversion error behavior
-is set for that port.  If it is @code{#f}, it is set as the
-default behavior for any future ports that get created in
-this thread.
-@end deffn
-
-For an output port, a there are three possible port conversion
-strategies.  The @code{error} strategy will throw an error when a
-nonconvertible character is encountered.  The @code{substitute} strategy
-will replace nonconvertible characters with a question mark (@samp{?}).
-Finally the @code{escape} strategy will print nonconvertible characters
-as a hex escape, using the escaping that is recognized by Guile's string
-syntax.  Note that if the port's encoding is a Unicode encoding, like
-@code{UTF-8}, then encoding errors are impossible.
-
-For an input port, the @code{error} strategy will cause Guile to throw
-an error if it encounters an invalid encoding, such as might happen if
-you tried to read @code{ISO-8859-1} as @code{UTF-8}.  The error is
-thrown before advancing the read position.  The @code{substitute}
-strategy will replace the bad bytes with a U+FFFD replacement character,
-in accordance with Unicode recommendations.  When reading from an input
-port, the @code{escape} strategy is treated as if it were @code{error}.
-
 @deffn {Scheme Procedure} port-conversion-strategy port
 @deffnx {C Function} scm_port_conversion_strategy (port)
 Returns the behavior of the port when outputting a character that is not
@@ -186,9 +301,24 @@ returned.  New ports will have this default behavior when they are
 created.
 @end deffn
 
+@deffn {Scheme Procedure} set-port-conversion-strategy! port sym
+@deffnx {C Function} scm_set_port_conversion_strategy_x (port, sym)
+Sets the behavior of Guile when outputting a character that is not
+representable in the port's current encoding, or when Guile encounters a
+decoding error when trying to read a character.  @var{sym} can be either
+@code{error}, @code{substitute}, or @code{escape}.
+
+If @var{port} is an open port, the conversion error behavior is set for
+that port.  If it is @code{#f}, it is set as the default behavior for
+any future ports that get created in this thread.
+@end deffn
+
+As with port encodings, there is a fluid which determines the initial
+conversion strategy for a port.
+
 @deffn {Scheme Variable} %default-port-conversion-strategy
 The fluid that defines the conversion strategy for newly created ports,
-and for other conversion routines such as @code{scm_to_stringn},
+and also for other conversion routines such as @code{scm_to_stringn},
 @code{scm_from_stringn}, @code{string->pointer}, and
 @code{pointer->string}.
 
@@ -202,114 +332,161 @@ equivalent to @code{(fluid-set! %default-port-conversion-strategy
 @var{sym})}.
 @end deffn
 
+As mentioned above, for an output port there are three possible port
+conversion strategies.  The @code{error} strategy will throw an error
+when a nonconvertible character is encountered.  The @code{substitute}
+strategy will replace nonconvertible characters with a question mark
+(@samp{?}).  Finally the @code{escape} strategy will print
+nonconvertible characters as a hex escape, using the escaping that is
+recognized by Guile's string syntax.  Note that if the port's encoding
+is a Unicode encoding, like @code{UTF-8}, then encoding errors are
+impossible.
 
-@node Reading
-@subsection Reading
-@cindex Reading
+For an input port, the @code{error} strategy will cause Guile to throw
+an error if it encounters an invalid encoding, such as might happen if
+you tried to read @code{ISO-8859-1} as @code{UTF-8}.  The error is
+thrown before advancing the read position.  The @code{substitute}
+strategy will replace the bad bytes with a U+FFFD replacement character,
+in accordance with Unicode recommendations.  When reading from an input
+port, the @code{escape} strategy is treated as if it were @code{error}.
 
-These procedures pertain to reading characters and strings from
-ports. To read general S-expressions from ports, @xref{Scheme Read}.
 
-@rnindex eof-object?
-@cindex End of file object
-@deffn {Scheme Procedure} eof-object? x
-@deffnx {C Function} scm_eof_object_p (x)
-Return @code{#t} if @var{x} is an end-of-file object; otherwise
-return @code{#f}.
+@node Textual I/O
+@subsection Textual I/O
+@cindex textual input
+@cindex textual output
+
+This section describes Guile's core textual I/O operations on characters
+and strings.  @xref{Binary I/O}, for input and output of bytes and
+bytevectors.  @xref{Encoding}, for more on how characters relate to
+bytes.  To read general S-expressions from ports, @xref{Scheme Read}.
+@xref{Scheme Write}, for interfaces that write generic Scheme datums.
+
+To use these routines, first include the textual I/O module:
+
+@example
+(use-modules (ice-9 textual-ports))
+@end example
+
+Note that although this module's name suggests that textual ports are
+some different kind of port, that's not the case: all ports in Guile are
+both binary and textual ports.
+
+@deffn {Scheme Procedure} get-char input-port
+Reads from @var{input-port}, blocking as necessary, until a
+complete character is available from @var{input-port},
+or until an end of file is reached.
+
+If a complete character is available before the next end of file,
+@code{get-char} returns that character and updates the input port to
+point past the character. If an end of file is reached before any
+character is read, @code{get-char} returns the end-of-file object.
 @end deffn
 
-@rnindex char-ready?
-@deffn {Scheme Procedure} char-ready? [port]
-@deffnx {C Function} scm_char_ready_p (port)
-Return @code{#t} if a character is ready on input @var{port}
-and return @code{#f} otherwise.  If @code{char-ready?} returns
-@code{#t} then the next @code{read-char} operation on
-@var{port} is guaranteed not to hang.  If @var{port} is a file
-port at end of file then @code{char-ready?} returns @code{#t}.
-
-@code{char-ready?} exists to make it possible for a
-program to accept characters from interactive ports without
-getting stuck waiting for input.  Any input editors associated
-with such ports must make sure that characters whose existence
-has been asserted by @code{char-ready?} cannot be rubbed out.
-If @code{char-ready?} were to return @code{#f} at end of file,
-a port at end of file would be indistinguishable from an
-interactive port that has no ready characters.
+@deffn {Scheme Procedure} lookahead-char input-port
+The @code{lookahead-char} procedure is like @code{get-char}, but it does
+not update @var{input-port} to point past the character.
 @end deffn
 
-@rnindex read-char
-@deffn {Scheme Procedure} read-char [port]
-@deffnx {C Function} scm_read_char (port)
-Return the next character available from @var{port}, updating @var{port}
-to point to the following character.  If no more characters are
-available, the end-of-file object is returned.  A decoding error, if
-any, is handled in accordance with the port's conversion strategy.
-@end deffn
+In the same way that it's possible to "unget" a byte or bytes, it's
+possible to "unget" the bytes corresponding to an encoded character.
 
-@deftypefn {C Function} size_t scm_c_read (SCM port, void *buffer, size_t size)
-Read up to @var{size} bytes from @var{port} and store them in
-@var{buffer}.  The return value is the number of bytes actually read,
-which can be less than @var{size} if end-of-file has been reached.
-
-Note that this function does not update @code{port-line} and
-@code{port-column} below.
-@end deftypefn
-
-@rnindex peek-char
-@deffn {Scheme Procedure} peek-char [port]
-@deffnx {C Function} scm_peek_char (port)
-Return the next character available from @var{port},
-@emph{without} updating @var{port} to point to the following
-character.  If no more characters are available, the
-end-of-file object is returned.
-
-The value returned by
-a call to @code{peek-char} is the same as the value that would
-have been returned by a call to @code{read-char} on the same
-port.  The only difference is that the very next call to
-@code{read-char} or @code{peek-char} on that @var{port} will
-return the value returned by the preceding call to
-@code{peek-char}.  In particular, a call to @code{peek-char} on
-an interactive port will hang waiting for input whenever a call
-to @code{read-char} would have hung.
-
-As for @code{read-char}, decoding errors are handled in accordance with
-the port's conversion strategy.
-@end deffn
-
-@deffn {Scheme Procedure} unread-char cobj [port]
-@deffnx {C Function} scm_unread_char (cobj, port)
-Place character @var{cobj} in @var{port} so that it will be read by the
+@deffn {Scheme Procedure} unget-char port char
+Place character @var{char} in @var{port} so that it will be read by the
 next read operation.  If called multiple times, the unread characters
-will be read again in last-in first-out order.  If @var{port} is
-not supplied, the current input port is used.
+will be read again in last-in first-out order.
 @end deffn
 
-@deffn {Scheme Procedure} unread-string str port
-@deffnx {C Function} scm_unread_string (str, port)
+@deffn {Scheme Procedure} unget-string port str
 Place the string @var{str} in @var{port} so that its characters will
 be read from left-to-right as the next characters from @var{port}
 during subsequent read operations.  If called multiple times, the
-unread characters will be read again in last-in first-out order.  If
-@var{port} is not supplied, the @code{current-input-port} is used.
+unread characters will be read again in last-in first-out order.
 @end deffn
 
-@deffn {Scheme Procedure} drain-input port
-@deffnx {C Function} scm_drain_input (port)
-This procedure clears a port's input buffers, similar
-to the way that force-output clears the output buffer.  The
-contents of the buffers are returned as a single string, e.g.,
+Reading in a character at a time can be inefficient.  If it's possible
+to perform I/O over multiple characters at a time, via strings, that
+might be faster.
 
-@lisp
-(define p (open-input-file ...))
-(drain-input p) => empty string, nothing buffered yet.
-(unread-char (read-char p) p)
-(drain-input p) => initial chars from p, up to the buffer size.
-@end lisp
+@deffn {Scheme Procedure} get-string-n input-port count
+The @code{get-string-n} procedure reads from @var{input-port}, blocking
+as necessary, until @var{count} characters are available, or until an
+end of file is reached.  @var{count} must be an exact, non-negative
+integer, representing the number of characters to be read.
 
-Draining the buffers may be useful for cleanly finishing
-buffered I/O so that the file descriptor can be used directly
-for further input.
+If @var{count} characters are available before end of file,
+@code{get-string-n} returns a string consisting of those @var{count}
+characters. If fewer characters are available before an end of file, but
+one or more characters can be read, @code{get-string-n} returns a string
+containing those characters. In either case, the input port is updated
+to point just past the characters read. If no characters can be read
+before an end of file, the end-of-file object is returned.
+@end deffn
+
+@deffn {Scheme Procedure} get-string-n! input-port string start count
+The @code{get-string-n!} procedure reads from @var{input-port} in the
+same manner as @code{get-string-n}.  @var{start} and @var{count} must be
+exact, non-negative integer objects, with @var{count} representing the
+number of characters to be read.  @var{string} must be a string with at
+least $@var{start} + @var{count}$ characters.
+
+If @var{count} characters are available before an end of file, they are
+written into @var{string} starting at index @var{start}, and @var{count}
+is returned. If fewer characters are available before an end of file,
+but one or more can be read, those characters are written into
+@var{string} starting at index @var{start} and the number of characters
+actually read is returned as an exact integer object. If no characters
+can be read before an end of file, the end-of-file object is returned.
+@end deffn
+
+@deffn {Scheme Procedure} get-string-all input-port
+Reads from @var{input-port} until an end of file, decoding characters in
+the same manner as @code{get-string-n} and @code{get-string-n!}.
+
+If characters are available before the end of file, a string containing
+all the characters decoded from that data are returned. If no character
+precedes the end of file, the end-of-file object is returned.
+@end deffn
+
+@deffn {Scheme Procedure} get-line input-port
+Reads from @var{input-port} up to and including the linefeed
+character or end of file, decoding characters in the same manner as
+@code{get-string-n} and @code{get-string-n!}.
+
+If a linefeed character is read, a string containing all of the text up
+to (but not including) the linefeed character is returned, and the port
+is updated to point just past the linefeed character. If an end of file
+is encountered before any linefeed character is read, but some
+characters have been read and decoded as characters, a string containing
+those characters is returned. If an end of file is encountered before
+any characters are read, the end-of-file object is returned.
+@end deffn
+
+Finally, there are just two core procedures to write characters to a
+port.
+
+@deffn {Scheme Procedure} put-char port char
+Writes @var{char} to the port. The @code{put-char} procedure returns
+an unspecified value.
+@end deffn
+
+@deffn {Scheme Procedure} put-string port string
+@deffnx {Scheme Procedure} put-string port string start
+@deffnx {Scheme Procedure} put-string port string start count
+Write the @var{count} characters of @var{string} starting at index
+@var{start} to the port.
+
+@var{start} and @var{count} must be non-negative exact integer objects.
+@var{string} must have a length of at least @math{@var{start} +
+@var{count}}.  @var{start} defaults to 0.  @var{count} defaults to
+@math{@code{(string-length @var{string})} - @var{start}}$.
+
+Calling @code{put-string} is equivalent in all respects to calling
+@code{put-char} on the relevant sequence of characters, except that it
+will attempt to write multiple characters to the port at a time, even if
+the port is unbuffered.
+
+The @code{put-string} procedure returns an unspecified value.
 @end deffn
 
 @deffn {Scheme Procedure} port-column port
@@ -333,34 +510,8 @@ what non-programmers will find most natural.)
 Set the current column or line number of @var{port}.
 @end deffn
 
-@node Writing
-@subsection Writing
-@cindex Writing
-
-These procedures are for writing characters and strings to
-ports. For more information on writing arbitrary Scheme objects to
-ports, @xref{Scheme Write}.
-
-@deffn {Scheme Procedure} get-print-state port
-@deffnx {C Function} scm_get_print_state (port)
-Return the print state of the port @var{port}.  If @var{port}
-has no associated print state, @code{#f} is returned.
-@end deffn
-
-@rnindex newline
-@deffn {Scheme Procedure} newline [port]
-@deffnx {C Function} scm_newline (port)
-Send a newline to @var{port}.
-If @var{port} is omitted, send to the current output port.
-@end deffn
-
-@deffn {Scheme Procedure} port-with-print-state port [pstate]
-@deffnx {C Function} scm_port_with_print_state (port, pstate)
-Create a new port which behaves like @var{port}, but with an
-included print state @var{pstate}.  @var{pstate} is optional.
-If @var{pstate} isn't supplied and @var{port} already has
-a print state, the old print state is reused.
-@end deffn
+@node Simple Output
+@subsection Simple Textual Output
 
 @deffn {Scheme Procedure} simple-format destination message . args
 @deffnx {C Function} scm_simple_format (destination, message, args)
@@ -373,81 +524,7 @@ current output port, if @var{destination} is @code{#f}, then return a
 string containing the formatted text.  Does not add a trailing newline.
 @end deffn
 
-@rnindex write-char
-@deffn {Scheme Procedure} write-char chr [port]
-@deffnx {C Function} scm_write_char (chr, port)
-Send character @var{chr} to @var{port}.
-@end deffn
-
-@deftypefn {C Function} void scm_c_write (SCM port, const void *buffer, size_t size)
-Write @var{size} bytes at @var{buffer} to @var{port}.
-
-Note that this function does not update @code{port-line} and
-@code{port-column} (@pxref{Reading}).
-@end deftypefn
-
-@deftypefn {C Function} void scm_lfwrite (const char *buffer, size_t size, SCM port)
-Write @var{size} bytes at @var{buffer} to @var{port}.  The @code{lf}
-indicates that unlike @code{scm_c_write}, this function updates the
-port's @code{port-line} and @code{port-column}, and also flushes the
-port if the data contains a newline (@code{\n}) and the port is
-line-buffered.
-@end deftypefn
-
-@findex fflush
-@deffn {Scheme Procedure} force-output [port]
-@deffnx {C Function} scm_force_output (port)
-Flush the specified output port, or the current output port if @var{port}
-is omitted.  The current output buffer contents are passed to the
-underlying port implementation (e.g., in the case of fports, the
-data will be written to the file and the output buffer will be cleared.)
-It has no effect on an unbuffered port.
-
-The return value is unspecified.
-@end deffn
-
-@deffn {Scheme Procedure} flush-all-ports
-@deffnx {C Function} scm_flush_all_ports ()
-Equivalent to calling @code{force-output} on
-all open output ports.  The return value is unspecified.
-@end deffn
-
-
-@node Closing
-@subsection Closing
-@cindex Closing ports
-@cindex Port, close
-
-@deffn {Scheme Procedure} close-port port
-@deffnx {C Function} scm_close_port (port)
-Close the specified port object.  Return @code{#t} if it successfully
-closes a port or @code{#f} if it was already closed.  An exception may
-be raised if an error occurs, for example when flushing buffered output.
-@xref{Buffering}, for more on buffered output.  See also @ref{Ports and
-File Descriptors, close}, for a procedure which can close file
-descriptors.
-@end deffn
-
-@deffn {Scheme Procedure} close-input-port port
-@deffnx {Scheme Procedure} close-output-port port
-@deffnx {C Function} scm_close_input_port (port)
-@deffnx {C Function} scm_close_output_port (port)
-@rnindex close-input-port
-@rnindex close-output-port
-Close the specified input or output @var{port}.  An exception may be
-raised if an error occurs while closing.  If @var{port} is already
-closed, nothing is done.  The return value is unspecified.
-
-See also @ref{Ports and File Descriptors, close}, for a procedure
-which can close file descriptors.
-@end deffn
-
-@deffn {Scheme Procedure} port-closed? port
-@deffnx {C Function} scm_port_closed_p (port)
-Return @code{#t} if @var{port} is closed or @code{#f} if it is
-open.
-@end deffn
-
+pk / peek
 
 @node Buffering
 @subsection Buffering
@@ -463,7 +540,7 @@ that intermediate buffer.  Similarly, small writes like
 @code{write-char} first go to a buffer, and are sent to the store when
 the buffer is full (or when port is flushed).  Buffered ports speed up
 your program by reducing the number of round-trips to the mutable store,
-and the do so in a way that is mostly transparent to the user.
+and they do so in a way that is mostly transparent to the user.
 
 There are two major ways, however, in which buffering affects program
 semantics.  Building correct, performant programs requires understanding
@@ -483,7 +560,7 @@ mutable store, and are not seekable.  Note also that sockets are
 unbuffered by default.  @xref{Network Sockets and Communication}.
 
 The second case is the more pernicious one.  If you write data to a
-buffered port, it probably hasn't gone out to the mutable store yet.
+buffered port, it probably doesn't go out to the mutable store directly.
 (This ``probably'' introduces some indeterminism in your program: what
 goes to the store, and when, depends on how full the buffer is.  It is
 something that the user needs to explicitly be aware of.)  The data is
@@ -531,6 +608,44 @@ If @var{size} is omitted, a default size will be used.
 Another way to set the buffering, for file ports, is to open the file
 with @code{0} or @code{l} as part of the mode string, for unbuffered or
 line-buffered ports, respectively.  @xref{File Ports}, for more.
+
+Any buffered output data will be written out when the port is closed.
+To make sure to flush it at specific points in your program, use
+@code{force-otput}.
+
+@findex fflush
+@deffn {Scheme Procedure} force-output [port]
+@deffnx {C Function} scm_force_output (port)
+Flush the specified output port, or the current output port if
+@var{port} is omitted.  The current output buffer contents, if any, are
+passed to the underlying port implementation.
+
+The return value is unspecified.
+@end deffn
+
+@deffn {Scheme Procedure} flush-all-ports
+@deffnx {C Function} scm_flush_all_ports ()
+Equivalent to calling @code{force-output} on all open output ports.  The
+return value is unspecified.
+@end deffn
+
+Similarly, sometimes you might want to switch from using Guile's ports
+to working directly on file descriptors.  In that case, for input ports
+use @code{drain-input} to get any buffered input from that port.
+
+@deffn {Scheme Procedure} drain-input port
+@deffnx {C Function} scm_drain_input (port)
+This procedure clears a port's input buffers, similar
+to the way that force-output clears the output buffer.  The
+contents of the buffers are returned as a single string, e.g.,
+
+@lisp
+(define p (open-input-file ...))
+(drain-input p) => empty string, nothing buffered yet.
+(unread-char (read-char p) p)
+(drain-input p) => initial chars from p, up to the buffer size.
+@end lisp
+@end deffn
 
 All of these considerations are very similar to those of streams in the
 C library, although Guile's ports are not built on top of C streams.
@@ -783,7 +898,7 @@ Unbuffered output to a tty is good for ensuring progress output or a
 prompt is seen.  But an application which always prints whole lines
 could change to line buffered, or an application with a lot of output
 could go fully buffered and perhaps make explicit @code{force-output}
-calls (@pxref{Writing}) at selected points.
+calls (@pxref{Buffering}) at selected points.
 @end deffn
 
 @deffn {Scheme Procedure} current-error-port
@@ -827,8 +942,10 @@ initialized with the @var{port} argument.
 
 @menu
 * File Ports:: Ports on an operating system file.
+* Bytevector Ports:: Ports on a bytevector.
 * String Ports:: Ports on a Scheme string.
-* Soft Ports:: Ports on arbitrary Scheme procedures.
+* Custom Ports:: Ports whose implementation you control.
+* Soft Ports:: An older version of custom ports.
 * Void Ports:: Ports on nothing at all.
 @end menu
 
@@ -841,6 +958,10 @@ initialized with the @var{port} argument.
 The following procedures are used to open file ports.
 See also @ref{Ports and File Descriptors, open}, for an interface
 to the Unix @code{open} system call.
+
+All file access uses the ``LFS'' large file support functions when
+available, so files bigger than 2 Gbytes (@math{2^31} bytes) can be
+read and written on a 32-bit system.
 
 Most systems have limits on how many files can be open, so it's
 strongly recommended that file ports be closed explicitly when no
@@ -895,8 +1016,7 @@ character encoding "ISO-8859-1", ignoring the default port encoding.
 
 Note that while it is possible to read and write binary data as
 characters or strings, it is usually better to treat bytes as octets,
-and byte sequences as bytevectors.  @xref{R6RS Binary Input}, and
-@ref{R6RS Binary Output}, for more.
+and byte sequences as bytevectors.  @xref{Binary I/O}, for more.
 
 This option had another historical meaning, for DOS compatibility: in
 the default (textual) mode, DOS reads a CR-LF sequence as one LF byte.
@@ -1029,6 +1149,98 @@ Determine whether @var{obj} is a port that is related to a file.
 @end deffn
 
 
+@node Bytevector Ports
+@subsubsection Bytevector Ports
+
+@deffn {Scheme Procedure} open-bytevector-input-port bv [transcoder]
+@deffnx {C Function} scm_open_bytevector_input_port (bv, transcoder)
+Return an input port whose contents are drawn from bytevector @var{bv}
+(@pxref{Bytevectors}).
+
+@c FIXME: Update description when implemented.
+The @var{transcoder} argument is currently not supported.
+@end deffn
+
+@cindex custom binary input ports
+
+@deffn {Scheme Procedure} make-custom-binary-input-port id read! get-position set-position! close
+@deffnx {C Function} scm_make_custom_binary_input_port (id, read!, get-position, set-position!, close)
+Return a new custom binary input port@footnote{This is similar in spirit
+to Guile's @dfn{soft ports} (@pxref{Soft Ports}).} named @var{id} (a
+string) whose input is drained by invoking @var{read!} and passing it a
+bytevector, an index where bytes should be written, and the number of
+bytes to read.  The @code{read!}  procedure must return an integer
+indicating the number of bytes read, or @code{0} to indicate the
+end-of-file.
+
+Optionally, if @var{get-position} is not @code{#f}, it must be a thunk
+that will be called when @code{port-position} is invoked on the custom
+binary port and should return an integer indicating the position within
+the underlying data stream; if @var{get-position} was not supplied, the
+returned port does not support @code{port-position}.
+
+Likewise, if @var{set-position!} is not @code{#f}, it should be a
+one-argument procedure.  When @code{set-port-position!} is invoked on the
+custom binary input port, @var{set-position!} is passed an integer
+indicating the position of the next byte is to read.
+
+Finally, if @var{close} is not @code{#f}, it must be a thunk.  It is
+invoked when the custom binary input port is closed.
+
+The returned port is fully buffered by default, but its buffering mode
+can be changed using @code{setvbuf} (@pxref{Buffering}).
+
+Using a custom binary input port, the @code{open-bytevector-input-port}
+procedure could be implemented as follows:
+
+@lisp
+(define (open-bytevector-input-port source)
+  (define position 0)
+  (define length (bytevector-length source))
+
+  (define (read! bv start count)
+    (let ((count (min count (- length position))))
+      (bytevector-copy! source position
+                        bv start count)
+      (set! position (+ position count))
+      count))
+
+  (define (get-position) position)
+
+  (define (set-position! new-position)
+    (set! position new-position))
+
+  (make-custom-binary-input-port "the port" read!
+                                  get-position
+                                  set-position!))
+
+(read (open-bytevector-input-port (string->utf8 "hello")))
+@result{} hello
+@end lisp
+@end deffn
+
+@deffn {Scheme Procedure} open-bytevector-output-port [transcoder]
+@deffnx {C Function} scm_open_bytevector_output_port (transcoder)
+Return two values: a binary output port and a procedure.  The latter
+should be called with zero arguments to obtain a bytevector containing
+the data accumulated by the port, as illustrated below.
+
+@lisp
+(call-with-values
+  (lambda ()
+    (open-bytevector-output-port))
+  (lambda (port get-bytevector)
+    (display "hello" port)
+    (get-bytevector)))
+
+@result{} #vu8(104 101 108 108 111)
+@end lisp
+
+@c FIXME: Update description when implemented.
+The @var{transcoder} argument is currently not supported.
+@end deffn
+
+
 @node String Ports
 @subsubsection String Ports
 @cindex String port
@@ -1101,6 +1313,83 @@ A string port can be used in many procedures which accept a port
 but which are not dependent on implementation details of fports.
 E.g., seeking and truncating will work on a string port,
 but trying to extract the file descriptor number will fail.
+
+
+@node Custom Ports
+@subsubsection Custom Ports
+
+(ice-9 binary-ports), binary and text...
+
+@cindex custom binary input ports
+@deffn {Scheme Procedure} make-custom-binary-input-port id read! get-position set-position! close
+@deffnx {C Function} scm_make_custom_binary_input_port (id, read!, get-position, set-position!, close)
+Return a new custom binary input port@footnote{This is similar in spirit
+to Guile's @dfn{soft ports} (@pxref{Soft Ports}).} named @var{id} (a
+string) whose input is drained by invoking @var{read!} and passing it a
+bytevector, an index where bytes should be written, and the number of
+bytes to read.  The @code{read!}  procedure must return an integer
+indicating the number of bytes read, or @code{0} to indicate the
+end-of-file.
+
+Optionally, if @var{get-position} is not @code{#f}, it must be a thunk
+that will be called when @code{port-position} is invoked on the custom
+binary port and should return an integer indicating the position within
+the underlying data stream; if @var{get-position} was not supplied, the
+returned port does not support @code{port-position}.
+
+Likewise, if @var{set-position!} is not @code{#f}, it should be a
+one-argument procedure.  When @code{set-port-position!} is invoked on the
+custom binary input port, @var{set-position!} is passed an integer
+indicating the position of the next byte is to read.
+
+Finally, if @var{close} is not @code{#f}, it must be a thunk.  It is
+invoked when the custom binary input port is closed.
+
+The returned port is fully buffered by default, but its buffering mode
+can be changed using @code{setvbuf} (@pxref{Buffering}).
+
+Using a custom binary input port, the @code{open-bytevector-input-port}
+procedure (@pxref{Bytevector Ports}) could be implemented as follows:
+
+@lisp
+(define (open-bytevector-input-port source)
+  (define position 0)
+  (define length (bytevector-length source))
+
+  (define (read! bv start count)
+    (let ((count (min count (- length position))))
+      (bytevector-copy! source position
+                        bv start count)
+      (set! position (+ position count))
+      count))
+
+  (define (get-position) position)
+
+  (define (set-position! new-position)
+    (set! position new-position))
+
+  (make-custom-binary-input-port "the port" read!
+                                  get-position
+                                  set-position!))
+
+(read (open-bytevector-input-port (string->utf8 "hello")))
+@result{} hello
+@end lisp
+@end deffn
+
+@cindex custom binary output ports
+@deffn {Scheme Procedure} make-custom-binary-output-port id write! get-position set-position! close
+@deffnx {C Function} scm_make_custom_binary_output_port (id, write!, get-position, set-position!, close)
+Return a new custom binary output port named @var{id} (a string) whose
+output is sunk by invoking @var{write!} and passing it a bytevector, an
+index where bytes should be read from this bytevector, and the number of
+bytes to be ``written''.  The @code{write!}  procedure must return an
+integer indicating the number of bytes actually written; when it is
+passed @code{0} as the number of bytes to write, it should behave as
+though an end-of-file was sent to the byte sink.
+
+The other arguments are as for @code{make-custom-binary-input-port}.
+@end deffn
 
 
 @node Soft Ports
@@ -1177,962 +1466,115 @@ documentation for @code{open-file} in @ref{File Ports}.
 @end deffn
 
 
-@node R6RS I/O Ports
-@subsection R6RS I/O Ports
+@node Venerable Port Interfaces
+@subsection Venerable Port Interfaces
 
-@cindex R6RS
-@cindex R6RS ports
+@rnindex char-ready?
+@deffn {Scheme Procedure} char-ready? [port]
+@deffnx {C Function} scm_char_ready_p (port)
+Return @code{#t} if a character is ready on input @var{port}
+and return @code{#f} otherwise.  If @code{char-ready?} returns
+@code{#t} then the next @code{read-char} operation on
+@var{port} is guaranteed not to hang.  If @var{port} is a file
+port at end of file then @code{char-ready?} returns @code{#t}.
 
-The I/O port API of the @uref{http://www.r6rs.org/, Revised Report^6 on
-the Algorithmic Language Scheme (R6RS)} is provided by the @code{(rnrs
-io ports)} module.  It provides features, such as binary I/O and Unicode
-string I/O, that complement or refine Guile's historical port API
-presented above (@pxref{Input and Output}). Note that R6RS ports are not
-disjoint from Guile's native ports, so Guile-specific procedures will
-work on ports created using the R6RS API, and vice versa.
-
-The text in this section is taken from the R6RS standard libraries
-document, with only minor adaptions for inclusion in this manual.  The
-Guile developers offer their thanks to the R6RS editors for having
-provided the report's text under permissive conditions making this
-possible.
-
-@c FIXME: Update description when implemented.
-@emph{Note}: The implementation of this R6RS API is not complete yet.
-
-@menu
-* R6RS File Names::             File names.
-* R6RS File Options::           Options for opening files.
-* R6RS Buffer Modes::           Influencing buffering behavior.
-* R6RS Transcoders::            Influencing port encoding.
-* R6RS End-of-File::            The end-of-file object.
-* R6RS Port Manipulation::      Manipulating R6RS ports.
-* R6RS Input Ports::            Input Ports.
-* R6RS Binary Input::           Binary input.
-* R6RS Textual Input::          Textual input.
-* R6RS Output Ports::           Output Ports.
-* R6RS Binary Output::          Binary output.
-* R6RS Textual Output::         Textual output.
-@end menu
-
-A subset of the @code{(rnrs io ports)} module, plus one non-standard
-procedure @code{unget-bytevector} (@pxref{R6RS Binary Input}), is
-provided by the @code{(ice-9 binary-ports)} module.  It contains binary
-input/output procedures and does not rely on R6RS support.
-
-@node R6RS File Names
-@subsubsection File Names
-
-Some of the procedures described in this chapter accept a file name as an
-argument. Valid values for such a file name include strings that name a file
-using the native notation of file system paths on an implementation's
-underlying operating system, and may include implementation-dependent
-values as well.
-
-A @var{filename} parameter name means that the
-corresponding argument must be a file name.
-
-@node R6RS File Options
-@subsubsection File Options
-@cindex file options
-
-When opening a file, the various procedures in this library accept a
-@code{file-options} object that encapsulates flags to specify how the
-file is to be opened. A @code{file-options} object is an enum-set
-(@pxref{rnrs enums}) over the symbols constituting valid file options.
-
-A @var{file-options} parameter name means that the corresponding
-argument must be a file-options object.
-
-@deffn {Scheme Syntax} file-options @var{file-options-symbol} ...
-
-Each @var{file-options-symbol} must be a symbol.
-
-The @code{file-options} syntax returns a file-options object that
-encapsulates the specified options.
-
-When supplied to an operation that opens a file for output, the
-file-options object returned by @code{(file-options)} specifies that the
-file is created if it does not exist and an exception with condition
-type @code{&i/o-file-already-exists} is raised if it does exist.  The
-following standard options can be included to modify the default
-behavior.
-
-@table @code
-@item no-create
-      If the file does not already exist, it is not created;
-      instead, an exception with condition type @code{&i/o-file-does-not-exist}
-      is raised.
-      If the file already exists, the exception with condition type
-      @code{&i/o-file-already-exists} is not raised
-      and the file is truncated to zero length.
-@item no-fail
-      If the file already exists, the exception with condition type
-      @code{&i/o-file-already-exists} is not raised,
-      even if @code{no-create} is not included,
-      and the file is truncated to zero length.
-@item no-truncate
-      If the file already exists and the exception with condition type
-      @code{&i/o-file-already-exists} has been inhibited by inclusion of
-      @code{no-create} or @code{no-fail}, the file is not truncated, but
-      the port's current position is still set to the beginning of the
-      file.
-@end table
-
-These options have no effect when a file is opened only for input.
-Symbols other than those listed above may be used as
-@var{file-options-symbol}s; they have implementation-specific meaning,
-if any.
-
-@quotation Note
-  Only the name of @var{file-options-symbol} is significant.
-@end quotation
+@code{char-ready?} exists to make it possible for a
+program to accept characters from interactive ports without
+getting stuck waiting for input.  Any input editors associated
+with such ports must make sure that characters whose existence
+has been asserted by @code{char-ready?} cannot be rubbed out.
+If @code{char-ready?} were to return @code{#f} at end of file,
+a port at end of file would be indistinguishable from an
+interactive port that has no ready characters.
 @end deffn
 
-@node R6RS Buffer Modes
-@subsubsection Buffer Modes
-
-Each port has an associated buffer mode.  For an output port, the
-buffer mode defines when an output operation flushes the buffer
-associated with the output port.  For an input port, the buffer mode
-defines how much data will be read to satisfy read operations.  The
-possible buffer modes are the symbols @code{none} for no buffering,
-@code{line} for flushing upon line endings and reading up to line
-endings, or other implementation-dependent behavior,
-and @code{block} for arbitrary buffering.  This section uses
-the parameter name @var{buffer-mode} for arguments that must be
-buffer-mode symbols.
-
-If two ports are connected to the same mutable source, both ports
-are unbuffered, and reading a byte or character from that shared
-source via one of the two ports would change the bytes or characters
-seen via the other port, a lookahead operation on one port will
-render the peeked byte or character inaccessible via the other port,
-while a subsequent read operation on the peeked port will see the
-peeked byte or character even though the port is otherwise unbuffered.
-
-In other words, the semantics of buffering is defined in terms of side
-effects on shared mutable sources, and a lookahead operation has the
-same side effect on the shared source as a read operation.
-
-@deffn {Scheme Syntax} buffer-mode @var{buffer-mode-symbol}
-
-@var{buffer-mode-symbol} must be a symbol whose name is one of
-@code{none}, @code{line}, and @code{block}. The result is the
-corresponding symbol, and specifies the associated buffer mode.
-
-@quotation Note
-  Only the name of @var{buffer-mode-symbol} is significant.
-@end quotation
+@rnindex read-char
+@deffn {Scheme Procedure} read-char [port]
+@deffnx {C Function} scm_read_char (port)
+Return the next character available from @var{port}, updating @var{port}
+to point to the following character.  If no more characters are
+available, the end-of-file object is returned.  A decoding error, if
+any, is handled in accordance with the port's conversion strategy.
 @end deffn
 
-@deffn {Scheme Procedure} buffer-mode?  obj
-Returns @code{#t} if the argument is a valid buffer-mode symbol, and
-returns @code{#f} otherwise.
+@rnindex peek-char
+@deffn {Scheme Procedure} peek-char [port]
+@deffnx {C Function} scm_peek_char (port)
+Return the next character available from @var{port},
+@emph{without} updating @var{port} to point to the following
+character.  If no more characters are available, the
+end-of-file object is returned.
+
+The value returned by
+a call to @code{peek-char} is the same as the value that would
+have been returned by a call to @code{read-char} on the same
+port.  The only difference is that the very next call to
+@code{read-char} or @code{peek-char} on that @var{port} will
+return the value returned by the preceding call to
+@code{peek-char}.  In particular, a call to @code{peek-char} on
+an interactive port will hang waiting for input whenever a call
+to @code{read-char} would have hung.
+
+As for @code{read-char}, decoding errors are handled in accordance with
+the port's conversion strategy.
 @end deffn
 
-@node R6RS Transcoders
-@subsubsection Transcoders
-@cindex codec
-@cindex end-of-line style
-@cindex transcoder
-@cindex binary port
-@cindex textual port
-
-Several different Unicode encoding schemes describe standard ways to
-encode characters and strings as byte sequences and to decode those
-sequences. Within this document, a @dfn{codec} is an immutable Scheme
-object that represents a Unicode or similar encoding scheme.
-
-An @dfn{end-of-line style} is a symbol that, if it is not @code{none},
-describes how a textual port transcodes representations of line endings.
-
-A @dfn{transcoder} is an immutable Scheme object that combines a codec
-with an end-of-line style and a method for handling decoding errors.
-Each transcoder represents some specific bidirectional (but not
-necessarily lossless), possibly stateful translation between byte
-sequences and Unicode characters and strings.  Every transcoder can
-operate in the input direction (bytes to characters) or in the output
-direction (characters to bytes).  A @var{transcoder} parameter name
-means that the corresponding argument must be a transcoder.
-
-A @dfn{binary port} is a port that supports binary I/O, does not have an
-associated transcoder and does not support textual I/O.  A @dfn{textual
-port} is a port that supports textual I/O, and does not support binary
-I/O.  A textual port may or may not have an associated transcoder.
-
-@deffn {Scheme Procedure} latin-1-codec
-@deffnx {Scheme Procedure} utf-8-codec
-@deffnx {Scheme Procedure} utf-16-codec
-
-These are predefined codecs for the ISO 8859-1, UTF-8, and UTF-16
-encoding schemes.
-
-A call to any of these procedures returns a value that is equal in the
-sense of @code{eqv?} to the result of any other call to the same
-procedure.
+@deffn {Scheme Procedure} unread-char cobj [port]
+@deffnx {C Function} scm_unread_char (cobj, port)
+Place character @var{cobj} in @var{port} so that it will be read by the
+next read operation.  If called multiple times, the unread characters
+will be read again in last-in first-out order.  If @var{port} is
+not supplied, the current input port is used.
 @end deffn
 
-@deffn {Scheme Syntax} eol-style @var{eol-style-symbol}
-
-@var{eol-style-symbol} should be a symbol whose name is one of
-@code{lf}, @code{cr}, @code{crlf}, @code{nel}, @code{crnel}, @code{ls},
-and @code{none}.
-
-The form evaluates to the corresponding symbol.  If the name of
-@var{eol-style-symbol} is not one of these symbols, the effect and
-result are implementation-dependent; in particular, the result may be an
-eol-style symbol acceptable as an @var{eol-style} argument to
-@code{make-transcoder}.  Otherwise, an exception is raised.
-
-All eol-style symbols except @code{none} describe a specific
-line-ending encoding:
-
-@table @code
-@item lf
-linefeed
-@item cr
-carriage return
-@item crlf
-carriage return, linefeed
-@item nel
-next line
-@item crnel
-carriage return, next line
-@item ls
-line separator
-@end table
-
-For a textual port with a transcoder, and whose transcoder has an
-eol-style symbol @code{none}, no conversion occurs.  For a textual input
-port, any eol-style symbol other than @code{none} means that all of the
-above line-ending encodings are recognized and are translated into a
-single linefeed.  For a textual output port, @code{none} and @code{lf}
-are equivalent.  Linefeed characters are encoded according to the
-specified eol-style symbol, and all other characters that participate in
-possible line endings are encoded as is.
-
-@quotation Note
-  Only the name of @var{eol-style-symbol} is significant.
-@end quotation
+@deffn {Scheme Procedure} unread-string str port
+@deffnx {C Function} scm_unread_string (str, port)
+Place the string @var{str} in @var{port} so that its characters will
+be read from left-to-right as the next characters from @var{port}
+during subsequent read operations.  If called multiple times, the
+unread characters will be read again in last-in first-out order.  If
+@var{port} is not supplied, the @code{current-input-port} is used.
 @end deffn
 
-@deffn {Scheme Procedure} native-eol-style
-Returns the default end-of-line style of the underlying platform, e.g.,
-@code{lf} on Unix and @code{crlf} on Windows.
+@rnindex newline
+@deffn {Scheme Procedure} newline [port]
+@deffnx {C Function} scm_newline (port)
+Send a newline to @var{port}.
+If @var{port} is omitted, send to the current output port.
 @end deffn
 
-@deffn {Condition Type} &i/o-decoding
-@deffnx {Scheme Procedure} make-i/o-decoding-error  port
-@deffnx {Scheme Procedure} i/o-decoding-error?  obj
-
-This condition type could be defined by
-
-@lisp
-(define-condition-type &i/o-decoding &i/o-port
-  make-i/o-decoding-error i/o-decoding-error?)
-@end lisp
-
-An exception with this type is raised when one of the operations for
-textual input from a port encounters a sequence of bytes that cannot be
-translated into a character or string by the input direction of the
-port's transcoder.
-
-When such an exception is raised, the port's position is past the
-invalid encoding.
+@rnindex write-char
+@deffn {Scheme Procedure} write-char chr [port]
+@deffnx {C Function} scm_write_char (chr, port)
+Send character @var{chr} to @var{port}.
 @end deffn
 
-@deffn {Condition Type} &i/o-encoding
-@deffnx {Scheme Procedure} make-i/o-encoding-error  port char
-@deffnx {Scheme Procedure} i/o-encoding-error?  obj
-@deffnx {Scheme Procedure} i/o-encoding-error-char  condition
-
-This condition type could be defined by
-
-@lisp
-(define-condition-type &i/o-encoding &i/o-port
-  make-i/o-encoding-error i/o-encoding-error?
-  (char i/o-encoding-error-char))
-@end lisp
-
-An exception with this type is raised when one of the operations for
-textual output to a port encounters a character that cannot be
-translated into bytes by the output direction of the port's transcoder.
-@var{char} is the character that could not be encoded.
-@end deffn
-
-@deffn {Scheme Syntax} error-handling-mode @var{error-handling-mode-symbol}
-
-@var{error-handling-mode-symbol} should be a symbol whose name is one of
-@code{ignore}, @code{raise}, and @code{replace}. The form evaluates to
-the corresponding symbol.  If @var{error-handling-mode-symbol} is not
-one of these identifiers, effect and result are
-implementation-dependent: The result may be an error-handling-mode
-symbol acceptable as a @var{handling-mode} argument to
-@code{make-transcoder}.  If it is not acceptable as a
-@var{handling-mode} argument to @code{make-transcoder}, an exception is
-raised.
-
-@quotation Note
-  Only the name of @var{error-handling-mode-symbol} is significant.
-@end quotation
-
-The error-handling mode of a transcoder specifies the behavior
-of textual I/O operations in the presence of encoding or decoding
-errors.
-
-If a textual input operation encounters an invalid or incomplete
-character encoding, and the error-handling mode is @code{ignore}, an
-appropriate number of bytes of the invalid encoding are ignored and
-decoding continues with the following bytes.
-
-If the error-handling mode is @code{replace}, the replacement
-character U+FFFD is injected into the data stream, an appropriate
-number of bytes are ignored, and decoding
-continues with the following bytes.
-
-If the error-handling mode is @code{raise}, an exception with condition
-type @code{&i/o-decoding} is raised.
-
-If a textual output operation encounters a character it cannot encode,
-and the error-handling mode is @code{ignore}, the character is ignored
-and encoding continues with the next character.  If the error-handling
-mode is @code{replace}, a codec-specific replacement character is
-emitted by the transcoder, and encoding continues with the next
-character.  The replacement character is U+FFFD for transcoders whose
-codec is one of the Unicode encodings, but is the @code{?}  character
-for the Latin-1 encoding.  If the error-handling mode is @code{raise},
-an exception with condition type @code{&i/o-encoding} is raised.
-@end deffn
-
-@deffn {Scheme Procedure} make-transcoder  codec
-@deffnx {Scheme Procedure} make-transcoder codec eol-style
-@deffnx {Scheme Procedure} make-transcoder codec eol-style handling-mode
-
-@var{codec} must be a codec; @var{eol-style}, if present, an eol-style
-symbol; and @var{handling-mode}, if present, an error-handling-mode
-symbol.
-
-@var{eol-style} may be omitted, in which case it defaults to the native
-end-of-line style of the underlying platform.  @var{handling-mode} may
-be omitted, in which case it defaults to @code{replace}.  The result is
-a transcoder with the behavior specified by its arguments.
-@end deffn
-
-@deffn {Scheme procedure} native-transcoder
-Returns an implementation-dependent transcoder that represents a
-possibly locale-dependent ``native'' transcoding.
-@end deffn
-
-@deffn {Scheme Procedure} transcoder-codec  transcoder
-@deffnx {Scheme Procedure} transcoder-eol-style  transcoder
-@deffnx {Scheme Procedure} transcoder-error-handling-mode  transcoder
-
-These are accessors for transcoder objects; when applied to a
-transcoder returned by @code{make-transcoder}, they return the
-@var{codec}, @var{eol-style}, and @var{handling-mode} arguments,
-respectively.
-@end deffn
-
-@deffn {Scheme Procedure} bytevector->string  bytevector transcoder
-
-Returns the string that results from transcoding the
-@var{bytevector} according to the input direction of the transcoder.
-@end deffn
-
-@deffn {Scheme Procedure} string->bytevector  string transcoder
-
-Returns the bytevector that results from transcoding the
-@var{string} according to the output direction of the transcoder.
-@end deffn
-
-@node R6RS End-of-File
-@subsubsection The End-of-File Object
-
-@cindex EOF
-@cindex end-of-file
-
-R5RS' @code{eof-object?} procedure is provided by the @code{(rnrs io
-ports)} module:
-
-@deffn {Scheme Procedure} eof-object? obj
-@deffnx {C Function} scm_eof_object_p (obj)
-Return true if @var{obj} is the end-of-file (EOF) object.
-@end deffn
-
-In addition, the following procedure is provided:
-
-@deffn {Scheme Procedure} eof-object
-@deffnx {C Function} scm_eof_object ()
-Return the end-of-file (EOF) object.
-
-@lisp
-(eof-object? (eof-object))
-@result{} #t
-@end lisp
-@end deffn
-
-
-@node R6RS Port Manipulation
-@subsubsection Port Manipulation
-
-The procedures listed below operate on any kind of R6RS I/O port.
-
-@deffn {Scheme Procedure} port? obj
-Returns @code{#t} if the argument is a port, and returns @code{#f}
-otherwise.
-@end deffn
-
-@deffn {Scheme Procedure} port-transcoder port
-Returns the transcoder associated with @var{port} if @var{port} is
-textual and has an associated transcoder, and returns @code{#f} if
-@var{port} is binary or does not have an associated transcoder.
-@end deffn
-
-@deffn {Scheme Procedure} binary-port? port
-Return @code{#t} if @var{port} is a @dfn{binary port}, suitable for
-binary data input/output.
-
-Note that internally Guile does not differentiate between binary and
-textual ports, unlike the R6RS.  Thus, this procedure returns true when
-@var{port} does not have an associated encoding---i.e., when
-@code{(port-encoding @var{port})} is @code{#f} (@pxref{Ports,
-port-encoding}).  This is the case for ports returned by R6RS procedures
-such as @code{open-bytevector-input-port} and
-@code{make-custom-binary-output-port}.
-
-However, Guile currently does not prevent use of textual I/O procedures
-such as @code{display} or @code{read-char} with binary ports.  Doing so
-``upgrades'' the port from binary to textual, under the ISO-8859-1
-encoding.  Likewise, Guile does not prevent use of
-@code{set-port-encoding!} on a binary port, which also turns it into a
-``textual'' port.
-@end deffn
-
-@deffn {Scheme Procedure} textual-port? port
-Always return @code{#t}, as all ports can be used for textual I/O in
-Guile.
-@end deffn
-
-@deffn {Scheme Procedure} transcoded-port binary-port transcoder
-The @code{transcoded-port} procedure
-returns a new textual port with the specified @var{transcoder}.
-Otherwise the new textual port's state is largely the same as
-that of @var{binary-port}.
-If @var{binary-port} is an input port, the new textual
-port will be an input port and
-will transcode the bytes that have not yet been read from
-@var{binary-port}.
-If @var{binary-port} is an output port, the new textual
-port will be an output port and
-will transcode output characters into bytes that are
-written to the byte sink represented by @var{binary-port}.
-
-As a side effect, however, @code{transcoded-port}
-closes @var{binary-port} in
-a special way that allows the new textual port to continue to
-use the byte source or sink represented by @var{binary-port},
-even though @var{binary-port} itself is closed and cannot
-be used by the input and output operations described in this
-chapter.
-@end deffn
-
-@deffn {Scheme Procedure} port-position port
-If @var{port} supports it (see below), return the offset (an integer)
-indicating where the next octet will be read from/written to in
-@var{port}.  If @var{port} does not support this operation, an error
-condition is raised.
-
-This is similar to Guile's @code{seek} procedure with the
-@code{SEEK_CUR} argument (@pxref{Random Access}).
-@end deffn
-
-@deffn {Scheme Procedure} port-has-port-position? port
-Return @code{#t} is @var{port} supports @code{port-position}.
-@end deffn
-
-@deffn {Scheme Procedure} set-port-position! port offset
-If @var{port} supports it (see below), set the position where the next
-octet will be read from/written to @var{port} to @var{offset} (an
-integer).  If @var{port} does not support this operation, an error
-condition is raised.
-
-This is similar to Guile's @code{seek} procedure with the
-@code{SEEK_SET} argument (@pxref{Random Access}).
-@end deffn
-
-@deffn {Scheme Procedure} port-has-set-port-position!? port
-Return @code{#t} is @var{port} supports @code{set-port-position!}.
-@end deffn
-
-@deffn {Scheme Procedure} call-with-port port proc
-Call @var{proc}, passing it @var{port} and closing @var{port} upon exit
-of @var{proc}.  Return the return values of @var{proc}.
-@end deffn
-
-@node R6RS Input Ports
-@subsubsection Input Ports
-
-@deffn {Scheme Procedure} input-port? obj
-Returns @code{#t} if the argument is an input port (or a combined input
-and output port), and returns @code{#f} otherwise.
-@end deffn
-
-@deffn {Scheme Procedure} port-eof? input-port
-Returns @code{#t}
-if the @code{lookahead-u8} procedure (if @var{input-port} is a binary port)
-or the @code{lookahead-char} procedure (if @var{input-port} is a textual port)
-would return
-the end-of-file object, and @code{#f} otherwise.
-The operation may block indefinitely if no data is available
-but the port cannot be determined to be at end of file.
-@end deffn
-
-@deffn {Scheme Procedure} open-file-input-port filename
-@deffnx {Scheme Procedure} open-file-input-port filename file-options
-@deffnx {Scheme Procedure} open-file-input-port filename file-options buffer-mode
-@deffnx {Scheme Procedure} open-file-input-port filename file-options buffer-mode maybe-transcoder
-@var{maybe-transcoder} must be either a transcoder or @code{#f}.
-
-The @code{open-file-input-port} procedure returns an
-input port for the named file. The @var{file-options} and
-@var{maybe-transcoder} arguments are optional.
-
-The @var{file-options} argument, which may determine
-various aspects of the returned port (@pxref{R6RS File Options}),
-defaults to the value of @code{(file-options)}.
-
-The @var{buffer-mode} argument, if supplied,
-must be one of the symbols that name a buffer mode.
-The @var{buffer-mode} argument defaults to @code{block}.
-
-If @var{maybe-transcoder} is a transcoder, it becomes the transcoder associated
-with the returned port.
-
-If @var{maybe-transcoder} is @code{#f} or absent,
-the port will be a binary port and will support the
-@code{port-position} and @code{set-port-position!}  operations.
-Otherwise the port will be a textual port, and whether it supports
-the @code{port-position} and @code{set-port-position!} operations
-is implementation-dependent (and possibly transcoder-dependent).
-@end deffn
-
-@deffn {Scheme Procedure} standard-input-port
-Returns a fresh binary input port connected to standard input.  Whether
-the port supports the @code{port-position} and @code{set-port-position!}
-operations is implementation-dependent.
-@end deffn
-
-@deffn {Scheme Procedure} current-input-port
-This returns a default textual port for input.  Normally, this default
-port is associated with standard input, but can be dynamically
-re-assigned using the @code{with-input-from-file} procedure from the
-@code{io simple (6)} library (@pxref{rnrs io simple}).  The port may or
-may not have an associated transcoder; if it does, the transcoder is
-implementation-dependent.
-@end deffn
-
-@node R6RS Binary Input
-@subsubsection Binary Input
-
-@cindex binary input
-
-R6RS binary input ports can be created with the procedures described
-below.
-
-@deffn {Scheme Procedure} open-bytevector-input-port bv [transcoder]
-@deffnx {C Function} scm_open_bytevector_input_port (bv, transcoder)
-Return an input port whose contents are drawn from bytevector @var{bv}
-(@pxref{Bytevectors}).
-
-@c FIXME: Update description when implemented.
-The @var{transcoder} argument is currently not supported.
-@end deffn
-
-@cindex custom binary input ports
-
-@deffn {Scheme Procedure} make-custom-binary-input-port id read! get-position set-position! close
-@deffnx {C Function} scm_make_custom_binary_input_port (id, read!, get-position, set-position!, close)
-Return a new custom binary input port@footnote{This is similar in spirit
-to Guile's @dfn{soft ports} (@pxref{Soft Ports}).} named @var{id} (a
-string) whose input is drained by invoking @var{read!} and passing it a
-bytevector, an index where bytes should be written, and the number of
-bytes to read.  The @code{read!}  procedure must return an integer
-indicating the number of bytes read, or @code{0} to indicate the
-end-of-file.
-
-Optionally, if @var{get-position} is not @code{#f}, it must be a thunk
-that will be called when @code{port-position} is invoked on the custom
-binary port and should return an integer indicating the position within
-the underlying data stream; if @var{get-position} was not supplied, the
-returned port does not support @code{port-position}.
-
-Likewise, if @var{set-position!} is not @code{#f}, it should be a
-one-argument procedure.  When @code{set-port-position!} is invoked on the
-custom binary input port, @var{set-position!} is passed an integer
-indicating the position of the next byte is to read.
-
-Finally, if @var{close} is not @code{#f}, it must be a thunk.  It is
-invoked when the custom binary input port is closed.
-
-The returned port is fully buffered by default, but its buffering mode
-can be changed using @code{setvbuf} (@pxref{Buffering}).
-
-Using a custom binary input port, the @code{open-bytevector-input-port}
-procedure could be implemented as follows:
-
-@lisp
-(define (open-bytevector-input-port source)
-  (define position 0)
-  (define length (bytevector-length source))
-
-  (define (read! bv start count)
-    (let ((count (min count (- length position))))
-      (bytevector-copy! source position
-                        bv start count)
-      (set! position (+ position count))
-      count))
-
-  (define (get-position) position)
-
-  (define (set-position! new-position)
-    (set! position new-position))
-
-  (make-custom-binary-input-port "the port" read!
-                                  get-position
-                                  set-position!))
-
-(read (open-bytevector-input-port (string->utf8 "hello")))
-@result{} hello
-@end lisp
-@end deffn
-
-@cindex binary input
-Binary input is achieved using the procedures below:
-
-@deffn {Scheme Procedure} get-u8 port
-@deffnx {C Function} scm_get_u8 (port)
-Return an octet read from @var{port}, a binary input port, blocking as
-necessary, or the end-of-file object.
-@end deffn
-
-@deffn {Scheme Procedure} lookahead-u8 port
-@deffnx {C Function} scm_lookahead_u8 (port)
-Like @code{get-u8} but does not update @var{port}'s position to point
-past the octet.
-@end deffn
-
-@deffn {Scheme Procedure} get-bytevector-n port count
-@deffnx {C Function} scm_get_bytevector_n (port, count)
-Read @var{count} octets from @var{port}, blocking as necessary and
-return a bytevector containing the octets read.  If fewer bytes are
-available, a bytevector smaller than @var{count} is returned.
-@end deffn
-
-@deffn {Scheme Procedure} get-bytevector-n! port bv start count
-@deffnx {C Function} scm_get_bytevector_n_x (port, bv, start, count)
-Read @var{count} bytes from @var{port} and store them in @var{bv}
-starting at index @var{start}.  Return either the number of bytes
-actually read or the end-of-file object.
-@end deffn
-
-@deffn {Scheme Procedure} get-bytevector-some port
-@deffnx {C Function} scm_get_bytevector_some (port)
-Read from @var{port}, blocking as necessary, until bytes are available
-or an end-of-file is reached.  Return either the end-of-file object or a
-new bytevector containing some of the available bytes (at least one),
-and update the port position to point just past these bytes.
-@end deffn
-
-@deffn {Scheme Procedure} get-bytevector-all port
-@deffnx {C Function} scm_get_bytevector_all (port)
-Read from @var{port}, blocking as necessary, until the end-of-file is
-reached.  Return either a new bytevector containing the data read or the
-end-of-file object (if no data were available).
-@end deffn
-
-The @code{(ice-9 binary-ports)} module provides the following procedure
-as an extension to @code{(rnrs io ports)}:
-
-@deffn {Scheme Procedure} unget-bytevector port bv [start [count]]
-@deffnx {C Function} scm_unget_bytevector (port, bv, start, count)
-Place the contents of @var{bv} in @var{port}, optionally starting at
-index @var{start} and limiting to @var{count} octets, so that its bytes
-will be read from left-to-right as the next bytes from @var{port} during
-subsequent read operations.  If called multiple times, the unread bytes
-will be read again in last-in first-out order.
-@end deffn
-
-@node R6RS Textual Input
-@subsubsection Textual Input
-
-@deffn {Scheme Procedure} get-char textual-input-port
-Reads from @var{textual-input-port}, blocking as necessary, until a
-complete character is available from @var{textual-input-port},
-or until an end of file is reached.
-
-If a complete character is available before the next end of file,
-@code{get-char} returns that character and updates the input port to
-point past the character. If an end of file is reached before any
-character is read, @code{get-char} returns the end-of-file object.
-@end deffn
-
-@deffn {Scheme Procedure} lookahead-char textual-input-port
-The @code{lookahead-char} procedure is like @code{get-char}, but it does
-not update @var{textual-input-port} to point past the character.
-@end deffn
-
-@deffn {Scheme Procedure} get-string-n textual-input-port count
-
-@var{count} must be an exact, non-negative integer object, representing
-the number of characters to be read.
-
-The @code{get-string-n} procedure reads from @var{textual-input-port},
-blocking as necessary, until @var{count} characters are available, or
-until an end of file is reached.
-
-If @var{count} characters are available before end of file,
-@code{get-string-n} returns a string consisting of those @var{count}
-characters. If fewer characters are available before an end of file, but
-one or more characters can be read, @code{get-string-n} returns a string
-containing those characters. In either case, the input port is updated
-to point just past the characters read. If no characters can be read
-before an end of file, the end-of-file object is returned.
-@end deffn
-
-@deffn {Scheme Procedure} get-string-n! textual-input-port string start count
-
-@var{start} and @var{count} must be exact, non-negative integer objects,
-with @var{count} representing the number of characters to be read.
-@var{string} must be a string with at least $@var{start} + @var{count}$
-characters.
-
-The @code{get-string-n!} procedure reads from @var{textual-input-port}
-in the same manner as @code{get-string-n}.  If @var{count} characters
-are available before an end of file, they are written into @var{string}
-starting at index @var{start}, and @var{count} is returned. If fewer
-characters are available before an end of file, but one or more can be
-read, those characters are written into @var{string} starting at index
-@var{start} and the number of characters actually read is returned as an
-exact integer object. If no characters can be read before an end of
-file, the end-of-file object is returned.
-@end deffn
-
-@deffn {Scheme Procedure} get-string-all textual-input-port
-Reads from @var{textual-input-port} until an end of file, decoding
-characters in the same manner as @code{get-string-n} and
-@code{get-string-n!}.
-
-If characters are available before the end of file, a string containing
-all the characters decoded from that data are returned. If no character
-precedes the end of file, the end-of-file object is returned.
-@end deffn
-
-@deffn {Scheme Procedure} get-line textual-input-port
-Reads from @var{textual-input-port} up to and including the linefeed
-character or end of file, decoding characters in the same manner as
-@code{get-string-n} and @code{get-string-n!}.
-
-If a linefeed character is read, a string containing all of the text up
-to (but not including) the linefeed character is returned, and the port
-is updated to point just past the linefeed character. If an end of file
-is encountered before any linefeed character is read, but some
-characters have been read and decoded as characters, a string containing
-those characters is returned. If an end of file is encountered before
-any characters are read, the end-of-file object is returned.
-
-@quotation Note
-  The end-of-line style, if not @code{none}, will cause all line endings
-  to be read as linefeed characters.  @xref{R6RS Transcoders}.
-@end quotation
-@end deffn
-
-@deffn {Scheme Procedure} get-datum textual-input-port count
-Reads an external representation from @var{textual-input-port} and returns the
-datum it represents.  The @code{get-datum} procedure returns the next
-datum that can be parsed from the given @var{textual-input-port}, updating
-@var{textual-input-port} to point exactly past the end of the external
-representation of the object.
-
-Any @emph{interlexeme space} (comment or whitespace, @pxref{Scheme
-Syntax}) in the input is first skipped.  If an end of file occurs after
-the interlexeme space, the end-of-file object (@pxref{R6RS End-of-File})
-is returned.
-
-If a character inconsistent with an external representation is
-encountered in the input, an exception with condition types
-@code{&lexical} and @code{&i/o-read} is raised.  Also, if the end of
-file is encountered after the beginning of an external representation,
-but the external representation is incomplete and therefore cannot be
-parsed, an exception with condition types @code{&lexical} and
-@code{&i/o-read} is raised.
-@end deffn
-
-@node R6RS Output Ports
-@subsubsection Output Ports
-
-@deffn {Scheme Procedure} output-port? obj
-Returns @code{#t} if the argument is an output port (or a
-combined input and output port), @code{#f} otherwise.
-@end deffn
-
-@deffn {Scheme Procedure} flush-output-port port
-Flushes any buffered output from the buffer of @var{output-port} to the
-underlying file, device, or object. The @code{flush-output-port}
-procedure returns an unspecified values.
-@end deffn
-
-@deffn {Scheme Procedure} open-file-output-port filename
-@deffnx {Scheme Procedure} open-file-output-port filename file-options
-@deffnx {Scheme Procedure} open-file-output-port filename file-options buffer-mode
-@deffnx {Scheme Procedure} open-file-output-port filename file-options buffer-mode maybe-transcoder
-
-@var{maybe-transcoder} must be either a transcoder or @code{#f}.
-
-The @code{open-file-output-port} procedure returns an output port for the named file.
-
-The @var{file-options} argument, which may determine various aspects of
-the returned port (@pxref{R6RS File Options}), defaults to the value of
-@code{(file-options)}.
-
-The @var{buffer-mode} argument, if supplied,
-must be one of the symbols that name a buffer mode.
-The @var{buffer-mode} argument defaults to @code{block}.
-
-If @var{maybe-transcoder} is a transcoder, it becomes the transcoder
-associated with the port.
-
-If @var{maybe-transcoder} is @code{#f} or absent,
-the port will be a binary port and will support the
-@code{port-position} and @code{set-port-position!}  operations.
-Otherwise the port will be a textual port, and whether it supports
-the @code{port-position} and @code{set-port-position!} operations
-is implementation-dependent (and possibly transcoder-dependent).
-@end deffn
-
-@deffn {Scheme Procedure} standard-output-port
-@deffnx {Scheme Procedure} standard-error-port
-Returns a fresh binary output port connected to the standard output or
-standard error respectively.  Whether the port supports the
-@code{port-position} and @code{set-port-position!} operations is
-implementation-dependent.
-@end deffn
-
-@deffn {Scheme Procedure} current-output-port
-@deffnx {Scheme Procedure} current-error-port
-These return default textual ports for regular output and error output.
-Normally, these default ports are associated with standard output, and
-standard error, respectively.  The return value of
-@code{current-output-port} can be dynamically re-assigned using the
-@code{with-output-to-file} procedure from the @code{io simple (6)}
-library (@pxref{rnrs io simple}).  A port returned by one of these
-procedures may or may not have an associated transcoder; if it does, the
-transcoder is implementation-dependent.
-@end deffn
-
-@node R6RS Binary Output
-@subsubsection Binary Output
-
-Binary output ports can be created with the procedures below.
-
-@deffn {Scheme Procedure} open-bytevector-output-port [transcoder]
-@deffnx {C Function} scm_open_bytevector_output_port (transcoder)
-Return two values: a binary output port and a procedure.  The latter
-should be called with zero arguments to obtain a bytevector containing
-the data accumulated by the port, as illustrated below.
-
-@lisp
-(call-with-values
-  (lambda ()
-    (open-bytevector-output-port))
-  (lambda (port get-bytevector)
-    (display "hello" port)
-    (get-bytevector)))
-
-@result{} #vu8(104 101 108 108 111)
-@end lisp
-
-@c FIXME: Update description when implemented.
-The @var{transcoder} argument is currently not supported.
-@end deffn
-
-@cindex custom binary output ports
-
-@deffn {Scheme Procedure} make-custom-binary-output-port id write! get-position set-position! close
-@deffnx {C Function} scm_make_custom_binary_output_port (id, write!, get-position, set-position!, close)
-Return a new custom binary output port named @var{id} (a string) whose
-output is sunk by invoking @var{write!} and passing it a bytevector, an
-index where bytes should be read from this bytevector, and the number of
-bytes to be ``written''.  The @code{write!}  procedure must return an
-integer indicating the number of bytes actually written; when it is
-passed @code{0} as the number of bytes to write, it should behave as
-though an end-of-file was sent to the byte sink.
-
-The other arguments are as for @code{make-custom-binary-input-port}
-(@pxref{R6RS Binary Input, @code{make-custom-binary-input-port}}).
-@end deffn
-
-@cindex binary output
-Writing to a binary output port can be done using the following
-procedures:
-
-@deffn {Scheme Procedure} put-u8 port octet
-@deffnx {C Function} scm_put_u8 (port, octet)
-Write @var{octet}, an integer in the 0--255 range, to @var{port}, a
-binary output port.
-@end deffn
-
-@deffn {Scheme Procedure} put-bytevector port bv [start [count]]
-@deffnx {C Function} scm_put_bytevector (port, bv, start, count)
-Write the contents of @var{bv} to @var{port}, optionally starting at
-index @var{start} and limiting to @var{count} octets.
-@end deffn
-
-@node R6RS Textual Output
-@subsubsection Textual Output
-
-@deffn {Scheme Procedure} put-char port char
-Writes @var{char} to the port. The @code{put-char} procedure returns
-an unspecified value.
-@end deffn
-
-@deffn {Scheme Procedure} put-string port string
-@deffnx {Scheme Procedure} put-string port string start
-@deffnx {Scheme Procedure} put-string port string start count
-
-@var{start} and @var{count} must be non-negative exact integer objects.
-@var{string} must have a length of at least @math{@var{start} +
-@var{count}}.  @var{start} defaults to 0.  @var{count} defaults to
-@math{@code{(string-length @var{string})} - @var{start}}$. The
-@code{put-string} procedure writes the @var{count} characters of
-@var{string} starting at index @var{start} to the port.  The
-@code{put-string} procedure returns an unspecified value.
-@end deffn
-
-@deffn {Scheme Procedure} put-datum textual-output-port datum
-@var{datum} should be a datum value.  The @code{put-datum} procedure
-writes an external representation of @var{datum} to
-@var{textual-output-port}.  The specific external representation is
-implementation-dependent.  However, whenever possible, an implementation
-should produce a representation for which @code{get-datum}, when reading
-the representation, will return an object equal (in the sense of
-@code{equal?}) to @var{datum}.
-
-@quotation Note
-  Not all datums may allow producing an external representation for which
-  @code{get-datum} will produce an object that is equal to the
-  original.  Specifically, NaNs contained in @var{datum} may make
-  this impossible.
-@end quotation
-
-@quotation Note
-  The @code{put-datum} procedure merely writes the external
-  representation, but no trailing delimiter.  If @code{put-datum} is
-  used to write several subsequent external representations to an
-  output port, care should be taken to delimit them properly so they can
-  be read back in by subsequent calls to @code{get-datum}.
-@end quotation
-@end deffn
+@node Using Ports from C
+@subsection Using Ports from C
+
+@deftypefn {C Function} size_t scm_c_read (SCM port, void *buffer, size_t size)
+Read up to @var{size} bytes from @var{port} and store them in
+@var{buffer}.  The return value is the number of bytes actually read,
+which can be less than @var{size} if end-of-file has been reached.
+
+Note that this function does not update @code{port-line} and
+@code{port-column} below.
+@end deftypefn
+
+@deftypefn {C Function} void scm_c_write (SCM port, const void *buffer, size_t size)
+Write @var{size} bytes at @var{buffer} to @var{port}.
+
+Note that this function does not update @code{port-line} and
+@code{port-column} (@pxref{Textual I/O}).
+@end deftypefn
+
+@deftypefn {C Function} void scm_lfwrite (const char *buffer, size_t size, SCM port)
+Write @var{size} bytes at @var{buffer} to @var{port}.  The @code{lf}
+indicates that unlike @code{scm_c_write}, this function updates the
+port's @code{port-line} and @code{port-column}, and also flushes the
+port if the data contains a newline (@code{\n}) and the port is
+line-buffered.
+@end deftypefn
 
 @node I/O Extensions
 @subsection Implementing New Port Types in C
@@ -2371,7 +1813,7 @@ for a prototype of an asynchronous I/O and concurrency facility.
 
 
 @node BOM Handling
-@subsection Handling of Unicode byte order marks.
+@subsection Handling of Unicode Byte Order Marks
 @cindex BOM
 @cindex byte order mark
 

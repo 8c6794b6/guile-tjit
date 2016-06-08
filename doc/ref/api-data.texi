@@ -4611,8 +4611,8 @@ they do not need to be quoted:
 @result{} #vu8(1 53 204)
 @end lisp
 
-Bytevectors can be used with the binary input/output primitives of the
-R6RS (@pxref{R6RS I/O Ports}).
+Bytevectors can be used with the binary input/output primitives
+(@pxref{Binary I/O}).
 
 @menu
 * Bytevector Endianness::       Dealing with byte order.

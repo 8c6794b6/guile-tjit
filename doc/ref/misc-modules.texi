@@ -47,7 +47,7 @@ follows,
 @table @asis
 @item @nicode{#:display?} @var{flag}
 If @var{flag} is true then print using @code{display}.  The default is
-@code{#f} which means use @code{write} style.  (@pxref{Writing})
+@code{#f} which means use @code{write} style.  @xref{Scheme Write}.
 
 @item @nicode{#:per-line-prefix} @var{string}
 Print the given @var{string} as a prefix on each line.  The default is
@@ -106,7 +106,7 @@ follows,
 @table @asis
 @item @nicode{#:display?} @var{flag}
 If @var{flag} is true then print using @code{display}.  The default is
-@code{#f} which means use @code{write} style.  (@pxref{Writing})
+@code{#f} which means use @code{write} style.  @pxref{Scheme Write}.
 
 @item @nicode{#:width} @var{columns}
 Print within the given @var{columns}.  The default is 79.
@@ -204,7 +204,7 @@ Object output.  Parameters: @var{minwidth}, @var{padinc},
 @var{minpad}, @var{padchar}.
 
 @nicode{~a} outputs an argument like @code{display}, @nicode{~s}
-outputs an argument like @code{write} (@pxref{Writing}).  
+outputs an argument like @code{write} (@pxref{Scheme Write}).
 
 @example
 (format #t "~a" "foo") @print{} foo
@@ -242,9 +242,9 @@ no minimum or multiple).
 Character.  Parameter: @var{charnum}.
 
 Output a character.  The default is to simply output, as per
-@code{write-char} (@pxref{Writing}).  @nicode{~@@c} prints in
-@code{write} style.  @nicode{~:c} prints control characters (ASCII 0
-to 31) in @nicode{^X} form.
+@code{write-char} (@pxref{Venerable Port Interfaces}).  @nicode{~@@c}
+prints in @code{write} style.  @nicode{~:c} prints control characters
+(ASCII 0 to 31) in @nicode{^X} form.
 
 @example
 (format #t "~c" #\z)        @print{} z
@@ -760,8 +760,9 @@ already so.
 (format #f "a~3,5'*@@tx") @result{} "a****x"
 @end example
 
-@nicode{~t} is implemented using @code{port-column} (@pxref{Reading}),
-so it works even there has been other output before @code{format}.
+@nicode{~t} is implemented using @code{port-column} (@pxref{Textual
+I/O}), so it works even there has been other output before
+@code{format}.
 
 @item @nicode{~~}
 Tilde character.  Parameter: @var{n}.
@@ -815,7 +816,7 @@ Output a formfeed character, or @var{n} many if a parameter is given.
 Force output.  No parameters.
 
 At the end of output, call @code{force-output} to flush any buffers on
-the destination (@pxref{Writing}).  @nicode{~!} can occur anywhere in
+the destination (@pxref{Buffering}).  @nicode{~!} can occur anywhere in
 the format string, but the force is done at the end of output.
 
 When output is to a string (destination @code{#f}), @nicode{~!} does
@@ -1112,10 +1113,10 @@ originating format, or similar.
 @sp 1
 Guile contains a @code{format} procedure even when the module
 @code{(ice-9 format)} is not loaded.  The default @code{format} is
-@code{simple-format} (@pxref{Writing}), it doesn't support all escape
-sequences documented in this section, and will signal an error if you
-try to use one of them.  The reason for two versions is that the full
-@code{format} is fairly large and requires some time to load.
+@code{simple-format} (@pxref{Simple Output}), it doesn't support all
+escape sequences documented in this section, and will signal an error if
+you try to use one of them.  The reason for two versions is that the
+full @code{format} is fairly large and requires some time to load.
 @code{simple-format} is often adequate too.
 
 
@@ -1661,10 +1662,10 @@ returned.
 @end deffn
 
 @deffn {Scheme Procedure} port->stream port readproc
-Return a stream which is the values obtained by reading from
-@var{port} using @var{readproc}.  Each read call is
-@code{(@var{readproc} @var{port})}, and it should return an EOF object
-(@pxref{Reading}) at the end of input.
+Return a stream which is the values obtained by reading from @var{port}
+using @var{readproc}.  Each read call is @code{(@var{readproc}
+@var{port})}, and it should return an EOF object (@pxref{Binary I/O}) at
+the end of input.
 
 For example a stream of characters from a file,
 

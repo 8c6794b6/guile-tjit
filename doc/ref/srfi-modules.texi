@@ -3302,8 +3302,8 @@ Insert a newline.
 Insert a tilde.
 @end table
 
-This procedure is the same as calling @code{simple-format} (@pxref{Writing})
-with @code{#f} as the destination.
+This procedure is the same as calling @code{simple-format}
+(@pxref{Simple Output}) with @code{#f} as the destination.
 @end deffn
 
 @node SRFI-30

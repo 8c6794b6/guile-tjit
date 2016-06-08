@@ -241,7 +241,7 @@ procedures (@pxref{Arrays}).
 
 @item char-ready?
 Indicates that the @code{char-ready?} function is available
-(@pxref{Reading}).
+(@pxref{Venerable Port Interfaces}).
 
 @item complex
 Indicates support for complex numbers.
