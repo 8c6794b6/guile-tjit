@@ -121,7 +121,7 @@ static const int op_sizes[256] = {
 #define TJIT_INC_TCALL  1
 #define TJIT_INC_RETURN 1
 
-
+
 /*
  * Configurable parameters
  */
@@ -142,7 +142,7 @@ SCM_TJIT_PARAM (max_retries, max-retries, 10)
 SCM_TJIT_PARAM (max_sides, max-sides, 100)
 
 /* Maximum number to try compiling a side trace. */
-SCM_TJIT_PARAM (try_sides, try-sides, 2)
+SCM_TJIT_PARAM (try_sides, try-sides, 4)
 
 /* Number of recursive procedure calls to unroll. */
 SCM_TJIT_PARAM (num_unrolls, num-unrolls, 2)
@@ -184,16 +184,10 @@ static SCM tjitc_var;
 /* Initial trace id, increment after native compilation. */
 static int tjit_trace_id = 1;
 
-
+
 /*
  * Internal functions
  */
-
-static inline SCM
-to_hex (SCM n)
-{
-  return scm_number_to_string (n, SCM_I_MAKINUM (16));
-}
 
 static inline void
 tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
@@ -205,27 +199,22 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
     }
   else
     {
-      SCM s_id, s_bytecode, s_bytecode_ptr;
-      SCM s_parent_fragment_id, s_parent_exit_id;
-      SCM downrec_p, uprec_p;
-      size_t bytecode_len;
+      SCM s_bytecode, downrec_p, uprec_p;
 
-      s_id = SCM_I_MAKINUM (tjit_trace_id);
-      s_bytecode_ptr = scm_from_pointer (tj->bytecode, NULL);
-      bytecode_len = tj->bc_idx * sizeof (scm_t_uint32);
-      s_bytecode = scm_c_take_gc_bytevector ((signed char *) tj->bytecode,
-                                             bytecode_len, s_bytecode_ptr);
-      s_parent_fragment_id = SCM_I_MAKINUM (tj->parent_fragment_id);
-      s_parent_exit_id = SCM_I_MAKINUM (tj->parent_exit_id);
+      s_bytecode =
+        scm_c_take_gc_bytevector ((signed char *) tj->bytecode,
+                                  tj->bc_idx * sizeof (scm_t_uint32),
+                                  SCM_BOOL_F);
       downrec_p =
         tj->trace_type == SCM_TJIT_TRACE_CALL ? SCM_BOOL_T : SCM_BOOL_F;
       uprec_p =
         tj->trace_type == SCM_TJIT_TRACE_RETURN ? SCM_BOOL_T : SCM_BOOL_F;
 
       scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
-      scm_call_9 (tjitc_var, s_id, s_bytecode,
+      scm_call_9 (tjitc_var, SCM_I_MAKINUM (tjit_trace_id), s_bytecode,
                   scm_reverse_x (tj->traces, SCM_EOL),
-                  s_parent_fragment_id, s_parent_exit_id,
+                  SCM_I_MAKINUM (tj->parent_fragment_id),
+                  SCM_I_MAKINUM (tj->parent_exit_id),
                   linked_ip, loop_p, downrec_p, uprec_p);
       scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
     }
@@ -533,6 +522,7 @@ scm_acquire_tjit_state (void)
     return (struct scm_tjit_state *) SCM_UNPACK (tj);
 }
 
+
 /* C macros for vm-tjit engine
 
   These two macros were perviously defined as static inline functions.
@@ -565,7 +555,7 @@ scm_acquire_tjit_state (void)
       }                                                                 \
                                                                         \
     /* Increment hot ip counter unless current IP is black-listed. */   \
-    if (SCM_I_MAKINUM (failed_ip_ref (next_ip)) < tjit_max_retries)     \
+    if (failed_ip_ref (next_ip) < SCM_I_INUM (tjit_max_retries))        \
       {                                                                 \
         scm_t_uint16 count = hot_ip_ref (next_ip);                      \
         if (tjit_hot_loop < SCM_I_MAKINUM (count))                      \
@@ -589,7 +579,7 @@ scm_acquire_tjit_state (void)
       abort_recording (tj, (scm_t_uint32 *) tj->loop_start);            \
   } while (0)
 
-
+
 /*
  * Scheme interfaces
  */
@@ -670,7 +660,7 @@ SCM_DEFINE (scm_continuation_next_ip, "continuation-next-ip", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-
+
 /*
  * Gluing functions
  *
@@ -686,6 +676,12 @@ scm_set_tjit_retval (size_t exit_id, scm_t_bits fragment, scm_t_bits origin)
   tj->ret_exit_id = exit_id;
   tj->ret_fragment = fragment;
   tj->ret_origin = origin;
+}
+
+static inline SCM
+to_hex (SCM n)
+{
+  return scm_number_to_string (n, SCM_I_MAKINUM (16));
 }
 
 void
@@ -757,9 +753,9 @@ scm_do_inline_cell (scm_i_thread *thread, scm_t_bits x, scm_t_bits y)
 
 SCM
 scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
-                     scm_t_uint32 n_words)
+                     scm_t_uint32 words)
 {
-  return scm_inline_words (thread, car, n_words);
+  return scm_inline_words (thread, car, words);
 }
 
 SCM
@@ -811,7 +807,7 @@ scm_do_vm_expand_stack (struct scm_vm *vp, union scm_vm_stack_element *new_sp)
   vm_expand_stack (vp, new_sp);
 }
 
-
+
 /*
  * GDB JIT Interface
  */
@@ -916,7 +912,7 @@ static void scm_tjit_cleanup_gdb_entries (void)
   SCM_CRITICAL_SECTION_END;
 }
 
-
+
 /*
  * Initialization
  */
