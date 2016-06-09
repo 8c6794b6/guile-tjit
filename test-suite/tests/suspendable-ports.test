@@ -17,7 +17,7 @@
 ;;;; <http://www.gnu.org/licenses/>.
 
 (define-module (test-suite test-ports)
-  #:use-module ((ice-9 sports) #:select (install-sports! uninstall-sports!)))
+  #:use-module (ice-9 suspendable-ports))
 
 ;; Include tests from ports.test.
 
@@ -49,10 +49,10 @@
                              #`((include-one #,exp) . #,(lp))))))))
          #:guess-encoding #t)))))
 
-(install-sports!)
+(install-suspendable-ports!)
 
 (include-tests "tests/ports.test")
 (include-tests "tests/rdelim.test")
 (include-tests "tests/r6rs-ports.test")
 
-(uninstall-sports!)
+(uninstall-suspendable-ports!)

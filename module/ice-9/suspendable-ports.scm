@@ -48,30 +48,15 @@
 ;;; Code:
 
 
-(define-module (ice-9 sports)
+(define-module (ice-9 suspendable-ports)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 ports internal)
   #:use-module (ice-9 match)
-  #:replace (peek-char
-             read-char
-             force-output
-             close-port)
   #:export (current-read-waiter
             current-write-waiter
 
-            lookahead-u8
-            get-u8
-            get-bytevector-n
-            put-u8
-            put-bytevector
-            put-string
-
-            %read-line
-            read-line
-            read-delimited
-
-            install-sports!
-            uninstall-sports!))
+            install-suspendable-ports!
+            uninstall-suspendable-ports!))
 
 (define (default-read-waiter port) (port-poll port "r"))
 (define (default-write-waiter port) (port-poll port "w"))
@@ -681,11 +666,14 @@
     ((ice-9 binary-ports)
      get-u8 lookahead-u8 get-bytevector-n
      put-u8 put-bytevector)
+    ((ice-9 textual-ports)
+     ;; FIXME: put-char
+     put-string)
     ((ice-9 rdelim) %read-line read-line read-delimited)))
-(define (install-sports!)
+(define (install-suspendable-ports!)
   (unless saved-port-bindings
     (set! saved-port-bindings (make-hash-table))
-    (let ((sports (resolve-module '(ice-9 sports))))
+    (let ((suspendable-ports (resolve-module '(ice-9 suspendable-ports))))
       (for-each
        (match-lambda
          ((mod . syms)
@@ -694,11 +682,11 @@
                         (hashq-set! saved-port-bindings sym
                                     (module-ref mod sym))
                         (module-set! mod sym
-                                     (module-ref sports sym)))
+                                     (module-ref suspendable-ports sym)))
                       syms))))
        port-bindings))))
 
-(define (uninstall-sports!)
+(define (uninstall-suspendable-ports!)
   (when saved-port-bindings
     (for-each
      (match-lambda

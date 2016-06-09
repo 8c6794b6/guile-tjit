@@ -28,6 +28,8 @@
                put-char
                put-string)
   #:export (get-char
+            unget-char
+            unget-string
             lookahead-char
             get-string-n
             get-string-all
@@ -38,6 +40,17 @@
 
 (define (lookahead-char port)
   (peek-char port))
+
+(define (unget-char port char)
+  (unread-char char port))
+
+(define* (unget-string port string #:optional (start 0)
+                       (count (- (string-length string) start)))
+  (unread-string (if (and (zero? start)
+                          (= count (string-length string)))
+                     string
+                     (substring/shared string start (+ start count)))
+                 port))
 
 (define (get-line port)
   (read-line port 'trim))

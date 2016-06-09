@@ -106,10 +106,10 @@ SOURCES =					\
   ice-9/serialize.scm				\
   ice-9/session.scm				\
   ice-9/slib.scm				\
-  ice-9/sports.scm				\
   ice-9/stack-catch.scm				\
   ice-9/streams.scm				\
   ice-9/string-fun.scm				\
+  ice-9/suspendable-ports.scm			\
   ice-9/syncase.scm				\
   ice-9/textual-ports.scm			\
   ice-9/threads.scm				\

@@ -127,7 +127,6 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/session.test			\
 	    tests/signals.test			\
 	    tests/sort.test			\
-	    tests/sports.test			\
 	    tests/srcprop.test			\
 	    tests/srfi-1.test			\
 	    tests/srfi-6.test			\
@@ -164,6 +163,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/streams.test			\
 	    tests/strings.test			\
 	    tests/structs.test			\
+	    tests/suspendable-ports.test	\
 	    tests/sxml.fold.test		\
 	    tests/sxml.match.test		\
 	    tests/sxml.simple.test		\

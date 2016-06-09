@@ -489,19 +489,23 @@ the port is unbuffered.
 The @code{put-string} procedure returns an unspecified value.
 @end deffn
 
+Textual ports have a textual position associated with them: a line and a
+column.  Reading in characters or writing them out advances the line and
+the column appropriately.
+
 @deffn {Scheme Procedure} port-column port
 @deffnx {Scheme Procedure} port-line port
 @deffnx {C Function} scm_port_column (port)
 @deffnx {C Function} scm_port_line (port)
 Return the current column number or line number of @var{port}.
-If the number is
-unknown, the result is #f.  Otherwise, the result is a 0-origin integer
-- i.e.@: the first character of the first line is line 0, column 0.
-(However, when you display a file position, for example in an error
-message, we recommend you add 1 to get 1-origin integers.  This is
-because lines and column numbers traditionally start with 1, and that is
-what non-programmers will find most natural.)
 @end deffn
+
+Port lines and positions are represented as 0-origin integers, which is
+to say that the the first character of the first line is line 0, column
+0.  However, when you display a line number, for example in an error
+message, we recommend you add 1 to get 1-origin integers.  This is
+because lines numbers traditionally start with 1, and that is what
+non-programmers will find most natural.
 
 @deffn {Scheme Procedure} set-port-column! port column
 @deffnx {Scheme Procedure} set-port-line! port line
@@ -512,6 +516,9 @@ Set the current column or line number of @var{port}.
 
 @node Simple Output
 @subsection Simple Textual Output
+
+Guile exports a simple formatted output function, @code{simple-format}.
+For a more capable formatted output facility, @xref{Formatted Output}.
 
 @deffn {Scheme Procedure} simple-format destination message . args
 @deffnx {C Function} scm_simple_format (destination, message, args)
@@ -524,7 +531,11 @@ current output port, if @var{destination} is @code{#f}, then return a
 string containing the formatted text.  Does not add a trailing newline.
 @end deffn
 
-pk / peek
+Somewhat confusingly, Guile binds the @code{format} identifier to
+@code{simple-format} at startup.  Once @code{(ice-9 format)} loads, it
+actually replaces the core @code{format} binding, so depending on
+whether you or a module you use has loaded @code{(ice-9 format)}, you
+may be using the simple or the more capable version.
 
 @node Buffering
 @subsection Buffering
@@ -728,11 +739,8 @@ The delimited-I/O module can be accessed with:
 @end lisp
 
 It can be used to read or write lines of text, or read text delimited by
-a specified set of characters.  It's similar to the @code{(scsh rdelim)}
-module from guile-scsh, but does not use multiple values or character
-sets and has an extra procedure @code{write-line}.
+a specified set of characters.
 
-@c begin (scm-doc-string "rdelim.scm" "read-line")
 @deffn {Scheme Procedure} read-line [port] [handle-delim]
 Return a line of text from @var{port} if specified, otherwise from the
 value returned by @code{(current-input-port)}.  Under Unix, a line of text
@@ -755,21 +763,19 @@ terminating delimiter or end-of-file object.
 @end table
 @end deffn
 
-@c begin (scm-doc-string "rdelim.scm" "read-line!")
 @deffn {Scheme Procedure} read-line! buf [port]
 Read a line of text into the supplied string @var{buf} and return the
 number of characters added to @var{buf}.  If @var{buf} is filled, then
-@code{#f} is returned.
-Read from @var{port} if
-specified, otherwise from the value returned by @code{(current-input-port)}.
+@code{#f} is returned.  Read from @var{port} if specified, otherwise
+from the value returned by @code{(current-input-port)}.
 @end deffn
 
-@c begin (scm-doc-string "rdelim.scm" "read-delimited")
 @deffn {Scheme Procedure} read-delimited delims [port] [handle-delim]
-Read text until one of the characters in the string @var{delims} is found
-or end-of-file is reached.  Read from @var{port} if supplied, otherwise
-from the value returned by @code{(current-input-port)}.
-@var{handle-delim} takes the same values as described for @code{read-line}.
+Read text until one of the characters in the string @var{delims} is
+found or end-of-file is reached.  Read from @var{port} if supplied,
+otherwise from the value returned by @code{(current-input-port)}.
+@var{handle-delim} takes the same values as described for
+@code{read-line}.
 @end deffn
 
 @c begin (scm-doc-string "rdelim.scm" "read-delimited!")
@@ -786,48 +792,6 @@ buffer was full, @code{#f} is returned.
 
 It's something of a wacky interface, to be honest.
 @end deffn
-
-@deffn {Scheme Procedure} write-line obj [port]
-@deffnx {C Function} scm_write_line (obj, port)
-Display @var{obj} and a newline character to @var{port}.  If
-@var{port} is not specified, @code{(current-output-port)} is
-used.  This function is equivalent to:
-@lisp
-(display obj [port])
-(newline [port])
-@end lisp
-@end deffn
-
-In the past, Guile did not have a procedure that would just read out all
-of the characters from a port.  As a workaround, many people just called
-@code{read-delimited} with no delimiters, knowing that would produce the
-behavior they wanted.  This prompted Guile developers to add some
-routines that would read all characters from a port.  So it is that
-@code{(ice-9 rdelim)} is also the home for procedures that can reading
-undelimited text:
-
-@deffn {Scheme Procedure} read-string [port] [count]
-Read all of the characters out of @var{port} and return them as a
-string.  If the @var{count} is present, treat it as a limit to the
-number of characters to read.
-
-By default, read from the current input port, with no size limit on the
-result.  This procedure always returns a string, even if no characters
-were read.
-@end deffn
-
-@deffn {Scheme Procedure} read-string! buf [port] [start] [end]
-Fill @var{buf} with characters read from @var{port}, defaulting to the
-current input port.  Return the number of characters read.
-
-If @var{start} or @var{end} are specified, store data only into the
-substring of @var{str} bounded by @var{start} and @var{end} (which
-default to the beginning and end of the string, respectively).
-@end deffn
-
-Some of the aforementioned I/O functions rely on the following C
-primitives.  These will mainly be of interest to people hacking Guile
-internals.
 
 @deffn {Scheme Procedure} %read-delimited! delims str gobble [port [start [end]]]
 @deffnx {C Function} scm_read_delimited_x (delims, str, gobble, port, start, end)
@@ -1131,7 +1095,7 @@ used only during port creation are not retained.
 Return the filename associated with @var{port}, or @code{#f} if no
 filename is associated with the port.
 
-@var{port} must be open, @code{port-filename} cannot be used once the
+@var{port} must be open; @code{port-filename} cannot be used once the
 port is closed.
 @end deffn
 
@@ -1161,64 +1125,6 @@ Return an input port whose contents are drawn from bytevector @var{bv}
 The @var{transcoder} argument is currently not supported.
 @end deffn
 
-@cindex custom binary input ports
-
-@deffn {Scheme Procedure} make-custom-binary-input-port id read! get-position set-position! close
-@deffnx {C Function} scm_make_custom_binary_input_port (id, read!, get-position, set-position!, close)
-Return a new custom binary input port@footnote{This is similar in spirit
-to Guile's @dfn{soft ports} (@pxref{Soft Ports}).} named @var{id} (a
-string) whose input is drained by invoking @var{read!} and passing it a
-bytevector, an index where bytes should be written, and the number of
-bytes to read.  The @code{read!}  procedure must return an integer
-indicating the number of bytes read, or @code{0} to indicate the
-end-of-file.
-
-Optionally, if @var{get-position} is not @code{#f}, it must be a thunk
-that will be called when @code{port-position} is invoked on the custom
-binary port and should return an integer indicating the position within
-the underlying data stream; if @var{get-position} was not supplied, the
-returned port does not support @code{port-position}.
-
-Likewise, if @var{set-position!} is not @code{#f}, it should be a
-one-argument procedure.  When @code{set-port-position!} is invoked on the
-custom binary input port, @var{set-position!} is passed an integer
-indicating the position of the next byte is to read.
-
-Finally, if @var{close} is not @code{#f}, it must be a thunk.  It is
-invoked when the custom binary input port is closed.
-
-The returned port is fully buffered by default, but its buffering mode
-can be changed using @code{setvbuf} (@pxref{Buffering}).
-
-Using a custom binary input port, the @code{open-bytevector-input-port}
-procedure could be implemented as follows:
-
-@lisp
-(define (open-bytevector-input-port source)
-  (define position 0)
-  (define length (bytevector-length source))
-
-  (define (read! bv start count)
-    (let ((count (min count (- length position))))
-      (bytevector-copy! source position
-                        bv start count)
-      (set! position (+ position count))
-      count))
-
-  (define (get-position) position)
-
-  (define (set-position! new-position)
-    (set! position new-position))
-
-  (make-custom-binary-input-port "the port" read!
-                                  get-position
-                                  set-position!))
-
-(read (open-bytevector-input-port (string->utf8 "hello")))
-@result{} hello
-@end lisp
-@end deffn
-
 @deffn {Scheme Procedure} open-bytevector-output-port [transcoder]
 @deffnx {C Function} scm_open_bytevector_output_port (transcoder)
 Return two values: a binary output port and a procedure.  The latter
@@ -1245,16 +1151,6 @@ The @var{transcoder} argument is currently not supported.
 @subsubsection String Ports
 @cindex String port
 @cindex Port, string
-
-The following allow string ports to be opened by analogy to R4RS
-file port facilities:
-
-With string ports, the port-encoding is treated differently than other
-types of ports.  When string ports are created, they do not inherit a
-character encoding from the current locale.  They are given a
-default locale that allows them to handle all valid string characters.
-Typically one should not modify a string port's character encoding
-away from its default.
 
 @deffn {Scheme Procedure} call-with-output-string proc
 @deffnx {C Function} scm_call_with_output_string (proc)
@@ -1309,20 +1205,25 @@ output to the port so far.
 closed the string cannot be obtained.
 @end deffn
 
-A string port can be used in many procedures which accept a port
-but which are not dependent on implementation details of fports.
-E.g., seeking and truncating will work on a string port,
-but trying to extract the file descriptor number will fail.
+With string ports, the port-encoding is treated differently than other
+types of ports.  When string ports are created, they do not inherit a
+character encoding from the current locale.  They are given a
+default locale that allows them to handle all valid string characters.
+Typically one should not modify a string port's character encoding
+away from its default.  @xref{Encoding}.
 
 
 @node Custom Ports
 @subsubsection Custom Ports
 
-(ice-9 binary-ports), binary and text...
+Custom ports allow the user to provide input and handle output via
+user-supplied procedures.  Guile currently only provides custom binary
+ports, not textual ports; for custom textual ports, @xref{Soft Ports}.
+We should add the R6RS custom textual port interfaces though.
+Contributions are appreciated.
 
 @cindex custom binary input ports
 @deffn {Scheme Procedure} make-custom-binary-input-port id read! get-position set-position! close
-@deffnx {C Function} scm_make_custom_binary_input_port (id, read!, get-position, set-position!, close)
 Return a new custom binary input port@footnote{This is similar in spirit
 to Guile's @dfn{soft ports} (@pxref{Soft Ports}).} named @var{id} (a
 string) whose input is drained by invoking @var{read!} and passing it a
@@ -1379,7 +1280,6 @@ procedure (@pxref{Bytevector Ports}) could be implemented as follows:
 
 @cindex custom binary output ports
 @deffn {Scheme Procedure} make-custom-binary-output-port id write! get-position set-position! close
-@deffnx {C Function} scm_make_custom_binary_output_port (id, write!, get-position, set-position!, close)
 Return a new custom binary output port named @var{id} (a string) whose
 output is sunk by invoking @var{write!} and passing it a bytevector, an
 index where bytes should be read from this bytevector, and the number of
@@ -1397,11 +1297,10 @@ The other arguments are as for @code{make-custom-binary-input-port}.
 @cindex Soft port
 @cindex Port, soft
 
-A @dfn{soft-port} is a port based on a vector of procedures capable of
+A @dfn{soft port} is a port based on a vector of procedures capable of
 accepting or delivering characters.  It allows emulation of I/O ports.
 
 @deffn {Scheme Procedure} make-soft-port pv modes
-@deffnx {C Function} scm_make_soft_port (pv, modes)
 Return a port capable of receiving or delivering characters as
 specified by the @var{modes} string (@pxref{File Ports,
 open-file}).  @var{pv} must be a vector of length 5 or 6.  Its
@@ -1469,9 +1368,34 @@ documentation for @code{open-file} in @ref{File Ports}.
 @node Venerable Port Interfaces
 @subsection Venerable Port Interfaces
 
+Over the 25 years or so that Guile has been around, its port system has
+evolved, adding many useful features.  At the same time there have been
+four major Scheme standards released in those 25 years, which also
+evolve the common Scheme understanding of what a port interface should
+be.  Alas, it would be too much to ask for all of these evolutionary
+branches to be consistent.  Some of Guile's original interfaces don't
+mesh with the later Scheme standards, and yet Guile can't just drop old
+interfaces.  Sadly as well, the R6RS and R7RS standards both part from a
+base of R5RS, but end up in different and somewhat incompatible designs.
+
+Guile's approach is to pick a set of port primitives that make sense
+together.  We document that set of primitives, design our internal
+interfaces around them, and recommend them to users.  As the R6RS I/O
+system is the most capable standard that Scheme has yet produced in this
+domain, we mostly recommend that; @code{(ice-9 binary-ports)} and
+@code{(ice-9 textual-ports)} are wholly modelled on @code{(rnrs io
+ports)}.  Guile does not wholly copy R6RS, however; @xref{R6RS
+Incompatibilities}.
+
+At the same time, we have many venerable port interfaces, lore handed
+down to us from our hacker ancestors.  Most of these interfaces even
+predate the expectation that Scheme should have modules, so they are
+present in the default environment.  In Guile we support them as well
+and we have no plans to remove them, but again we don't recommend them
+for new users.
+
 @rnindex char-ready?
 @deffn {Scheme Procedure} char-ready? [port]
-@deffnx {C Function} scm_char_ready_p (port)
 Return @code{#t} if a character is ready on input @var{port}
 and return @code{#f} otherwise.  If @code{char-ready?} returns
 @code{#t} then the next @code{read-char} operation on
@@ -1490,90 +1414,82 @@ interactive port that has no ready characters.
 
 @rnindex read-char
 @deffn {Scheme Procedure} read-char [port]
-@deffnx {C Function} scm_read_char (port)
-Return the next character available from @var{port}, updating @var{port}
-to point to the following character.  If no more characters are
-available, the end-of-file object is returned.  A decoding error, if
-any, is handled in accordance with the port's conversion strategy.
+The same as @code{get-char}, except that @var{port} defaults to the
+current input port.  @xref{Textual I/O}.
 @end deffn
 
 @rnindex peek-char
 @deffn {Scheme Procedure} peek-char [port]
-@deffnx {C Function} scm_peek_char (port)
-Return the next character available from @var{port},
-@emph{without} updating @var{port} to point to the following
-character.  If no more characters are available, the
-end-of-file object is returned.
-
-The value returned by
-a call to @code{peek-char} is the same as the value that would
-have been returned by a call to @code{read-char} on the same
-port.  The only difference is that the very next call to
-@code{read-char} or @code{peek-char} on that @var{port} will
-return the value returned by the preceding call to
-@code{peek-char}.  In particular, a call to @code{peek-char} on
-an interactive port will hang waiting for input whenever a call
-to @code{read-char} would have hung.
-
-As for @code{read-char}, decoding errors are handled in accordance with
-the port's conversion strategy.
+The same as @code{lookahead-char}, except that @var{port} defaults to
+the current input port.  @xref{Textual I/O}.
 @end deffn
 
 @deffn {Scheme Procedure} unread-char cobj [port]
-@deffnx {C Function} scm_unread_char (cobj, port)
-Place character @var{cobj} in @var{port} so that it will be read by the
-next read operation.  If called multiple times, the unread characters
-will be read again in last-in first-out order.  If @var{port} is
-not supplied, the current input port is used.
+The same as @code{unget-char}, except that @var{port} defaults to the
+current input port, and the arguments are swapped.  @xref{Textual I/O}.
 @end deffn
 
 @deffn {Scheme Procedure} unread-string str port
 @deffnx {C Function} scm_unread_string (str, port)
-Place the string @var{str} in @var{port} so that its characters will
-be read from left-to-right as the next characters from @var{port}
-during subsequent read operations.  If called multiple times, the
-unread characters will be read again in last-in first-out order.  If
-@var{port} is not supplied, the @code{current-input-port} is used.
+The same as @code{unget-string}, except that @var{port} defaults to the
+current input port, and the arguments are swapped.  @xref{Textual I/O}.
 @end deffn
 
 @rnindex newline
 @deffn {Scheme Procedure} newline [port]
-@deffnx {C Function} scm_newline (port)
-Send a newline to @var{port}.
-If @var{port} is omitted, send to the current output port.
+Send a newline to @var{port}.  If @var{port} is omitted, send to the
+current output port.  Equivalent to @code{(put-char port #\newline)}.
 @end deffn
 
 @rnindex write-char
 @deffn {Scheme Procedure} write-char chr [port]
-@deffnx {C Function} scm_write_char (chr, port)
-Send character @var{chr} to @var{port}.
+The same as @code{put-char}, except that @var{port} defaults to the
+current input port, and the arguments are swapped.  @xref{Textual I/O}.
 @end deffn
 
 @node Using Ports from C
 @subsection Using Ports from C
+
+Guile's C interfaces provides some niceties for sending and receiving
+bytes and characters in a way that works better with C.
 
 @deftypefn {C Function} size_t scm_c_read (SCM port, void *buffer, size_t size)
 Read up to @var{size} bytes from @var{port} and store them in
 @var{buffer}.  The return value is the number of bytes actually read,
 which can be less than @var{size} if end-of-file has been reached.
 
-Note that this function does not update @code{port-line} and
-@code{port-column} below.
+Note that as this is a binary input procedure, this function does not
+update @code{port-line} and @code{port-column} (@pxref{Textual I/O}).
 @end deftypefn
 
 @deftypefn {C Function} void scm_c_write (SCM port, const void *buffer, size_t size)
 Write @var{size} bytes at @var{buffer} to @var{port}.
 
-Note that this function does not update @code{port-line} and
-@code{port-column} (@pxref{Textual I/O}).
+Note that as this is a binary output procedure, this function does not
+update @code{port-line} and @code{port-column} (@pxref{Textual I/O}).
 @end deftypefn
 
-@deftypefn {C Function} void scm_lfwrite (const char *buffer, size_t size, SCM port)
-Write @var{size} bytes at @var{buffer} to @var{port}.  The @code{lf}
-indicates that unlike @code{scm_c_write}, this function updates the
-port's @code{port-line} and @code{port-column}, and also flushes the
-port if the data contains a newline (@code{\n}) and the port is
-line-buffered.
+@deftypefn {C Function} size_t scm_c_read_bytes (SCM port, SCM bv, size_t start, size_t count)
+@deftypefnx {C Function} void scm_c_write_bytes (SCM port, SCM bv, size_t start, size_t count)
+Like @code{scm_c_read} and @code{scm_c_write}, but reading into or
+writing from the bytevector @var{bv}.  @var{count} indicates the byte
+index at which to start in the bytevector, and the read or write will
+continue for @var{count} bytes.
+@end deftypefn
+
+@deftypefn {C Function} void scm_unget_bytes (const unsigned char *buf, size_t len, SCM port)
+@deftypefnx {C Function} void scm_unget_byte (int c, SCM port)
+@deftypefnx {C Function} void scm_ungetc (scm_t_wchar c, SCM port)
+Like @code{unget-bytevector}, @code{unget-byte}, and @code{unget-char},
+respectively.  @xref{Textual I/O}.
+@end deftypefn
+
+@deftypefn {C Function} void scm_c_put_latin1_chars (SCM port, const scm_t_uint8 *buf, size_t len)
+@deftypefnx {C Function} void scm_c_put_utf32_chars (SCM port, const scm_t_uint32 *buf, size_t len);
+Write a string to @var{port}.  In the first case, the
+@code{scm_t_uint8*} buffer is a string in the latin-1 encoding.  In the
+second, the @code{scm_t_uint32*} buffer is a string in the UTF-32
+encoding.  These routines will update the port's line and column.
 @end deftypefn
 
 @node I/O Extensions
@@ -1582,15 +1498,13 @@ line-buffered.
 This section describes how to implement a new port type in C.  Although
 ports support many operations, as a data structure they present an
 opaque interface to the user.  To the port implementor, you have two
-additional pieces of information: the port type, which is an opaque
-pointer allocated when defining your port type; and a port's ``stream'',
-which you allocate when you create a port.
-
-The type code helps you identify which ports are actually yours.  The
-``stream'' is the private data associated with that port which you and
-only you control.  Get a stream from a port using the @code{SCM_STREAM}
-macro.  Note that your port methods are only ever called with ports of
-your type.
+pieces of information to work with: the port type, and the port's
+``stream''.  The port type is an opaque pointer allocated when defining
+your port type.  It is your key into the port API, and it helps you
+identify which ports are actually yours.  The ``stream'' is a pointer
+you control, and which you set when you create a port.  Get a stream
+from a port using the @code{SCM_STREAM} macro.  Note that your port
+methods are only ever called with ports of your type.
 
 A port type is created by calling @code{scm_make_port_type}.  Once you
 have your port type, you can create ports with @code{scm_c_make_port},
@@ -1789,27 +1703,81 @@ incantation:
 @end example
 
 Now the file descriptor is open in non-blocking mode.  If Guile tries to
-read or write from this file descriptor in C, it will block by polling
-on the socket's @code{read_wait_fd}, to preserve the illusion of a
-blocking read or write.  @xref{I/O Extensions} for more on that internal
-interface.
+read or write from this file and the read or write returns a result
+indicating that more data can only be had by doing a blocking read or
+write, Guile will block by polling on the socket's @code{read-wait-fd}
+or @code{write-wait-fd}, to preserve the illusion of a blocking read or
+write.  @xref{I/O Extensions} for more on those internal interfaces.
 
-However if a user uses the new and experimental Scheme implementation of
-ports in @code{(ice-9 sports)}, Guile instead calls the value of the
-@code{current-read-waiter} or @code{current-write-waiter} parameters on
-the port before re-trying the read or write.  The default value of these
-parameters does the same thing as the C port runtime: it blocks.
-However it's possible to dynamically bind these parameters to handlers
-that can suspend the current coroutine to a scheduler, to be later
-re-animated once the port becomes readable or writable in the future.
-In the mean-time the scheduler can run other code, for example servicing
-other web requests.
+So far we have just reproduced the status quo: the file descriptor is
+non-blocking, but the operations on the port do block.  To go farther,
+it would be nice if we could suspend the ``thread'' using delimited
+continuations, and only resume the thread once the file descriptor is
+readable or writable.  (@xref{Prompts}).
 
-Guile does not currently include such a scheduler.  Currently we want to
-make sure that we're providing the right primitives that can be used to
-build schedulers and other user-space concurrency patterns.  In the
-meantime, have a look at 8sync (@url{https://gnu.org/software/8sync})
-for a prototype of an asynchronous I/O and concurrency facility.
+But here we run into a difficulty.  The ports code is implemented in C,
+which means that although we can suspend the computation to some outer
+prompt, we can't resume it because Guile can't resume delimited
+continuations that capture the C stack.
+
+To overcome this difficulty we have created a compatible but entirely
+parallel implementation of port operations.  To use this implementation,
+do the following:
+
+@example
+(use-module (ice-9 suspendable-ports))
+(install-suspendable-ports!)
+@end example
+
+This will replace the core I/O primitives like @code{get-char} and
+@code{put-bytevector} with new versions that are exactly the same as the
+ones in the standard library, but with two differences.  One is that
+when a read or a write would block, the suspendable port operations call
+out the value of the @code{current-read-waiter} or
+@code{current-write-waiter} parameter, as appropriate.
+@xref{Parameters}.  The default read and write waiters do the same thing
+that the C read and write waiters do, which is to poll.  User code can
+parameterize the waiters, though, enabling the computation to suspend
+and allow the program to process other I/O operations.  Because the new
+suspendable ports implementation is written in Scheme, that suspended
+computation can resume again later when it is able to make progress.
+Success!
+
+The other main difference is that because the new ports implementation
+is written in Scheme, it is slower than C, currently by a factor of 3 or
+4, though it depends on many factors.  For this reason we have to keep
+the C implementations as the default ones.  One day when Guile's
+compiler is better, we can close this gap and have only one port
+operation implementation again.
+
+Note that Guile does not currently include an implementation of the
+facility to suspend the current thread and schedule other threads in the
+meantime.  Before adding such a thing, we want to make sure that we're
+providing the right primitives that can be used to build schedulers and
+other user-space concurrency patterns, and that the patterns that we
+settle on are the right patterns.  In the meantime, have a look at 8sync
+(@url{https://gnu.org/software/8sync}) for a prototype of an
+asynchronous I/O and concurrency facility.
+
+@deffn {Scheme Procedure} install-suspendable-ports!
+Replace the core ports implementation with suspendable ports, as
+described above.  This will mutate the values of the bindings like
+@code{get-char}, @code{put-u8}, and so on in place.
+@end deffn
+
+@deffn {Scheme Procedure} uninstall-suspendable-ports!
+Restore the original core ports implementation, un-doing the effect of
+@code{install-suspendable-ports!}.
+@end deffn
+
+@deffn {Scheme Parameter} current-read-waiter
+@deffnx {Scheme Parameter} current-write-waiter
+Parameters whose values are procedures of one argument, called when a
+suspendable port operation would block on a port while reading or
+writing, respectively.  The default values of these parameters do a
+blocking @code{poll} on the port's file descriptor.  The procedures are
+passed the port in question as their one argument.
+@end deffn
 
 
 @node BOM Handling
