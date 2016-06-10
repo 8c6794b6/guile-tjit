@@ -220,6 +220,7 @@
 (define *max-size-t*
   (min (+ (ash most-positive-fixnum 3) #b111)
        (1- (ash 1 48))))
+(define *max-codepoint* #x10ffff)
 
 (define-inlinable (make-unclamped-type-entry type min max)
   (vector type min max))
@@ -693,8 +694,6 @@ minimum, and maximum."
 ;;; Strings.
 ;;;
 
-(define *max-char* (1- (ash 1 24)))
-
 (define-type-checker (string-ref s idx)
   (and (check-type s &string 0 *max-size-t*)
        (check-type idx &u64 0 *max-size-t*)
@@ -702,17 +701,17 @@ minimum, and maximum."
 (define-type-inferrer (string-ref s idx result)
   (restrict! s &string (1+ (&min/0 idx)) *max-size-t*)
   (restrict! idx &u64 0 (1- (&max/size s)))
-  (define! result &char 0 *max-char*))
+  (define! result &char 0 *max-codepoint*))
 
 (define-type-checker (string-set! s idx val)
   (and (check-type s &string 0 *max-size-t*)
        (check-type idx &exact-integer 0 *max-size-t*)
-       (check-type val &char 0 *max-char*)
+       (check-type val &char 0 *max-codepoint*)
        (< (&max idx) (&min s))))
 (define-type-inferrer (string-set! s idx val)
   (restrict! s &string (1+ (&min/0 idx)) *max-size-t*)
   (restrict! idx &exact-integer 0 (1- (&max/size s)))
-  (restrict! val &char 0 *max-char*))
+  (restrict! val &char 0 *max-codepoint*))
 
 (define-simple-type-checker (string-length &string))
 (define-type-inferrer (string-length s result)
@@ -1422,15 +1421,15 @@ minimum, and maximum."
   ((logior &true &false) 0 0))
 (define-type-aliases char<? char<=? char>=? char>?)
 
-(define-simple-type-checker (integer->char (&u64 0 #x10ffff)))
+(define-simple-type-checker (integer->char (&u64 0 *max-codepoint*)))
 (define-type-inferrer (integer->char i result)
-  (restrict! i &u64 0 #x10ffff)
-  (define! result &char (&min/0 i) (min (&max i) #x10ffff)))
+  (restrict! i &u64 0 *max-codepoint*)
+  (define! result &char (&min/0 i) (min (&max i) *max-codepoint*)))
 
 (define-simple-type-checker (char->integer &char))
 (define-type-inferrer (char->integer c result)
-  (restrict! c &char 0 #x10ffff)
-  (define! result &u64 (&min/0 c) (min (&max c) #x10ffff)))
+  (restrict! c &char 0 *max-codepoint*)
+  (define! result &u64 (&min/0 c) (min (&max c) *max-codepoint*)))
 
 
 
