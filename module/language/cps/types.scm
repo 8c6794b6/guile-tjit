@@ -742,9 +742,9 @@ minimum, and maximum."
   (define! result &flonum (&min f64) (&max f64)))
 
 (define-type-checker (scm->u64 scm)
-  (check-type scm &exact-integer 0 #xffffffffffffffff))
+  (check-type scm &exact-integer 0 &u64-max))
 (define-type-inferrer (scm->u64 scm result)
-  (restrict! scm &exact-integer 0 #xffffffffffffffff)
+  (restrict! scm &exact-integer 0 &u64-max)
   (define! result &u64 (&min/0 scm) (&max/u64 scm)))
 (define-type-aliases scm->u64 load-u64)
 
@@ -1004,9 +1004,9 @@ minimum, and maximum."
 (define-type-inferrer (uadd a b result)
   ;; Handle wraparound.
   (let ((max (+ (&max/u64 a) (&max/u64 b))))
-    (if (<= max #xffffffffffffffff)
+    (if (<= max &u64-max)
         (define! result &u64 (+ (&min/0 a) (&min/0 b)) max)
-        (define! result &u64 0 #xffffffffffffffff))))
+        (define! result &u64 0 &u64-max))))
 (define-type-aliases uadd uadd/immediate)
 
 (define-simple-type-checker (sub &number &number))
@@ -1025,7 +1025,7 @@ minimum, and maximum."
   ;; Handle wraparound.
   (let ((min (- (&min/0 a) (&max/u64 b))))
     (if (< min 0)
-        (define! result &u64 0 #xffffffffffffffff)
+        (define! result &u64 0 &u64-max)
         (define! result &u64 min (- (&max/u64 a) (&min/0 b))))))
 (define-type-aliases usub usub/immediate)
 
@@ -1077,9 +1077,9 @@ minimum, and maximum."
 (define-type-inferrer (umul a b result)
   ;; Handle wraparound.
   (let ((max (* (&max/u64 a) (&max/u64 b))))
-    (if (<= max #xffffffffffffffff)
+    (if (<= max &u64-max)
         (define! result &u64 (* (&min/0 a) (&min/0 b)) max)
-        (define! result &u64 0 #xffffffffffffffff))))
+        (define! result &u64 0 &u64-max))))
 (define-type-aliases umul umul/immediate)
 
 (define-type-checker (div a b)
