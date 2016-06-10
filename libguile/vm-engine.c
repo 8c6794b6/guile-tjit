@@ -2239,7 +2239,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_uint8 dst, src, idx;
       SCM str;
-      scm_t_uint32 c_idx;
+      scm_t_uint64 c_idx;
 
       UNPACK_8_8_8 (op, dst, src, idx);
       str = SP_REF (src);
@@ -3700,7 +3700,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (171, br_if_u64_lt_scm, "br-if-u64-<-scm", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
-      BR_U64_SCM_COMPARISON(x, y, y >= 0 && (scm_t_uint64) y > x, scm_less_p);
+      BR_U64_SCM_COMPARISON(x, y, y > 0 && (scm_t_uint64) y > x, scm_less_p);
     }
 
   /* br-if-u64-=-scm a:24 _:8 b:24 invert:1 _:7 offset:24
