@@ -2976,9 +2976,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 									\
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-ref");                    \
 									\
-    if (SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) < size)                \
-        || SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) - size < c_idx))    \
-      vm_error_out_of_range_uint64 ("bv-" #stem "-ref", c_idx);         \
+    VM_ASSERT (SCM_BYTEVECTOR_LENGTH (bv) >= size                       \
+               && SCM_BYTEVECTOR_LENGTH (bv) - size >= c_idx,           \
+               vm_error_out_of_range_uint64 ("bv-" #stem "-ref", c_idx)); \
                                                                         \
     memcpy (&result, SCM_BYTEVECTOR_CONTENTS (bv) + c_idx, size);       \
     SP_SET_ ## slot (dst, result);                                      \
@@ -3043,13 +3043,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 									\
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
 									\
-    if (SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) < size)                \
-        || SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) - size < c_idx))    \
-      vm_error_out_of_range_uint64 ("bv-" #stem "-set!", c_idx);        \
+    VM_ASSERT (SCM_BYTEVECTOR_LENGTH (bv) >= size                       \
+               && SCM_BYTEVECTOR_LENGTH (bv) - size >= c_idx,           \
+               vm_error_out_of_range_uint64 ("bv-" #stem "-set!", c_idx)); \
                                                                         \
-    if (SCM_UNLIKELY (slot_val < min) || SCM_UNLIKELY (slot_val > max)) \
-      vm_error_out_of_range_ ## slot_type ("bv-" #stem "-set!",         \
-                                           slot_val);                   \
+    VM_ASSERT (slot_val >= min && slot_val <= max,                      \
+               vm_error_out_of_range_ ## slot_type ("bv-" #stem "-set!", \
+                                                    slot_val));         \
                                                                         \
     val = slot_val;                                                     \
     memcpy (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx, &val, size);          \
@@ -3069,9 +3069,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 									\
     VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
 									\
-    if (SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) < size)                \
-        || SCM_UNLIKELY (SCM_BYTEVECTOR_LENGTH (bv) - size < c_idx))    \
-      vm_error_out_of_range_uint64 ("bv-" #stem "-set!", c_idx);        \
+    VM_ASSERT (SCM_BYTEVECTOR_LENGTH (bv) >= size                       \
+               && SCM_BYTEVECTOR_LENGTH (bv) - size >= c_idx,           \
+               vm_error_out_of_range_uint64 ("bv-" #stem "-set!", c_idx)); \
                                                                         \
     memcpy (SCM_BYTEVECTOR_CONTENTS (bv) + c_idx, &val, size);          \
     NEXT (1);                                                           \
@@ -3746,8 +3746,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, dst, src);
       x = SP_REF_U64 (src);
 
-      if (SCM_UNLIKELY (x > (scm_t_uint64) SCM_CODEPOINT_MAX))
-        vm_error_out_of_range_uint64 ("integer->char", x);
+      VM_ASSERT (x <= (scm_t_uint64) SCM_CODEPOINT_MAX,
+                 vm_error_out_of_range_uint64 ("integer->char", x));
 
       SP_SET (dst, SCM_MAKE_ITAG8 ((scm_t_bits) (scm_t_wchar) x, scm_tc8_char));
 
@@ -3766,8 +3766,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, dst, src);
       x = SP_REF (src);
 
-      if (SCM_UNLIKELY (!SCM_CHARP (x)))
-        vm_error_not_a_char ("char->integer", x);
+      VM_ASSERT (SCM_CHARP (x), vm_error_not_a_char ("char->integer", x));
 
       SP_SET_U64 (dst, SCM_CHAR (x));
 
