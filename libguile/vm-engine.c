@@ -248,6 +248,9 @@
 #define FP_REF(i)		SCM_FRAME_LOCAL (vp->fp, i)
 #define FP_SET(i,o)		SCM_FRAME_LOCAL (vp->fp, i) = o
 
+#define SP_REF_SLOT(i)		(sp[i])
+#define SP_SET_SLOT(i,o)	(sp[i] = o)
+
 #define SP_REF(i)		(sp[i].as_scm)
 #define SP_SET(i,o)		(sp[i].as_scm = o)
 
@@ -1142,12 +1145,16 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (26, push, "push", OP1 (X8_S24))
     {
       scm_t_uint32 src;
-      SCM val;
+      union scm_vm_stack_element val;
 
+      /* FIXME: The compiler currently emits "push" for SCM, F64, U64,
+         and S64 variables.  However SCM values are the usual case, and
+         on a 32-bit machine it might be cheaper to move a SCM than to
+         move a 64-bit number.  */
       UNPACK_24 (op, src);
-      val = SP_REF (src);
+      val = SP_REF_SLOT (src);
       ALLOC_FRAME (FRAME_LOCALS_COUNT () + 1);
-      SP_SET (0, val);
+      SP_SET_SLOT (0, val);
       NEXT (1);
     }
 
@@ -1158,12 +1165,16 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (27, pop, "pop", OP1 (X8_S24) | OP_DST)
     {
       scm_t_uint32 dst;
-      SCM val;
+      union scm_vm_stack_element val;
 
+      /* FIXME: The compiler currently emits "pop" for SCM, F64, U64,
+         and S64 variables.  However SCM values are the usual case, and
+         on a 32-bit machine it might be cheaper to move a SCM than to
+         move a 64-bit number.  */
       UNPACK_24 (op, dst);
-      val = SP_REF (0);
+      val = SP_REF_SLOT (0);
       vp->sp = sp = sp + 1;
-      SP_SET (dst, val);
+      SP_SET_SLOT (dst, val);
       NEXT (1);
     }
 
@@ -1548,7 +1559,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 src;
 
       UNPACK_12_12 (op, dst, src);
-      SP_SET (dst, SP_REF (src));
+      /* FIXME: The compiler currently emits "mov" for SCM, F64, U64,
+         and S64 variables.  However SCM values are the usual case, and
+         on a 32-bit machine it might be cheaper to move a SCM than to
+         move a 64-bit number.  */
+      SP_SET_SLOT (dst, SP_REF_SLOT (src));
 
       NEXT (1);
     }
@@ -1564,7 +1579,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_24 (op, dst);
       UNPACK_24 (ip[1], src);
-      SP_SET (dst, SP_REF (src));
+      /* FIXME: The compiler currently emits "long-mov" for SCM, F64,
+         U64, and S64 variables.  However SCM values are the usual case,
+         and on a 32-bit machine it might be cheaper to move a SCM than
+         to move a 64-bit number.  */
+      SP_SET_SLOT (dst, SP_REF_SLOT (src));
 
       NEXT (2);
     }
