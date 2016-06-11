@@ -423,7 +423,7 @@
   ((scm_t_signed_bits) SCM_UNPACK (SCM_INUM1)    \
    - (scm_t_signed_bits) SCM_UNPACK (SCM_INUM0))
 
-#define BINARY_INTEGER_OP(CFUNC,SFUNC)                                      \
+#define BINARY_INTEGER_OP(CFUNC,SFUNC)                          \
   {                                                             \
     ARGS2 (x, y);						\
     if (SCM_I_INUMP (x) && SCM_I_INUMP (y))                     \
@@ -435,14 +435,26 @@
     RETURN_EXP (SFUNC (x, y));                                  \
   }
 
-#define VM_VALIDATE_PAIR(x, proc)		\
-  VM_ASSERT (scm_is_pair (x), vm_error_not_a_pair (proc, x))
-  
-#define VM_VALIDATE_STRUCT(obj, proc)           \
-  VM_ASSERT (SCM_STRUCTP (obj), vm_error_not_a_pair (proc, obj))
+#define VM_VALIDATE(x, pred, proc, what)                                \
+  VM_ASSERT (pred (x), vm_error_not_a_ ## what (proc, x))
 
-#define VM_VALIDATE_BYTEVECTOR(x, proc)		\
-  VM_ASSERT (SCM_BYTEVECTOR_P (x), vm_error_not_a_bytevector (proc, x))
+#define VM_VALIDATE_BYTEVECTOR(x, proc)                                 \
+  VM_VALIDATE (x, SCM_BYTEVECTOR_P, proc, bytevector)
+#define VM_VALIDATE_CHAR(x, proc)                                       \
+  VM_VALIDATE (x, SCM_CHARP, proc, char);
+#define VM_VALIDATE_PAIR(x, proc)                                       \
+  VM_VALIDATE (x, scm_is_pair, proc, pair)
+#define VM_VALIDATE_STRING(obj, proc)                                   \
+  VM_VALIDATE (obj, scm_is_string, proc, string)
+#define VM_VALIDATE_STRUCT(obj, proc)                                   \
+  VM_VALIDATE (obj, SCM_STRUCTP, proc, struct)
+#define VM_VALIDATE_VARIABLE(obj, proc)                                 \
+  VM_VALIDATE (obj, SCM_VARIABLEP, proc, variable)
+#define VM_VALIDATE_VECTOR(obj, proc)                                   \
+  VM_VALIDATE (obj, SCM_I_IS_VECTOR, proc, vector)
+
+#define VM_VALIDATE_INDEX(u64, size, proc)                              \
+  VM_ASSERT (u64 < size, vm_error_out_of_range_uint64 (proc, u64))
 
 /* Return true (non-zero) if PTR has suitable alignment for TYPE.  */
 #define ALIGNED_P(ptr, type)			\
@@ -1599,8 +1611,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM var;
       UNPACK_12_12 (op, dst, src);
       var = SP_REF (src);
-      VM_ASSERT (SCM_VARIABLEP (var),
-                 vm_error_not_a_variable ("variable-ref", var));
+      VM_VALIDATE_VARIABLE (var, "variable-ref");
       VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (var));
       SP_SET (dst, VARIABLE_REF (var));
       NEXT (1);
@@ -1616,8 +1627,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       SCM var;
       UNPACK_12_12 (op, dst, src);
       var = SP_REF (dst);
-      VM_ASSERT (SCM_VARIABLEP (var),
-                 vm_error_not_a_variable ("variable-set!", var));
+      VM_VALIDATE_VARIABLE (var, "variable-set!");
       VARIABLE_SET (var, SP_REF (src));
       NEXT (1);
     }
@@ -2235,8 +2245,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (76, string_length, "string-length", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (str);
-      VM_ASSERT (scm_is_string (str),
-                 vm_error_not_a_string ("string-length", str));
+      VM_VALIDATE_STRING (str, "string-length");
       SP_SET_U64 (dst, scm_i_string_length (str));
       NEXT (1);
     }
@@ -2256,10 +2265,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       str = SP_REF (src);
       c_idx = SP_REF_U64 (idx);
 
-      VM_ASSERT (scm_is_string (str),
-                 vm_error_not_a_string ("string-ref", str));
-      VM_ASSERT (c_idx < scm_i_string_length (str),
-                 vm_error_out_of_range_uint64 ("string-ref", c_idx));
+      VM_VALIDATE_STRING (str, "string-ref");
+      VM_VALIDATE_INDEX (c_idx, scm_i_string_length (str), "string-ref");
 
       RETURN (SCM_MAKE_CHAR (scm_i_string_ref (str, c_idx)));
     }
@@ -2590,8 +2597,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_8_8_8 (op, dst, length, init);
       length_val = SP_REF_U64 (length);
-      VM_ASSERT (length_val < (size_t) -1,
-                 vm_error_out_of_range_uint64 ("make-vector", length_val));
+      VM_VALIDATE_INDEX (length_val, (size_t) -1, "make-vector");
 
       /* TODO: Inline this allocation.  */
       SYNC_IP ();
@@ -2631,9 +2637,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (101, vector_length, "vector-length", OP1 (X8_S12_S12) | OP_DST)
     {
       ARGS1 (vect);
-      VM_ASSERT (SCM_I_IS_VECTOR (vect),
-                 vm_error_not_a_vector ("vector-ref", vect));
-
+      VM_VALIDATE_VECTOR (vect, "vector-length");
       SP_SET_U64 (dst, SCM_I_VECTOR_LENGTH (vect));
       NEXT (1);
     }
@@ -2653,10 +2657,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       vect = SP_REF (src);
       c_idx = SP_REF_U64 (idx);
 
-      VM_ASSERT (SCM_I_IS_VECTOR (vect),
-                 vm_error_not_a_vector ("vector-ref", vect));
-      VM_ASSERT (c_idx < SCM_I_VECTOR_LENGTH (vect),
-                 vm_error_out_of_range_uint64 ("vector-ref", c_idx));
+      VM_VALIDATE_VECTOR (vect, "vector-ref");
+      VM_VALIDATE_INDEX (c_idx, SCM_I_VECTOR_LENGTH (vect), "vector-ref");
       RETURN (SCM_I_VECTOR_ELTS (vect)[c_idx]);
     }
 
@@ -2672,10 +2674,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       
       UNPACK_8_8_8 (op, dst, src, idx);
       vect = SP_REF (src);
-      VM_ASSERT (SCM_I_IS_VECTOR (vect),
-                 vm_error_not_a_vector ("vector-ref", vect));
-      VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (vect),
-                 vm_error_out_of_range_uint64 ("vector-ref", idx));
+      VM_VALIDATE_VECTOR (vect, "vector-ref");
+      VM_VALIDATE_INDEX (idx, SCM_I_VECTOR_LENGTH (vect), "vector-ref");
       SP_SET (dst, SCM_I_VECTOR_ELTS (vect)[idx]);
       NEXT (1);
     }
@@ -2695,10 +2695,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       c_idx = SP_REF_U64 (idx);
       val = SP_REF (src);
 
-      VM_ASSERT (SCM_I_IS_VECTOR (vect),
-                 vm_error_not_a_vector ("vector-set!", vect));
-      VM_ASSERT (c_idx < SCM_I_VECTOR_LENGTH (vect),
-                 vm_error_out_of_range_uint64 ("vector-set!", c_idx));
+      VM_VALIDATE_VECTOR (vect, "vector-set!");
+      VM_VALIDATE_INDEX (c_idx, SCM_I_VECTOR_LENGTH (vect), "vector-set!");
       SCM_I_VECTOR_WELTS (vect)[c_idx] = val;
       NEXT (1);
     }
@@ -2717,10 +2715,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       vect = SP_REF (dst);
       val = SP_REF (src);
 
-      VM_ASSERT (SCM_I_IS_VECTOR (vect),
-                 vm_error_not_a_vector ("vector-ref", vect));
-      VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (vect),
-                 vm_error_out_of_range_uint64 ("vector-ref", idx));
+      VM_VALIDATE_VECTOR (vect, "vector-set!");
+      VM_VALIDATE_INDEX (idx, SCM_I_VECTOR_LENGTH (vect), "vector-set!");
       SCM_I_VECTOR_WELTS (vect)[idx] = val;
       NEXT (1);
     }
@@ -3778,8 +3774,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_12_12 (op, dst, src);
       x = SP_REF (src);
 
-      VM_ASSERT (SCM_CHARP (x), vm_error_not_a_char ("char->integer", x));
-
+      VM_VALIDATE_CHAR (x, "char->integer");
       SP_SET_U64 (dst, SCM_CHAR (x));
 
       NEXT (1);
