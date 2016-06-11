@@ -437,25 +437,20 @@ static void vm_error_apply_to_non_list (SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_kwargs_length_not_even (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_kwargs_invalid_keyword (SCM proc, SCM obj) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_kwargs_unrecognized_keyword (SCM proc, SCM kw) SCM_NORETURN SCM_NOINLINE;
-static void vm_error_too_many_args (int nargs) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_num_args (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_type_apply (SCM proc) SCM_NORETURN SCM_NOINLINE;
-static void vm_error_stack_underflow (void) SCM_NORETURN SCM_NOINLINE;
-static void vm_error_improper_list (SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_char (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_pair (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_string (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_bytevector (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_struct (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_vector (const char *subr, SCM v) SCM_NORETURN SCM_NOINLINE;
-static void vm_error_out_of_range (const char *subr, SCM k) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_out_of_range_uint64 (const char *subr, scm_t_uint64 idx) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_out_of_range_int64 (const char *subr, scm_t_int64 idx) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_no_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_enough_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_number_of_values (scm_t_uint32 expected) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_continuation_not_rewindable (SCM cont) SCM_NORETURN SCM_NOINLINE;
-static void vm_error_bad_wide_string_length (size_t len) SCM_NORETURN SCM_NOINLINE;
 
 static void
 vm_error (const char *msg, SCM arg)
@@ -527,12 +522,6 @@ vm_error_kwargs_unrecognized_keyword (SCM proc, SCM kw)
 }
 
 static void
-vm_error_too_many_args (int nargs)
-{
-  vm_error ("VM: Too many arguments", scm_from_int (nargs));
-}
-
-static void
 vm_error_wrong_num_args (SCM proc)
 {
   scm_wrong_num_args (proc);
@@ -543,18 +532,6 @@ vm_error_wrong_type_apply (SCM proc)
 {
   scm_error (scm_arg_type_key, NULL, "Wrong type to apply: ~S",
              scm_list_1 (proc), scm_list_1 (proc));
-}
-
-static void
-vm_error_stack_underflow (void)
-{
-  vm_error ("VM: Stack underflow", SCM_UNDEFINED);
-}
-
-static void
-vm_error_improper_list (SCM x)
-{
-  vm_error ("Expected a proper list, but got object with tail ~s", x);
 }
 
 static void
@@ -594,13 +571,6 @@ vm_error_not_a_vector (const char *subr, SCM x)
 }
 
 static void
-vm_error_out_of_range (const char *subr, SCM k)
-{
-  scm_to_size_t (k);
-  scm_out_of_range (subr, k);
-}
-
-static void
 vm_error_out_of_range_uint64 (const char *subr, scm_t_uint64 idx)
 {
   scm_out_of_range (subr, scm_from_uint64 (idx));
@@ -636,12 +606,6 @@ static void
 vm_error_continuation_not_rewindable (SCM cont)
 {
   vm_error ("Unrewindable partial continuation", cont);
-}
-
-static void
-vm_error_bad_wide_string_length (size_t len)
-{
-  vm_error ("VM: Bad wide string length: ~S", scm_from_size_t (len));
 }
 
 
