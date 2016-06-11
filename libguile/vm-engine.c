@@ -523,6 +523,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
         {
           scm_t_uint32 n;
           ret = SCM_EOL;
+          SYNC_IP ();
           for (n = nvals; n > 0; n--)
             ret = scm_inline_cons (thread, FP_REF (4 + n - 1), ret);
           ret = scm_values (ret);
@@ -1304,6 +1305,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
         {
           SCM rest = SCM_EOL;
           n = nkw;
+          SYNC_IP ();
           while (n--)
             rest = scm_inline_cons (thread, FP_REF (ntotal + n), rest);
           FP_SET (nreq_and_opt, rest);
@@ -1335,6 +1337,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
         }
       else
         {
+          SYNC_IP ();
+
           while (nargs-- > dst)
             {
               rest = scm_inline_cons (thread, FP_REF (nargs), rest);
@@ -1476,10 +1480,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (44, br_if_logtest, "br-if-logtest", OP3 (X8_S24, X8_S24, B1_X7_L24))
     {
-      BR_BINARY (x, y,
-                 ((SCM_I_INUMP (x) && SCM_I_INUMP (y))
-                  ? (SCM_UNPACK (x) & SCM_UNPACK (y) & ~scm_tc2_int)
-                  : scm_is_true (scm_logtest (x, y))));
+      SYNC_IP ();
+      {
+        BR_BINARY (x, y,
+                   ((SCM_I_INUMP (x) && SCM_I_INUMP (y))
+                    ? (SCM_UNPACK (x) & SCM_UNPACK (y) & ~scm_tc2_int)
+                    : scm_is_true (scm_logtest (x, y))));
+      }
     }
 
   /* br-if-= a:12 b:12 invert:1 _:7 offset:24
@@ -1575,6 +1582,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_uint16 dst, src;
       UNPACK_12_12 (op, dst, src);
+      SYNC_IP ();
       SP_SET (dst, scm_inline_cell (thread, scm_tc7_variable,
                                        SCM_UNPACK (SP_REF (src))));
       NEXT (1);
@@ -2085,6 +2093,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   
       /* Push the prompt onto the dynamic stack. */
       flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
+      SYNC_IP ();
       scm_dynstack_push_prompt (&thread->dynstack, flags,
                                 SP_REF (tag),
                                 vp->stack_top - vp->fp,
@@ -2106,6 +2115,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_uint16 winder, unwinder;
       UNPACK_12_12 (op, winder, unwinder);
+      SYNC_IP ();
       scm_dynstack_push_dynwind (&thread->dynstack,
                                  SP_REF (winder), SP_REF (unwinder));
       NEXT (1);
@@ -2132,6 +2142,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       UNPACK_12_12 (op, fluid, value);
 
+      SYNC_IP ();
       scm_dynstack_push_fluid (&thread->dynstack,
                                SP_REF (fluid), SP_REF (value),
                                thread->dynamic_state);
@@ -2311,6 +2322,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (81, cons, "cons", OP1 (X8_S8_S8_S8) | OP_DST)
     {
       ARGS2 (x, y);
+      SYNC_IP ();
       RETURN (scm_inline_cons (thread, x, y));
     }
 
@@ -2603,6 +2615,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       UNPACK_8_8_8 (op, dst, length, init);
 
       val = SP_REF (init);
+      SYNC_IP ();
       vector = scm_inline_words (thread, scm_tc7_vector | (length << 8),
                                  length + 1);
       for (n = 0; n < length; n++)
@@ -2899,8 +2912,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       ARGS1 (obj);
       if (SCM_INSTANCEP (obj))
         RETURN (SCM_CLASS_OF (obj));
-      SYNC_IP ();
-      RETURN (scm_class_of (obj));
+      RETURN_EXP (scm_class_of (obj));
     }
 
   
