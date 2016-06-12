@@ -63,6 +63,9 @@
 ;; XXX: apply-non-program
 
 (define-ir (scm->u64 (u64! dst) (scm src))
+  (nyi "scm->u64 et=scm it=~a" (type-ref src)))
+
+(define-ir (scm->u64 (u64! dst) (fixnum src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     `(let ((,dst/v (%rsh ,src/v 2)))
