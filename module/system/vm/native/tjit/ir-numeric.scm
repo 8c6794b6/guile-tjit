@@ -210,10 +210,18 @@
          (else
           (nyi-binary 'name 'flonum 'flonum a b)))))))
 
-(define-syntax-rule (define-add-sub-scm-imm name op-fx)
+(define-syntax-rule (define-add-sub-scm-imm name op-fx op-fl)
   (begin
     (define-ir (name (scm! dst) (scm src) (const imm))
       (nyi-unary 'name 'scm src))
+    (define-ir (name (flonum! dst) (flonum src) (const imm))
+      (let* ((src/v (src-ref src))
+             (dst/v (dst-ref dst))
+             (f2 (make-tmpvar/f 2)))
+        (with-type-guard &flonum src
+          `(let ((,f2 (%i2d ,imm)))
+             (let ((,dst/v (op-fl ,src/v ,f2)))
+               ,(next))))))
     (define-ir (name (fixnum! dst) (fixnum src) (const imm))
       (let* ((src/v (src-ref src))
              (dst/v (dst-ref dst)))
@@ -222,9 +230,9 @@
              ,(next)))))))
 
 (define-add-sub-scm-scm add %add %sub %fadd %cadd)
-(define-add-sub-scm-imm add/immediate %add)
+(define-add-sub-scm-imm add/immediate %add %fadd)
 (define-add-sub-scm-scm sub %sub %add %fsub %csub)
-(define-add-sub-scm-imm sub/immediate %sub)
+(define-add-sub-scm-imm sub/immediate %sub %fsub)
 
 (define-syntax-rule (define-mul-div-scm-scm name op-fx op-fl op-c)
   (begin

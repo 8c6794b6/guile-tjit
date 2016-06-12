@@ -25,6 +25,7 @@ TESTS_ENVIRONMENT = \
 	$(top_builddir)/meta/guile -e main $(srcdir)/run-tjit-tests.scm
 
 TESTS = \
+	t-add-immediate-01.scm \
 	t-args-01.scm \
 	t-args-02.scm \
 	t-args-03.scm \
