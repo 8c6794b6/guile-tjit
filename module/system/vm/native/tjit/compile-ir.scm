@@ -301,9 +301,7 @@ Currently does nothing, returns the given argument."
                  (args (map make-var (reverse local-indices)))
                  (indices (env-write-indices env))
                  (thunk (lambda ()
-                          (let ((snap1 (initial-snapshot! indices vars)))
-                            `(let ((_ ,snap1))
-                               (loop ,@args)))))
+                          `(loop ,@args)))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
                                        env initial-ip 0))
                  (live-indices (if (env-uprec? env)
