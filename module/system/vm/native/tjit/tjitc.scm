@@ -129,59 +129,61 @@
            exp))))
 
     (with-tjitc-error-handler env
-      (let ((implemented? (parse-bytecode env bytecode traces))
-            (last-op (car (vector-ref (last traces) 0)))
-            (first-op (car (vector-ref (car traces) 0)))
-            (port (tjit-dump-log)))
-        (define (dump-sline-and-bytecode test)
-          (dump tjit-dump-jitc? test (show-sline port))
-          (dump tjit-dump-bytecode? test
-                (dump-bytecode port trace-id traces)))
-        (when (tjit-dump-abort? dump-option)
-          (dump-sline-and-bytecode #t))
-        (cond
-         ((not implemented?)
-          (tjit-increment-compilation-failure! entry-ip 3))
-         ((and downrec?
-               (not parent-snapshot)
-               (unsupported-downrec-prologue? first-op))
-          (nyi "down recursion starting with ~a" first-op))
-         (uprec?
-          (nyi "up recursion"))
-         ((and uprec? (<= (env-last-sp-offset env) 0))
-          (nyi "up recursion with down SP shift"))
-         ((and uprec? (not (eq? 'return-values last-op)))
-          (nyi "unsupported up recursion epilogue ~a" last-op))
-         ((and (not parent-snapshot) (not loop?))
-          (nyi "loop-less root trace"))
-         ((and (not parent-snapshot)
-               (not (zero? (env-last-sp-offset env)))
-               (not (call-op? last-op))
-               (not uprec?))
-          (nyi "root trace with SP shift, last op `~a'" last-op))
-         ((and parent-snapshot loop?)
-          (nyi "looping side trace"))
-         ((and parent-snapshot (not (env-linked-fragment env)))
-          (nyi "side trace with no linked fragment"))
-         (else
-          (unless (tjit-dump-abort? dump-option)
-            (dump-sline-and-bytecode implemented?))
-          (let-values (((snapshots anf ops)
-                        (compile-ir env traces)))
-            (dump tjit-dump-anf? anf (dump-anf port trace-id anf))
-            (dump tjit-dump-ops? ops (dump-primops port trace-id ops snapshots))
-            (let-values (((code size adjust loop-address trampoline)
-                          (compile-native env ops snapshots sline)))
-              (tjit-increment-id!)
-              (and=> origin increment-num-child!)
-              (dump tjit-dump-ncode? code
-                    (dump-ncode port trace-id entry-ip code size adjust
-                                loop-address snapshots trampoline
-                                (not parent-snapshot))))
-            (when (tjit-dump-time? dump-option)
-              (let ((log (get-tjit-time-log trace-id))
-                    (t (get-internal-run-time)))
-                (set-tjit-time-log-end! log t))))))))))
+      (cond
+       ((and (not parent-snapshot) (not loop?))
+        (nyi "loop-less root trace"))
+       ((and parent-snapshot loop?)
+        (nyi "looping side trace"))
+       (else
+        (let ((implemented? (parse-bytecode env bytecode traces))
+              (last-op (car (vector-ref (last traces) 0)))
+              (first-op (car (vector-ref (car traces) 0)))
+              (port (tjit-dump-log)))
+          (define (dump-sline-and-bytecode test)
+            (dump tjit-dump-jitc? test (show-sline port))
+            (dump tjit-dump-bytecode? test
+                  (dump-bytecode port trace-id traces)))
+          (when (tjit-dump-abort? dump-option)
+            (dump-sline-and-bytecode #t))
+          (cond
+           ((not implemented?)
+            (tjit-increment-compilation-failure! entry-ip 3))
+           ((and downrec?
+                 (not parent-snapshot)
+                 (unsupported-downrec-prologue? first-op))
+            (nyi "down recursion starting with ~a" first-op))
+           (uprec?
+            (nyi "up recursion"))
+           ((and uprec? (<= (env-last-sp-offset env) 0))
+            (nyi "up recursion with down SP shift"))
+           ((and uprec? (not (eq? 'return-values last-op)))
+            (nyi "unsupported up recursion epilogue ~a" last-op))
+           ((and (not parent-snapshot)
+                 (not (zero? (env-last-sp-offset env)))
+                 (not (call-op? last-op))
+                 (not uprec?))
+            (nyi "root trace with SP shift, last op `~a'" last-op))
+           ((and parent-snapshot (not (env-linked-fragment env)))
+            (nyi "side trace with no linked fragment"))
+           (else
+            (unless (tjit-dump-abort? dump-option)
+              (dump-sline-and-bytecode implemented?))
+            (let-values (((snapshots anf ops)
+                          (compile-ir env traces)))
+              (dump tjit-dump-anf? anf (dump-anf port trace-id anf))
+              (dump tjit-dump-ops? ops (dump-primops port trace-id ops snapshots))
+              (let-values (((code size adjust loop-address trampoline)
+                            (compile-native env ops snapshots sline)))
+                (tjit-increment-id!)
+                (and=> origin increment-num-child!)
+                (dump tjit-dump-ncode? code
+                      (dump-ncode port trace-id entry-ip code size adjust
+                                  loop-address snapshots trampoline
+                                  (not parent-snapshot))))
+              (when (tjit-dump-time? dump-option)
+                (let ((log (get-tjit-time-log trace-id))
+                      (t (get-internal-run-time)))
+                  (set-tjit-time-log-end! log t))))))))))))
 
 
 ;;;
