@@ -410,18 +410,8 @@ If FILE begins with `-' the -s switch is mandatory.
             (exit 0))
 
            ((string=? arg "--tjit")
-            ;; Use tjit engine. Unlike debug engine, setting vm-engine
-            ;; to tjit from the middle of sequence of expressions, to
-            ;; avoid using tjit engine at the time of
-            ;; initialization. The `tjit?'  variable is still in use
-            ;; when setting debug engine.
             (set! tjit? #t)
-            (parse args
-                   (append `(((@ (system vm native tjit tjitc) init-vm-tjit)
-                              ,turn-on-debugging?)
-                             ((@ (system vm vm) set-default-vm-engine!) 'tjit)
-                             ((@ (system vm vm) set-vm-engine!) 'tjit))
-                           out)))
+            (parse args out))
 
            ((string-prefix? "--jit-debug=" arg)
             (parse args
@@ -464,6 +454,11 @@ If FILE begins with `-' the -s switch is mandatory.
           (begin
             (set-default-vm-engine! 'debug)
             (set-vm-engine! 'debug)))
+
+      (when tjit?
+        (init-vm-tjit turn-on-debugging?)
+        (set-default-vm-engine! 'tjit)
+        (set-vm-engine! 'tjit))
 
       ;; Return this value.
       `(;; It would be nice not to load up (ice-9 control), but the
