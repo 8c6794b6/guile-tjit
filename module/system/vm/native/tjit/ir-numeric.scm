@@ -67,9 +67,10 @@
              (dst/v (dst-ref dst)))
         (with-type-guard &fixnum a
           (with-type-guard &fixnum b
-            `(let ((,dst/v (op-fx1 ,a/v ,b/v)))
-               (let ((,dst/v (op-fx2 ,dst/v 2)))
-                 ,(next)))))))
+            `(let ((_ ,(take-snapshot! ip 0)))
+               (let ((,dst/v (op-fx1 ,a/v ,b/v)))
+                 (let ((,dst/v (op-fx2 ,dst/v 2)))
+                   ,(next))))))))
     (define-ir (name (flonum! dst) (flonum a) (fraction b))
       (let* ((a/v (src-ref a))
              (b/v (src-ref b))
@@ -226,13 +227,14 @@
       (let* ((src/v (src-ref src))
              (dst/v (dst-ref dst)))
         (with-type-guard &fixnum src
-          `(let ((,dst/v (op-fx ,src/v ,(* imm 4))))
-             ,(next)))))))
+          `(let ((_ ,(take-snapshot! ip 0)))
+             (let ((,dst/v (op-fx ,src/v ,(* imm 4))))
+               ,(next))))))))
 
-(define-add-sub-scm-scm add %add %sub %fadd %cadd)
-(define-add-sub-scm-imm add/immediate %add %fadd)
-(define-add-sub-scm-scm sub %sub %add %fsub %csub)
-(define-add-sub-scm-imm sub/immediate %sub %fsub)
+(define-add-sub-scm-scm add %addov %sub %fadd %cadd)
+(define-add-sub-scm-imm add/immediate %addov %fadd)
+(define-add-sub-scm-scm sub %subov %add %fsub %csub)
+(define-add-sub-scm-imm sub/immediate %subov %fsub)
 
 (define-syntax-rule (define-mul-div-scm-scm name op-fx op-fl op-c)
   (begin
