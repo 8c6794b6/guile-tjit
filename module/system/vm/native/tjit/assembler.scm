@@ -1308,19 +1308,31 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-native (%fref (int dst) (void n) (void type))
   (let ((tref (ref-value type)))
     (when (or (not (con? n))
-              (not (con? type)))
+              (not (con? type))
+              (con? dst))
       (err))
-    (sp-ref r0 (ref-value n))
-    (unbox-stack-element dst r0 tref)))
+    (if (eq? &flonum tref)
+        (begin
+          (sp-ref r0 (ref-value n))
+          (unbox-stack-element dst r0 tref))
+        (case (ref-type dst)
+          ((gpr) (sp-ref (gpr dst) (ref-value n)))
+          ((fpr) (begin
+                   (sp-ref r0 (ref-value n))
+                   (gpr->fpr (fpr dst) r0)))
+          ((mem) (begin
+                   (sp-ref r0 (ref-value n))
+                   (memory-set! dst r0)))
+          (else
+           (err))))))
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.
 (define-native (%fref/f (double dst) (void n) (void type))
-  (let ((exit (jit-forward))
-        (next (jit-forward))
-        (t (ref-value type)))
+  (let ((t (ref-value type)))
     (when (or (not (con? n))
-              (not (con? type)))
+              (not (con? type))
+              (con? dst))
       (err))
     (cond
      ((= t &flonum)
