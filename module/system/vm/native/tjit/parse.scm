@@ -137,9 +137,7 @@ After successufl parse, this procedure will update fields in ENV."
                                        acc
                                        (lp (cdr types)
                                            (cons (car (car types)) acc)))))
-                             ;; XXX: Avoid sorting indices after each step. May
-                             ;; use other data type than list.
-                             (buf (cons (sort! ws <) (env-write-buf env))))
+                             (buf (cons ws (env-write-buf env))))
                         (increment-env-call-return-num! env op)
                         (set-env-write-buf! env buf)
                         ret)
