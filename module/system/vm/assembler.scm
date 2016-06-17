@@ -939,32 +939,32 @@ lists.  This procedure can be called many times before calling
 ;;; to the table.
 ;;;
 
-(define tc2-int 2)
 (define (immediate-bits asm x)
   "Return the bit pattern to write into the buffer if @var{x} is
 immediate, and @code{#f} otherwise."
-  (let* ((bits (object-address x))
-         (mask (case (asm-word-size asm)
-                 ((4) #xffffffff)
-                 ((8) #xffffffffFFFFFFFF)
-                 (else (error "unexpected word size"))))
-         (fixnum-min (1- (ash mask -3)))
-         (fixnum-max (ash mask -3)))
-    (cond
-     ((not (zero? (logand bits 6)))
-      ;; Object is an immediate on the host.  It's immediate if it can
-      ;; fit into a word on the target.
-      (and (= bits (logand bits mask))
-           bits))
-     ((and (exact-integer? x) (<= fixnum-min x fixnum-max))
-      ;; Object is a bignum that would be an immediate on the target.
-      (let ((fixnum-bits (if (negative? x)
-                             (+ fixnum-max 1 (logand x fixnum-max))
-                             x)))
-        (logior (ash x 2) tc2-int)))
-     (else
-      ;; Otherwise not an immediate.
-      #f))))
+  (define tc2-int 2)
+  (if (exact-integer? x)
+      ;; Object is an immediate if it is a fixnum on the target.
+      (call-with-values (lambda ()
+                          (case (asm-word-size asm)
+                            ((4) (values    #x1fffffff
+                                            (- #x20000000)))
+                            ((8) (values    #x1fffffffFFFFFFFF
+                                            (- #x2000000000000000)))
+                            (else (error "unexpected word size"))))
+        (lambda (fixnum-min fixnum-max)
+          (and (<= fixnum-min x fixnum-max)
+               (let ((fixnum-bits (if (negative? x)
+                                      (+ fixnum-max 1 (logand x fixnum-max))
+                                      x)))
+                 (logior (ash fixnum-bits 2) tc2-int)))))
+      ;; Otherwise, the object will be immediate on the target if and
+      ;; only if it is immediate on the host.  Except for integers,
+      ;; which we handle specially above, any immediate value is an
+      ;; immediate on both 32-bit and 64-bit targets.
+      (let ((bits (object-address x)))
+        (and (not (zero? (logand bits 6)))
+             bits))))
 
 (define-record-type <stringbuf>
   (make-stringbuf string)
