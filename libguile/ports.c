@@ -2307,12 +2307,14 @@ scm_end_input (SCM port)
 {
   SCM buf;
   size_t discarded;
+  scm_t_off offset;
 
   buf = SCM_PORT (port)->read_buf;
   discarded = scm_port_buffer_take (buf, NULL, (size_t) -1);
+  offset = - (scm_t_off) discarded;
 
-  if (discarded != 0)
-    SCM_PORT_TYPE (port)->seek (port, -discarded, SEEK_CUR);
+  if (offset != 0)
+    SCM_PORT_TYPE (port)->seek (port, offset, SEEK_CUR);
 }
 
 SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
