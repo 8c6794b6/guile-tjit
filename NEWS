@@ -28,8 +28,8 @@ performant and expressive as possible.
 
 The interface to the user has no significant change, neither on the C
 side nor on the Scheme side.  However this refactoring has changed the
-interface to the port implementor in an incompatible way.  See below for
-full details.
+interface to the port implementor in an incompatible way.  See
+"Incompatible changes" below for full details.
 
 ** All ports are now buffered, can be targets of `setvbuf'
 
@@ -56,6 +56,11 @@ locks.  For that reason we have removed port locks, and removed the
 
 * New interfaces
 ** `TCP_NODELAY' and `TCP_CORK' socket options, if provided by the system
+
+** `scm_c_put_latin1_chars', `scm_c_put_utf32_chars'
+
+Use these instead of `scm_lfwrite'.  See the new "Using Ports from C"
+section of the manual, for more.
 
 * New deprecations
 ** `_IONBF', `_IOLBF', and `_IOFBF'
