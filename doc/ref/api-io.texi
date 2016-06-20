@@ -1410,6 +1410,22 @@ has been asserted by @code{char-ready?} cannot be rubbed out.
 If @code{char-ready?} were to return @code{#f} at end of file,
 a port at end of file would be indistinguishable from an
 interactive port that has no ready characters.
+
+Note that @code{char-ready?} only works reliably for terminals and
+sockets with one-byte encodings.  Under the hood it will return
+@code{#t} if the port has any input buffered, or if the file descriptor
+that backs the port polls as readable, indicating that Guile can fetch
+more bytes from the kernel.  However being able to fetch one byte
+doesn't mean that a full character is available; @xref{Encoding}.  Also,
+on many systems it's possible for a file descriptor to poll as readable,
+but then block when it comes time to read bytes.  Note also that on
+Linux kernels, all file ports backed by files always poll as readable.
+For non-file ports, this procedure always returns @code{#t}, except for
+soft ports, which have a @code{char-ready?} handler.  @xref{Soft Ports}.
+
+In short, this is a legacy procedure whose semantics are hard to
+provide.  However it is a useful check to see if any input is buffered.
+@xref{Non-Blocking I/O}.
 @end deffn
 
 @rnindex read-char
