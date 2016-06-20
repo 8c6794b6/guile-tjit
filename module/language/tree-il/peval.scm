@@ -1014,10 +1014,6 @@ top-level bindings from ENV and return the resulting expression."
        ;; reconstruct the let-values, pevaling the consumer.
        (let ((producer (for-values producer)))
          (or (match consumer
-               (($ <lambda-case> src (req-name) #f #f #f () (req-sym) body #f)
-                (for-tail
-                 (make-let src (list req-name) (list req-sym) (list producer)
-                           body)))
                ((and ($ <lambda-case> src () #f rest #f () (rest-sym) body #f)
                      (? (lambda _ (singly-valued-expression? producer))))
                 (let ((tmp (gensym "tmp ")))

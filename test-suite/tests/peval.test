@@ -1354,8 +1354,10 @@
 
   (pass-if-peval
       (call-with-values foo (lambda (x) (bar x)))
-    (let (x) (_) ((call (toplevel foo)))
-         (call (toplevel bar) (lexical x _))))
+    (let-values (call (toplevel foo))
+      (lambda-case
+       (((x) #f #f #f () (_))
+        (call (toplevel bar) (lexical x _))))))
 
   (pass-if-peval
       ((lambda (foo)
