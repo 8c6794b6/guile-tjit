@@ -6,6 +6,13 @@ Please send Guile bug reports to bug-guile@gnu.org.
 
 
 
+Changes in 2.1.4 (changes since the 2.1.3 alpha release):
+
+* Bug fixes
+** Don't replace + with space when splitting and decoding URI paths
+
+
+[TODO: Fold into generic 2.2 release notes.]
 Changes in 2.1.3 (changes since the 2.1.2 alpha release):
 
 * Notable changes
