@@ -122,8 +122,9 @@
 
   (define (hashtable-set! hashtable key obj)
     (if (r6rs:hashtable-mutable? hashtable)
-	(hash-table-set! (r6rs:hashtable-wrapped-table hashtable) key obj))
-    *unspecified*)
+        (hash-table-set! (r6rs:hashtable-wrapped-table hashtable) key obj)
+        (assertion-violation
+         'hashtable-set! "Hashtable is immutable." hashtable)))
 
   (define (hashtable-delete! hashtable key)
     (if (r6rs:hashtable-mutable? hashtable)

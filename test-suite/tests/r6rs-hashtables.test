@@ -20,6 +20,7 @@
 (define-module (test-suite test-rnrs-hashtable)
   :use-module (ice-9 receive)
   :use-module ((rnrs hashtables) :version (6))
+  :use-module ((rnrs exceptions) :version (6))
   :use-module (srfi srfi-1)
   :use-module (test-suite lib))
 
@@ -130,8 +131,9 @@
 
   (pass-if "hashtable-copy with mutability #f produces immutable copy"
     (let ((copied-table (hashtable-copy (make-eq-hashtable) #f)))
-      (hashtable-set! copied-table 'foo 1)
-      (not (hashtable-ref copied-table 'foo #f)))))      
+      (guard (exc (else #t))
+        (hashtable-set! copied-table 'foo 1)
+        #f))))
 
 (with-test-prefix "hashtable-clear!"
   (pass-if "hashtable-clear! removes all values from hashtable"
