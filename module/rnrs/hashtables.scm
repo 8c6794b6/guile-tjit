@@ -74,8 +74,9 @@
     (make-record-type-descriptor 
      'r6rs:hashtable #f #f #t #t 
      '#((mutable wrapped-table)
-	(immutable orig-hash-function)
-	(immutable mutable))))
+        (immutable orig-hash-function)
+        (immutable mutable)
+        (immutable type))))
 
   (define hashtable? (record-predicate r6rs:hashtable))
   (define make-r6rs-hashtable 
@@ -85,6 +86,7 @@
   (define r6rs:hashtable-set-wrapped-table! (record-mutator r6rs:hashtable 0))
   (define r6rs:hashtable-orig-hash-function (record-accessor r6rs:hashtable 1))
   (define r6rs:hashtable-mutable? (record-accessor r6rs:hashtable 2))
+  (define r6rs:hashtable-type (record-accessor r6rs:hashtable 3))
 
   (define hashtable-mutable? r6rs:hashtable-mutable?)
 
@@ -96,13 +98,15 @@
     (make-r6rs-hashtable 
      (if k (make-hash-table eq? hashq k) (make-hash-table eq? symbol-hash))
      symbol-hash
-     #t))
+     #t
+     'eq))
 
   (define* (make-eqv-hashtable #:optional k)
     (make-r6rs-hashtable 
      (if k (make-hash-table eqv? hashv k) (make-hash-table eqv? hash-by-value))
      hash-by-value
-     #t))
+     #t
+     'eqv))
 
   (define* (make-hashtable hash-function equiv #:optional k)
     (let ((wrapped-hash-function (wrap-hash-function hash-function)))
@@ -111,7 +115,8 @@
 	   (make-hash-table equiv wrapped-hash-function k)
 	   (make-hash-table equiv wrapped-hash-function))
        hash-function
-       #t)))
+       #t
+       'custom)))
  
   (define (hashtable-size hashtable)
     (hash-table-size (r6rs:hashtable-wrapped-table hashtable)))
@@ -144,7 +149,8 @@
     (make-r6rs-hashtable 
      (hash-table-copy (r6rs:hashtable-wrapped-table hashtable))
      (r6rs:hashtable-orig-hash-function hashtable)
-     (and mutable #t)))
+     (and mutable #t)
+     (r6rs:hashtable-type hashtable)))
 
   (define* (hashtable-clear! hashtable #:optional k)
     (if (r6rs:hashtable-mutable? hashtable)
@@ -179,4 +185,6 @@
     (hash-table-equivalence-function (r6rs:hashtable-wrapped-table hashtable)))
 
   (define (hashtable-hash-function hashtable)
-    (r6rs:hashtable-orig-hash-function hashtable)))
+    (case (r6rs:hashtable-type hashtable)
+      ((eq eqv) #f)
+      (else (r6rs:hashtable-orig-hash-function hashtable)))))

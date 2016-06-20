@@ -176,7 +176,11 @@
 (with-test-prefix "hashtable-hash-function"
   (pass-if "hashtable-hash-function returns hash function"
     (let ((abs-hashtable (make-hashtable abs eqv?)))
-      (eq? (hashtable-hash-function abs-hashtable) abs))))
+      (eq? (hashtable-hash-function abs-hashtable) abs)))
+  (pass-if "hashtable-hash-function returns #f on eq table"
+    (eq? #f (hashtable-hash-function (make-eq-hashtable))))
+  (pass-if "hashtable-hash-function returns #f on eqv table"
+    (eq? #f (hashtable-hash-function (make-eqv-hashtable)))))
 
 (with-test-prefix "hashtable-mutable?"
   (pass-if "hashtable-mutable? is #t on mutable hashtables"
