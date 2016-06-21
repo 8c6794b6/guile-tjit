@@ -196,7 +196,25 @@
                     (with-code-coverage
                       (lambda () (proc 451 1884)))))
         (let ((counts (line-execution-counts data "one-liner.scm")))
-          (equal? counts '((0 . 1))))))))
+          (equal? counts '((0 . 1)))))))
+
+  (pass-if "tail calls"
+    (let ((proc (code "tail-calls.scm"
+                      "(begin
+                         (define (tail-call-test)
+                           (display \"foo\\n\")
+                           (tail-call-target))
+
+                         (define (tail-call-target)
+                           (display \"bar\\n\"))
+
+                         tail-call-test)")))
+      (let-values (((data result)
+                    (with-code-coverage
+                      (lambda () (with-output-to-string proc)))))
+        (let ((counts (line-execution-counts data "tail-calls.scm")))
+          (lset= equal? '((1 . 1) (2 . 1) (3 . 1) (5 . 1) (6 . 1))
+                 counts))))))
 
 
 (with-test-prefix "procedure-execution-count"
