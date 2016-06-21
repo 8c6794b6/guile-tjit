@@ -10,6 +10,11 @@ Changes in 2.1.4 (changes since the 2.1.3 alpha release):
 
 * Bug fixes
 ** Don't replace + with space when splitting and decoding URI paths
+** Fix bug importing specific bindings with #:select
+
+It used to be that if #:select didn't find a binding in the public
+interface of a module, it would actually grovel in the module's
+unexported private bindings.  This was not intended and is now fixed.
 
 
 [TODO: Fold into generic 2.2 release notes.]

@@ -25,13 +25,17 @@
   #:use-module (ice-9 threads)
   #:use-module (ice-9 q)
   #:use-module (srfi srfi-9)
-  #:use-module ((system repl repl)
-                #:select (start-repl* prompting-meta-read))
-  #:use-module ((system repl server)
-                #:select (run-server* make-tcp-server-socket
-                                      add-open-socket! close-socket!))
+  #:use-module ((system repl server) #:select (make-tcp-server-socket))
   #:export (spawn-coop-repl-server
             poll-coop-repl-server))
+
+;; Hack to import private bindings from (system repl repl).
+(define-syntax-rule (import-private module sym ...)
+  (begin
+    (define sym (@@ module sym))
+    ...))
+(import-private (system repl repl) start-repl* prompting-meta-read)
+(import-private (system repl server) run-server* add-open-socket! close-socket!)
 
 (define-record-type <coop-repl-server>
   (%make-coop-repl-server mutex queue)

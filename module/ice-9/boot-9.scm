@@ -2798,7 +2798,6 @@ written into the port is returned."
                              (orig (if direct? bspec (car bspec)))
                              (seen (if direct? bspec (cdr bspec)))
                              (var (or (module-local-variable public-i orig)
-                                      (module-local-variable module orig)
                                       (error
                                        ;; fixme: format manually for now
                                        (simple-format
