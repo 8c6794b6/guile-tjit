@@ -85,11 +85,11 @@
   (with-jit-state
    (jit-prolog)
    (jit-tramp (imm (* 4 %word-size)))
-   (for-each (lambda _
-               ;; Dummy jump destination.
-               (jit-movi r0 (imm #xdeadbeaf))
-               (jit-jmpr r0))
-             (iota size))
+   (do ((i 0 (+ i 1)))
+       ((= i size))
+     ;; Dummy jump destination.
+     (jit-movi r0 (imm #xdeadbeaf))
+     (jit-jmpr r0))
    (jit-epilog)
    (jit-realize)
    (emit-to-bytevector!)))

@@ -300,7 +300,6 @@ DST-TYPES, and SRC-TYPES are local index number."
                              (jit-address epilog-label)))
             (parent-id (or (and=> (env-parent-fragment env) fragment-id)
                            0))
-            (verbosity (lightning-verbosity))
             (gdb-jit-entry
              (if (tjit-dump-dwarf? (tjit-dump-option))
                  (let* ((addr (pointer-address (bytevector->pointer code)))
@@ -596,11 +595,12 @@ DST-TYPES, and SRC-TYPES are local index number."
                              (imm estimated-size)))
             (ptr (jit-emit)))
        (make-bytevector-executable! code)
-       (for-each
-        (match-lambda
-          ((id . entry)
-           (trampoline-set! trampoline id (jit-address entry))))
-        entries)
+       (do ((entries entries (cdr entries)))
+           ((null? entries))
+         (let* ((entry (car entries))
+                (id (car entry))
+                (node (cdr entry)))
+           (trampoline-set! trampoline id (jit-address node))))
        code))))
 
 (define (compile-link env %asm args snapshot storage)
