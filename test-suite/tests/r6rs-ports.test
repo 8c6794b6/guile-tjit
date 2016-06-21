@@ -716,6 +716,24 @@ not `set-port-position!'"
                binary-port?)
              (= 0 (stat:size (stat filename)))))
     
+  (pass-if "buffer-mode none"
+           (call-with-port (open filename (file-options no-fail)
+                                 (buffer-mode none))
+             (lambda (port)
+               (eq? (output-port-buffer-mode port) 'none))))
+
+  (pass-if "buffer-mode line"
+           (call-with-port (open filename (file-options no-fail)
+                                 (buffer-mode line))
+             (lambda (port)
+               (eq? (output-port-buffer-mode port) 'line))))
+
+  (pass-if "buffer-mode block"
+           (call-with-port (open filename (file-options no-fail)
+                                 (buffer-mode block))
+             (lambda (port)
+               (eq? (output-port-buffer-mode port) 'block))))
+
   (delete-file filename)
     
   (pass-if-condition "exception: does-not-exist"

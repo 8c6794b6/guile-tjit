@@ -183,7 +183,7 @@
           open-file-input-port open-file-output-port open-file-input/output-port
           make-custom-textual-output-port
           call-with-string-output-port
-	  flush-output-port put-string
+	  output-port-buffer-mode flush-output-port put-string
           get-char get-datum get-line get-string-all get-string-n get-string-n!
           lookahead-char
           put-char put-datum put-string

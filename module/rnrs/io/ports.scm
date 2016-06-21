@@ -63,6 +63,7 @@
           call-with-bytevector-output-port
           call-with-string-output-port
           make-custom-textual-output-port
+          output-port-buffer-mode
           flush-output-port
 
           ;; input/output ports
@@ -106,6 +107,9 @@
           make-i/o-encoding-error i/o-encoding-error-char)
   (import (ice-9 binary-ports)
           (only (rnrs base) assertion-violation)
+          (only (ice-9 ports internal)
+                port-write-buffer port-buffer-bytevector port-line-buffered?)
+          (only (rnrs bytevectors) bytevector-length)
           (rnrs enums)
           (rnrs records syntactic)
           (rnrs exceptions)
@@ -310,8 +314,9 @@ read from/written to in @var{port}."
                 (lambda ()
                   (with-fluids ((%default-port-encoding #f))
                     (open filename mode))))))
-    (cond (transcoder
-           (set-port-encoding! port (transcoder-codec transcoder))))
+    (setvbuf port buffer-mode)
+    (when transcoder
+      (set-port-encoding! port (transcoder-codec transcoder)))
     port))
 
 (define (file-options->mode file-options base-mode)
@@ -381,6 +386,16 @@ return the characters accumulated in that port."
                           #f ;read character
                           close)
                   "w"))
+
+(define (output-port-buffer-mode port)
+  "Return @code{none} if @var{port} is unbuffered, @code{line} if it is
+line buffered, or @code{block} otherwise."
+  (let ((buffering (bytevector-length
+                    (port-buffer-bytevector (port-write-buffer port)))))
+    (cond
+     ((= buffering 1) 'none)
+     ((port-line-buffered? port) 'line)
+     (else 'block))))
 
 (define (flush-output-port port)
   (force-output port))
