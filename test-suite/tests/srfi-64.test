@@ -17,8 +17,9 @@
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
 (define-module (test-srfi-64)
-  #:use-module ((test-suite lib) #:select (report))
   #:use-module (srfi srfi-64))
+
+(define report (@@ (test-suite lib) report))
 
 (define (guile-test-runner)
   (let ((runner (test-runner-null)))
