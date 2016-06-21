@@ -209,4 +209,8 @@
      '(begin
         (define x (list 1))
         (define x (car x))
-        x))))
+        x)))
+
+  (pass-if "Chained comparisons"
+    (not (compile
+          '(false-if-exception (< 'not-a-number))))))

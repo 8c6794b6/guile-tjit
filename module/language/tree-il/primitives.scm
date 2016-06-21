@@ -579,7 +579,12 @@
 (define (expand-chained-comparisons prim)
   (case-lambda
     ((src) (make-const src #t))
-    ((src a) (make-const src #t))
+    ((src a)
+     ;; (< x) -> (begin (< x 0) #t).  Residualizes side-effects from x
+     ;; and, for numeric comparisons, checks that x is a number.
+     (make-seq src
+               (make-primcall src prim (list a (make-const src 0)))
+               (make-const src #t)))
     ((src a b) #f)
     ((src a b . rest)
      (make-conditional src (make-primcall src prim (list a b))
