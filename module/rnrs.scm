@@ -160,7 +160,12 @@
 
 	  ;; (rnrs io ports)
 
-	  file-options buffer-mode buffer-mode?
+          &i/o-decoding i/o-decoding-error?
+          make-i/o-decoding-error
+          &i/o-encoding i/o-encoding-error-char i/o-encoding-error?
+          make-i/o-encoding-error
+
+          file-options buffer-mode buffer-mode?
 	  eol-style native-eol-style error-handling-mode
 	  make-transcoder transcoder-codec transcoder-eol-style
           transcoder-error-handling-mode native-transcoder

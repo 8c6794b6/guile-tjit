@@ -101,9 +101,9 @@
           make-i/o-file-does-not-exist-error
           &i/o-port i/o-port-error? make-i/o-port-error
           i/o-error-port
-          &i/o-decoding-error i/o-decoding-error?
+          &i/o-decoding i/o-decoding-error?
           make-i/o-decoding-error
-          &i/o-encoding-error i/o-encoding-error?
+          &i/o-encoding i/o-encoding-error?
           make-i/o-encoding-error i/o-encoding-error-char)
   (import (ice-9 binary-ports)
           (only (rnrs base) assertion-violation)
@@ -411,7 +411,7 @@ line buffered, or @code{block} otherwise."
 
 (define-syntax with-i/o-encoding-error
   (syntax-rules ()
-    "Convert Guile throws to `encoding-error' to `&i/o-encoding-error'."
+    "Convert Guile throws to `encoding-error' to `&i/o-encoding'."
     ((_ body ...)
      ;; XXX: This is heavyweight for small functions like `put-char'.
      (with-throw-handler 'encoding-error
@@ -452,7 +452,7 @@ line buffered, or @code{block} otherwise."
 
 (define-syntax with-i/o-decoding-error
   (syntax-rules ()
-    "Convert Guile throws to `decoding-error' to `&i/o-decoding-error'."
+    "Convert Guile throws to `decoding-error' to `&i/o-decoding'."
     ((_ body ...)
      ;; XXX: This is heavyweight for small functions like `get-char' and
      ;; `lookahead-char'.
