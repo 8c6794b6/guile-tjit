@@ -220,6 +220,14 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
   }                                                             \
 
 
+#define PTR_1(cname, sname, s1, c1)                                     \
+  SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "")                \
+  {                                                                     \
+    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE, c1),     \
+                             NULL);                                     \
+  }                                                                     \
+
+
 #define BOOL_0(cname, sname)                                     \
   SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")               \
   {                                                              \
@@ -251,20 +259,20 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
  * Macros for argument in lightning functions
  */
 
-#define JIT_NODE(u) (SCM_POINTER_VALUE (u))
-#define JIT_GPR(u) ((intptr_t) SCM_POINTER_VALUE (u))
-#define JIT_FPR(u) ((intptr_t) SCM_POINTER_VALUE (u))
-#define JIT_PTR(u) (SCM_POINTER_VALUE (u))
-#define JIT_INT32(u) ((intptr_t) SCM_POINTER_VALUE (u))
+#define JIT_NODE(u) ((jit_node_t *) SCM_POINTER_VALUE (u))
+#define JIT_GPR(u) ((jit_gpr_t) ((scm_t_intptr) SCM_POINTER_VALUE (u)))
+#define JIT_FPR(u) ((jit_fpr_t) ((scm_t_intptr) SCM_POINTER_VALUE (u)))
+#define JIT_PTR(u) ((jit_pointer_t) SCM_POINTER_VALUE (u))
+#define JIT_INT32(u) ((jit_int32_t) ((scm_t_intptr) SCM_POINTER_VALUE (u)))
 #define JIT_WORD(u) ((jit_word_t) SCM_POINTER_VALUE (u))
-#define JIT_FLOAT32(u) ((float) SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
-#define JIT_FLOAT64(u) (SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
+#define JIT_FLOAT32(u) ((jit_float32_t) SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
+#define JIT_FLOAT64(u) ((jit_float64_t) SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
 
 
 VOID_0 (jit_clear_state, "jit-clear-state")
 VOID_0 (jit_destroy_state, "jit-destroy-state")
 
-NODE_1 (jit_address, "jit-address", arg1, JIT_NODE (arg1))
+PTR_1 (jit_address, "jit-address", arg1, JIT_NODE (arg1))
 NODE_2 (jit_note, "jit-note", name, pos,
         scm_to_latin1_string (name), SCM_I_INUM (pos))
 NODE_1 (jit_name, "jit-name", name, scm_to_latin1_string (name))
@@ -348,13 +356,13 @@ VOID_1 (jit_retval_d, "jit-retval-d", u, JIT_FPR (u))
 
 NODE_1 (jit_new_node, "jit-new-node", c, SCM_I_INUM (c))
 NODE_2 (jit_new_node_w, "jit-new-node-w", c, u, SCM_I_INUM (c), JIT_WORD (u))
-NODE_2 (jit_new_node_p, "jit-new-node-p", c, u, SCM_I_INUM (c), JIT_NODE (u))
+NODE_2 (jit_new_node_p, "jit-new-node-p", c, u, SCM_I_INUM (c), JIT_PTR (u))
 NODE_3 (jit_new_node_ww, "jit-new-node-ww", c, u, v,
         SCM_I_INUM (c), JIT_WORD (u), JIT_WORD (v))
 NODE_3 (jit_new_node_wp, "jit-new-node-wp", c, u, v,
         SCM_I_INUM (c), JIT_WORD (u), JIT_NODE (v))
 NODE_3 (jit_new_node_pw, "jit-new-node-pw", c, u, v,
-        SCM_I_INUM (c), JIT_NODE (u), JIT_WORD (v))
+        SCM_I_INUM (c), JIT_PTR (u), JIT_WORD (v))
 NODE_3 (jit_new_node_wf, "jit-new-node-wf", c, u, v,
         SCM_I_INUM (c), JIT_WORD (u), JIT_FLOAT32 (v))
 NODE_3 (jit_new_node_wd, "jit-new-node-wd", c, u, v,
@@ -369,11 +377,11 @@ NODE_4 (jit_new_node_wwf, "jit-new-node-wwf", c, u, v, w,
 NODE_4 (jit_new_node_wwd, "jit-new-node-wwd", c, u, v, w,
         SCM_I_INUM (c), JIT_WORD (u), JIT_WORD (v), JIT_FLOAT64 (w))
 NODE_4 (jit_new_node_pww, "jit-new-node-pww", c, u, v, w,
-        SCM_I_INUM (c), JIT_NODE (u), JIT_WORD (v), JIT_WORD (w))
+        SCM_I_INUM (c), JIT_PTR (u), JIT_WORD (v), JIT_WORD (w))
 NODE_4 (jit_new_node_pwf, "jit-new-node-pwf", c, u, v, w,
-        SCM_I_INUM (c), JIT_NODE (u), JIT_WORD (v), JIT_FLOAT32 (w))
+        SCM_I_INUM (c), JIT_PTR (u), JIT_WORD (v), JIT_FLOAT32 (w))
 NODE_4 (jit_new_node_pwd, "jit-new-node-pwd", c, u, v, w,
-        SCM_I_INUM (c), JIT_NODE (u), JIT_WORD (v), JIT_FLOAT64 (w))
+        SCM_I_INUM (c), JIT_PTR (u), JIT_WORD (v), JIT_FLOAT64 (w))
 
 BOOL_1 (jit_arg_register_p, "jit-arg-register-p", u, JIT_NODE (u))
 BOOL_1 (jit_callee_save_p, "jit-callee-save-p", u, JIT_INT32 (u))
