@@ -1065,6 +1065,140 @@ not `set-port-position!'"
   (with-test-prefix "open-file-input/output-port [input]"
     (test-input-file-opener open-file-input/output-port (test-file))))
 
+(define exception:encoding-error
+  '(encoding-error . ""))
+
+(define exception:decoding-error
+  '(decoding-error . ""))
+
+
+(with-test-prefix "ascii string"
+  (let ((s "Hello, World!"))
+    ;; For ASCII, all of these encodings should be the same.
+
+    (pass-if "to ascii bytevector"
+      (equal? (string->bytevector s (make-transcoder "ASCII"))
+              #vu8(72 101 108 108 111 44 32 87 111 114 108 100 33)))
+  
+    (pass-if "to ascii bytevector (length check)"
+      (equal? (string-length s)
+              (bytevector-length
+               (string->bytevector s (make-transcoder "ascii")))))
+  
+    (pass-if "from ascii bytevector"
+      (equal? s
+              (bytevector->string
+               (string->bytevector s (make-transcoder "ascii"))
+               (make-transcoder "ascii"))))
+  
+    (pass-if "to utf-8 bytevector"
+      (equal? (string->bytevector s (make-transcoder "ASCII"))
+              (string->bytevector s (make-transcoder "utf-8"))))
+  
+    (pass-if "to UTF-8 bytevector (testing encoding case sensitivity)"
+      (equal? (string->bytevector s (make-transcoder "ascii"))
+              (string->bytevector s (make-transcoder "UTF-8"))))
+  
+    (pass-if "from utf-8 bytevector"
+      (equal? s
+              (bytevector->string
+               (string->bytevector s (make-transcoder "utf-8"))
+               (make-transcoder "utf-8"))))
+  
+    (pass-if "to latin1 bytevector"
+      (equal? (string->bytevector s (make-transcoder "ASCII"))
+              (string->bytevector s (make-transcoder "latin1"))))
+
+    (pass-if "from latin1 bytevector"
+      (equal? s
+              (bytevector->string
+               (string->bytevector s (make-transcoder "utf-8"))
+               (make-transcoder "utf-8"))))))
+
+(with-test-prefix "narrow non-ascii string"
+  (let ((s "été"))
+    (pass-if "to latin1 bytevector"
+      (equal? (string->bytevector s (make-transcoder "latin1"))
+              #vu8(233 116 233)))
+  
+    (pass-if "to latin1 bytevector (length check)"
+      (equal? (string-length s)
+              (bytevector-length
+               (string->bytevector s (make-transcoder "latin1")))))
+  
+    (pass-if "from latin1 bytevector"
+      (equal? s
+              (bytevector->string
+               (string->bytevector s (make-transcoder "latin1"))
+               (make-transcoder "latin1"))))
+  
+    (pass-if "to utf-8 bytevector"
+      (equal? (string->bytevector s (make-transcoder "utf-8"))
+              #vu8(195 169 116 195 169)))
+
+    (pass-if "from utf-8 bytevector"
+      (equal? s
+              (bytevector->string
+               (string->bytevector s (make-transcoder "utf-8"))
+               (make-transcoder "utf-8"))))
+
+    (pass-if-exception "encode latin1 as ascii" exception:encoding-error
+      (string->bytevector s (make-transcoder "ascii"
+                                             (native-eol-style)
+                                             (error-handling-mode raise))))
+
+    (pass-if-exception "misparse latin1 as utf8" exception:decoding-error
+      (bytevector->string
+       (string->bytevector s (make-transcoder "latin1"))
+       (make-transcoder "utf-8"
+                        (native-eol-style)
+                        (error-handling-mode raise))))
+
+    (pass-if "misparse latin1 as utf8 with substitutions"
+      (equal? (bytevector->string
+               (string->bytevector s (make-transcoder "latin1"))
+               (make-transcoder "utf-8" (native-eol-style)
+                                (error-handling-mode replace)))
+              "\uFFFDt\uFFFD"))
+
+    (pass-if-exception "misparse latin1 as ascii" exception:decoding-error
+      (bytevector->string (string->bytevector s (make-transcoder "latin1"))
+                          (make-transcoder "ascii"
+                                           (native-eol-style)
+                                           (error-handling-mode raise))))))
+
+
+(with-test-prefix "wide non-ascii string"
+  (let ((s "ΧΑΟΣ"))
+    (pass-if "to utf-8 bytevector"
+      (equal? (string->bytevector s (make-transcoder "utf-8"))
+              #vu8(206 167 206 145 206 159 206 163) ))
+
+    (pass-if "from utf-8 bytevector"
+      (equal? s
+              (bytevector->string
+               (string->bytevector s (make-transcoder "utf-8"))
+               (make-transcoder "utf-8"))))
+
+    (pass-if-exception "encode as ascii" exception:encoding-error
+      (string->bytevector s (make-transcoder "ascii"
+                                             (native-eol-style)
+                                             (error-handling-mode raise))))
+
+    (pass-if-exception "encode as latin1" exception:encoding-error
+      (string->bytevector s (make-transcoder "latin1"
+                                             (native-eol-style)
+                                             (error-handling-mode raise))))
+
+    (pass-if "encode as ascii with substitutions"
+      (equal? (make-string (string-length s) #\?)
+              (bytevector->string
+               (string->bytevector s (make-transcoder
+                                      "ascii"
+                                      (native-eol-style)
+                                      (error-handling-mode replace)))
+               (make-transcoder "ascii"))))))
+
 ;;; Local Variables:
 ;;; mode: scheme
 ;;; eval: (put 'guard 'scheme-indent-function 1)

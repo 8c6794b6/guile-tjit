@@ -36,6 +36,9 @@
           transcoder-error-handling-mode native-transcoder
           latin-1-codec utf-8-codec utf-16-codec
            
+          ;; transcoding bytevectors
+          bytevector->string string->bytevector
+
           ;; input & output ports
           port? input-port? output-port?
           port-eof?
@@ -110,6 +113,7 @@
           (only (ice-9 ports internal)
                 port-write-buffer port-buffer-bytevector port-line-buffered?)
           (only (rnrs bytevectors) bytevector-length)
+          (prefix (ice-9 iconv) iconv:)
           (rnrs enums)
           (rnrs records syntactic)
           (rnrs exceptions)
@@ -170,6 +174,33 @@
 
 (define (utf-16-codec)
   "UTF-16")
+
+
+;;;
+;;; Transcoding bytevectors
+;;;
+
+(define (string->bytevector str transcoder)
+  "Encode @var{str} using @var{transcoder}, returning a bytevector."
+  (iconv:string->bytevector
+   str
+   (transcoder-codec transcoder)
+   (case (transcoder-error-handling-mode transcoder)
+     ((raise) 'error)
+     ((replace) 'substitute)
+     (else (error "unsupported error handling mode"
+                  (transcoder-error-handling-mode transcoder))))))
+
+(define (bytevector->string bv transcoder)
+  "Decode @var{bv} using @var{transcoder}, returning a string."
+  (iconv:bytevector->string
+   bv
+   (transcoder-codec transcoder)
+   (case (transcoder-error-handling-mode transcoder)
+     ((raise) 'error)
+     ((replace) 'substitute)
+     (else (error "unsupported error handling mode"
+                  (transcoder-error-handling-mode transcoder))))))
 
 
 ;;;

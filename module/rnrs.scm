@@ -170,6 +170,7 @@
 	  make-transcoder transcoder-codec transcoder-eol-style
           transcoder-error-handling-mode native-transcoder
 	  latin-1-codec utf-8-codec utf-16-codec
+          string->bytevector bytevector->string
 	  
 	  eof-object? port? input-port? output-port? eof-object port-eof?
 	  port-transcoder
