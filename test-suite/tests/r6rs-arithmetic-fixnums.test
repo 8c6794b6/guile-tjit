@@ -202,7 +202,7 @@
 	 (fx=? (fxarithmetic-shift -1 -1) -1))))
 
 (with-test-prefix "fxarithmetic-shift-left"
-  (pass-if "simple" (fx=? (fxarithmetic-shift-left -6 -1) -3)))
+  (pass-if "simple" (fx=? (fxarithmetic-shift-left -6 1) -12)))
 
 (with-test-prefix "fxarithmetic-shift-right"
   (pass-if "simple" (fx=? (fxarithmetic-shift-right -6 1) -3)))
