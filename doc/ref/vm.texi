@@ -674,9 +674,9 @@ found.  If @var{bound?} is true, an error will be signalled if the
 variable is unbound.
 @end deftypefn
 
-@deftypefn Instruction {} define! s12:@var{sym} s12:@var{val}
+@deftypefn Instruction {} define! s12:@var{dst} s12:@var{sym}
 Look up a binding for @var{sym} in the current module, creating it if
-necessary.  Set its value to @var{val}.
+necessary.  Store that variable to @var{dst}.
 @end deftypefn
 
 @deftypefn Instruction {} toplevel-box s24:@var{dst} r32:@var{var-offset} r32:@var{mod-offset} n32:@var{sym-offset} b1:@var{bound?} x31:@var{_}

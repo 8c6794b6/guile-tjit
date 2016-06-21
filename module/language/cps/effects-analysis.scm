@@ -418,7 +418,7 @@ is or might be a read or a write to the same location as A."
   ((resolve name bound?)           (&read-object &module)      &type-check)
   ((cached-toplevel-box scope name bound?)                     &type-check)
   ((cached-module-box mod name public? bound?)                 &type-check)
-  ((define! name val)              (&read-object &module) (&write-object &box)))
+  ((define! name)                  (&read-object &module)))
 
 ;; Numbers.
 (define-primitive-effects

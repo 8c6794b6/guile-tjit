@@ -493,9 +493,12 @@
        (lambda (cps val)
          (with-cps cps
            (let$ k (adapt-arity k src 0))
+           (letv box)
+           (letk kset ($kargs ('box) (box)
+                        ($continue k src ($primcall 'box-set! (box val)))))
            ($ (with-cps-constants ((name name))
                 (build-term
-                  ($continue k src ($primcall 'define! (name val))))))))))
+                  ($continue kset src ($primcall 'define! (name))))))))))
 
     (($ <call> src proc args)
      (convert-args cps (cons proc args)

@@ -202,3 +202,11 @@
                          (vector ,@(map (lambda (n) `(identity ,n))
                                         (iota 300))))))
             (list->vector (iota 300)))))
+
+(with-test-prefix "regression tests"
+  (pass-if-equal "#18583" 1
+    (compile
+     '(begin
+        (define x (list 1))
+        (define x (car x))
+        x))))

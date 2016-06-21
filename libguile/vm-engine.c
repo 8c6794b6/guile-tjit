@@ -1950,18 +1950,21 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (2);
     }
 
-  /* define! sym:12 val:12
+  /* define! dst:12 sym:12
    *
    * Look up a binding for SYM in the current module, creating it if
    * necessary.  Set its value to VAL.
    */
-  VM_DEFINE_OP (66, define, "define!", OP1 (X8_S12_S12))
+  VM_DEFINE_OP (66, define, "define!", OP1 (X8_S12_S12) | OP_DST)
     {
-      scm_t_uint16 sym, val;
-      UNPACK_12_12 (op, sym, val);
+      scm_t_uint16 dst, sym;
+      SCM var;
+      UNPACK_12_12 (op, dst, sym);
       SYNC_IP ();
-      scm_define (SP_REF (sym), SP_REF (val));
+      var = scm_module_ensure_local_variable (scm_current_module (),
+                                              SP_REF (sym));
       CACHE_SP ();
+      SP_SET (dst, var);
       NEXT (1);
     }
 

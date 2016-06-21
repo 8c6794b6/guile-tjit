@@ -1754,7 +1754,7 @@ needed."
 
 ;; FIXME: Define these somewhere central, shared with C.
 (define *bytecode-major-version* #x0202)
-(define *bytecode-minor-version* 8)
+(define *bytecode-minor-version* 9)
 
 (define (link-dynamic-section asm text rw rw-init frame-maps)
   "Link the dynamic section for an ELF image with bytecode @var{text},
