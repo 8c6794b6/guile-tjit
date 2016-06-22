@@ -1,6 +1,5 @@
-/* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2006,
- *   2007, 2008, 2009, 2010, 2011, 2012, 2013,
- *   2014, 2015 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2001, 2003-2004, 2006-2016
+ * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -2241,14 +2240,11 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
   pt->read_buf = make_port_buffer (port, read_buf_size);
   pt->write_buf = make_port_buffer (port, write_buf_size);
 
-  if (saved_read_buf)
-    scm_unget_bytes (scm_port_buffer_take_pointer (saved_read_buf),
-                     scm_port_buffer_can_take (saved_read_buf),
-                     port);
-
-  if (saved_read_buf)
-    scm_port_buffer_set_has_eof_p (pt->read_buf,
-                                   scm_port_buffer_has_eof_p (saved_read_buf));
+  scm_unget_bytes (scm_port_buffer_take_pointer (saved_read_buf),
+                   scm_port_buffer_can_take (saved_read_buf),
+                   port);
+  scm_port_buffer_set_has_eof_p (pt->read_buf,
+                                 scm_port_buffer_has_eof_p (saved_read_buf));
 
   return SCM_UNSPECIFIED;
 }
