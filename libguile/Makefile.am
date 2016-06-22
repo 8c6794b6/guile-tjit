@@ -445,7 +445,7 @@ vm-operations.h: vm-engine.c
 
 BUILT_SOURCES = cpp-E.c cpp-SIG.c libpath.h \
     scmconfig.h \
-    $(DOT_I_FILES) vm-operations.h $(DOT_X_FILES) $(EXTRA_DOT_X_FILES)
+    vm-operations.h $(DOT_X_FILES) $(EXTRA_DOT_X_FILES)
 
 # Force the generation of `guile-procedures.texi' because the top-level
 # Makefile expects it to be built.
