@@ -2827,7 +2827,7 @@ written into the port is returned."
 ;; sure to update "modules.c" as well.
 
 (define* (define-module* name
-           #:key filename pure version (duplicates '())
+           #:key filename pure version (duplicates #f)
            (imports '()) (exports '()) (replacements '())
            (re-exports '()) (autoloads '()) transformer)
   (define (list-of pred l)
@@ -2869,35 +2869,36 @@ written into the port is returned."
     (let ((imports (resolve-imports imports)))
       (call-with-deferred-observers
        (lambda ()
-         (if (pair? imports)
-             (module-use-interfaces! module imports))
-         (if (list-of valid-export? exports)
-             (if (pair? exports)
-                 (module-export! module exports))
-             (error "expected exports to be a list of symbols or symbol pairs"))
-         (if (list-of valid-export? replacements)
-             (if (pair? replacements)
-                 (module-replace! module replacements))
-             (error "expected replacements to be a list of symbols or symbol pairs"))
-         (if (list-of valid-export? re-exports)
-             (if (pair? re-exports)
-                 (module-re-export! module re-exports))
-             (error "expected re-exports to be a list of symbols or symbol pairs"))
-         ;; FIXME
-         (if (not (null? autoloads))
-             (apply module-autoload! module autoloads))
-         ;; Wait until modules have been loaded to resolve duplicates
-         ;; handlers.
-         (if (pair? duplicates)
-             (let ((handlers (lookup-duplicates-handlers duplicates)))
-               (set-module-duplicates-handlers! module handlers))))))
+         (unless (list-of valid-export? exports)
+           (error "expected exports to be a list of symbols or symbol pairs"))
+         (unless (list-of valid-export? replacements)
+           (error "expected replacements to be a list of symbols or symbol pairs"))
+         (unless (list-of valid-export? re-exports)
+           (error "expected re-exports to be a list of symbols or symbol pairs"))
+         (unless (null? imports)
+           (module-use-interfaces! module imports))
+         (module-export! module exports)
+         (module-replace! module replacements)
+         (module-re-export! module re-exports)
+         ;; FIXME: Avoid use of `apply'.
+         (apply module-autoload! module autoloads)
+         ;; Capture the value of `default-duplicate-binding-procedures'
+         ;; that is current when the module is defined, unless the user
+         ;; specfies a #:duplicates set explicitly.  Otherwise if we
+         ;; leave it unset, we would delegate the duplicates-handling
+         ;; behavior to whatever default the user has set at whatever
+         ;; time in the future we first use an imported binding.
+         (let ((handlers (if duplicates
+                             (lookup-duplicates-handlers duplicates)
+                             (default-duplicate-binding-procedures))))
+           (set-module-duplicates-handlers! module handlers)))))
 
-    (if transformer
-        (if (and (pair? transformer) (list-of symbol? transformer))
-            (let ((iface (resolve-interface transformer))
-                  (sym (car (last-pair transformer))))
-              (set-module-transformer! module (module-ref iface sym)))
-            (error "expected transformer to be a module name" transformer)))
+    (when transformer
+      (unless (and (pair? transformer) (list-of symbol? transformer))
+        (error "expected transformer to be a module name" transformer))
+      (let ((iface (resolve-interface transformer))
+            (sym (car (last-pair transformer))))
+        (set-module-transformer! module (module-ref iface sym))))
     
     (run-hook module-defined-hook module)
     module))
