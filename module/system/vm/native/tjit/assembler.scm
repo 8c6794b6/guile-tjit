@@ -51,7 +51,6 @@
             asm-end-address
             asm-volatiles
             make-signed-pointer
-            spilled-offset
             constant-word
             gpr->fpr
             fpr->gpr
@@ -86,17 +85,6 @@
             unbox-stack-element
             guard-type
             store-frame))
-
-(define (make-signed-pointer addr)
-  (if (<= 0 addr)
-      (make-pointer addr)
-      (make-negative-pointer addr)))
-
-(define-syntax-rule (constant-word i)
-  (imm (* (ref-value i) %word-size)))
-
-(define %word-size-in-bits
-  (inexact->exact (/ (log %word-size) (log 2))))
 
 
 ;;;
@@ -184,67 +172,42 @@
 ;;; SCM macros
 ;;;
 
+(define (make-signed-pointer addr)
+  (if (<= 0 addr)
+      (make-pointer addr)
+      (make-negative-pointer addr)))
+
+(define-syntax-rule (constant-word i)
+  (imm (* (ref-value i) %word-size)))
+
+(define %word-size-in-bits
+  (inexact->exact (/ (log %word-size) (log 2))))
+
 (define-syntax-rule (scm-real-value dst src)
   (begin
     (jit-ldxi-d dst src (imm (* 2 %word-size)))
     dst))
 
-(define %scm-from-double
-  (dynamic-pointer "scm_from_double" (dynamic-link)))
-
-(define %scm-inline-from-double
-  (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
-
-(define-syntax scm-from-double
+(define-syntax define-pointer-for-c-function
   (syntax-rules ()
-    ((_  dst src)
-     (let ((volatiles (asm-volatiles asm)))
-       (do ((vs volatiles (cdr vs)))
-           ((null? vs))
-         (store-volatile (car vs)))
-       (jit-prepare)
-       (when (asm-gc-inline? asm)
-         (jit-pushargr %thread))
-       (jit-pushargr-d src)
-       (if (asm-gc-inline? asm)
-           (jit-calli %scm-inline-from-double)
-           (jit-calli %scm-from-double))
-       (jit-retval dst)
-       (do ((regs volatiles (cdr regs)))
-           ((null? regs))
-         (let ((reg (car regs)))
-           (unless (case (ref-type reg)
-                     ((fpr) (equal? (fpr reg) dst))
-                     ((gpr) (equal? (gpr reg) dst))
-                     (else #f))
-             (load-volatile reg))))))))
+    ((_ (sname cname) ...)
+     (begin
+       (define sname
+         (dynamic-pointer cname (dynamic-link)))
+       ...))))
 
-(define %scm-cell
-  (dynamic-pointer "scm_cell" (dynamic-link)))
-
-(define %scm-inline-cell
-  (dynamic-pointer "scm_do_inline_cell" (dynamic-link)))
-
-(define %scm-words
-  (dynamic-pointer "scm_words" (dynamic-link)))
-
-(define %scm-inline-words
-  (dynamic-pointer "scm_do_inline_words" (dynamic-link)))
-
-(define %scm-make-continuation
-  (dynamic-pointer "scm_do_make_continuation" (dynamic-link)))
-
-(define %scm-return-to-continuation
-  (dynamic-pointer "scm_do_return_to_continuation" (dynamic-link)))
-
-(define %scm-eqv
-  (dynamic-pointer "scm_eqv_p" (dynamic-link)))
-
-(define %scm-async-tick
-  (dynamic-pointer "scm_async_tick" (dynamic-link)))
-
-(define %scm-vm-expand-stack
-  (dynamic-pointer "scm_do_vm_expand_stack" (dynamic-link)))
+(define-pointer-for-c-function
+  (%scm-from-double "scm_from_double")
+  (%scm-inline-from-double "scm_do_inline_from_double")
+  (%scm-cell "scm_cell")
+  (%scm-inline-cell "scm_do_inline_cell")
+  (%scm-words "scm_words")
+  (%scm-inline-words "scm_do_inline_words")
+  (%scm-make-continuation "scm_do_make_continuation")
+  (%scm-return-to-continuation "scm_do_return_to_continuation")
+  (%scm-eqv "scm_eqv_p")
+  (%scm-async-tick "scm_async_tick")
+  (%scm-vm-expand-stack "scm_do_vm_expand_stack"))
 
 (define-syntax-rule (scm-frame-return-address dst vp->fp)
   (jit-ldr dst vp->fp))
@@ -270,9 +233,6 @@
              (else
               (failure 'volatile-offset "~s" reg)))))
     (make-negative-pointer (* (- n) %word-size))))
-
-(define (spilled-offset mem)
-  (moffs mem))
 
 (define-syntax-rule (fpr->gpr dst src)
   (let ((tmp-offset (volatile-offset `(gpr . 8))))
@@ -380,6 +340,30 @@
         ((null? ds))
       (let ((dst (car ds)))
         (load-volatile-with-new-dst dst new-dst)))))
+
+(define-syntax scm-from-double
+  (syntax-rules ()
+    ((_  dst src)
+     (let ((volatiles (asm-volatiles asm)))
+       (do ((vs volatiles (cdr vs)))
+           ((null? vs))
+         (store-volatile (car vs)))
+       (jit-prepare)
+       (when (asm-gc-inline? asm)
+         (jit-pushargr %thread))
+       (jit-pushargr-d src)
+       (if (asm-gc-inline? asm)
+           (jit-calli %scm-inline-from-double)
+           (jit-calli %scm-from-double))
+       (jit-retval dst)
+       (do ((regs volatiles (cdr regs)))
+           ((null? regs))
+         (let ((reg (car regs)))
+           (unless (case (ref-type reg)
+                     ((fpr) (equal? (fpr reg) dst))
+                     ((gpr) (equal? (gpr reg) dst))
+                     (else #f))
+             (load-volatile reg))))))))
 
 ;;; XXX: Offsets for fields in C structs were manually taken with observing
 ;;; output from `objdump'. It would be nice if the offsets were derived in
