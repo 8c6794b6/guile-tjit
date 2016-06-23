@@ -1034,6 +1034,8 @@ table, its existing label is used directly."
       `((static-patch! ,label 1 ,(static-procedure-code obj))))
      ((cache-cell? obj) '())
      ((symbol? obj)
+      (unless (symbol-interned? obj)
+        (error "uninterned symbol cannot be saved to object file" obj))
       `((make-non-immediate 1 ,(recur (symbol->string obj)))
         (string->symbol 1 1)
         (static-set! 1 ,label 0)))

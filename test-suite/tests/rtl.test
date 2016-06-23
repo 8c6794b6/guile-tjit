@@ -77,6 +77,16 @@ a procedure."
    ;; FIXME: Add more tests for arrays (uniform and otherwise)
    ))
 
+(define-syntax-rule (assert-bad-constants val ...)
+  (begin
+    (pass-if-exception (object->string val) exception:miscellaneous-error
+      (return-constant val))
+    ...))
+
+(with-test-prefix "bad constants"
+  (assert-bad-constants (make-symbol "foo")
+                        (lambda () 100)))
+
 (with-test-prefix "static procedure"
   (assert-equal 42
                 (((assemble-program `((begin-program foo
