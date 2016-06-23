@@ -1865,14 +1865,15 @@
       (with-fluids ((%file-port-name-canonicalization 'relative))
         (port-filename (open-input-file "/dev/null")))))
 
+  (pass-if-equal "relative canonicalization with /dev/.." "dev/null"
+    (with-load-path (cons "/dev/.." %load-path)
+      (with-fluids ((%file-port-name-canonicalization 'relative))
+        (port-filename (open-input-file "/dev/null")))))
+
   (pass-if-equal "relative canonicalization from ice-9" "ice-9/q.scm"
-    ;; If an entry in %LOAD-PATH is not canonical, then
-    ;; `scm_i_relativize_path' is unable to do its job.
-    (if (equal? (map canonicalize-path %load-path) %load-path)
-        (with-fluids ((%file-port-name-canonicalization 'relative))
-          (port-filename
-           (open-input-file (%search-load-path "ice-9/q.scm"))))
-        (throw 'unresolved)))
+    (with-fluids ((%file-port-name-canonicalization 'relative))
+      (port-filename
+       (open-input-file (%search-load-path "ice-9/q.scm")))))
 
   (pass-if-equal "absolute canonicalization from ice-9"
       (canonicalize-path

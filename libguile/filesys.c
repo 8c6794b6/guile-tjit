@@ -1614,22 +1614,40 @@ SCM_DEFINE (scm_canonicalize_path, "canonicalize-path", 1, 0, 0,
 SCM
 scm_i_relativize_path (SCM path, SCM in_path)
 {
-  char *str, *canon;
   SCM scanon;
   
-  str = scm_to_locale_string (path);
-  canon = canonicalize_file_name (str);
-  free (str);
+  {
+    char *str, *canon;
+
+    str = scm_to_locale_string (path);
+    canon = canonicalize_file_name (str);
+    free (str);
+
+    if (!canon)
+      return SCM_BOOL_F;
+
+    scanon = scm_take_locale_string (canon);
+  }
   
-  if (!canon)
-    return SCM_BOOL_F;
-
-  scanon = scm_take_locale_string (canon);
-
   for (; scm_is_pair (in_path); in_path = scm_cdr (in_path))
     {
       SCM dir = scm_car (in_path);
-      size_t len = scm_c_string_length (dir);
+      size_t len;
+
+      /* Try to canonicalize DIR, since we have canonicalized PATH.  */
+      {
+        char *str, *canon;
+
+        str = scm_to_locale_string (dir);
+        canon = canonicalize_file_name (str);
+        free (str);
+  
+        if (canon)
+          dir = scm_from_locale_string (canon);
+        free (canon);
+      }
+
+      len = scm_c_string_length (dir);
 
       /* When DIR is empty, it means "current working directory".  We
 	 could set DIR to (getcwd) in that case, but then the
