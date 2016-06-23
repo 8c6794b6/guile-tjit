@@ -309,9 +309,17 @@ Return a weak hash table with @var{size} buckets. As with any
 hash table, choosing a good size for the table requires some
 caution.
 
-You can modify weak hash tables in exactly the same way you
-would modify regular hash tables. (@pxref{Hash Tables})
+You can modify weak hash tables in exactly the same way you would modify
+regular hash tables, with the exception of the routines that act on
+handles.  Weak tables have a different implementation behind the scenes
+that doesn't have handles.  @pxref{Hash Tables}, for more on
+@code{hashq-ref} et al.
 @end deffn
+
+Note that in a weak-key hash table, the reference to the value is
+strong.  This means that if the value references the key, even
+indirectly, the key will never be collected, which can lead to a memory
+leak.  The reverse is true for weak value tables.
 
 @deffn {Scheme Procedure} weak-key-hash-table? obj
 @deffnx {Scheme Procedure} weak-value-hash-table? obj
