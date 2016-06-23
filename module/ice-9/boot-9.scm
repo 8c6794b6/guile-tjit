@@ -2827,9 +2827,9 @@ written into the port is returned."
 ;; sure to update "modules.c" as well.
 
 (define* (define-module* name
-           #:key filename pure version (duplicates #f)
-           (imports '()) (exports '()) (replacements '())
-           (re-exports '()) (autoloads '()) transformer)
+           #:key filename pure version (imports '()) (exports '())
+           (replacements '()) (re-exports '()) (autoloads '())
+           (duplicates #f) transformer)
   (define (list-of pred l)
     (or (null? l)
         (and (pair? l) (pred (car l)) (list-of pred (cdr l)))))
@@ -2856,16 +2856,15 @@ written into the port is returned."
   ;;
   (let ((module (resolve-module name #f)))
     (beautify-user-module! module)
-    (if filename
-        (set-module-filename! module filename))
-    (if pure
-        (purify-module! module))
-    (if version
-        (begin 
-          (if (not (list-of integer? version))
-              (error "expected list of integers for version"))
-          (set-module-version! module version)
-          (set-module-version! (module-public-interface module) version)))
+    (when filename
+      (set-module-filename! module filename))
+    (when pure
+      (purify-module! module))
+    (when version
+      (unless (list-of integer? version)
+        (error "expected list of integers for version"))
+      (set-module-version! module version)
+      (set-module-version! (module-public-interface module) version))
     (let ((imports (resolve-imports imports)))
       (call-with-deferred-observers
        (lambda ()
@@ -2882,16 +2881,17 @@ written into the port is returned."
          (module-re-export! module re-exports)
          ;; FIXME: Avoid use of `apply'.
          (apply module-autoload! module autoloads)
-         ;; Capture the value of `default-duplicate-binding-procedures'
-         ;; that is current when the module is defined, unless the user
-         ;; specfies a #:duplicates set explicitly.  Otherwise if we
-         ;; leave it unset, we would delegate the duplicates-handling
-         ;; behavior to whatever default the user has set at whatever
-         ;; time in the future we first use an imported binding.
-         (let ((handlers (if duplicates
-                             (lookup-duplicates-handlers duplicates)
-                             (default-duplicate-binding-procedures))))
-           (set-module-duplicates-handlers! module handlers)))))
+         (let ((duplicates (or duplicates
+                               ;; Avoid stompling a previously installed
+                               ;; duplicates handlers if possible.
+                               (and (not (module-duplicates-handlers module))
+                                    ;; Note: If you change this default,
+                                    ;; change it also in
+                                    ;; `default-duplicate-binding-procedures'.
+                                    '(replace warn-override-core warn last)))))
+           (when duplicates
+             (let ((handlers (lookup-duplicates-handlers duplicates)))
+               (set-module-duplicates-handlers! module handlers)))))))
 
     (when transformer
       (unless (and (pair? transformer) (list-of symbol? transformer))
@@ -3632,14 +3632,23 @@ but it fails to load."
                 (list handler-names)))))
 
 (define default-duplicate-binding-procedures
-  (make-mutable-parameter #f))
+  (case-lambda
+    (()
+     (or (module-duplicates-handlers (current-module))
+         ;; Note: If you change this default, change it also in
+         ;; `define-module*'.
+         (lookup-duplicates-handlers
+          '(replace warn-override-core warn last))))
+    ((procs)
+     (set-module-duplicates-handlers! (current-module) procs))))
 
 (define default-duplicate-binding-handler
-  (make-mutable-parameter '(replace warn-override-core warn last)
-                          (lambda (handler-names)
-                            (default-duplicate-binding-procedures
-                              (lookup-duplicates-handlers handler-names))
-                            handler-names)))
+  (case-lambda
+    (()
+     (map procedure-name (default-duplicate-binding-procedures)))
+    ((handlers)
+     (default-duplicate-binding-procedures
+       (lookup-duplicates-handlers handlers)))))
 
 
 
