@@ -84,7 +84,7 @@
             vm-expand-stack
             unbox-stack-element
             guard-type
-            store-frame))
+            store-stack))
 
 
 ;;;
@@ -1236,11 +1236,11 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (else
          (failure 'unbox-stack-element "~s ~s ~s" dst src type)))))
 
-(define-syntax-rule (store-frame local type src)
+(define-syntax-rule (store-stack local type src)
   (let ((err (lambda ()
-               (failure 'store-frame "~s ~a ~s"
+               (failure 'store-stack "~s ~a ~s"
                         local (pretty-type type) src))))
-    (debug 3 ";;; store-frame: local:~a type:~a src:~a~%"
+    (debug 3 ";;; store-stack: local:~a type:~a src:~a~%"
            local (pretty-type type) (and src (physical-name src)))
     (cond
      ((return-address? type)
@@ -1336,7 +1336,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (else (err)))))))
 
 ;; Type check local N with TYPE and load to gpr or memory DST.
-(define-native (%fref (int dst) (void n) (void type))
+(define-native (%sref (int dst) (void n) (void type))
   (let ((tref (ref-value type)))
     (when (or (not (con? n))
               (not (con? type))
@@ -1359,7 +1359,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.
-(define-native (%fref/f (double dst) (void n) (void type))
+(define-native (%sref/f (double dst) (void n) (void type))
   (let ((t (ref-value type)))
     (when (or (not (con? n))
               (not (con? type))
@@ -1792,7 +1792,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        (let lp ((locals locals) (vars vars))
          (match (cons locals vars)
            ((((n . t) . locals) . (v . vars))
-            (store-frame n t v)
+            (store-stack n t v)
             (lp locals vars))
            (_
             (values)))))
@@ -1837,7 +1837,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        (let lp ((locals locals) (vars vars))
          (match (cons locals vars)
            ((((n . t) . locals) . (v . vars))
-            (store-frame n t v)
+            (store-stack n t v)
             (lp locals vars))
            (_
             ;; Sync SP.

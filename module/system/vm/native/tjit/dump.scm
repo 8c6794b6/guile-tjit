@@ -193,7 +193,7 @@ option was set to true."
 (define (dump-primops port trace-id plist snapshots)
   (define (mark-op op)
     (case (car op)
-      ((%return %fref/f %eq %ne %lt %le %ge %gt %flt %fle %fgt %fge
+      ((%return %sref/f %eq %ne %lt %le %ge %gt %flt %fle %fgt %fge
                 %eqv %nev %typeq %tceq %tcne)
        "  >")
       (else
@@ -258,15 +258,15 @@ option was set to true."
       (_
        (let ((mark (mark-op op)))
          (match op
-           (('%fref dst n type)
+           (('%sref dst n type)
             (format port "~4,,,'0@a ~a (~8a ~a ~a ~a)~%" idx mark
-                    '%fref
+                    '%sref
                     (pretty-storage dst)
                     (pretty-constant n)
                     (if (cdr type) (pretty-type (cdr type)) "---")))
-           (('%fref/f dst n type)
+           (('%sref/f dst n type)
             (format port "~4,,,'0@a ~a (~8a ~a ~a ~a)~%" idx mark
-                    '%fref/f
+                    '%sref/f
                     (pretty-storage dst)
                     (pretty-constant n)
                     (pretty-type (cdr type))))

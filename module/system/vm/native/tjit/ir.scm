@@ -78,7 +78,7 @@
             get-initial-fp-offset
             take-snapshot
             gen-load-thunk
-            with-frame-ref
+            with-stack-ref
 
             define-scan
             define-ti
@@ -278,7 +278,7 @@ returns, current call-num, and current return-num."
                              (t (if (eq? t &flonum)
                                     t
                                     #f)))
-                        (with-frame-ref var t n lp vars (cons n loaded))))
+                        (with-stack-ref var t n lp vars (cons n loaded))))
                      (else
                       (lp vars loaded))))
                    (()
@@ -299,7 +299,7 @@ returns, current call-num, and current return-num."
            (break 1 "root trace with up-frame load"))
          (load-up-frame))))))
 
-(define-syntax-rule (with-frame-ref var type idx next . args)
+(define-syntax-rule (with-stack-ref var type idx next . args)
   (cond
    ((dynamic-link? type)
     `(let ((,var ,(dynamic-link-offset type)))
@@ -309,10 +309,10 @@ returns, current call-num, and current return-num."
        ,(next . args)))
    ((or (eq? type &flonum)
         (eq? type &f64))
-    `(let ((,var (%fref/f ,idx ,type)))
+    `(let ((,var (%sref/f ,idx ,type)))
        ,(next . args)))
    (else
-    `(let ((,var (%fref ,idx ,type)))
+    `(let ((,var (%sref ,idx ,type)))
        ,(next . args)))))
 
 (define-syntax define-ir-syntax-parameters

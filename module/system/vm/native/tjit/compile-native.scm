@@ -73,8 +73,8 @@
 ;;; Auxiliary
 ;;;
 
-(define (load-frame local type dst)
-  (debug 3 ";;; load-frame: local:~a type:~a dst:~a~%"
+(define (load-stack local type dst)
+  (debug 3 ";;; load-stack: local:~a type:~a dst:~a~%"
          local (pretty-type type) (physical-name dst))
   (sp-ref r0 local)
   (unbox-stack-element dst r0 type))
@@ -97,7 +97,7 @@
                    (let ((reg (hashq-ref references (- local shift))))
                      (or (not reg)
                          (not (equal? src reg)))))
-           (store-frame (- local shift) type src))
+           (store-stack (- local shift) type src))
          (lp local-x-types srcs))
         (_ (values))))))
 
@@ -259,7 +259,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (else
              (dump-load local dst-var (hashq-ref dst-types local))
              (let ((type (hashq-ref dst-types local)))
-               (load-frame local type dst-var))
+               (load-stack local type dst-var))
              (lp rest)))))
         (() (values))))))
 
@@ -515,7 +515,7 @@ DST-TYPES, and SRC-TYPES are local index number."
              (match (cons locals args)
                ((((local . type) . locals) . (arg . args))
                 (syntax-parameterize ((asm (identifier-syntax %asm)))
-                  (store-frame (- local shift) type arg))
+                  (store-stack (- local shift) type arg))
                 (lp locals args))
                (_ (values)))))
 
@@ -698,7 +698,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                   (debug 2 ";;; [compile-downrec] skipping ~a~%" n)
                   (begin
                     (hashq-set! src-var-table n v)
-                    (store-frame (- n sp-offset) t v)))
+                    (store-stack (- n sp-offset) t v)))
               (lp locals vars))
              ((())
               (let lp ((loop-locals (env-loop-locals env))
@@ -745,7 +745,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                   ((((n . t) . locals) . (v . vars))
                    (let ((i (- n sp-offset)))
                      (when (and v (<= 0 i))
-                       (store-frame i t v)
+                       (store-stack i t v)
                        (hashq-set! src-type-table i t)
                        (hashq-set! src-var-table i v))
                      (lp locals vars)))

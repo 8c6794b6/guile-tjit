@@ -100,8 +100,8 @@ Currently does nothing, returns the given argument."
   ;; 0 of this trace, the local will be passed from parent fragment, ignoreing.
   ;;
   ;; If initial offset is positive and local index is negative, locals from
-  ;; lower frame won't be passed as argument. Loading later with '%fref' or
-  ;; '%fref/f'.
+  ;; lower frame won't be passed as argument. Loading later with '%sref' or
+  ;; '%sref/f'.
   ;;
   (let* ((snapshot0 (hashq-ref snapshots 0))
          (snapshot0-locals (snapshot-locals snapshot0))
@@ -162,13 +162,13 @@ Currently does nothing, returns the given argument."
              ;; GPR and FPR?
              (if (or (eq? type &flonum)
                      (eq? type &f64))
-                 (with-frame-ref var type n lp vars)
+                 (with-stack-ref var type n lp vars)
                  (begin
                    ;; XXX: Updating inferred type of loaded variable,
                    ;; again.
                    (when (env-parent-snapshot env)
                      (set-inferred-type! env n guard))
-                   (with-frame-ref var guard n lp vars)))))))
+                   (with-stack-ref var guard n lp vars)))))))
         (()
          (let ((live-indices (sort (hash-fold (lambda (k v acc)
                                                 (if (memq k acc)
