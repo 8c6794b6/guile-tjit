@@ -886,6 +886,14 @@ Change the ports returned by @code{current-input-port},
 so that they use the supplied @var{port} for input or output.
 @end deffn
 
+@deffn {Scheme Procedure} with-input-from-port port thunk
+@deffnx {Scheme Procedure} with-output-to-port port thunk
+@deffnx {Scheme Procedure} with-error-to-port port thunk
+Call @var{thunk} in a dynamic environment in which
+@code{current-input-port}, @code{current-output-port} or
+@code{current-error-port} is rebound to the given @var{port}.
+@end deffn
+
 @deftypefn {C Function} void scm_dynwind_current_input_port (SCM port)
 @deftypefnx {C Function} void scm_dynwind_current_output_port (SCM port)
 @deftypefnx {C Function} void scm_dynwind_current_error_port (SCM port)
