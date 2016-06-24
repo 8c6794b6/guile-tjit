@@ -3204,10 +3204,11 @@
        (let ((fn (syntax->datum #'filename)))
          (with-syntax ((fn (datum->syntax
                             #'filename
-                            (or (%search-load-path fn)
-                                (syntax-violation 'include-from-path
-                                                  "file not found in path"
-                                                  x #'filename)))))
+                            (canonicalize-path
+                             (or (%search-load-path fn)
+                                 (syntax-violation 'include-from-path
+                                                   "file not found in path"
+                                                   x #'filename))))))
            #'(include fn)))))))
 
 (define-syntax unquote

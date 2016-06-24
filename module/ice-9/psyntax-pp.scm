@@ -3285,14 +3285,15 @@
                      (let ((fn (syntax->datum filename)))
                        (let ((tmp (datum->syntax
                                     filename
-                                    (let ((t (%search-load-path fn)))
-                                      (if t
-                                        t
-                                        (syntax-violation
-                                          'include-from-path
-                                          "file not found in path"
-                                          x
-                                          filename))))))
+                                    (canonicalize-path
+                                      (let ((t (%search-load-path fn)))
+                                        (if t
+                                          t
+                                          (syntax-violation
+                                            'include-from-path
+                                            "file not found in path"
+                                            x
+                                            filename)))))))
                          (let ((fn tmp))
                            (list '#(syntax-object include ((top)) (hygiene guile)) fn)))))
                    tmp)
