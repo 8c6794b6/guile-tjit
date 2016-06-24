@@ -9,6 +9,12 @@ exec guile -q -s "$0" "$@"
   ;; something we should run as part of an automated test suite.
   (exit 0))
 
+(when (string-ci= "darwin" (vector-ref (uname) 0))
+  ;; setrlimits are ignored in OS X (tested on 10.9 and 10.10). Proceeding
+  ;; with the test would fill all available memory and probably end in a crash.
+  ;; See also test-stack-overflow.
+  (exit 77)) ; uresolved
+
 ;; 100 MB.
 (define *limit* (* 100 1024 1024))
 
@@ -28,6 +34,7 @@ exec guile -q -s "$0" "$@"
 
 ;; Run the test a few times.  The stack will only be enlarged and
 ;; relocated on the first one.
+
 (test)
 (test)
 (test)

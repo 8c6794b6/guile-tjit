@@ -9,6 +9,12 @@ exec guile -q -s "$0" "$@"
   ;; should run as part of an automated test suite.
   (exit 0))
 
+(when (string-ci= "darwin" (vector-ref (uname) 0))
+  ;; setrlimits are ignored in OS X (tested on 10.9 and 10.10). Proceeding
+  ;; with the test would fill all available memory and probably end in a crash.
+  ;; See also test-stack-overflow.
+  (exit 77)) ; unresolved
+
 (catch #t
   ;; Silence GC warnings.
   (lambda ()
