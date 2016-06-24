@@ -3979,13 +3979,14 @@ scm_init_ports (void)
   cur_warnport_fluid = scm_make_fluid ();
   cur_loadport_fluid = scm_make_fluid ();
 
-  /* Use Latin-1 as the default port encoding.  */
   default_port_encoding_var =
     scm_c_define ("%default-port-encoding",
                   scm_make_fluid_with_default (SCM_BOOL_F));
   default_conversion_strategy_var =
     scm_c_define ("%default-port-conversion-strategy",
                   scm_make_fluid_with_default (sym_substitute));
+  /* Use the locale as the default port encoding.  */
+  scm_i_set_default_port_encoding (locale_charset ());
 
   scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
                             "scm_init_ice_9_ports",
