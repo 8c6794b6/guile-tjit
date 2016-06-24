@@ -262,37 +262,6 @@ scm_i_primitive_code_p (const scm_t_uint32 *code)
   return 1;
 }
 
-/* Given a program that is a primitive, determine its minimum arity.
-   This is possible because each primitive's code is 4 32-bit words
-   long, and they are laid out contiguously in an ordered pattern.  */
-int
-scm_i_primitive_arity (SCM prim, int *req, int *opt, int *rest)
-{
-  const scm_t_uint32 *code = SCM_PROGRAM_CODE (prim);
-  unsigned idx, nargs, base, next;
-
-  if (!scm_i_primitive_code_p (code))
-    return 0;
-
-  idx = (code - subr_stub_code) / 4;
-
-  nargs = -1;
-  next = 0;
-  do
-    {
-      base = next;
-      nargs++;
-      next = (nargs + 1) * (nargs + 1);
-    }
-  while (idx >= next);
-
-  *rest = (next - idx) < (idx - base);
-  *req = *rest ? (next - 1) - idx : (base + nargs) - idx;
-  *opt = *rest ? idx - (next - nargs) : idx - base;
-
-  return 1;
-}
-
 scm_t_uintptr
 scm_i_primitive_call_ip (SCM subr)
 {

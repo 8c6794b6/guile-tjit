@@ -792,25 +792,6 @@ get_foreign_stub_code (unsigned int nargs)
   return &foreign_stub_code[nargs * 2];
 }
 
-/* Given a foreign procedure, determine its minimum arity. */
-int
-scm_i_foreign_arity (SCM foreign, int *req, int *opt, int *rest)
-{
-  const scm_t_uint32 *code = SCM_PROGRAM_CODE (foreign);
-
-  if (code < foreign_stub_code)
-    return 0;
-  if (code > (foreign_stub_code
-              + (sizeof(foreign_stub_code) / sizeof(scm_t_uint32))))
-    return 0;
-
-  *req = (code - foreign_stub_code) / 2;
-  *opt = 0;
-  *rest = 0;
-
-  return 1;
-}
-
 static SCM
 cif_to_procedure (SCM cif, SCM func_ptr)
 {

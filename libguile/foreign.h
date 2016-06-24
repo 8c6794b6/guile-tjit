@@ -101,8 +101,6 @@ SCM_API SCM scm_procedure_to_pointer (SCM return_type, SCM func_ptr,
 				      SCM arg_types);
 SCM_INTERNAL SCM scm_i_foreign_call (SCM foreign,
                                      const union scm_vm_stack_element *argv);
-SCM_INTERNAL int scm_i_foreign_arity (SCM foreign,
-                                      int *req, int *opt, int *rest);
 
 
 

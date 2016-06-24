@@ -55,7 +55,6 @@
 
 
 SCM_INTERNAL int scm_i_primitive_code_p (const scm_t_uint32 *code);
-SCM_INTERNAL int scm_i_primitive_arity (SCM subr, int *req, int *opt, int *rest);
 SCM_INTERNAL scm_t_uintptr scm_i_primitive_call_ip (SCM subr);
 
 union scm_vm_stack_element;
