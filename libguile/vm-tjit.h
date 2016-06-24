@@ -34,6 +34,7 @@ enum scm_tjit_trace_type
     SCM_TJIT_TRACE_CALL,     /* procedure call */
     SCM_TJIT_TRACE_TCALL,    /* procedure tail-call */
     SCM_TJIT_TRACE_RETURN,   /* procedure return */
+    SCM_TJIT_TRACE_SIDE,     /* side trace */
   };
 
 struct scm_tjit_state

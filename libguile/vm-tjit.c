@@ -97,11 +97,6 @@ static const int op_sizes[256] = {
    return tjit_##name##_table;                                          \
   }
 
-#define SCM_TJIT_IS_HOT(ref, ip, count)                                 \
-  (ref < count                                                          \
-   && SCM_I_MAKINUM (failed_ip_ref ((scm_t_uintptr) (ip))) <            \
-   tjit_max_retries)
-
 #define SCM_TJITC(loop_p)                 \
   do {                                    \
     vp->ip = ip;                          \
@@ -354,24 +349,17 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
 
   switch (tj->trace_type)
     {
+    case SCM_TJIT_TRACE_SIDE:
+      if (scm_is_true (fragment))
+        SCM_TJITC (SCM_BOOL_F);
+      else
+        record (tj, thread, vp, ip, sp);
+      break;
+
     case SCM_TJIT_TRACE_JUMP:
     case SCM_TJIT_TRACE_TCALL:
       if (scm_is_true (fragment))
-        {
-          /* if (SCM_DOWNREC_P (fragment)) */
-          /*   { */
-          /*     tj->trace_type = SCM_TJIT_TRACE_CALL; */
-          /*     record (tj, thread, vp, ip, sp); */
-          /*   } */
-          /* else if (SCM_UPREC_P (fragment)) */
-          /*   { */
-          /*     tj->trace_type = SCM_TJIT_TRACE_RETURN; */
-          /*     record (tj, thread, vp, ip, sp); */
-          /*   } */
-          /* else */
-          /*   SCM_TJITC (SCM_BOOL_F); */
-          SCM_TJITC (SCM_BOOL_F);
-        }
+        SCM_TJITC (SCM_BOOL_F);
       else if (ip == end_ip)
         {
           if (tj->loop_start != tj->loop_end && !has_root_trace)
@@ -467,7 +455,7 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
 
               tj->parent_fragment_id = SCM_I_INUM (parent_fragment_id);
               tj->parent_exit_id = (int) exit_id;
-              start_recording (tj, start, end, SCM_TJIT_TRACE_JUMP);
+              start_recording (tj, start, end, SCM_TJIT_TRACE_SIDE);
             }
         }
     }
