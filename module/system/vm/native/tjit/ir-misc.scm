@@ -57,8 +57,10 @@
 (define-ir (f64->scm (flonum! dst) (f64 src))
   (let ((src/v (src-ref src))
         (dst/v (dst-ref dst)))
-    `(let ((,dst/v ,src/v))
-       ,(next))))
+    (if (eq? src/v dst/v)
+        (next)
+        `(let ((,dst/v ,src/v))
+           ,(next)))))
 
 ;; XXX: apply-non-program
 
