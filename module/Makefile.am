@@ -209,6 +209,41 @@ SOURCES =					\
   language/scheme/decompile-tree-il.scm		\
   language/scheme/spec.scm			\
 						\
+  language/trace/spec.scm			\
+  language/trace/assembler.scm			\
+  language/trace/compile-fragment.scm		\
+  language/trace/compile-ir.scm			\
+  language/trace/compile-native.scm		\
+  language/trace/dump.scm			\
+  language/trace/env.scm			\
+  language/trace/error.scm			\
+  language/trace/fragment.scm			\
+  language/trace/gdb.scm			\
+  language/trace/ir-array.scm			\
+  language/trace/ir-branch.scm			\
+  language/trace/ir-call.scm			\
+  language/trace/ir-dynamic.scm			\
+  language/trace/ir-immediate.scm		\
+  language/trace/ir-lexical.scm			\
+  language/trace/ir-misc.scm			\
+  language/trace/ir-mutable.scm			\
+  language/trace/ir-numeric.scm			\
+  language/trace/ir-pair.scm			\
+  language/trace/ir-prologue.scm		\
+  language/trace/ir.scm				\
+  language/trace/ir-specialized.scm		\
+  language/trace/ir-string.scm			\
+  language/trace/ir-struct.scm			\
+  language/trace/parameters.scm			\
+  language/trace/parse.scm			\
+  language/trace/ra.scm				\
+  language/trace/registers.scm			\
+  language/trace/snapshot.scm			\
+  language/trace/spec.scm			\
+  language/trace/trampoline.scm			\
+  language/trace/types.scm			\
+  language/trace/variables.scm			\
+						\
   language/tree-il.scm				\
   language/tree-il/analyze.scm			\
   language/tree-il/canonicalize.scm		\
@@ -360,38 +395,7 @@ SOURCES =					\
 						\
   system/vm/native/lightning.scm		\
   system/vm/native/debug.scm			\
-  system/vm/native/tjit/trampoline.scm		\
-  system/vm/native/tjit/parameters.scm		\
-  system/vm/native/tjit/error.scm		\
-  system/vm/native/tjit/types.scm		\
-  system/vm/native/tjit/gdb.scm			\
-  system/vm/native/tjit/fragment.scm		\
-  system/vm/native/tjit/env.scm			\
-  system/vm/native/tjit/snapshot.scm		\
-  system/vm/native/tjit/registers.scm		\
-  system/vm/native/tjit/variables.scm		\
-  system/vm/native/tjit/assembler.scm		\
-  system/vm/native/tjit/parse.scm               \
-  system/vm/native/tjit/ir.scm			\
-  system/vm/native/tjit/ir-call.scm		\
-  system/vm/native/tjit/ir-specialized.scm	\
-  system/vm/native/tjit/ir-prologue.scm		\
-  system/vm/native/tjit/ir-branch.scm		\
-  system/vm/native/tjit/ir-lexical.scm		\
-  system/vm/native/tjit/ir-immediate.scm	\
-  system/vm/native/tjit/ir-mutable.scm		\
-  system/vm/native/tjit/ir-dynamic.scm		\
-  system/vm/native/tjit/ir-string.scm		\
-  system/vm/native/tjit/ir-pair.scm		\
-  system/vm/native/tjit/ir-numeric.scm		\
-  system/vm/native/tjit/ir-struct.scm		\
-  system/vm/native/tjit/ir-array.scm		\
-  system/vm/native/tjit/ir-misc.scm		\
-  system/vm/native/tjit/ra.scm			\
-  system/vm/native/tjit/compile-ir.scm		\
-  system/vm/native/tjit/compile-native.scm	\
-  system/vm/native/tjit/dump.scm		\
-  system/vm/native/tjit/tjitc.scm		\
+  system/vm/native/tjitc.scm			\
 						\
   system/xref.scm				\
 						\

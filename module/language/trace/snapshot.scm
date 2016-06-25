@@ -1,0 +1,157 @@
+;;;; Snapshot and other data to restore frame locals
+
+;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
+;;;; 02110-1301 USA
+;;;;
+
+;;; Commentary:
+;;;
+;;; This module contains snapshot related codes and record type used when
+;;; recovering frame locals. Snapshot data are used when restoring locals in
+;;; frame, so that the VM interpreter can continue from where the native code
+;;; has returned.
+;;;
+;;; Code:
+
+(define-module (language trace snapshot)
+  #:use-module (ice-9 match)
+  #:use-module (ice-9 format)
+  #:use-module (srfi srfi-9)
+  #:use-module (system vm native debug)
+  #:use-module (language trace error)
+  #:use-module (language trace env)
+  #:use-module (language trace parameters)
+  #:use-module (language trace types)
+  #:export ($snapshot
+            make-snapshot
+            %make-snapshot
+            snapshot?
+            snapshot-id
+            snapshot-sp-offset
+            snapshot-fp-offset
+            snapshot-nlocals
+            snapshot-locals
+            snapshot-variables set-snapshot-variables!
+            snapshot-code set-snapshot-code!
+            snapshot-ip
+            snapshot-env-types
+            snapshot-live-indices
+            snapshot-inline-depth
+            snapshot-inferred-types
+
+            snapshot-link?
+            snapshot-downrec?
+            snapshot-uprec?
+            snapshot-longjmp?
+            *ip-key-link*
+            *ip-key-downrec*
+            *ip-key-uprec*
+            *ip-key-longjmp*))
+
+
+;; Record type for snapshot.
+(define-record-type $snapshot
+  (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
+                  live-indices inline-depth inferred-types)
+  snapshot?
+
+  ;; ID number of this snapshot.
+  (id snapshot-id)
+
+  ;; Integer number to shift SP after returning with this snapshot.
+  (sp-offset snapshot-sp-offset)
+
+  ;; Integer number to shift vp->fp after returning with this snapshot.
+  (fp-offset snapshot-fp-offset)
+
+  ;; Number of locals at the time of snapshot.
+  (nlocals snapshot-nlocals)
+
+  ;; Association list of (local . type).
+  (locals snapshot-locals)
+
+  ;; Variables used at the time of taking exit.
+  (variables snapshot-variables set-snapshot-variables!)
+
+  ;; Native code of bailout with this snapshot.
+  (code snapshot-code set-snapshot-code!)
+
+  ;; Bytecode IP of this snapshot to return.
+  (ip snapshot-ip)
+
+  ;; Live indices.
+  (live-indices snapshot-live-indices)
+
+  ;; Call depth.
+  (inline-depth snapshot-inline-depth)
+
+  ;; Inferred types at the time of snapshot creation.
+  (inferred-types snapshot-inferred-types))
+
+
+;;;
+;;; Snapshot
+;;;
+
+(define* (make-snapshot id sp-offset fp-offset nlocals write-indices
+                        env ip inline-depth #:optional (refill-ra-dl? #f))
+  (begin
+    (debug 2 ";;; [make-snapshot] id:~s ip=~x sp:~s fp:~s nlocals:~s~%"
+           id ip sp-offset fp-offset nlocals)
+    (debug 2 ";;; write-indices: ~s~%" write-indices)
+    (debug 2 ";;; inline-depth: ~s~%" inline-depth)
+    (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?)
+    (debug 2 ";;; live-indices: ~a~%" (sort (env-live-indices env) <)))
+  (let lp ((is (sort! write-indices <)) (acc '()))
+    (match is
+      ((i . is)
+       (let ((type (assq-ref (env-inferred-types env) i)))
+         (lp is (cons `(,i . ,type) acc))))
+      (()
+       (call-with-values
+           (lambda ()
+             (if refill-ra-dl?
+                 (let* ((acc (assq-set! acc (+ sp-offset nlocals) &false))
+                        (acc (assq-set! acc (+ sp-offset nlocals 1) &false)))
+                   (values (+ fp-offset 2) (+ nlocals 2) acc))
+                 (values fp-offset nlocals acc)))
+         (lambda (fp-offset nlocals acc)
+           (%make-snapshot id sp-offset fp-offset nlocals (reverse! acc)
+                           #f #f ip (env-live-indices env) inline-depth
+                           (copy-tree (env-inferred-types env)))))))))
+
+
+;;;
+;;; IP Keys
+;;;
+
+(define *ip-key-link* 0)
+(define *ip-key-downrec* 1)
+(define *ip-key-uprec* 2)
+(define *ip-key-longjmp* 3)
+
+(define (snapshot-link? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-link*))
+
+(define (snapshot-downrec? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-downrec*))
+
+(define (snapshot-uprec? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-uprec*))
+
+(define (snapshot-longjmp? snapshot)
+  (= (snapshot-ip snapshot) *ip-key-longjmp*))

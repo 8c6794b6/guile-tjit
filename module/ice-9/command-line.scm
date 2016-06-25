@@ -33,7 +33,7 @@
 
 (define-module (ice-9 command-line)
   #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine!)
-  #:autoload (system vm native tjit tjitc) (init-vm-tjit)
+  #:autoload (system vm native tjitc) (init-vm-tjit)
   #:export (compile-shell-switches
             version-etc
             *GPLv3+*
@@ -420,13 +420,13 @@ If FILE begins with `-' the -s switch is mandatory.
                          out)))
            ((string-prefix? "--tjit-dump=" arg)
             (parse args
-                   (cons `((@ (system vm native tjit parameters)
+                   (cons `((@ (language trace parameters)
                               set-tjit-dump-option!)
                            (substring ,arg 12))
                          out)))
            ((string-prefix? "--tjit-dump-log=" arg)
             (parse args
-                   (cons `((@ (system vm native tjit parameters)
+                   (cons `((@ (language trace parameters)
                               tjit-dump-log)
                            ;; XXX: Close the log file.
                            (or (open-output-file (substring ,arg 16))

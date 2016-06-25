@@ -1,9 +1,6 @@
 ;;; Mutually recursive loop with top level definition. The top level
 ;;; procedure `f' is modified after setting `r1'.
 
-(use-modules (system vm native tjit parameters))
-(set-tjit-max-retries! 3)
-
 (define r1 #f)
 
 (define r2 #f)
