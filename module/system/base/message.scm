@@ -115,6 +115,12 @@
                (emit port "~A: warning: possibly unbound variable `~A'~%"
                      loc name)))
 
+           (macro-use-before-definition
+            "report possibly mis-use of macros before they are defined"
+            ,(lambda (port loc name)
+               (emit port "~A: warning: macro `~A' used before definition~%"
+                     loc name)))
+
            (arity-mismatch
             "report procedure arity mismatches (wrong number of arguments)"
             ,(lambda (port loc name certain?)

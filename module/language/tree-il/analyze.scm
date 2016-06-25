@@ -35,6 +35,7 @@
             unused-variable-analysis
             unused-toplevel-analysis
             unbound-variable-analysis
+            macro-use-before-definition-analysis
             arity-analysis
             format-analysis))
 
@@ -895,13 +896,74 @@ given `tree-il' element."
 
    (lambda (toplevel env)
      ;; Post-process the result.
-     (vlist-for-each (lambda (name+loc)
-                       (let ((name (car name+loc))
-                             (loc  (cdr name+loc)))
-                         (warning 'unbound-variable loc name)))
+     (vlist-for-each (match-lambda
+                       ((name . loc)
+                        (warning 'unbound-variable loc name)))
                      (vlist-reverse (toplevel-info-refs toplevel))))
 
    (make-toplevel-info vlist-null vlist-null)))
+
+
+;;;
+;;; Macro use-before-definition analysis.
+;;;
+
+;; <macro-use-info> records are used during tree traversal in search of
+;; possibly uses of macros before they are defined.  They contain a list
+;; of references to top-level variables, and a list of the top-level
+;; macro definitions that have been encountered.  Any definition which
+;; is a macro should in theory be expanded out already; if that's not
+;; the case, the program likely has a bug.
+(define-record-type <macro-use-info>
+  (make-macro-use-info uses defs)
+  macro-use-info?
+  (uses  macro-use-info-uses)  ;; ((VARIABLE-NAME . LOCATION) ...)
+  (defs  macro-use-info-defs))  ;; ((VARIABLE-NAME . LOCATION) ...)
+
+(define macro-use-before-definition-analysis
+  ;; Report possibly unbound variables in the given tree.
+  (make-tree-analysis
+   (lambda (x info env locs)
+     ;; Going down into X.
+     (define (nearest-loc src)
+       (or src (find pair? locs)))
+     (define (add-use name src)
+       (match info
+         (($ <macro-use-info> uses defs)
+          (make-macro-use-info (vhash-consq name src uses) defs))))
+     (define (add-def name src)
+       (match info
+         (($ <macro-use-info> uses defs)
+          (make-macro-use-info uses (vhash-consq name src defs)))))
+     (define (macro? x)
+       (match x
+         (($ <primcall> _ 'make-syntax-transformer) #t)
+         (_ #f)))
+     (match x
+       (($ <toplevel-ref> src name)
+        (add-use name (nearest-loc src)))
+       (($ <toplevel-set> src name)
+        (add-use name (nearest-loc src)))
+       (($ <toplevel-define> src name (? macro?))
+        (add-def name (nearest-loc src)))
+       (_ info)))
+
+   (lambda (x info env locs)
+     ;; Leaving X's scope.
+     info)
+
+   (lambda (info env)
+     ;; Post-process the result.
+     (match info
+       (($ <macro-use-info> uses defs)
+        (vlist-for-each
+         (match-lambda
+           ((name . use-loc)
+            (when (vhash-assq name defs)
+              (warning 'macro-use-before-definition use-loc name))))
+         (vlist-reverse (macro-use-info-uses info))))))
+
+   (make-macro-use-info vlist-null vlist-null)))
 
 
 ;;;

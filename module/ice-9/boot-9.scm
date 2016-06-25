@@ -3679,8 +3679,8 @@ but it fails to load."
 
 (define %auto-compilation-options
   ;; Default `compile-file' option when auto-compiling.
-  '(#:warnings (unbound-variable arity-mismatch format
-                duplicate-case-datum bad-case-datum)))
+  '(#:warnings (unbound-variable macro-use-before-definition arity-mismatch
+                format duplicate-case-datum bad-case-datum)))
 
 (define* (load-in-vicinity dir file-name #:optional reader)
   "Load source file FILE-NAME in vicinity of directory DIR.  Use a

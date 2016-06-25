@@ -955,11 +955,12 @@ integer."
 (define *comp-module* (make-fluid))
 
 (define %warning-passes
-  `((unused-variable     . ,unused-variable-analysis)
-    (unused-toplevel     . ,unused-toplevel-analysis)
-    (unbound-variable    . ,unbound-variable-analysis)
-    (arity-mismatch      . ,arity-analysis)
-    (format              . ,format-analysis)))
+  `((unused-variable             . ,unused-variable-analysis)
+    (unused-toplevel             . ,unused-toplevel-analysis)
+    (unbound-variable            . ,unbound-variable-analysis)
+    (macro-use-before-definition . ,macro-use-before-definition-analysis)
+    (arity-mismatch              . ,arity-analysis)
+    (format                      . ,format-analysis)))
 
 (define (optimize-tree-il x e opts)
   (define warnings
