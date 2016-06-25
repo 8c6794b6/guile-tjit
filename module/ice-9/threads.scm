@@ -85,9 +85,24 @@
       (lambda () (begin e0 e1 ...))
       (lambda () (unlock-mutex x)))))
 
-(define-syntax-rule (monitor first rest ...)
-  (with-mutex (make-mutex)
-    first rest ...))
+(define monitor-mutex-table (make-hash-table))
+
+(define monitor-mutex-table-mutex (make-mutex))
+
+(define (monitor-mutex-with-id id)
+  (with-mutex monitor-mutex-table-mutex
+    (or (hashq-ref monitor-mutex-table id)
+        (let ((mutex (make-mutex)))
+          (hashq-set! monitor-mutex-table id mutex)
+          mutex))))
+
+(define-syntax monitor
+  (lambda (stx)
+    (syntax-case stx ()
+      ((_ body body* ...)
+       (let ((id (datum->syntax #'body (gensym))))
+         #`(with-mutex (monitor-mutex-with-id '#,id)
+             body body* ...))))))
 
 (define (par-mapper mapper cons)
   (lambda (proc . lists)
