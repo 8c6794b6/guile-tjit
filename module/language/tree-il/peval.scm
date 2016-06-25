@@ -92,7 +92,6 @@
 (define (singly-valued-expression? exp)
   (match exp
     (($ <const>) #t)
-    (($ <lexical-ref>) #t)
     (($ <void>) #t)
     (($ <lexical-ref>) #t)
     (($ <primitive-ref>) #t)
