@@ -147,6 +147,8 @@
   ;;
   (let ((r2 (make-tmpvar 2)))
     (cond
+     ((not (program? proc))
+      (nyi "with-callee-guard: ~a" proc))
      ((bytecode-program? flag)
       `(let ((,r2 (%cref ,var 0)))
          (let ((,r2 (%band ,r2 ,scm-f-program-is-bytecode-mask)))
@@ -154,7 +156,7 @@
              (let ((,r2 (%cref ,var 1)))
                (let ((_ (%eq ,r2 ,(program-code proc))))
                  ,(thunk)))))))
-     ((and (program? proc) (primitive-program? flag))
+     ((primitive-program? flag)
       (let ((free-ref0 (program-free-variable-ref proc 0)))
         `(let ((,r2 (%cref ,var 0)))
            (let ((,r2 (%band ,r2 ,scm-f-program-is-primitive)))
