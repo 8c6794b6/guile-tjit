@@ -358,14 +358,13 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
 
     case SCM_TJIT_TRACE_JUMP:
     case SCM_TJIT_TRACE_TCALL:
-      if (scm_is_true (fragment))
-        SCM_TJITC (SCM_BOOL_F);
-      else if (ip == end_ip)
+      if (ip == end_ip)
         {
-          if (tj->loop_start != tj->loop_end && !has_root_trace)
-            record (tj, thread, vp, ip, sp);
+          record (tj, thread, vp, ip, sp);
           SCM_TJITC (SCM_BOOL_T);
         }
+      else if (scm_is_true (fragment))
+        abort_recording (tj, start_ip);
       else
         record (tj, thread, vp, ip, sp);
       break;
@@ -373,8 +372,13 @@ tjit_merge (scm_t_uint32 *ip, union scm_vm_stack_element *sp,
     case SCM_TJIT_TRACE_CALL:
       if (ip == start_ip || (link_found && SCM_DOWNREC_P (fragment)))
         {
-          if (tj->nunrolled == SCM_I_INUM (tjit_num_unrolls))
-            SCM_TJITC (link_found ? SCM_BOOL_F : SCM_BOOL_T);
+          if (SCM_I_INUM (tjit_num_unrolls) <= tj->nunrolled)
+            {
+              if (link_found)
+                abort_recording (tj, start_ip);
+              else
+                SCM_TJITC (SCM_BOOL_T);
+            }
           else
             {
               record (tj, thread, vp, ip, sp);
