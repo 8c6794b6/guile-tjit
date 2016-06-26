@@ -47,8 +47,8 @@
 # for an available version of Guile.
 #
 # By default, this macro will search for the latest stable version of
-# Guile (e.g. 2.0), falling back to the previous stable version
-# (e.g. 1.8) if it is available.  If no guile-@var{VERSION}.pc file is
+# Guile (e.g. 2.2), falling back to the previous stable version
+# (e.g. 2.0) if it is available.  If no guile-@var{VERSION}.pc file is
 # found, an error is signalled.  The found version is stored in
 # @var{GUILE_EFFECTIVE_VERSION}.
 #
@@ -224,8 +224,12 @@ AC_DEFUN([GUILE_PROGS],
   _major_version=`echo $_guile_required_version | cut -d . -f 1`
   _minor_version=`echo $_guile_required_version | cut -d . -f 2`
   _micro_version=`echo $_guile_required_version | cut -d . -f 3`
-  if test "$_guile_major_version" -ge "$_major_version"; then
-    if test "$_guile_minor_version" -ge "$_minor_version"; then
+  if test "$_guile_major_version" -gt "$_major_version"; then
+    true
+  elif test "$_guile_major_version" -eq "$_major_version"; then
+    if test "$_guile_minor_version" -gt "$_minor_version"; then
+      true
+    elif test "$_guile_minor_version" -eq "$_minor_version"; then
       if test -n "$_micro_version"; then
         if test "$_guile_micro_version" -lt "$_micro_version"; then
           AC_MSG_ERROR([Guile $_guile_required_version required, but $_guile_prog_version found])
