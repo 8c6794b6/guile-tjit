@@ -583,114 +583,123 @@
                          (lp (cdr body) (append (parse1 (car body) r w s m esew mod) exps))))))
             (parse1
               (lambda (x r w s m esew mod)
-                (call-with-values
-                  (lambda () (syntax-type x r w (source-annotation x) ribcage mod #f))
-                  (lambda (type value form e w s mod)
-                    (let ((key type))
-                      (cond ((memv key '(define-form))
-                             (let* ((id (wrap value w mod))
-                                    (label (gen-label))
-                                    (var (if (macro-introduced-identifier? id)
-                                           (fresh-derived-name id x)
-                                           (syntax-object-expression id))))
-                               (record-definition! id var)
+                (letrec*
+                  ((current-module-for-expansion
+                     (lambda (mod)
+                       (let ((key (car mod)))
+                         (if (memv key '(hygiene))
+                           (cons 'hygiene (module-name (current-module)))
+                           mod)))))
+                  (call-with-values
+                    (lambda ()
+                      (let ((mod (current-module-for-expansion mod)))
+                        (syntax-type x r w (source-annotation x) ribcage mod #f)))
+                    (lambda (type value form e w s mod)
+                      (let ((key type))
+                        (cond ((memv key '(define-form))
+                               (let* ((id (wrap value w mod))
+                                      (label (gen-label))
+                                      (var (if (macro-introduced-identifier? id)
+                                             (fresh-derived-name id x)
+                                             (syntax-object-expression id))))
+                                 (record-definition! id var)
+                                 (list (if (eq? m 'c&e)
+                                         (let ((x (build-global-definition s var (expand e r w mod))))
+                                           (top-level-eval-hook x mod)
+                                           (lambda () x))
+                                         (call-with-values
+                                           (lambda () (resolve-identifier id '(()) r mod #t))
+                                           (lambda (type* value* mod*)
+                                             (if (eq? type* 'macro)
+                                               (top-level-eval-hook
+                                                 (build-global-definition s var (build-void s))
+                                                 mod))
+                                             (lambda () (build-global-definition s var (expand e r w mod)))))))))
+                              ((memv key '(define-syntax-form define-syntax-parameter-form))
+                               (let* ((id (wrap value w mod))
+                                      (label (gen-label))
+                                      (var (if (macro-introduced-identifier? id)
+                                             (fresh-derived-name id x)
+                                             (syntax-object-expression id))))
+                                 (record-definition! id var)
+                                 (let ((key m))
+                                   (cond ((memv key '(c))
+                                          (cond ((memq 'compile esew)
+                                                 (let ((e (expand-install-global var type (expand e r w mod))))
+                                                   (top-level-eval-hook e mod)
+                                                   (if (memq 'load esew) (list (lambda () e)) '())))
+                                                ((memq 'load esew)
+                                                 (list (lambda () (expand-install-global var type (expand e r w mod)))))
+                                                (else '())))
+                                         ((memv key '(c&e))
+                                          (let ((e (expand-install-global var type (expand e r w mod))))
+                                            (top-level-eval-hook e mod)
+                                            (list (lambda () e))))
+                                         (else
+                                          (if (memq 'eval esew)
+                                            (top-level-eval-hook
+                                              (expand-install-global var type (expand e r w mod))
+                                              mod))
+                                          '())))))
+                              ((memv key '(begin-form))
+                               (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ . each-any))))
+                                 (if tmp
+                                   (apply (lambda (e1) (parse e1 r w s m esew mod)) tmp)
+                                   (syntax-violation
+                                     #f
+                                     "source expression failed to match any pattern"
+                                     tmp-1))))
+                              ((memv key '(local-syntax-form))
+                               (expand-local-syntax
+                                 value
+                                 e
+                                 r
+                                 w
+                                 s
+                                 mod
+                                 (lambda (forms r w s mod) (parse forms r w s m esew mod))))
+                              ((memv key '(eval-when-form))
+                               (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ each-any any . each-any))))
+                                 (if tmp
+                                   (apply (lambda (x e1 e2)
+                                            (let ((when-list (parse-when-list e x)) (body (cons e1 e2)))
+                                              (letrec*
+                                                ((recurse (lambda (m esew) (parse body r w s m esew mod))))
+                                                (cond ((eq? m 'e)
+                                                       (if (memq 'eval when-list)
+                                                         (recurse (if (memq 'expand when-list) 'c&e 'e) '(eval))
+                                                         (begin
+                                                           (if (memq 'expand when-list)
+                                                             (top-level-eval-hook
+                                                               (expand-top-sequence body r w s 'e '(eval) mod)
+                                                               mod))
+                                                           '())))
+                                                      ((memq 'load when-list)
+                                                       (cond ((or (memq 'compile when-list)
+                                                                  (memq 'expand when-list)
+                                                                  (and (eq? m 'c&e) (memq 'eval when-list)))
+                                                              (recurse 'c&e '(compile load)))
+                                                             ((memq m '(c c&e)) (recurse 'c '(load)))
+                                                             (else '())))
+                                                      ((or (memq 'compile when-list)
+                                                           (memq 'expand when-list)
+                                                           (and (eq? m 'c&e) (memq 'eval when-list)))
+                                                       (top-level-eval-hook
+                                                         (expand-top-sequence body r w s 'e '(eval) mod)
+                                                         mod)
+                                                       '())
+                                                      (else '())))))
+                                          tmp)
+                                   (syntax-violation
+                                     #f
+                                     "source expression failed to match any pattern"
+                                     tmp-1))))
+                              (else
                                (list (if (eq? m 'c&e)
-                                       (let ((x (build-global-definition s var (expand e r w mod))))
+                                       (let ((x (expand-expr type value form e r w s mod)))
                                          (top-level-eval-hook x mod)
                                          (lambda () x))
-                                       (call-with-values
-                                         (lambda () (resolve-identifier id '(()) r mod #t))
-                                         (lambda (type* value* mod*)
-                                           (if (eq? type* 'macro)
-                                             (top-level-eval-hook
-                                               (build-global-definition s var (build-void s))
-                                               mod))
-                                           (lambda () (build-global-definition s var (expand e r w mod)))))))))
-                            ((memv key '(define-syntax-form define-syntax-parameter-form))
-                             (let* ((id (wrap value w mod))
-                                    (label (gen-label))
-                                    (var (if (macro-introduced-identifier? id)
-                                           (fresh-derived-name id x)
-                                           (syntax-object-expression id))))
-                               (record-definition! id var)
-                               (let ((key m))
-                                 (cond ((memv key '(c))
-                                        (cond ((memq 'compile esew)
-                                               (let ((e (expand-install-global var type (expand e r w mod))))
-                                                 (top-level-eval-hook e mod)
-                                                 (if (memq 'load esew) (list (lambda () e)) '())))
-                                              ((memq 'load esew)
-                                               (list (lambda () (expand-install-global var type (expand e r w mod)))))
-                                              (else '())))
-                                       ((memv key '(c&e))
-                                        (let ((e (expand-install-global var type (expand e r w mod))))
-                                          (top-level-eval-hook e mod)
-                                          (list (lambda () e))))
-                                       (else
-                                        (if (memq 'eval esew)
-                                          (top-level-eval-hook
-                                            (expand-install-global var type (expand e r w mod))
-                                            mod))
-                                        '())))))
-                            ((memv key '(begin-form))
-                             (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ . each-any))))
-                               (if tmp
-                                 (apply (lambda (e1) (parse e1 r w s m esew mod)) tmp)
-                                 (syntax-violation
-                                   #f
-                                   "source expression failed to match any pattern"
-                                   tmp-1))))
-                            ((memv key '(local-syntax-form))
-                             (expand-local-syntax
-                               value
-                               e
-                               r
-                               w
-                               s
-                               mod
-                               (lambda (forms r w s mod) (parse forms r w s m esew mod))))
-                            ((memv key '(eval-when-form))
-                             (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ each-any any . each-any))))
-                               (if tmp
-                                 (apply (lambda (x e1 e2)
-                                          (let ((when-list (parse-when-list e x)) (body (cons e1 e2)))
-                                            (letrec*
-                                              ((recurse (lambda (m esew) (parse body r w s m esew mod))))
-                                              (cond ((eq? m 'e)
-                                                     (if (memq 'eval when-list)
-                                                       (recurse (if (memq 'expand when-list) 'c&e 'e) '(eval))
-                                                       (begin
-                                                         (if (memq 'expand when-list)
-                                                           (top-level-eval-hook
-                                                             (expand-top-sequence body r w s 'e '(eval) mod)
-                                                             mod))
-                                                         '())))
-                                                    ((memq 'load when-list)
-                                                     (cond ((or (memq 'compile when-list)
-                                                                (memq 'expand when-list)
-                                                                (and (eq? m 'c&e) (memq 'eval when-list)))
-                                                            (recurse 'c&e '(compile load)))
-                                                           ((memq m '(c c&e)) (recurse 'c '(load)))
-                                                           (else '())))
-                                                    ((or (memq 'compile when-list)
-                                                         (memq 'expand when-list)
-                                                         (and (eq? m 'c&e) (memq 'eval when-list)))
-                                                     (top-level-eval-hook
-                                                       (expand-top-sequence body r w s 'e '(eval) mod)
-                                                       mod)
-                                                     '())
-                                                    (else '())))))
-                                        tmp)
-                                 (syntax-violation
-                                   #f
-                                   "source expression failed to match any pattern"
-                                   tmp-1))))
-                            (else
-                             (list (if (eq? m 'c&e)
-                                     (let ((x (expand-expr type value form e r w s mod)))
-                                       (top-level-eval-hook x mod)
-                                       (lambda () x))
-                                     (lambda () (expand-expr type value form e r w s mod))))))))))))
+                                       (lambda () (expand-expr type value form e r w s mod)))))))))))))
            (let ((exps (map (lambda (x) (x)) (reverse (parse body r w s m esew mod)))))
              (if (null? exps) (build-void s) (build-sequence s exps)))))))
    (expand-install-global

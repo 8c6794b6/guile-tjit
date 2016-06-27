@@ -1087,9 +1087,18 @@
                       (append (parse1 (car body) r w s m esew mod)
                               exps)))))
           (define (parse1 x r w s m esew mod)
+            (define (current-module-for-expansion mod)
+              (case (car mod)
+                ;; If the module was just put in place for hygiene, in a
+                ;; top-level `begin' always recapture the current
+                ;; module.  If a user wants to override, then we need to
+                ;; use @@ or similar.
+                ((hygiene) (cons 'hygiene (module-name (current-module))))
+                (else mod)))
             (call-with-values
                 (lambda ()
-                  (syntax-type x r w (source-annotation x) ribcage mod #f))
+                  (let ((mod (current-module-for-expansion mod)))
+                    (syntax-type x r w (source-annotation x) ribcage mod #f)))
               (lambda (type value form e w s mod)
                 (case type
                   ((define-form)
