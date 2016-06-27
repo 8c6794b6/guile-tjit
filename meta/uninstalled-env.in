@@ -80,17 +80,12 @@ then
     fi
     export GUILE_LOAD_PATH
 
-    if test "x$GUILE_LOAD_COMPILED_PATH" = "x"; then
-	GUILE_LOAD_COMPILED_PATH="${top_srcdir}/prebuilt/@host@"
-    else
-	GUILE_LOAD_COMPILED_PATH="${top_srcdir}/prebuilt/@host@:$GUILE_LOAD_COMPILED_PATH"
-    fi
-
-    for d in "/bootstrap" "/module" "/guile-readline"
+    for d in "/prebuilt/@host@" "/bootstrap" "/module" "/guile-readline"
     do
         # This hair prevents double inclusion.
         # The ":" prevents prefix aliasing.
         case x"$GUILE_LOAD_COMPILED_PATH" in
+            x) GUILE_LOAD_COMPILED_PATH="${top_builddir}${d}" ;;
      	    x*${top_builddir}${d}:*) ;;
      	    x*${top_builddir}${d}) ;;
 	    *) GUILE_LOAD_COMPILED_PATH="${top_builddir}${d}:$GUILE_LOAD_COMPILED_PATH" ;;
