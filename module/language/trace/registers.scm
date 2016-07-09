@@ -94,10 +94,11 @@
 (define *non-volatile-registers*
   `#(,r14 ,r15))
 
-;; Ordering is mandatory. The last element in the vector is ARG1 register, next
-;; to the last vector element is ARG2 register, and so on. Non-argument volatile
-;; registers need to be placed at the beginning of the vector. R0, R1, and R2
-;; are used as scratch register.
+;; Ordering is mandatory.
+;;
+;; The last element in the vector is ARG1 register, next to the last is ARG2
+;; register, and so on. Non-argument volatile registers need to be placed at the
+;; beginning of the vector. R0, R1, and R2 are used as scratch register.
 (define *volatile-registers*
   `#(,r9 ,r8 ,rcx ,rdx ,rsi ,rdi))
 
@@ -126,25 +127,23 @@
 ;; Number of FPRs used for argument passing.
 (define *num-arg-fprs* 8)
 
-;; Using negative numbers to refer scratch GPRs.
 (define (gpr-ref i)
-  (if (< i 0)
-      (cond
-       ((= i -1) r0)
-       ((= i -2) r1)
-       ((= i -3) r2)
-       (else (failure 'gpr-ref "~s" i)))
-      (vector-ref *gprs* i)))
+  ;; Using negative numbers to refer scratch GPRs.
+  (cond
+   ((= i -1) r0)
+   ((= i -2) r1)
+   ((= i -3) r2)
+   ((<= 0 i) (vector-ref *gprs* i))
+   (else (failure 'gpr-ref "~s" i))))
 
-;; Using negative numbers to refer scratch FPRs.
 (define (fpr-ref i)
-  (if (< i 0)
-      (cond
-       ((= i -1) f0)
-       ((= i -2) f1)
-       ((= i -3) f2)
-       (else (failure 'fpr-ref "~s" i)))
-      (vector-ref *fprs* i)))
+  ;; Using negative numbers to refer scratch FPRs.
+  (cond
+   ((= i -1) f0)
+   ((= i -2) f1)
+   ((= i -3) f2)
+   ((<= 0 i) (vector-ref *fprs* i))
+   (else (failure 'fpr-ref "~s" i))))
 
 (define (register-name r)
   (let ((gpr-names
