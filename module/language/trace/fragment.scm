@@ -29,6 +29,7 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:use-module (system vm native debug)
   #:use-module (language trace parameters)
   #:export (<fragment>
@@ -148,6 +149,14 @@
   (linked-root-ids fragment-linked-root-ids set-fragment-linked-root-ids!))
 
 (define make-fragment %make-fragment)
+
+(define (print-fragment fragment port)
+  (format port "#<fragment id:~a entry-ip:~x parent-id:~a>"
+          (fragment-id fragment)
+          (fragment-entry-ip fragment)
+          (fragment-parent-id fragment)))
+
+(set-record-type-printer! <fragment> print-fragment)
 
 (define (root-trace-fragment? fragment)
   (zero? (fragment-parent-id fragment)))
