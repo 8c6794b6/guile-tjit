@@ -414,24 +414,21 @@ If FILE begins with `-' the -s switch is mandatory.
             (parse args out))
 
            ((string-prefix? "--jit-debug=" arg)
-            (parse args
-                   (cons `((@ (system vm native debug) lightning-verbosity)
-                           ,(string->number (substring arg 12)))
-                         out)))
+            ((@ (system vm native debug) lightning-verbosity)
+             (string->number (substring arg 12)))
+            (parse args out))
+
            ((string-prefix? "--tjit-dump=" arg)
-            (parse args
-                   (cons `((@ (language trace parameters)
-                              set-tjit-dump-option!)
-                           (substring ,arg 12))
-                         out)))
+            ((@ (system vm native tjitc) set-tjit-dump-option!)
+             (substring arg 12))
+            (parse args out))
+
            ((string-prefix? "--tjit-dump-log=" arg)
-            (parse args
-                   (cons `((@ (language trace parameters)
-                              tjit-dump-log)
-                           ;; XXX: Close the log file.
-                           (or (open-output-file (substring ,arg 16))
-                               (current-output-port)))
-                         out)))
+            ((@ (system vm native tjitc) tjit-dump-log)
+             ;; XXX: Log file not closed.
+             (or (open-output-file (substring arg 16))
+                 (current-output-port)))
+            (parse args out))
 
            (else
             (error "unrecognized switch ~a" arg)))))))
