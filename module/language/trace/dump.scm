@@ -194,7 +194,7 @@ option was set to true."
   (define (mark-op op)
     (case (car op)
       ((%return %sref/f %eq %ne %lt %le %ge %gt %flt %fle %fgt %fge
-                %eqv %nev %typeq %tceq %tcne)
+                %eqv %nev %typeq %tceq %tcne %addov %subov)
        "  >")
       (else
        "   ")))
