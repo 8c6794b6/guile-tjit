@@ -313,13 +313,10 @@ assumes `objdump' executable already installed."
               (when (and (pointer? loop-address)
                          (regexp-exec loop-jump/rx line))
                 (display "    ->loop" port))
-              (cond
-               ((side-exit-jump? line)
-                => (lambda (id)
-                     (display "    ->" port)
-                     (display id port)))
-               (else
-                (values)))
+              (and=> (side-exit-jump? line)
+                     (lambda (id)
+                       (display "    ->" port)
+                       (display id port)))
               (newline port))
             (lp (read-line pipe) (+ n 1) done?))))
       (close-pipe pipe)

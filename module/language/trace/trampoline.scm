@@ -107,6 +107,5 @@
    (jit-epilog)
    (jit-realize)
    (let ((entry (pointer->bytevector (jit-emit) size-of-move-immediate)))
-     (bytevector-copy! entry 0
-                       trampoline (* i size-of-trampoline-entry)
+     (bytevector-copy! entry 0 trampoline (* i size-of-trampoline-entry)
                        size-of-move-immediate))))

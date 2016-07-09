@@ -128,10 +128,9 @@
 
 (define-syntax-rule (obj->tc7 obj)
   (let ((ptr (scm->pointer obj)))
-    (if (zero? (logand (pointer-address ptr) 6))
-        (let ((cell-type (dereference-pointer ptr)))
-          (logand (pointer-address cell-type) #x7f))
-        #f)))
+    (and (zero? (logand (pointer-address ptr) 6))
+         (let ((cell-type (dereference-pointer ptr)))
+           (logand (pointer-address cell-type) #x7f)))))
 
 (define-ir (br-if-tc7 (scm test) (const invert) (const tc7) (const offset))
   (let* ((test/l (scm-ref test))

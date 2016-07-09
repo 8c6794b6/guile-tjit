@@ -158,12 +158,10 @@
     (tjit-add-root-ip! (fragment-entry-ip fragment))
     (let* ((tbl (tjit-root-trace))
            (ip (fragment-entry-ip fragment))
-           (fragments (cond
-                       ((hashq-ref tbl ip)
-                        => (lambda (fragments)
-                             (cons fragment fragments)))
-                       (else
-                        (list fragment)))))
+           (fragments (or (and=> (hashq-ref tbl ip)
+                                 (lambda (fragments)
+                                   (cons fragment fragments)))
+                          (list fragment))))
       (hashq-set! tbl ip fragments))))
 
 (define (get-fragment fragment-id)

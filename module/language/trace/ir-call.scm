@@ -127,11 +127,8 @@
 
 (define-syntax-rule (check-entry-ip next-ip message)
   (when (ir-last-op? ir)
-    (let ((entry-ip (cond
-                     ((env-linked-fragment env)
-                      => fragment-entry-ip)
-                     (else
-                      (env-entry-ip env)))))
+    (let ((entry-ip (or (and=> (env-linked-fragment env) fragment-entry-ip)
+                        (env-entry-ip env))))
       (when (not (= entry-ip next-ip))
         (break 1 "last ~s to non-entry IP, entry=~x linked=~x next=~x" message
                (env-entry-ip env)
