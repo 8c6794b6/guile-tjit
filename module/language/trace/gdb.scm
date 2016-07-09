@@ -253,9 +253,7 @@
       (bytevector-u8-set! 1)))
   (define word-size (sizeof '*))
   (define src-path
-    (cond
-     ((search-path %load-path src) => identity)
-     (else "")))
+    (or (%search-load-path src) ""))
   (let-values (((info-port get-info-bv) (open-bytevector-output-port))
                ((abbrev-port get-abbrev-bv) (open-bytevector-output-port))
                ((line-port get-line-bv) (open-bytevector-output-port)))
