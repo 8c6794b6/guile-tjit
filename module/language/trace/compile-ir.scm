@@ -61,11 +61,12 @@
   #:use-module (language trace ra)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
+  #:use-module (language trace variables)
   #:export (compile-ir))
 
 
 ;;;
-;;; Bytecode to ANF, and ANF to primop compiler
+;;; Traced bytecode to IR
 ;;;
 
 (define (compile-ir env trace)
@@ -291,7 +292,7 @@ Currently does nothing, returns the given argument."
                                                 ,(patch-body)))))
                               patch))))))))))
 
-         (else ; Root trace.
+         (else                          ; Root trace.
           ;; Root trace takes snapshot 0, used to emit bailout code without
           ;; stack element update. Snapshot 0 is saved to snapshots as usual,
           ;; and snapshot ID get incremented.

@@ -72,10 +72,6 @@
             inline-current-return?
             env ir ip ra dl locals next
 
-            make-var
-            make-vars
-            get-initial-sp-offset
-            get-initial-fp-offset
             take-snapshot
             gen-load-thunk
             with-stack-ref
@@ -183,31 +179,6 @@
 ;;; Macros for ANF
 ;;;
 
-(define (make-var index)
-  (string->symbol (string-append "v" (number->string index))))
-
-(define (make-vars locals)
-  ;; Might better to use other data structure than alist for variables.
-  ;; Number of variables won't change after getting the number of locals from
-  ;; `accumulate-locals'.
-  (map (lambda (n)
-         (cons n (make-var n)))
-       locals))
-
-(define (get-initial-sp-offset parent-snapshot)
-  ;; Initial offset of root trace is constantly 0. Initial offset of side
-  ;; trace is where parent trace left, using offset value from SNAPSHOT.
-  (match parent-snapshot
-    (($ $snapshot _ sp-offset) sp-offset)
-    (_ 0)))
-
-(define (get-initial-fp-offset parent-snapshot)
-  ;; Initial offset of root trace is constantly 0. Initial offset of side
-  ;; trace is where parent trace left, using offset value from SNAPSHOT.
-  (match parent-snapshot
-    (($ $snapshot _ _ fp-offset) fp-offset)
-    (_ 0)))
-
 (define (current-inline-depth env)
   "Compute current inline depth in ENV.
 
@@ -248,8 +219,8 @@ returns, current call-num, and current return-num."
                         (lp vars acc)))
                    (()
                     (if refill?
-                        (append acc (list (make-var (+ sp-offset nlocals))
-                                          (make-var (+ sp-offset nlocals 1))))
+                        (append! acc (list (make-var (+ sp-offset nlocals))
+                                           (make-var (+ sp-offset nlocals 1))))
                         acc)))))
          (snapshot (make-snapshot id sp-offset fp-offset nlocals indices
                                   env dst-ip inline-depth refill?)))
@@ -279,8 +250,7 @@ returns, current call-num, and current return-num."
                                     t
                                     #f)))
                         (with-stack-ref var t n lp vars (cons n loaded))))
-                     (else
-                      (lp vars loaded))))
+                     (else (lp vars loaded))))
                    (()
                     (let ((live-indices
                            (let lp ((loaded loaded) (acc live-indices))
@@ -401,10 +371,8 @@ runtime."
                         (if (eq? (type-of runtime-value) (flag->type f))
                             (lp flags ns)
                             #f)))
-                     (else
-                      (lp flags ns))))
-                  (_
-                   #t)))))
+                     (else (lp flags ns))))
+                  (_ #t)))))
            (scan-proc
             (lambda (%env %ip %dl %locals arg ...)
               (syntax-parameterize ((env (identifier-syntax %env)))
@@ -437,10 +405,10 @@ runtime."
                 . body))))
        (let ((add-proc! (lambda (tbl proc)
                           (let* ((elem (cons test-proc proc))
-                                 (val (cond ((hashq-ref tbl 'name)
-                                             => (lambda (found)
-                                                  (cons elem found)))
-                                            (else (list elem)))))
+                                 (val (or (and=> (hashq-ref tbl 'name)
+                                                 (lambda (found)
+                                                   (cons elem found)))
+                                          (list elem))))
                             (hashq-set! tbl 'name val)))))
          (add-proc! *scan-procedures* scan-proc)
          (add-proc! *ti-procedures* ti-proc)
@@ -534,13 +502,12 @@ runtime."
            ret)))))
 
 (define-syntax-rule (with-boxing type var tmp proc)
-  (cond
-   ((eq? type &flonum)
-    (set-env-handle-interrupts! env #t)
-    `(let ((,tmp (%d2s ,var)))
-       ,(proc tmp)))
-   (else
-    (proc var))))
+  (if (eq? type &flonum)
+      (begin
+        (set-env-handle-interrupts! env #t)
+        `(let ((,tmp (%d2s ,var)))
+           ,(proc tmp)))
+      (proc var)))
 
 (define-syntax-rule (with-type-guard type src expr)
   (if (let ((src/t (type-ref src)))

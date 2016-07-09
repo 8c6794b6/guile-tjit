@@ -31,7 +31,8 @@
   #:use-module (language trace parameters)
   #:use-module (language trace registers)
   #:use-module (language trace types)
-  #:export (ref? ref-value ref-type
+  #:export (make-var make-vars
+            ref? ref-value ref-type
             make-con con? con
             register?
             make-gpr gpr? gpr
@@ -40,15 +41,47 @@
             make-tmpvar make-tmpvar/f make-spill
             argr fargr moffs physical-name))
 
+
+;;;
+;;; Symbol cache table
+;;;
+
+;;; Hash table to cache variable symbols. Used to obtain symbol from
+;;; number, instead of calling number->string, string-append,
+;;; string->symbol ... etc for each time.
+(define *var-cache-table* (make-hash-table))
+
+(define (make-var index)
+  (or (hashq-ref *var-cache-table* index)
+      (let ((var (string->symbol
+                  (string-append "v" (number->string index)))))
+        (hashq-set! *var-cache-table* index var)
+        var)))
+
+(define (make-vars locals)
+  ;; Might better to use other data structure than alist for variables.
+  ;; Number of variables won't change after getting the number of locals from
+  ;; `accumulate-locals'.
+  (map (lambda (n)
+         (cons n (make-var n)))
+       locals))
+
+
 ;;;
 ;;; Variable
 ;;;
+
+;;; XXX: Avoid using cons cell for CON.
 
 (define (ref? x)
   (and (pair? x) (symbol? (car x))))
 
 (define (ref-value x)
-  (and (ref? x) (cdr x)))
+  (and (pair? x) (cdr x)))
+
+(define-inlinable (%ref-value x)
+  "Inlinable variant of `ref-value' without `pair?' check."
+  (cdr x))
 
 (define-syntax-rule (ref-type x)
   (car x))
@@ -69,20 +102,34 @@
      (else
       (scm->pointer val)))))
 
+(define *gpr-cache-vector*
+  ;; Total number is *num-gpr* plus three scratch registers.
+  (make-vector (+ *num-gpr* 3) #f))
+
 (define (make-gpr x)
-  (cons 'gpr x))
+  (or (vector-ref *gpr-cache-vector* (+ x 3))
+      (let ((val (cons 'gpr x)))
+        (vector-set! *gpr-cache-vector* (+ x 3) val)
+        val)))
 
 (define (gpr x)
-  (gpr-ref (ref-value x)))
+  (gpr-ref (%ref-value x)))
 
 (define (gpr? x)
   (eq? 'gpr (ref-type x)))
 
+(define *fpr-cache-vector*
+  ;; Total number is *num-fpr* plus three scratch registers.
+  (make-vector (+ *num-fpr* 3) #f))
+
 (define (make-fpr x)
-  (cons 'fpr x))
+  (or (vector-ref *fpr-cache-vector* (+ x 3))
+      (let ((val (cons 'fpr x)))
+        (vector-set! *fpr-cache-vector* (+ x 3) val)
+        val)))
 
 (define (fpr x)
-  (fpr-ref (ref-value x)))
+  (fpr-ref (%ref-value x)))
 
 (define (fpr? x)
   (eq? 'fpr (ref-type x)))
@@ -91,8 +138,13 @@
   (or (eq? 'gpr (ref-type x))
       (eq? 'fpr (ref-type x))))
 
+(define *mem-cache-table* (make-hash-table))
+
 (define (make-memory x)
-  (cons 'mem x))
+  (or (hashq-ref *mem-cache-table* x)
+      (let ((val (cons 'mem x)))
+        (hashq-set! *mem-cache-table* x val)
+        val)))
 
 (define (memory? x)
   (eq? 'mem (ref-type x)))
@@ -114,8 +166,13 @@
 (define (make-tmpvar/f n)
   (vector-ref *tmpvars/f* n))
 
+(define *spill-cache-table* (make-hash-table))
+
 (define (make-spill n)
-  (string->symbol (string-append "m" (number->string n))))
+  (or (hashq-ref *spill-cache-table* n)
+      (let ((v (string->symbol (string-append "m" (number->string n)))))
+        (hashq-set! *spill-cache-table* n v)
+        v)))
 
 (define (argr n)
   (if (< *num-arg-gprs* n)
@@ -128,7 +185,7 @@
       (make-fpr (- *num-fpr* n))))
 
 (define-syntax-rule (moffs mem)
-  (let ((n (- (+ 2 1 (ref-value mem) *num-volatiles* *num-fpr*))))
+  (let ((n (- (+ 2 1 (%ref-value mem) *num-volatiles* *num-fpr*))))
     (make-negative-pointer (* n %word-size))))
 
 (define (physical-name x)
