@@ -36,22 +36,23 @@
   #:use-module (language trace parameters)
   #:use-module (language trace snapshot)
   #:export (tjitc init-vm-tjit)
-  #:re-export (tjit-stats))
+  #:re-export (tjit-stats
+               set-tjit-dump-option!
+               tjit-dump-log))
 
 
 ;;;
 ;;; Entry point for JIT compiler
 ;;;
 
-(define (tjitc trace-id bv traces parent-ip parent-exit-id linked-ip
+(define (tjitc trace-id buffer traces parent-ip parent-exit-id linked-ip
                loop? downrec? uprec?)
-  "Compile recorded bytecodes in BV with TRACES and meta information."
+  "Compile recorded bytecodes in BUFFER with TRACES and meta information."
   (let* ((entry-ip (vector-ref (car traces) 1))
          (parent-fragment (get-fragment parent-ip))
-         (parent-snapshot (if parent-fragment
-                              (hashq-ref (fragment-snapshots parent-fragment)
-                                         parent-exit-id)
-                              #f))
+         (parent-snapshot (and parent-fragment
+                               (hashq-ref (fragment-snapshots parent-fragment)
+                                          parent-exit-id)))
          (env (call-with-values
                   (lambda ()
                     (match parent-snapshot
@@ -63,8 +64,14 @@
                 (lambda args
                   (apply make-env trace-id entry-ip linked-ip
                          parent-exit-id parent-fragment parent-snapshot
-                         loop? downrec? uprec? args)))))
-    (compile bv #:from 'trace #:to 'value #:env env #:opts traces)))
+                         loop? downrec? uprec? args))))
+         (fragment (compile buffer
+                            #:from 'trace
+                            #:to 'value
+                            #:env env
+                            #:opts traces)))
+    (when fragment
+      (put-fragment! trace-id fragment))))
 
 
 ;;;

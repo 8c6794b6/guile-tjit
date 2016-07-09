@@ -60,6 +60,7 @@
             get-fragment
             get-root-trace
             get-origin-fragment
+            increment-fragment-num-child!
             remove-fragment-and-side-traces))
 
 ;;;
@@ -195,8 +196,12 @@
               fragment
               (lp (get-fragment parent-id)))))))
 
+(define (increment-fragment-num-child! fragment)
+  (let ((num-child (fragment-num-child fragment)))
+    (set-fragment-num-child! fragment (+ num-child 1))))
+
 (define (remove-fragment-and-side-traces fragment)
-  "Removes root trace FRAGMENT.
+  "Removes FRAGMENT, which is a root trace.
 
 Removes the FRAGMENT itself, its side traces and linked fragment from global
 cache."

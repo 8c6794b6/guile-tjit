@@ -56,7 +56,7 @@
             fpr->gpr
             move
             jump
-            jumpi
+            jmpa
             sp-ref
             sp-set!
             sp-ref/f
@@ -92,8 +92,8 @@
 ;;;
 
 ;;; Primitives used for vm-tjit engine.  Primitives defined here are used during
-;;; compilation of traced data to native code, and possibly useless for ordinal
-;;; use as scheme procedure except for managing comment as document.
+;;; compilation of traced data to native code. Perhaps useless for ordinal use
+;;; as scheme procedure, except for managing docstring.
 ;;;
 ;;; Need at least 3 general purpose scratch registers, and 3 floating point
 ;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
@@ -125,22 +125,20 @@
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
          (syntax-parameterize
              ((asm (identifier-syntax %asm))
-              (err
-               (syntax-rules ()
-                 ((_)
-                  (failure 'name
-                           ((lambda args
-                              (let lp ((args args) (acc '()))
-                                (if (null? args)
-                                    (string-join acc " ")
-                                    (lp (cdr args)
-                                        (cons "~a" acc)))))
-                            'arg ...)
-                           arg ...)))))
+              (err (syntax-rules ()
+                     ((_)
+                      (failure 'name
+                               ((lambda args
+                                  (let lp ((args args) (acc '()))
+                                    (if (null? args)
+                                        (string-join acc " ")
+                                        (lp (cdr args)
+                                            (cons "~a" acc)))))
+                                'arg ...)
+                               arg ...)))))
            <body>))
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
-
 
 ;;;
 ;;; Scheme constants
@@ -500,7 +498,7 @@
     ((_ condition label)
      (jit-patch-at condition label))))
 
-(define-syntax jumpi
+(define-syntax jmpa
   (syntax-rules ()
     ((_ address)
      (jit-patch-abs (jit-jmpi) address))))
@@ -718,9 +716,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
           (err)))))))
 
 ;; Auxiliary procedure for %ne.
-(define (!= a b) (not (= a b)))
+(define (/= a b) (not (= a b)))
 
-(define-binary-guard-int %eq != jit-bnei jit-bner)
+(define-binary-guard-int %eq /= jit-bnei jit-bner)
 (define-binary-guard-int %ne = jit-beqi jit-beqr)
 (define-binary-guard-int %le > jit-bgti jit-bgtr)
 (define-binary-guard-int %lt >= jit-bgei jit-bger)
@@ -765,7 +763,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (else
           (err)))))))
 
-(define-binary-guard-double %feq != jit-bnei-d jit-bner-d)
+(define-binary-guard-double %feq /= jit-bnei-d jit-bner-d)
 (define-binary-guard-double %fne = jit-beqi-d jit-beqr-d)
 (define-binary-guard-double %flt >= jit-bgei-d jit-bger-d)
 (define-binary-guard-double %fle > jit-bgti-d jit-bgtr-d)
@@ -1240,8 +1238,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
   (let ((err (lambda ()
                (failure 'store-stack "~s ~a ~s"
                         local (pretty-type type) src))))
-    (debug 3 ";;; store-stack: local:~a type:~a src:~a~%"
-           local (pretty-type type) (and src (physical-name src)))
     (cond
      ((return-address? type)
       ;; Moving value coupled with type to frame local. Return address of VM
@@ -1250,25 +1246,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       ;; Scheme IR conversion and stored in snapshot.
       (jit-movi r0 (imm (return-address-ip type)))
       (sp-set! local r0))
-
      ((dynamic-link? type)
       ;; Storing dynamid link to local. Dynamic link record type contains offset
       ;; in the field. VM may use different value at the time of compilation and
       ;; execution.
       (jit-movi r0 (imm (dynamic-link-offset type)))
       (sp-set! local r0))
-
-     ((constant? type)
-      (let ((val (constant-value type)))
-        (cond
-         ((flonum? val)
-          (jit-movi r0 (scm->pointer val))
-          (sp-set! local r0))
-         (else
-          (jit-movi r0 (imm (constant-value type)))
-          (sp-set! local r0)))))
-
-     ;; Floating point values
+     ;; Unboxed flonum values
      ((eq? type &flonum)
       (case (ref-type src)
         ((con)
@@ -1287,6 +1271,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (scm-from-double r0 f0)
          (sp-set! local r0))
         (else (err))))
+     ;; Raw f64 value
      ((eq? type &f64)
       (case (ref-type src)
         ((con)
@@ -1301,7 +1286,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (memory-ref/f f0 src)
          (sp-set!/f local f0))
         (else (err))))
-
      ;; Refilled immediates
      ((eq? type &false)
       (jit-movi r0 *scm-false*)
@@ -1312,14 +1296,18 @@ was constant. And, uses OP-RR when both arguments were register or memory."
      ((eq? type &unspecified)
       (jit-movi r0 *scm-unspecified*)
       (sp-set! local r0))
-
-     ((not src)
-      (values))
-
-     ;; XXX: `fixnum' need boxing when the value was greater than
-     ;; `most-positive-fixnum' or less than `most-negative-fixnum'.
-
-     ;; Cell values
+     ((constant? type)
+      (let ((val (constant-value type)))
+        (cond
+         ((flonum? val)
+          (jit-movi r0 (scm->pointer val))
+          (sp-set! local r0))
+         (else
+          (jit-movi r0 (imm (constant-value type)))
+          (sp-set! local r0)))))
+     ;; Missing source code, do nothing.
+     ((not src) (values))
+     ;; All the other values
      (else
       (case (ref-type src)
         ((con)

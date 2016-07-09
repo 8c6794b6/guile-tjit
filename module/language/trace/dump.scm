@@ -49,6 +49,7 @@
             dump-anf
             dump-primops
             dump-ncode
+            dump-sline
             dump-tjit-stats
             dump-fragment
             dump-env))
@@ -106,15 +107,13 @@ option was set to true."
 ;;;
 
 (define-syntax-rule (addr->source-line addr)
-  (cond
-   ((find-source-for-addr addr)
-    => (lambda (source)
-         (cons (let ((file (source-file source)))
-                 (or (and (string? file) file)
-                     "(unknown file)"))
-               (source-line-for-user source))))
-   (else
-    (cons "(unknown source)" #f))))
+  (or (and=> (find-source-for-addr addr)
+             (lambda (source)
+               (cons (let ((file (source-file source)))
+                       (or (and (string? file) file)
+                           "(unknown file)"))
+                     (source-line-for-user source))))
+      (cons "(unknown source)" #f)))
 
 (define (dump-bytecode port trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
@@ -322,6 +321,27 @@ option was set to true."
   (format port ";;; trace ~a: ncode ~a~%" trace-id code-size)
   ((tjit-disassembler) port trace-id entry-ip code code-size adjust
    loop-address snapshots trampoline root?))
+
+(define (dump-sline port sline trace-id loop? downrec? uprec?
+                    parent-ip parent-exit-id parent-snapshot
+                    parent-fragment linked-fragment)
+  (let ((exit-pair (if parent-ip
+                       (format #f " (~a:~a)"
+                               (fragment-id parent-fragment)
+                               parent-exit-id)
+                       ""))
+        (linked-id (if (or parent-snapshot (not loop?))
+                       (format #f " -> ~a"
+                               (fragment-id linked-fragment))
+                       ""))
+        (ttype (cond
+                ((not loop?) "")
+                (downrec? " - downrec")
+                (uprec? " - uprec")
+                (else ""))))
+    (format port ";;; trace ~a: ~a:~a~a~a~a~%"
+            trace-id (car sline) (cdr sline) exit-pair
+            linked-id ttype)))
 
 (define (dump-tjit-stats)
   (if (eq? 'tjit (vm-engine))

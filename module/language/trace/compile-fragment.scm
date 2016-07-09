@@ -15,6 +15,14 @@
 ;;;; You should have received a copy of the GNU Lesser General Public
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+;;; Commentary:
+;;;
+;;; Module exporting `compile-fragment', the main entry point for trace language
+;;; compiler.
+;;;
+;;; Code:
+
 (define-module (language trace compile-fragment)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
@@ -33,7 +41,8 @@
   #:export (compile-fragment))
 
 (define (compile-fragment bv env traces)
-  (let ((trace-id (env-id env))
+  (let ((result #f)
+        (trace-id (env-id env))
         (entry-ip (env-entry-ip env))
         (parent-exit-id (env-parent-exit-id env))
         (parent-snapshot (env-parent-snapshot env))
@@ -42,54 +51,35 @@
         (loop? (env-loop? env))
         (downrec? (env-downrec? env))
         (uprec? (env-uprec? env))
-        (parent-ip (or (and=> (env-parent-fragment env) fragment-entry-ip)
-                       0))
+        (parent-ip (and=> (env-parent-fragment env) fragment-entry-ip))
         (dump-option (tjit-dump-option)))
+    (define-syntax dump
+      (syntax-rules ()
+        ((_ test data exp)
+         (when (and (test dump-option) data)
+           exp))))
+    (define (dump-sline-and-bytecode test port sline)
+      (dump tjit-dump-jitc? test
+            (dump-sline port sline trace-id loop? downrec? uprec?
+                        parent-ip parent-exit-id parent-snapshot
+                        parent-fragment (env-linked-fragment env)))
+      (dump tjit-dump-bytecode? test
+            (dump-bytecode port trace-id traces)))
+    (define (call-op? op)
+      (or (eq? op 'call)
+          (eq? op 'call-label)
+          (eq? op 'tail-call)
+          (eq? op 'tail-call-label)))
+    (define (unsupported-downrec-prologue? op)
+      (not (or (eq? op 'assert-nargs-ee/locals)
+               (eq? op 'assert-nargs-ee))))
+
     (when (tjit-dump-time? dump-option)
       (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0 0)))
         (put-tjit-time-log! trace-id log)))
-    (let ((sline (addr->source-line entry-ip)))
-      (define (show-sline port)
-        (let ((exit-pair (if (< 0 parent-ip)
-                             (format #f " (~a:~a)"
-                                     (or (and=> parent-fragment fragment-id)
-                                         (format #f "~x" parent-ip))
-                                     parent-exit-id)
-                             ""))
-              (linked-id (if (or parent-snapshot (not loop?))
-                             (format #f " -> ~a"
-                                     (and=> (env-linked-fragment env)
-                                            fragment-id))
-                             ""))
-              (ttype (cond
-                      ((not loop?) "")
-                      (downrec? " - downrec")
-                      (uprec? " - uprec")
-                      (else ""))))
-          (format port ";;; trace ~a: ~a:~a~a~a~a~%"
-                  trace-id (car sline) (cdr sline) exit-pair linked-id ttype)))
-      (define (increment-num-child! fragment)
-        (let ((num-child (fragment-num-child fragment)))
-          (set-fragment-num-child! fragment (+ num-child 1))))
-      (define-syntax call-op?
-        (syntax-rules ()
-          ((_ op)
-           (or (eq? op 'call)
-               (eq? op 'call-label)
-               (eq? op 'tail-call)
-               (eq? op 'tail-call-label)))))
-      (define-syntax unsupported-downrec-prologue?
-        (syntax-rules ()
-          ((_ op)
-           (not (or (eq? op 'assert-nargs-ee/locals)
-                    (eq? op 'assert-nargs-ee))))))
-      (define-syntax dump
-        (syntax-rules ()
-          ((_ test data exp)
-           (when (and (test dump-option) data)
-             exp))))
 
-      (with-tjitc-error-handler env
+    (with-tjitc-error-handler env
+      (lambda ()
         (cond
          ((and (not parent-snapshot) (not loop?))
           (nyi "loop-less root trace"))
@@ -97,15 +87,12 @@
           (nyi "looping side trace"))
          (else
           (let ((implemented? (parse-bytecode env bv traces))
-                (last-op (car (vector-ref (last traces) 0)))
+                (last-op (and=> (vector-ref (last traces) 0) car))
                 (first-op (car (vector-ref (car traces) 0)))
+                (sline (addr->source-line entry-ip))
                 (port (tjit-dump-log)))
-            (define (dump-sline-and-bytecode test)
-              (dump tjit-dump-jitc? test (show-sline port))
-              (dump tjit-dump-bytecode? test
-                    (dump-bytecode port trace-id traces)))
             (when (tjit-dump-abort? dump-option)
-              (dump-sline-and-bytecode #t))
+              (dump-sline-and-bytecode #t port sline))
             (cond
              ((not implemented?)
               (tjit-increment-compilation-failure! entry-ip 3))
@@ -128,25 +115,23 @@
               (nyi "side trace with no linked fragment"))
              (else
               (unless (tjit-dump-abort? dump-option)
-                (dump-sline-and-bytecode implemented?))
-              (let-values (((snapshots anf ops)
-                            (compile-ir env traces)))
+                (dump-sline-and-bytecode implemented? port sline))
+              (let*-values (((snapshots anf ops) (compile-ir env traces))
+                            ((fragment code size adjust loop-addr trampoline)
+                             (compile-native env ops snapshots sline)))
                 (dump tjit-dump-anf? anf (dump-anf port trace-id anf))
                 (dump tjit-dump-ops? ops
                       (dump-primops port trace-id ops snapshots))
-                (let-values (((code size adjust loop-address trampoline)
-                              (compile-native env ops snapshots sline)))
-                  (tjit-increment-id!)
-                  (and=> (and=> (env-parent-fragment env) get-origin-fragment)
-                         increment-num-child!)
-                  (dump tjit-dump-ncode? code
-                        (dump-ncode port trace-id entry-ip code size adjust
-                                    loop-address snapshots trampoline
-                                    (not parent-snapshot))))
+                (dump tjit-dump-ncode? code
+                      (dump-ncode port trace-id entry-ip code size adjust
+                                  loop-addr snapshots trampoline
+                                  (not parent-snapshot)))
+                (tjit-increment-id!)
+                (and=> (and=> (env-parent-fragment env) get-origin-fragment)
+                       increment-fragment-num-child!)
                 (when (tjit-dump-time? dump-option)
                   (let ((log (get-tjit-time-log trace-id))
                         (t (get-internal-run-time)))
-                    (set-tjit-time-log-end! log t))))))))))
-
-      ;; Currently returned value from compilation is unused.
-      (values #f #f #f))))
+                    (set-tjit-time-log-end! log t)))
+                (set! result fragment)))))))))
+    (values result #f #f)))

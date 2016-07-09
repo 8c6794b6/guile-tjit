@@ -73,13 +73,41 @@
 ;;; Auxiliary
 ;;;
 
-(define (load-stack local type dst)
+(define-inlinable (shift-fp nlocals)
+  "Shift FP, new value will be SP plus NLOCALS."
+  (let ((vp r0)
+        (vp->fp r1))
+    (load-vp vp)
+    (jit-addi vp->fp %sp (imm (* nlocals %word-size)))
+    (store-vp->fp vp vp->fp)))
+
+(define-inlinable (shift-sp env %asm offset)
+  "Shift SP for OFFSET, may expand stack with %ASM when offset is negative."
+  (cond
+   ((= 0 offset)
+    (vm-sync-sp %sp))
+   ((< 0 offset)
+    (jit-addi %sp %sp (imm (* offset %word-size)))
+    (vm-sync-sp %sp))
+   (else
+    ;; Stack space might ran out in the middle of next run, expand stack with
+    ;; twice of the spaces used for current iteration to ensure enough space
+    ;; allocated. Then adjust with SP offset saved in snapshot.
+    (let* ((next-offset (* (env-min-sp-offset env) 2))
+           (diff (- offset next-offset)))
+      (vm-expand-stack %asm next-offset)
+      (if (< 0 diff)
+          (jit-addi %sp %sp (imm (* diff %word-size)))
+          (jit-subi %sp %sp (imm (* (- diff) %word-size))))
+      (vm-sync-sp %sp)))))
+
+(define-inlinable (load-stack local type dst)
   (debug 3 ";;; load-stack: local:~a type:~a dst:~a~%"
          local (pretty-type type) (physical-name dst))
   (sp-ref r0 local)
   (unbox-stack-element dst r0 type))
 
-(define (maybe-store %asm local-x-types srcs references shift)
+(define-inlinable (maybe-store %asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
@@ -100,34 +128,6 @@
            (store-stack (- local shift) type src))
          (lp local-x-types srcs))
         (_ (values))))))
-
-(define (shift-fp nlocals)
-  "Shift FP, new value will be SP plus NLOCALS."
-  (let ((vp r0)
-        (vp->fp r1))
-    (load-vp vp)
-    (jit-addi vp->fp %sp (imm (* nlocals %word-size)))
-    (store-vp->fp vp vp->fp)))
-
-(define (shift-sp env %asm offset)
-  "Shift SP for OFFSET, may expand stack with %ASM when offset is negative."
-  (cond
-   ((= 0 offset)
-    (vm-sync-sp %sp))
-   ((< 0 offset)
-    (jit-addi %sp %sp (imm (* offset %word-size)))
-    (vm-sync-sp %sp))
-   (else
-    ;; Stack space might ran out in the middle of next run, expand stack with
-    ;; twice of the spaces used for current iteration to ensure enough space
-    ;; allocated. Then adjust with SP offset saved in snapshot.
-    (let* ((next-offset (* (env-min-sp-offset env) 2))
-           (diff (- offset next-offset)))
-      (vm-expand-stack %asm next-offset)
-      (if (< 0 diff)
-          (jit-addi %sp %sp (imm (* diff %word-size)))
-          (jit-subi %sp %sp (imm (* (- diff) %word-size))))
-      (vm-sync-sp %sp)))))
 
 (define-syntax-rule (move-or-load-carefully dsts srcs dst-types src-types)
   "Move SRCS to DSTS or load without overwriting.
@@ -263,15 +263,6 @@ DST-TYPES, and SRC-TYPES are local index number."
              (lp rest)))))
         (() (values))))))
 
-(define (dump-bailout ip exit-id code)
-  (let ((verbosity (lightning-verbosity)))
-    (when (and verbosity (<= 4 verbosity))
-      (call-with-output-file
-          (format #f "/tmp/bailout-~x-~4,,,'0@a.o" ip exit-id)
-        (lambda (port)
-          (put-bytevector port code)
-          (jit-print))))))
-
 
 ;;;
 ;;; The Native Code Compiler
@@ -301,79 +292,71 @@ DST-TYPES, and SRC-TYPES are local index number."
             (parent-id (or (and=> (env-parent-fragment env) fragment-id)
                            0))
             (gdb-jit-entry
-             (if (tjit-dump-dwarf? (tjit-dump-option))
-                 (let* ((addr (pointer-address (bytevector->pointer code)))
-                        (elf (make-gdb-jit-elf (env-id env) addr size
-                                               (car sline)
-                                               (or (cdr sline) 1))))
-                   (tjit-register-gdb-jit-entry! elf))
-                 #f))
+             (and (tjit-dump-dwarf? (tjit-dump-option))
+                  (let* ((addr (pointer-address (bytevector->pointer code)))
+                         (elf (make-gdb-jit-elf (env-id env) addr size
+                                                (car sline)
+                                                (or (cdr sline) 1))))
+                    (tjit-register-gdb-jit-entry! elf))))
             (loop-vars
-             (if (list? (env-loop-vars env))
-                 (let lp ((vars (reverse (env-loop-vars env))) (acc '()))
-                   (if (null? vars)
-                       (reverse! acc)
-                       (lp (cdr vars)
-                           (cons (hashq-ref storage (car vars)) acc))))
-                 #f))
+             (and (list? (env-loop-vars env))
+                  (let lp ((vars (reverse (env-loop-vars env))) (acc '()))
+                    (if (null? vars)
+                        (reverse! acc)
+                        (lp (cdr vars)
+                            (cons (hashq-ref storage (car vars)) acc))))))
             (checker-types
              (if (env-uprec? env)
                  (let ((nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
                    (filter (match-lambda ((n . _) (< n nlocals)))
                            (env-entry-types env)))
                  (env-entry-types env)))
-            (type-checker (if (zero? parent-id)
-                              (gen-type-checker checker-types (env-id env))
-                              #f))
-            (new-fragment (make-fragment (env-id env)
-                                         code
-                                         exit-counts
-                                         (env-downrec? env)
-                                         (env-uprec? env)
-                                         type-checker
-                                         (env-entry-ip env)
-                                         0
-                                         parent-id
-                                         (env-parent-exit-id env)
-                                         loop-address
-                                         (env-loop-locals env)
-                                         loop-vars
-                                         snapshots
-                                         trampoline
-                                         end-address
-                                         gdb-jit-entry
-                                         storage
-                                         #f
-                                         (env-handle-interrupts? env)
-                                         '() '()))
-            (origin (cond
-                     ((env-parent-fragment env)
-                      => get-origin-fragment)
-                     (else
-                      new-fragment)))
-            (bcode
-             (compile-bailouts env end-address trampoline new-fragment
-                               origin bailouts)))
+            (type-checker (and (zero? parent-id)
+                               (gen-type-checker checker-types (env-id env))))
+            (fragment (make-fragment (env-id env)
+                                     code
+                                     exit-counts
+                                     (env-downrec? env)
+                                     (env-uprec? env)
+                                     type-checker
+                                     (env-entry-ip env)
+                                     0
+                                     parent-id
+                                     (env-parent-exit-id env)
+                                     loop-address
+                                     (env-loop-locals env)
+                                     loop-vars
+                                     snapshots
+                                     trampoline
+                                     end-address
+                                     gdb-jit-entry
+                                     storage
+                                     #f
+                                     (env-handle-interrupts? env)
+                                     '() '()))
+            (origin (or (and=> (env-parent-fragment env) get-origin-fragment)
+                        fragment))
+            (bailout-code (compile-bailouts env end-address trampoline
+                                            fragment origin bailouts)))
        (make-bytevector-executable! code)
-       (set-fragment-bailout-code! new-fragment bcode)
+       (set-fragment-bailout-code! fragment bailout-code)
 
        ;; Same entry-ip could be used when side exit 0 was taken for
        ;; multiple times. Using trace ID as hash table key.
-       (put-fragment! (env-id env) new-fragment)
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
 
        ;; When this trace is a side trace, replace the native code of trampoline
        ;; in parent fragment.
-       (let ((fragment (env-parent-fragment env))
+       (let ((parent-fragment (env-parent-fragment env))
              (code-address (pointer-address ptr)))
-         (when fragment
-           (let ((trampoline (fragment-trampoline fragment))
-                 (side-trace-ids (fragment-side-trace-ids fragment)))
+         (when parent-fragment
+           (let ((trampoline (fragment-trampoline parent-fragment))
+                 (side-trace-ids (fragment-side-trace-ids parent-fragment)))
              (trampoline-set! trampoline (env-parent-exit-id env) ptr)
              (set-snapshot-code! (env-parent-snapshot env) code)
-             (set-fragment-side-trace-ids! fragment
-                                           (cons (env-id env) side-trace-ids))))
-         (values code size code-address loop-address trampoline))))))
+             (let ((new-ids (cons (env-id env) side-trace-ids)))
+               (set-fragment-side-trace-ids! parent-fragment new-ids))))
+         (values fragment code size code-address loop-address trampoline))))))
 
 (define (compile-entry env primops snapshots)
   (when (tjit-dump-time? (tjit-dump-option))
@@ -505,69 +488,69 @@ DST-TYPES, and SRC-TYPES are local index number."
      (failure 'compile-body "not a $primops" primops))))
 
 (define (compile-bailout env %asm snapshot trampoline args)
-  (lambda (end-address self-fragment origin)
-    (let ((entry (jit-label)))
-      (jit-patch entry)
-      (match snapshot
-        (($ $snapshot id sp-offset fp-offset nlocals locals _ _ ip)
-         (define (store-locals shift)
-           (let lp ((locals locals) (args args))
-             (match (cons locals args)
-               ((((local . type) . locals) . (arg . args))
-                (syntax-parameterize ((asm (identifier-syntax %asm)))
-                  (store-stack (- local shift) type arg))
-                (lp locals args))
-               (_ (values)))))
+  (syntax-parameterize ((asm (identifier-syntax %asm)))
+    (lambda (end-address self-fragment origin)
+      (let ((entry (jit-label)))
+        (jit-patch entry)
+        (match snapshot
+          (($ $snapshot id sp-offset fp-offset nlocals locals _ _ ip)
+           (define (store-locals shift)
+             (let lp ((locals locals) (args args))
+               (match (cons locals args)
+                 ((((local . type) . locals) . (arg . args))
+                  (store-stack (- local shift) type arg)
+                  (lp locals args))
+                 (_ (values)))))
 
-         ;; Choose order to shift SP and store frame by sign of SP.
-         (unless (snapshot-longjmp? snapshot)
-           (cond
-            ((= sp-offset 0)
-             (store-locals 0)
-             (shift-fp nlocals))
-            ((< sp-offset 0)
-             (shift-sp env %asm sp-offset)
-             (store-locals sp-offset)
-             (shift-fp nlocals))
-            (else
-             (store-locals 0)
-             (shift-sp env %asm sp-offset)
-             (shift-fp nlocals)))
+           ;; Choose order to shift SP and store frame by sign of SP.
+           (unless (snapshot-longjmp? snapshot)
+             (cond
+              ((= sp-offset 0)
+               (store-locals 0)
+               (shift-fp nlocals))
+              ((< sp-offset 0)
+               (shift-sp env %asm sp-offset)
+               (store-locals sp-offset)
+               (shift-fp nlocals))
+              (else
+               (store-locals 0)
+               (shift-sp env %asm sp-offset)
+               (shift-fp nlocals)))
 
-           ;; Sync next IP with vp->ip for VM.
-           (jit-movi r0 (imm ip))
-           (vm-sync-ip r0)
+             ;; Sync next IP with vp->ip for VM.
+             (jit-movi r0 (imm ip))
+             (vm-sync-ip r0)
 
-           ;; Set tjit return values for VM interpreter.
-           (jit-prepare)
-           (jit-pushargi (imm id))
-           (jit-pushargi (scm->pointer self-fragment))
-           (jit-pushargi (scm->pointer origin))
-           (jit-calli %scm-set-tjit-retval))
-
-         ;; Debug code to dump tjit-retval and locals.
-         (let ((dump-option (tjit-dump-option)))
-           (when (tjit-dump-exit? dump-option)
+             ;; Set tjit return values for VM interpreter.
              (jit-prepare)
-             (load-vp r0)
-             (jit-pushargr r0)
-             (jit-calli %scm-tjit-dump-retval)
-             (when (tjit-dump-verbose? dump-option)
+             (jit-pushargi (imm id))
+             (jit-pushargi (scm->pointer self-fragment))
+             (jit-pushargi (scm->pointer origin))
+             (jit-calli %scm-set-tjit-retval))
+
+           ;; Debug code to dump tjit-retval and locals.
+           (let ((dump-option (tjit-dump-option)))
+             (when (tjit-dump-exit? dump-option)
                (jit-prepare)
-               (jit-pushargi (scm-i-makinumi (env-id env)))
-               (jit-pushargi (imm nlocals))
                (load-vp r0)
                (jit-pushargr r0)
-               (jit-calli %scm-tjit-dump-locals))))
+               (jit-calli %scm-tjit-dump-retval)
+               (when (tjit-dump-verbose? dump-option)
+                 (jit-prepare)
+                 (jit-pushargi (scm-i-makinumi (env-id env)))
+                 (jit-pushargi (imm nlocals))
+                 (load-vp r0)
+                 (jit-pushargr r0)
+                 (jit-calli %scm-tjit-dump-locals))))
 
-         (if (snapshot-longjmp? snapshot)
-             (jit-movi %retval (imm 0))
-             (jit-movi %retval (imm 1)))
-         (jumpi end-address)
+           (if (snapshot-longjmp? snapshot)
+               (jit-movi %retval (imm 0))
+               (jit-movi %retval (imm 1)))
+           (jmpa end-address)
 
-         (cons id entry))
-        (_
-         (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot))))))
+           (cons id entry))
+          (_
+           (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))))))
 
 (define (compile-bailouts env end-address trampoline self-fragment origin
                           bailouts)
@@ -585,8 +568,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                       ((proc . bailouts)
                        (let ((entry (proc end-address self-fragment origin)))
                          (lp bailouts (cons entry acc))))
-                      (()
-                       acc)))))
+                      (() acc)))))
      (jit-epilog)
      (jit-realize)
      (let* ((estimated-size (jit-code-size))
@@ -681,7 +663,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                      (vm-handle-interrupts)))
 
                  ;; Jump to beginning of the loop in linked fragment.
-                 (jumpi (fragment-loop-address linked))))))))))
+                 (jmpa (fragment-loop-address linked))))))))))
     (_
      (failure 'compile-link "not a snapshot ~s" snapshot))))
 

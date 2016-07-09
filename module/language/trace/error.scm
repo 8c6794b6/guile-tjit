@@ -24,7 +24,7 @@
 ;;; Errors in tracing JIT compilation happens when somethings wrong happened
 ;;; other than explicit retry or not-yet-implemented (NYI). Which means,
 ;;; malfunctioning code in bytecode operation which should be compiled.
-
+;;;
 ;;; Code:
 
 (define-module (language trace error)
@@ -35,7 +35,6 @@
   #:use-module (language trace fragment)
   #:use-module (language trace parameters)
   #:export (tjitc-errors
-            call-with-tjitc-error-handler
             with-tjitc-error-handler
             nyi break recompile failure))
 
@@ -52,7 +51,7 @@
 (define (tjitc-errors)
   *tjitc-errors-table*)
 
-(define (call-with-tjitc-error-handler env thunk)
+(define (with-tjitc-error-handler env thunk)
   (define (increment! amount)
     (unless (env-parent-fragment env)
       (tjit-increment-compilation-failure! (env-entry-ip env) amount)))
@@ -74,13 +73,6 @@
            (increment! 5)
            (hashq-set! (tjitc-errors) (env-entry-ip env)
                        (cons meta msg))))))))
-
-(define-syntax with-tjitc-error-handler
-  (syntax-rules ()
-    ((_ ip exp)
-     (call-with-tjitc-error-handler ip
-       (lambda () exp)))))
-
 
 ;;;
 ;;; Errors
