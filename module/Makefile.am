@@ -50,22 +50,22 @@ system/vm/native/jit-code-t.scm: system/vm/native/gen-code-t.scm
 system/vm/native/lightning.go: system/vm/native/jit-code-t.scm
 
 TJIT_IR_TARGETS = 				\
-	system/vm/native/tjit/ir-call.go 	\
-	system/vm/native/tjit/ir-specialized.go \
-	system/vm/native/tjit/ir-prologue.go	\
-	system/vm/native/tjit/ir-branch.go	\
-	system/vm/native/tjit/ir-lexical.go	\
-	system/vm/native/tjit/ir-immediate.go	\
-	system/vm/native/tjit/ir-mutable.go	\
-	system/vm/native/tjit/ir-dynamic.go	\
-	system/vm/native/tjit/ir-string.go  	\
-	system/vm/native/tjit/ir-pair.go	\
-	system/vm/native/tjit/ir-numeric.go	\
-	system/vm/native/tjit/ir-struct.go	\
-	system/vm/native/tjit/ir-array.go	\
-	system/vm/native/tjit/ir-misc.go
+	language/trace/ir-call.go 		\
+	language/trace/ir-specialized.go 	\
+	language/trace/ir-prologue.go		\
+	language/trace/ir-branch.go		\
+	language/trace/ir-lexical.go		\
+	language/trace/ir-immediate.go		\
+	language/trace/ir-mutable.go		\
+	language/trace/ir-dynamic.go		\
+	language/trace/ir-string.go  		\
+	language/trace/ir-pair.go		\
+	language/trace/ir-numeric.go		\
+	language/trace/ir-struct.go		\
+	language/trace/ir-array.go		\
+	language/trace/ir-misc.go
 
-$(TJIT_IR_TARGETS): system/vm/native/tjit/ir.scm
+$(TJIT_IR_TARGETS): language/trace/ir.scm
 
 SOURCES =					\
   ice-9/and-let-star.scm			\
@@ -209,16 +209,18 @@ SOURCES =					\
   language/scheme/decompile-tree-il.scm		\
   language/scheme/spec.scm			\
 						\
-  language/trace/spec.scm			\
-  language/trace/assembler.scm			\
-  language/trace/compile-fragment.scm		\
-  language/trace/compile-ir.scm			\
-  language/trace/compile-native.scm		\
-  language/trace/dump.scm			\
-  language/trace/env.scm			\
-  language/trace/error.scm			\
+  language/trace/parameters.scm			\
   language/trace/fragment.scm			\
+  language/trace/error.scm			\
+  language/trace/types.scm			\
+  language/trace/env.scm			\
   language/trace/gdb.scm			\
+  language/trace/variables.scm			\
+  language/trace/registers.scm			\
+  language/trace/trampoline.scm			\
+  language/trace/snapshot.scm			\
+  language/trace/assembler.scm			\
+  language/trace/ir.scm				\
   language/trace/ir-array.scm			\
   language/trace/ir-branch.scm			\
   language/trace/ir-call.scm			\
@@ -230,19 +232,16 @@ SOURCES =					\
   language/trace/ir-numeric.scm			\
   language/trace/ir-pair.scm			\
   language/trace/ir-prologue.scm		\
-  language/trace/ir.scm				\
   language/trace/ir-specialized.scm		\
   language/trace/ir-string.scm			\
   language/trace/ir-struct.scm			\
-  language/trace/parameters.scm			\
   language/trace/parse.scm			\
   language/trace/ra.scm				\
-  language/trace/registers.scm			\
-  language/trace/snapshot.scm			\
+  language/trace/dump.scm			\
+  language/trace/compile-ir.scm			\
+  language/trace/compile-native.scm		\
+  language/trace/compile-fragment.scm		\
   language/trace/spec.scm			\
-  language/trace/trampoline.scm			\
-  language/trace/types.scm			\
-  language/trace/variables.scm			\
 						\
   language/tree-il.scm				\
   language/tree-il/analyze.scm			\
