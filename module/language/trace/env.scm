@@ -82,7 +82,7 @@
 
 ;; Data type to contain environment.
 ;;
-(define-record-type $env
+(define-record-type <env>
   (%make-env id entry-ip linked-ip linked-fragment
              parent-exit-id parent-fragment parent-snapshot
              loop? downrec? uprec? linking-roots?
@@ -208,13 +208,35 @@
                   loop? downrec? uprec?
                   sp-offset fp-offset write-indices live-indices
                   types-from-parent inline-depth)
-  (%make-env id entry-ip linked-ip #f
-             parent-exit-id parent-fragment parent-snapshot
-             loop? downrec? uprec? #f
-             #f #f #f #f #f '() '() sp-offset fp-offset 0
-             write-indices '() (list write-indices) live-indices
-             '() (copy-tree types-from-parent)
-             0 0 '() '() inline-depth (make-hash-table) 0))
+  (let ((linked-fragment #f)
+        (linking-roots? #f)
+        (handle-interrupts? #f)
+        (save-volatiles? #f)
+        (initialized? #f)
+        (loop-locals #f)
+        (loop-vars #f)
+        (sp-offsets '())
+        (fp-offsets '())
+        (last-sp-offset 0)
+        (read-indices '())
+        (write-buf (list write-indices))
+        (entry-types '())
+        (inferred-types (copy-tree types-from-parent))
+        (call-num 0)
+        (return-num 0)
+        (calls '())
+        (returns '())
+        (applied-guards (make-hash-table))
+        (min-sp-offset 0))
+    (%make-env id entry-ip linked-ip linked-fragment
+               parent-exit-id parent-fragment parent-snapshot
+               loop? downrec? uprec? linking-roots?
+               handle-interrupts? save-volatiles? initialized?
+               loop-locals loop-vars sp-offsets fp-offsets
+               sp-offset fp-offset last-sp-offset
+               write-indices read-indices write-buf live-indices
+               entry-types inferred-types call-num return-num calls returns
+               inline-depth applied-guards min-sp-offset)))
 
 (define (env-local-indices env)
   (sort (delete-duplicates (append (env-write-indices env)
@@ -280,9 +302,9 @@ inline depth by one."
          (entry (if (eq? t &any)
                     entry
                     (let lp ((current entry) (acc entry))
-                      ;; Unless the given type was `&any', update the copied
-                      ;; type. If copy was marked as `&any', initial stack load
-                      ;; might skip necessary locals.
+                      ;; Unless the given type was `&any', update the
+                      ;; copied type. If copy was marked as `&any',
+                      ;; initial stack load might skip necessary locals.
                       (match current
                         (((i 'copy . (? n?)) . current)
                          (lp current (assq-set! acc i t)))
