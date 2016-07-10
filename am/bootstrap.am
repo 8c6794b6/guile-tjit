@@ -41,7 +41,7 @@ SUFFIXES = .scm .go
 
 .scm.go:
 	$(AM_V_GUILEC)GUILE_AUTO_COMPILE=0			\
-	$(top_builddir)/meta/uninstalled-env			\
+	$(top_builddir)/meta/build-env				\
 	guild compile --target="$(GUILE_TARGET)"                \
           $(GUILE_WARNINGS) $(GUILE_OPTIMIZATIONS)              \
 	  -L "$(abs_top_srcdir)/module"                         \

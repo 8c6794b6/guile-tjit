@@ -28,7 +28,7 @@ SUFFIXES = .scm .el .go
 
 .scm.go:
 	$(AM_V_GUILEC)GUILE_AUTO_COMPILE=0			\
-	$(top_builddir)/meta/uninstalled-env			\
+	$(top_builddir)/meta/build-env				\
 	guild compile --target="$(host)" $(GUILE_WARNINGS)	\
 	  -L "$(abs_srcdir)" -L "$(abs_builddir)"		\
 	  -L "$(abs_top_srcdir)/guile-readline"			\
@@ -36,7 +36,7 @@ SUFFIXES = .scm .el .go
 
 .el.go:
 	$(AM_V_GUILEC)GUILE_AUTO_COMPILE=0			\
-	$(top_builddir)/meta/uninstalled-env			\
+	$(top_builddir)/meta/build-env				\
 	guild compile --target="$(host)" $(GUILE_WARNINGS)	\
 	  -L "$(abs_srcdir)" -L "$(abs_builddir)"		\
 	  -L "$(abs_top_srcdir)/guile-readline"			\
