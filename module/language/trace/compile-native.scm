@@ -283,11 +283,11 @@ DST-TYPES, and SRC-TYPES are local index number."
                     (tjit-register-gdb-jit-entry! elf))))
             (loop-vars
              (and (list? (env-loop-vars env))
-                  (let lp ((vars (reverse (env-loop-vars env))) (acc '()))
+                  (let lp ((vars (env-loop-vars env)) (acc '()))
                     (if (null? vars)
-                        (reverse! acc)
+                        acc
                         (lp (cdr vars)
-                            (cons (hashq-ref storage (car vars)) acc))))))
+                            (cons (storage-ref storage (car vars)) acc))))))
             (checker-types
              (if (env-uprec? env)
                  (let ((nlocals (snapshot-nlocals
@@ -575,7 +575,7 @@ DST-TYPES, and SRC-TYPES are local index number."
       (match indices
         ((n . indices)
          (let ((var (make-var n)))
-           (and=> (hashq-ref storage var)
+           (and=> (storage-ref storage var)
                   (lambda (phy)
                     (hashq-set! ret (- n shift) phy)))
            (lp indices ret)))
@@ -671,7 +671,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                   ((((n . t) . loop-locals) . (v . loop-vars))
                    (and=> (hashq-ref src-var-table (+ n sp-offset))
                           (lambda (src)
-                            (let ((dst (hashq-ref storage v)))
+                            (let ((dst (storage-ref storage v)))
                               (move dst src))))
                    (lp loop-locals loop-vars))
                   (_
@@ -700,7 +700,7 @@ DST-TYPES, and SRC-TYPES are local index number."
            (match (cons loop-locals loop-vars)
              ((((n . type) . loop-locals) . (var . loop-vars))
               (hashq-set! dst-type-table n type)
-              (hashq-set! dst-var-table n (hashq-ref storage var))
+              (hashq-set! dst-var-table n (storage-ref storage var))
               (lp loop-locals loop-vars))
              (_
               (shift-sp env %asm sp-offset)
