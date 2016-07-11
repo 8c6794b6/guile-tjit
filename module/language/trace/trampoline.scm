@@ -86,18 +86,30 @@
 
 ;;;; Exported interface
 
-(define (make-trampoline size)
-  (with-jit-state
-   (jit-prolog)
-   (jit-tramp (imm (* 4 %word-size)))
-   (do ((i 0 (+ i 1)))
-       ((= i size))
-     ;; Dummy jump destination.
-     (jit-movi r0 (imm #xdeadbeaf))
-     (jit-jmpr r0))
-   (jit-epilog)
-   (jit-realize)
-   (emit-to-bytevector!)))
+(define *trampoline-cache* '())
+
+(define (make-trampoline num-entries)
+  (let* ((size (* num-entries size-of-trampoline-entry))
+         (paged-size (* 4096 (+ (quotient size 4096) 1)))
+         (cached (assq-ref *trampoline-cache* paged-size)))
+    (if cached
+        (let ((bv (bytevector-copy cached)))
+          (make-bytevector-executable! bv)
+          bv)
+        (let ((bv (with-jit-state
+                   (jit-prolog)
+                   (jit-tramp (imm (* 4 %word-size)))
+                   (do ((i 0 (+ i 1)))
+                       ((<= (/ paged-size size-of-trampoline-entry) i))
+                     ;; Dummy jump destination.
+                     (jit-movi r0 (imm #xdeadbeaf))
+                     (jit-jmpr r0))
+                   (jit-epilog)
+                   (jit-realize)
+                   (emit-to-bytevector!))))
+          (set! *trampoline-cache*
+            (acons paged-size bv *trampoline-cache*))
+          bv))))
 
 (define (trampoline-ref trampoline i)
   (let ((start (bytevector->pointer trampoline))
