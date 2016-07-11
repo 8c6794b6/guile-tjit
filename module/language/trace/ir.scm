@@ -466,7 +466,7 @@ runtime."
                                       (current-inline-depth env) env
                                       refill?)))
            (let ((old-id (ir-snapshot-id ir)))
-             (hashq-set! (ir-snapshots ir) old-id snapshot)
+             (snapshots-set! (ir-snapshots ir) old-id snapshot)
              (set-ir-snapshot-id! ir (+ old-id 1))
              (set-ir-cached-snapshot! ir snapshot))
            ret)))))

@@ -205,7 +205,7 @@
          (let* ((regs (map ref args))
                 (prim `(%snap ,id ,@regs)))
            (set! snapshot-id id)
-           (set-snapshot-variables! (hashq-ref snapshots id) regs)
+           (set-snapshot-variables! (snapshots-ref snapshots id) regs)
            (assign-term term1 (cons prim acc))))
         (('let (('_ (op . args))) term1)
          (let ((prim `(,op ,@(map ref args))))

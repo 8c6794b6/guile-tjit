@@ -250,7 +250,7 @@ option was set to true."
   (define (dump-one idx op)
     (match op
       (('%snap id . _)
-       (dump-snapshot (hashq-ref snapshots id)))
+       (dump-snapshot (snapshots-ref snapshots id)))
       (_
        (let ((mark (mark-op op)))
          (match op

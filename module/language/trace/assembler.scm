@@ -1746,7 +1746,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     ;; While making continuation, stack contents will get copied to continuation
     ;; data. Store register contents to stack before calling
     ;; `scm-make-continuation', to use updated stack element.
-    (match (hashq-ref (asm-snapshots asm) (ref-value id))
+    (match (snapshots-ref (asm-snapshots asm) (ref-value id))
       (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
        (let lp ((locals locals) (vars vars))
          (match (cons locals vars)
@@ -1791,7 +1791,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (jump (jit-bnei r1 (con ip)) (bailout))
 
     ;; Storing stack elements from snapshot.
-    (match (hashq-ref (asm-snapshots asm) (ref-value id))
+    (match (snapshots-ref (asm-snapshots asm) (ref-value id))
       (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
        (let lp ((locals locals) (vars vars))
          (match (cons locals vars)

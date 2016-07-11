@@ -300,7 +300,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                             (cons (hashq-ref storage (car vars)) acc))))))
             (checker-types
              (if (env-uprec? env)
-                 (let ((nlocals (snapshot-nlocals (hashq-ref snapshots 0))))
+                 (let ((nlocals (snapshot-nlocals
+                                 (snapshots-ref snapshots 0))))
                    (filter (match-lambda ((n . _) (< n nlocals)))
                            (env-entry-types env)))
                  (env-entry-types env)))
@@ -371,7 +372,7 @@ DST-TYPES, and SRC-TYPES are local index number."
            ;; side trace.
            (match (env-parent-snapshot env)
              (($ $snapshot _ _ _ _ locals vars)
-              (let* ((snap0 (hashq-ref snapshots 0))
+              (let* ((snap0 (snapshots-ref snapshots 0))
                      (locals0 (snapshot-locals snap0))
                      (vars0 (snapshot-variables snap0))
                      (references (make-hash-table))
@@ -423,7 +424,7 @@ DST-TYPES, and SRC-TYPES are local index number."
       (match ops
         ((('%snap snapshot-id . args) . ops)
          (cond
-          ((hashq-ref snapshots snapshot-id)
+          ((snapshots-ref snapshots snapshot-id)
            => (lambda (snapshot)
                 (cond
                  ((snapshot-downrec? snapshot)
@@ -610,7 +611,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (src-type-table (make-src-type-table locals sp-offset))
             (ref-table (make-hash-table))
             (linked-snapshots (fragment-snapshots linked))
-            (linked-snap1 (hashq-ref linked-snapshots 1))
+            (linked-snap1 (snapshots-ref linked-snapshots 1))
             (my-depth (snapshot-inline-depth snapshot)))
 
        (let lp ((loop-locals loop-locals)

@@ -73,7 +73,7 @@
     (let ((log (get-tjit-time-log (env-id env))))
       (set-tjit-time-log-anf! log (get-internal-run-time))))
   (let*-values (((vars snapshots anf) (compile-anf env trace))
-                ((snapshot0) (hashq-ref snapshots 0)))
+                ((snapshot0) (snapshots-ref snapshots 0)))
     (when (tjit-dump-time? (tjit-dump-option))
       (let ((log (get-tjit-time-log (env-id env))))
         (set-tjit-time-log-ops! log (get-internal-run-time))))
@@ -102,7 +102,7 @@ Currently does nothing, returns the given argument."
   ;; lower frame won't be passed as argument. Loading later with '%sref' or
   ;; '%sref/f'.
   ;;
-  (let* ((snapshot0 (hashq-ref snapshots 0))
+  (let* ((snapshot0 (snapshots-ref snapshots 0))
          (snapshot0-locals (snapshot-locals snapshot0))
          (parent-snapshot-locals (or (and=> parent-snapshot snapshot-locals)
                                      '())))
@@ -192,7 +192,7 @@ Currently does nothing, returns the given argument."
          (initial-inline-depth (env-inline-depth env))
          (initial-sp-offset (env-sp-offset env))
          (initial-fp-offset (env-fp-offset env))
-         (snapshots (make-hash-table))
+         (snapshots (make-empty-snapshots))
          (snapshot-id 0)
          (loaded-vars (make-hash-table)))
     (define (initial-snapshot! write-indices vars)
@@ -204,7 +204,7 @@ Currently does nothing, returns the given argument."
                                    (+ (max initial-sp-offset 0)
                                       initial-nlocals)
                                    initial-inline-depth env)))
-        (hashq-set! snapshots snapshot-id snapshot)
+        (snapshots-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
     (define (get-live-vars storage snapshot)
@@ -290,7 +290,7 @@ Currently does nothing, returns the given argument."
                                                 ,(patch-body)))))
                               patch))))))))))
 
-         (else                          ; Root trace.
+         (else ; Root trace.
           ;; Root trace takes snapshot 0, used to emit bailout code without
           ;; stack element update. Snapshot 0 is saved to snapshots as usual,
           ;; and snapshot ID get incremented.
@@ -302,7 +302,7 @@ Currently does nothing, returns the given argument."
                  (thunk (lambda ()
                           `(loop ,@args)))
                  (snap0 (make-snapshot 0 0 0 initial-nlocals arg-indices
-                                       env initial-ip 0))
+                                       env initial-ip 0 #f))
                  (live-indices (if (env-uprec? env)
                                    (filter (lambda (n)
                                              (<= 0 n (- initial-nlocals 1)))
@@ -336,7 +336,7 @@ Currently does nothing, returns the given argument."
                 (()
                  (set-env-inferred-types! env dsts)
                  (set-env-live-indices! env live-indices)
-                 (hashq-set! snapshots 0 snap0)
+                 (snapshots-set! snapshots 0 snap0)
                  (set! snapshot-id (+ snapshot-id 1))
                  `(letrec ((entry (lambda ()
                                     (let ((_ (%snap 0)))
@@ -348,7 +348,8 @@ Currently does nothing, returns the given argument."
     (values vars snapshots (make-anf))))
 
 (define (trace->anf env ir traces)
-  (let* ((initial-nlocals (snapshot-nlocals (hashq-ref (ir-snapshots ir) 0)))
+  (let* ((initial-nlocals
+          (snapshot-nlocals (snapshots-ref (ir-snapshots ir) 0)))
          (last-sp-offset (env-last-sp-offset env))
          (last-fp-offset (let* ((fp-offsets (env-fp-offsets env))
                                 (i (- (vector-length fp-offsets) 1)))
@@ -366,7 +367,7 @@ Currently does nothing, returns the given argument."
                                    (env-inline-depth env) env #f
                                    nlocals)))
         (let ((old-id (ir-snapshot-id ir)))
-          (hashq-set! (ir-snapshots ir) old-id snapshot)
+          (snapshots-set! (ir-snapshots ir) old-id snapshot)
           (set-ir-snapshot-id! ir (+ old-id 1))
           ret)))
     (define (gen-last-op op ip ra dl locals)

@@ -53,6 +53,10 @@
             snapshot-inline-depth
             snapshot-inferred-types
 
+            make-empty-snapshots
+            snapshots-ref
+            snapshots-set!
+
             snapshot-link?
             snapshot-downrec?
             snapshot-uprec?
@@ -63,7 +67,7 @@
             *ip-key-longjmp*))
 
 
-;;; Record type
+;;;; Snapshot
 
 (define-record-type $snapshot
   (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
@@ -103,11 +107,8 @@
   ;; Inferred types at the time of snapshot creation.
   (inferred-types snapshot-inferred-types))
 
-
-;;;; Constructor
-
-(define* (make-snapshot id sp-offset fp-offset nlocals write-indices
-                        env ip inline-depth #:optional (refill-ra-dl? #f))
+(define (make-snapshot id sp-offset fp-offset nlocals write-indices
+                       env ip inline-depth refill-ra-dl?)
   (let lp ((is (sort! write-indices <)) (acc '()))
     (match is
       ((i . is)
@@ -117,8 +118,8 @@
        (call-with-values
            (lambda ()
              (if refill-ra-dl?
-                 (let* ((acc (assq-set! acc (+ sp-offset nlocals) &false))
-                        (acc (assq-set! acc (+ sp-offset nlocals 1) &false)))
+                 (let* ((acc (acons (+ sp-offset nlocals) &false acc))
+                        (acc (acons (+ sp-offset nlocals 1) &false acc)))
                    (values (+ fp-offset 2) (+ nlocals 2) acc))
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
@@ -127,21 +128,36 @@
                            (copy-tree (env-inferred-types env)))))))))
 
 
+;;;; Snapshots
+
+(define-inlinable (make-empty-snapshots)
+  (make-hash-table))
+
+(define-inlinable (snapshots-ref snapshots index)
+  (hashq-ref snapshots index))
+
+(define-inlinable (snapshots-set! snapshots index snapshot)
+  (hashq-set! snapshots index snapshot))
+
+
 ;;;; IP Keys
 
-(define *ip-key-link* 0)
-(define *ip-key-downrec* 1)
-(define *ip-key-uprec* 2)
-(define *ip-key-longjmp* 3)
+(define-syntax-rule (define-ip-key name val)
+  (define-syntax name (identifier-syntax val)))
 
-(define (snapshot-link? snapshot)
+(define-ip-key *ip-key-link* 0)
+(define-ip-key *ip-key-downrec* 1)
+(define-ip-key *ip-key-uprec* 2)
+(define-ip-key *ip-key-longjmp* 3)
+
+(define-inlinable (snapshot-link? snapshot)
   (= (snapshot-ip snapshot) *ip-key-link*))
 
-(define (snapshot-downrec? snapshot)
+(define-inlinable (snapshot-downrec? snapshot)
   (= (snapshot-ip snapshot) *ip-key-downrec*))
 
-(define (snapshot-uprec? snapshot)
+(define-inlinable (snapshot-uprec? snapshot)
   (= (snapshot-ip snapshot) *ip-key-uprec*))
 
-(define (snapshot-longjmp? snapshot)
+(define-inlinable (snapshot-longjmp? snapshot)
   (= (snapshot-ip snapshot) *ip-key-longjmp*))
