@@ -80,7 +80,8 @@
     (when (tjit-dump-time? dump-option)
       (let ((log (make-tjit-time-log (get-internal-run-time) 0 0 0 0 0)))
         (put-tjit-time-log! trace-id log)))
-
+    (when (tjit-dump-prof? dump-option)
+      (start-tjitc-profiler))
     (with-tjitc-error-handler env
       (lambda ()
         (cond
@@ -137,4 +138,6 @@
                         (t (get-internal-run-time)))
                     (set-tjit-time-log-end! log t)))
                 (set! result fragment)))))))))
+    (when (tjit-dump-prof? dump-option)
+      (stop-tjitc-profiler))
     (values result #f #f)))

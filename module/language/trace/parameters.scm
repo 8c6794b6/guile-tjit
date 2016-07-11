@@ -35,8 +35,9 @@
   #:use-module (ice-9 regex)
   #:use-module (ice-9 rdelim)
   #:use-module (rnrs bytevectors)
-  #:use-module (system foreign)
   #:use-module (srfi srfi-9)
+  #:use-module (statprof)
+  #:use-module (system foreign)
   #:use-module (language trace trampoline)
   #:export (tjit-ip-counter
             tjit-fragment
@@ -78,6 +79,7 @@
             tjit-dump-ops?
             tjit-dump-ncode?
             tjit-dump-jitc?
+            tjit-dump-prof?
             tjit-dump-anf?
             tjit-dump-snapshot?
             tjit-dump-time?
@@ -100,6 +102,10 @@
             get-tjit-time-log
             fold-tjit-time-logs
 
+            start-tjitc-profiler
+            stop-tjitc-profiler
+            display-tjitc-profile
+
             tjit-max-spills
             tjit-max-inline-depth
             tjit-max-locals
@@ -114,8 +120,8 @@
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
-  (make-tjit-dump abort bytecode dwarf ops jitc locals ncode anf snapshot
-                  time exit)
+  (make-tjit-dump abort bytecode dwarf ops jitc locals ncode prof anf
+                  snapshot time exit)
   tjit-dump?
   (abort tjit-dump-abort? set-tjit-dump-abort!)
   (bytecode tjit-dump-bytecode? set-tjit-dump-bytecode!)
@@ -124,6 +130,7 @@
   (jitc tjit-dump-jitc? set-tjit-dump-jitc!)
   (locals tjit-dump-verbose? set-tjit-dump-verbose!)
   (ncode tjit-dump-ncode? set-tjit-dump-ncode!)
+  (prof tjit-dump-prof? set-tjit-dump-prof!)
   (anf tjit-dump-anf? set-tjit-dump-anf!)
   (snapshot tjit-dump-snapshot? set-tjit-dump-snapshot!)
   (time tjit-dump-time? set-tjit-dump-time!)
@@ -131,7 +138,7 @@
 
 (define (make-empty-tjit-dump-option)
   "Makes tjit-dump data with all fields set to #f"
-  (make-tjit-dump #f #f #f #f #f #f #f #f #f #f #f))
+  (make-tjit-dump #f #f #f #f #f #f #f #f #f #f #f #f))
 
 (define (parse-tjit-dump-flags str)
   "Parse dump flags in string STR and return <tjit-dump> data.
@@ -150,6 +157,8 @@ Flags are:
 
 - 'o': Dump primitive operations.
 
+- 'p': Take profiling information of native compilation.
+
 - 'i': Dump ANF IR.
 
 - 's': Dump snapshot when dumping primitive operations.
@@ -160,9 +169,9 @@ Flags are:
 
 - 'x': Dump exit.
 
-For instance, @code{(parse-tjit-dump-flags \"lexb\")} will return a <tjit-dump>
-data with locals, entry, exit, and bytecodes field set to @code{#t} and other
-fields to @code{#f}."
+For instance, @code{(parse-tjit-dump-flags \"jbx\")} will return a <tjit-dump>
+data with jitx, bytecode, and exit fields set to @code{#t} and other fields to
+@code{#f}."
   (let ((o (make-empty-tjit-dump-option)))
     (let lp ((cs (string->list str)))
       (let-syntax ((flags (syntax-rules ()
@@ -182,6 +191,7 @@ fields to @code{#f}."
                (#\j set-tjit-dump-jitc!)
                (#\n set-tjit-dump-ncode!)
                (#\o set-tjit-dump-ops!)
+               (#\p set-tjit-dump-prof!)
                (#\i set-tjit-dump-anf!)
                (#\s set-tjit-dump-snapshot!)
                (#\t set-tjit-dump-time!)
@@ -253,6 +263,31 @@ fields to @code{#f}."
 (define (fold-tjit-time-logs proc init)
   (hash-fold proc init *tjit-time-logs*))
 
+
+;;;; JIT compilation profiler
+
+(define tjitc-profiler-state
+  (let ((state ((@@ (statprof) fresh-profiler-state))))
+    state))
+
+(define-syntax-rule (with-tjitc-statprof-state . body)
+  (parameterize (((@@ (statprof) profiler-state) tjitc-profiler-state))
+    . body))
+
+(define (start-tjitc-profiler)
+  (with-tjitc-statprof-state (statprof-start)))
+
+(define (stop-tjitc-profiler)
+  (with-tjitc-statprof-state (statprof-stop)))
+
+(define* (display-tjitc-profile #:optional (port (current-output-port))
+                                #:key (style 'flat))
+  (with-tjitc-statprof-state
+   (statprof-display port tjitc-profiler-state #:style style)))
+
+
+;;;; Scheme Parameters
+
 (define (default-disassembler port trace-id entry-ip code code-size adjust
           loop-address snapshots trampoline root?)
   "Disassemble CODE with size CODE-SIZE, using ADDR as offset address.
@@ -317,9 +352,6 @@ assumes `objdump' executable already installed."
             (lp (read-line pipe) (+ n 1) done?))))
       (close-pipe pipe)
       (delete-file path))))
-
-
-;;;; Scheme Parameters
 
 ;; Parameter to control dump setting during compilation of traces.
 (define tjit-dump-option
