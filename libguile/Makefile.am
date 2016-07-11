@@ -1,7 +1,7 @@
 ## Process this file with Automake to create Makefile.in
 ##
 ##   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2006, 2007,
-##     2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+##     2008, 2009, 2010, 2011, 2012, 2013, 2014, 2016 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -456,7 +456,7 @@ EXTRA_libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES = _scm.h		\
     dynl.c regex-posix.c			\
     posix.c net_db.c socket.c			\
     debug-malloc.c				\
-    win32-uname.c				\
+    posix-w32.c					\
     locale-categories.h
 
 ## delete guile-snarf.awk from the installation bindir, in case it's
@@ -504,7 +504,7 @@ noinst_HEADERS = conv-integer.i.c conv-uinteger.i.c		\
                  elf.h						\
                  srfi-14.i.c					\
                  quicksort.i.c                                  \
-                 win32-uname.h					\
+                 posix-w32.h					\
 		 private-options.h ports-internal.h
 
 # vm instructions
