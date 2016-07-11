@@ -35,7 +35,10 @@
 ;;; Code:
 
 (define-module (language trace trampoline)
+  #:use-module (ice-9 format)
+  #:use-module (language trace compat)
   #:use-module (rnrs bytevectors)
+  #:use-module (srfi srfi-9)
   #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm native lightning)
@@ -56,6 +59,8 @@
    (jit-emit)
    (jit-code-size)))
 
+(define *move-immediate-template* #f)
+
 (define (get-size-of-move-immediate)
   (with-jit-state
    (jit-prolog)
@@ -63,8 +68,11 @@
    (jit-movi r0 (imm #xdeadbeaf))
    (jit-epilog)
    (jit-realize)
-   (jit-emit)
-   (jit-code-size)))
+   (let* ((ptr (jit-emit))
+          (size (jit-code-size)))
+     (set! *move-immediate-template*
+       (pointer->bytevector ptr size))
+     size)))
 
 (define size-of-jump-to-register
   (get-size-of-jump-to-register))
@@ -83,46 +91,53 @@
     (make-bytevector-executable! bv)
     bv))
 
+;; Record type for trampoline. Holds bytevector of native code and the address
+;; of the native code.
+(define-record-type <trampoline>
+  (%make-trampoline code address)
+  trampoline?
+  (code trampoline-code set-trampoline-code!)
+  (address trampoline-address set-trampoline-address!))
+
+(define *trampoline-code-cache* '())
+
 
 ;;;; Exported interface
-
-(define *trampoline-cache* '())
 
 (define (make-trampoline num-entries)
   (let* ((size (* num-entries size-of-trampoline-entry))
          (paged-size (* 4096 (+ (quotient size 4096) 1)))
-         (cached (assq-ref *trampoline-cache* paged-size)))
+         (cached (assq-ref *trampoline-code-cache* paged-size)))
     (if cached
-        (let ((bv (bytevector-copy cached)))
+        (let* ((bv (bytevector-copy cached))
+               (addr (pointer-address (bytevector->pointer bv))))
           (make-bytevector-executable! bv)
-          bv)
-        (let ((bv (with-jit-state
-                   (jit-prolog)
-                   (jit-tramp (imm (* 4 %word-size)))
-                   (do ((i 0 (+ i 1)))
-                       ((<= (/ paged-size size-of-trampoline-entry) i))
-                     ;; Dummy jump destination.
-                     (jit-movi r0 (imm #xdeadbeaf))
-                     (jit-jmpr r0))
-                   (jit-epilog)
-                   (jit-realize)
-                   (emit-to-bytevector!))))
-          (set! *trampoline-cache*
-            (acons paged-size bv *trampoline-cache*))
-          bv))))
+          (%make-trampoline bv addr))
+        (with-jit-state
+         (jit-prolog)
+         (jit-tramp (imm (* 4 %word-size)))
+         (do ((i 0 (+ i 1)))
+             ((<= (/ paged-size size-of-trampoline-entry) i))
+           ;; Dummy jump destination.
+           (jit-movi r0 (imm #xdeadbeaf))
+           (jit-jmpr r0))
+         (jit-epilog)
+         (jit-realize)
+         (let* ((size (jit-code-size))
+                (bv (make-bytevector size))
+                (_ (jit-set-code (bytevector->pointer bv) (imm size)))
+                (ptr (jit-emit)))
+           (make-bytevector-executable! bv)
+           (set! *trampoline-code-cache*
+             (acons paged-size bv *trampoline-code-cache*))
+           (%make-trampoline bv (pointer-address ptr)))))))
 
 (define (trampoline-ref trampoline i)
-  (let ((start (bytevector->pointer trampoline))
-        (offset (* i size-of-trampoline-entry)))
-    (make-pointer (+ (pointer-address start) offset))))
+  (make-pointer (+ (trampoline-address trampoline)
+                   (* i size-of-trampoline-entry))))
 
 (define (trampoline-set! trampoline i dest)
-  (with-jit-state
-   (jit-prolog)
-   (jit-tramp (imm (* 4 %word-size)))
-   (jit-movi r0 dest)
-   (jit-epilog)
-   (jit-realize)
-   (let ((entry (pointer->bytevector (jit-emit) size-of-move-immediate)))
-     (bytevector-copy! entry 0 trampoline (* i size-of-trampoline-entry)
-                       size-of-move-immediate))))
+  (bytevector-copy! (move-immediate-code dest) 0
+                    (trampoline-code trampoline)
+                    (* i size-of-trampoline-entry)
+                    size-of-move-immediate))

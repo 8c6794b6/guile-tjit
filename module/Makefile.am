@@ -67,6 +67,11 @@ TJIT_IR_TARGETS = 				\
 
 $(TJIT_IR_TARGETS): language/trace/ir.scm
 
+TJIT_COMPAT_SOURCES = 				\
+	language/trace/compat-x86_64-linux.scm
+
+language/trace/compat.go: $(TJIT_COMPAT_SOURCES)
+
 SOURCES =					\
   ice-9/and-let-star.scm			\
   ice-9/binary-ports.scm			\
@@ -212,6 +217,7 @@ SOURCES =					\
   language/trace/parameters.scm			\
   language/trace/fragment.scm			\
   language/trace/error.scm			\
+  language/trace/compat.scm			\
   language/trace/types.scm			\
   language/trace/env.scm			\
   language/trace/gdb.scm			\

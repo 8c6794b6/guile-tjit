@@ -20,53 +20,26 @@
 
 ;;; Commentary:
 ;;;
-;;; Module containing register related codes. Currently works under x86-64 Linux
-;;; only, using architecture dependent registers. Lightning has it's own
-;;; register management policy, not sure how it works under other architecture
-;;; than x86-64 Linux.
+;;; Module containing register related codes.
 ;;;
 ;;; Code:
 
 (define-module (language trace registers)
-  #:use-module (system vm native lightning)
+  #:use-module (language trace compat)
   #:use-module (language trace error)
-  #:export (*num-gpr*
+  #:use-module (system vm native lightning)
+  #:export (gpr-ref
+            fpr-ref
+            *num-gpr*
             *num-fpr*
             *num-volatiles*
             *num-non-volatiles*
-            *num-arg-gprs*
-            *num-arg-fprs*
-            gpr-ref
-            fpr-ref
-            %fp
-            %sp
-            %thread
-            %retval
-            register-name))
-
-
-;;;; Internal aliases
-
-(define rbx v0)
-(define r13 v1)
-(define r14 v2)
-(define r15 v3)
-
-(define r9 (jit-r 8))
-(define r8 (jit-r 9))
-(define rcx (jit-r 10))
-(define rdx (jit-r 11))
-(define rsi (jit-r 12))
-(define rdi (jit-r 13))
-
-(define xmm7 (jit-f 8))
-(define xmm6 (jit-f 9))
-(define xmm5 (jit-f 10))
-(define xmm4 (jit-f 11))
-(define xmm3 (jit-f 12))
-(define xmm2 (jit-f 13))
-(define xmm1 (jit-f 14))
-(define xmm0 (jit-f 15))
+            %fp %sp %thread %retval)
+  #:re-export (*gprs*
+               *fprs*
+               *num-arg-gprs*
+               *num-arg-fprs*
+               register-name))
 
 
 ;;;; Exported
@@ -76,56 +49,24 @@
 (define %fp (jit-fp))
 
 ;; Non-volatile register to hold vp->sp.
-(define-syntax %sp (identifier-syntax rbx))
+(define-syntax %sp (identifier-syntax v0))
 
 ;; Non-volatile register to hold thread.
-(define-syntax %thread (identifier-syntax r13))
+(define-syntax %thread (identifier-syntax v1))
 
 ;; Volatile register to hold retval.
 (define-syntax %retval (identifier-syntax r0))
 
-;; Non-volatile registers. `r3' from Lightning is R12, which is non-volatile in
-;; Linux's calling convention sense, but Lightning sometimes internally uses
-;; `r3', e.g: when branching instruction `jit-beqi' which takes immediate
-;; values, were called and r0, r1, r2 were already in use.
-(define *non-volatile-registers*
-  `#(,r14 ,r15))
+(define *num-gpr* (vector-length *gprs*))
 
-;; Ordering is mandatory.
-;;
-;; The last element in the vector is ARG1 register, next to the last is ARG2
-;; register, and so on. Non-argument volatile registers need to be placed at the
-;; beginning of the vector. R0, R1, and R2 are used as scratch register.
-(define *volatile-registers*
-  `#(,r9 ,r8 ,rcx ,rdx ,rsi ,rdi))
+(define *num-fpr* (vector-length *fprs*))
 
-(define *gprs*
-  (list->vector (append (vector->list *non-volatile-registers*)
-                        (vector->list *volatile-registers*))))
+(define *num-volatiles* (vector-length *volatile-registers*))
 
-(define *fprs*
-  `#(,f3 ,f4 ,f5 ,f6 ,f7 ,xmm7 ,xmm6 ,xmm5 ,xmm4 ,xmm3 ,xmm2 ,xmm1 ,xmm0))
-
-(define *num-gpr*
-  (vector-length *gprs*))
-
-(define *num-fpr*
-  (vector-length *fprs*))
-
-(define *num-volatiles*
-  (vector-length *volatile-registers*))
-
-(define *num-non-volatiles*
-  (vector-length *non-volatile-registers*))
-
-;; Number of GPRs used for argument passing.
-(define *num-arg-gprs* 6)
-
-;; Number of FPRs used for argument passing.
-(define *num-arg-fprs* 8)
+(define *num-non-volatiles* (vector-length *non-volatile-registers*))
 
 ;; `gpr-ref' and `fpr-ref' use negative numbers to refer scratch registers.
-(define (gpr-ref i)
+(define-inlinable (gpr-ref i)
   (cond
    ((= i -1) r0)
    ((= i -2) r1)
@@ -133,32 +74,10 @@
    ((<= 0 i) (vector-ref *gprs* i))
    (else (failure 'gpr-ref "~s" i))))
 
-(define (fpr-ref i)
+(define-inlinable (fpr-ref i)
   (cond
    ((= i -1) f0)
    ((= i -2) f1)
    ((= i -3) f2)
    ((<= 0 i) (vector-ref *fprs* i))
    (else (failure 'fpr-ref "~s" i))))
-
-(define (register-name r)
-  (let ((gpr-names
-         ;; RBX is for %sp, R13 is for %thread, and R12 is used by
-         ;; Lightning.
-         #(r11 r10 rax r14 r15 r9 r8 rcx rdx rsi rdi))
-        (fpr-names
-         #(xmm10 xmm9 xmm8 xmm11 xmm12 xmm13 xmm14 xmm15
-                 xmm7 xmm6 xmm5 xmm4 xmm3 xmm2 xmm1 xmm0)))
-    (when (not (pair? r))
-      (failure 'physical-name "unknown argument ~s" r))
-    (let ((t (car r))
-          (n (cdr r)))
-      (when (not (integer? n))
-        (failure 'physical-name "cdr not an integer ~s" r))
-      (cond
-       ((eq? t 'gpr)
-        (vector-ref gpr-names (+ 3 n)))
-       ((eq? t 'fpr)
-        (vector-ref fpr-names (+ 3 n)))
-       (else
-        (failure 'physical-name "not a register ~s" r))))))
