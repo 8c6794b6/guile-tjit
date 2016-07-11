@@ -44,9 +44,9 @@
 
 ;;;; Symbol cache table
 
-;;; Hash table to cache variable symbols. Used to obtain symbol from
-;;; number, instead of calling number->string, string-append,
-;;; string->symbol ... etc for each time.
+;; Hash table to cache variable symbols. Used to obtain symbol from
+;; number, instead of calling number->string, string-append,
+;; string->symbol ... etc for each time.
 (define *var-cache-table* (make-hash-table))
 
 (define (make-var index)
@@ -108,7 +108,7 @@
         (vector-set! *gpr-cache-vector* (+ x 3) val)
         val)))
 
-(define (gpr x)
+(define-inlinable (gpr x)
   (gpr-ref (%ref-value x)))
 
 (define (gpr? x)
@@ -124,7 +124,7 @@
         (vector-set! *fpr-cache-vector* (+ x 3) val)
         val)))
 
-(define (fpr x)
+(define-inlinable (fpr x)
   (fpr-ref (%ref-value x)))
 
 (define (fpr? x)
@@ -178,7 +178,7 @@
       #f
       (make-fpr (- *num-fpr* n))))
 
-(define-syntax-rule (moffs mem)
+(define-inlinable (moffs mem)
   (let ((n (- (+ 2 1 (%ref-value mem) *num-volatiles* *num-fpr*))))
     (make-negative-pointer (* n %word-size))))
 
