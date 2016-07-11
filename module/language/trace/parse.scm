@@ -86,7 +86,7 @@ After successufl parse, this procedure will update fields in ENV."
   (define (%nyi op)
     (let ((verbosity (lightning-verbosity)))
       (if (and (number? verbosity) (<= 1 verbosity))
-          (lambda (op)
+          (begin
             (debug 1 "NYI: ~a~%" (car op))
             #f)
           (nyi "~a" op))))
@@ -101,8 +101,6 @@ After successufl parse, this procedure will update fields in ENV."
     ;; recover a frame higher than the one used to enter the native
     ;; call.
     ;;
-    (debug 2 ";;; [parse] call=~a return=~a op=~a~%"
-           (env-call-num env) (env-return-num env) op)
     (let lp ((procs (hashq-ref *scan-procedures* (car op))))
       (match procs
         (((test . work) . procs)
@@ -194,5 +192,5 @@ After successufl parse, this procedure will update fields in ENV."
 
   (catch #t go
     (lambda (x y fmt args . z)
-      (debug 2 "parse-bytecode: ~a~%" (apply format #f fmt args))
+      (debug 1 "parse-bytecode: ~a~%" (apply format #f fmt args))
       #f)))

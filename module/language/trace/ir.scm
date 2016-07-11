@@ -366,7 +366,6 @@ runtime."
                    (ra (identifier-syntax %ra))
                    (dl (identifier-syntax %dl))
                    (locals (identifier-syntax %locals)))
-                (debug 2 ";;; ~a~%" (cons 'name '(flag ...)))
                 ;; Updating live indices, only for side traces. Live indices in
                 ;; root traces are constantly same as write indices, loaded at
                 ;; the time of entry.

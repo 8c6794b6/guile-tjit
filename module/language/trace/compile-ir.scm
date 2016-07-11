@@ -87,6 +87,27 @@
 Currently does nothing, returns the given argument."
   anf)
 
+(define (dump-initial-loads initial-locals parent-snapshot-locals
+                            snapshot0 live-vars-in-parent env
+                            initial-vars)
+  (debug 3 ";;; add-initial-loads:~%")
+  (debug 3 ";;;   initial-locals=~a~%"
+         (let lp ((copy (vector-copy initial-locals))
+                  (i (- (vector-length initial-locals) 1)))
+           (if (< i 0)
+               copy
+               (let ((addr (object-address (vector-ref copy i))))
+                 (vector-set! copy i (format #f "#x~x" addr))
+                 (lp copy (- i 1))))))
+  (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
+  (debug 3 ";;;   locals0=~a~%"
+         (sort (snapshot-locals snapshot0)
+               (lambda (a b) (< (car a) (car b)))))
+  (debug 3 ";;;   sp-offset0=~a~%" (snapshot-sp-offset snapshot0))
+  (debug 3 ";;;   live-vars-in-parent=~s~%" live-vars-in-parent)
+  (debug 3 ";;;   read-indices=~s~%" (env-read-indices env))
+  (debug 3 ";;;   initial-vars=~s~%" initial-vars))
+
 (define (add-initial-loads env snapshots initial-locals initial-sp-offset
                            parent-snapshot initial-vars live-vars-in-parent
                            loaded-vars thunk)
@@ -110,23 +131,6 @@ Currently does nothing, returns the given argument."
       (assq-ref snapshot0-locals n))
     (define (type-from-parent n)
       (assq-ref parent-snapshot-locals n))
-    (debug 3 ";;; add-initial-loads:~%")
-    (debug 3 ";;;   initial-locals=~a~%"
-           (let lp ((copy (vector-copy initial-locals))
-                    (i (- (vector-length initial-locals) 1)))
-             (if (< i 0)
-                 copy
-                 (let ((addr (object-address (vector-ref copy i))))
-                   (vector-set! copy i (format #f "#x~x" addr))
-                   (lp copy (- i 1))))))
-    (debug 3 ";;;   parent-snapshot-locals=~a~%" parent-snapshot-locals)
-    (debug 3 ";;;   locals0=~a~%"
-           (sort (snapshot-locals snapshot0)
-                 (lambda (a b) (< (car a) (car b)))))
-    (debug 3 ";;;   sp-offset0=~a~%" (snapshot-sp-offset snapshot0))
-    (debug 3 ";;;   live-vars-in-parent=~s~%" live-vars-in-parent)
-    (debug 3 ";;;   read-indices=~s~%" (env-read-indices env))
-    (debug 3 ";;;   initial-vars=~s~%" initial-vars)
     (let lp ((vars (reverse initial-vars)))
       (match vars
         (((n . var) . vars)
@@ -137,10 +141,6 @@ Currently does nothing, returns the given argument."
                (let ((parent-type (type-from-parent n))
                      (snapshot-type (type-from-snapshot n))
                      (entry-type (assq-ref (env-entry-types env) n)))
-                 (debug 3 ";;;   n:~a parent:~a snap:~a entry:~a~%" n
-                        (pretty-type parent-type)
-                        (pretty-type snapshot-type)
-                        (pretty-type entry-type))
                  (or (eq? &any entry-type)
                      (and (env-parent-snapshot env)
                           (or (not (memq n (env-read-indices env)))
@@ -447,7 +447,6 @@ Currently does nothing, returns the given argument."
           (increment-env-call-return-num! env op)
           (convert ir rest))))
     (define (convert-one ir op ip ra dl locals rest)
-      (debug 2 ";;; [convert-one] op=~s~%" op)
       (match (hashq-ref *ir-procedures* (car op))
         ((? list? procs)
          (let lp ((procs procs))

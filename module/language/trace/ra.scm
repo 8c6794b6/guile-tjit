@@ -309,7 +309,7 @@
                (lp args local-x-types (cons reg acc))))
             (_
              (reverse! acc)))))
-      (define (sort-variables-in-storage t)
+      (define (sort-variables-in-storage t) ; For debug.
         (define (var-index sym)
           (string->number (substring (symbol->string sym) 1)))
         (sort (hash-map->list (lambda (k v)
@@ -317,9 +317,6 @@
               (lambda (a b)
                 (< (var-index (car a))
                    (var-index (car b))))))
-
-      (debug 2 ";;; storage (before)~%~{;;;   ~a~%~}"
-             (sort-variables-in-storage storage))
 
       (match term
         ;; ANF with entry clause and loop body.
@@ -337,8 +334,6 @@
                         (assign-registers loop-body snapshots storage
                                           free-gprs free-fprs mem-idx
                                           snapshot-idx)))
-           (debug 2 ";;; storage (after)~%~{;;;   ~a~%~}"
-                  (sort-variables-in-storage storage))
            (make-primops entry-ops loop-ops (variable-ref mem-idx) storage)))
 
         ;; ANF without loop.
@@ -383,10 +378,7 @@
 
          (let-values (((patch-ops snapshot-idx)
                        (assign-registers patch-body snapshots storage
-                                         free-gprs free-fprs mem-idx
-                                         0)))
-           (debug 2 ";;; storage (after)~%~{;;;   ~a~%~}"
-                  (sort-variables-in-storage storage))
+                                         free-gprs free-fprs mem-idx 0)))
            (make-primops patch-ops '() (variable-ref mem-idx) storage)))
         (_
          (failure 'ir->primops "malformed term" term))))))

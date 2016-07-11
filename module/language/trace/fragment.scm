@@ -212,7 +212,6 @@ cache."
               (let lp ((ids (fragment-side-trace-ids fragment)))
                 (if (null? ids)
                     (let ((id (fragment-id fragment)))
-                      (debug 2 ";;; removing trace ~s~%" id)
                       (hashq-remove! cache id))
                     (begin
                       (and=> (get-fragment (car ids))

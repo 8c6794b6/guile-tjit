@@ -97,19 +97,11 @@
       (vm-sync-sp %sp)))))
 
 (define-inlinable (load-stack local type dst)
-  (debug 3 ";;; load-stack: local:~a type:~a dst:~a~%"
-         local (pretty-type type) (physical-name dst))
   (sp-ref r0 local)
   (unbox-stack-element dst r0 type))
 
 (define-inlinable (maybe-store %asm local-x-types srcs references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES."
-  (debug 3 ";;; maybe-store:~%")
-  (debug 3 ";;;   srcs:          ~a~%" srcs)
-  (debug 3 ";;;   local-x-types: ~a~%"
-         (map (match-lambda ((n . t) `(,n . ,(pretty-type t))))
-              local-x-types))
-  (debug 3 ";;;   references:    ~a~%" (hash-map->list cons references))
   (syntax-parameterize ((asm (identifier-syntax %asm)))
     (let lp ((local-x-types local-x-types) (srcs srcs))
       (match (list local-x-types srcs)
@@ -152,8 +144,6 @@ DST-TYPES, and SRC-TYPES are local index number."
                     #f
                     srcs))))
     (define (unbox dst src type local)
-      (debug 3 ";;; molc [local ~a] unbox ~a ~a ~a~%"
-             local (physical-name dst) (physical-name src) (pretty-type type))
       (case (ref-type src)
         ((gpr)
          (guard-type (gpr src) type)
@@ -196,10 +186,10 @@ DST-TYPES, and SRC-TYPES are local index number."
         (move d/v (make-con (constant-value s/t))))
        (else
         (move d/v s/v))))
-    (dump-regs 'dsts (hash-map->list cons dsts))
-    (dump-regs 'srcs (hash-map->list cons srcs))
-    (dump-types 'dsts dst-types)
-    (dump-types 'srcs src-types)
+    ;; (dump-regs 'dsts (hash-map->list cons dsts))
+    ;; (dump-regs 'srcs (hash-map->list cons srcs))
+    ;; (dump-types 'dsts dst-types)
+    ;; (dump-types 'srcs src-types)
     (let lp ((dsts (sort (hash-map->list cons dsts) car-<)))
       (match dsts
         (((local . dst-var) . rest)
@@ -216,7 +206,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                       (unbox dst-var src-var dst-type local))
                      ((and (constant? src-type)
                            (not (constant? dst-type)))
-                      (dump-move local dst-var dst-type src-var src-type)
+                      ;; (dump-move local dst-var dst-type src-var src-type)
                       (move dst-var (make-con (constant-value src-type)))))
                     (hashq-remove! srcs local)
                     (lp rest))
@@ -229,7 +219,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                                    (make-fpr -2)
                                    (make-gpr -2)))
                           (src-local (find-src-local src-var)))
-                      (dump-move local tmp dst-type src-var src-type)
+                      ;; (dump-move local tmp dst-type src-var src-type)
                       (move-typed tmp #f src-var dst-type)
                       (hashq-set! srcs src-local tmp)
                       (lp dsts)))
@@ -241,18 +231,18 @@ DST-TYPES, and SRC-TYPES are local index number."
                   (if (equal? src-var dst-var)
                       (when (and (constant? src-type)
                                  (not (constant? dst-type)))
-                        (dump-move local dst-var dst-type src-var src-type)
+                        ;; (dump-move local dst-var dst-type src-var src-type)
                         (move dst-var (make-con (constant-value src-type))))
                       (if (and (eq? &scm src-type)
                                (eq? &flonum dst-type))
                           (unbox dst-var src-var dst-type local)
                           (begin
-                            (dump-move local dst-var dst-type src-var src-type)
+                            ;; (dump-move local dst-var dst-type src-var src-type)
                             (move-typed dst-var dst-type src-var src-type))))
                   (hashq-remove! srcs local)
                   (lp rest)))
             (else
-             (dump-load local dst-var (hashq-ref dst-types local))
+             ;; (dump-load local dst-var (hashq-ref dst-types local))
              (let ((type (hashq-ref dst-types local)))
                (load-stack local type dst-var))
              (lp rest)))))
@@ -670,11 +660,9 @@ DST-TYPES, and SRC-TYPES are local index number."
          (let lp ((locals locals) (vars vars))
            (match (cons locals vars)
              ((((n . t) . locals) . (v . vars))
-              (if (< n sp-offset)
-                  (debug 2 ";;; [compile-downrec] skipping ~a~%" n)
-                  (begin
-                    (hashq-set! src-var-table n v)
-                    (store-stack (- n sp-offset) t v)))
+              (when (<= sp-offset n)
+                (hashq-set! src-var-table n v)
+                (store-stack (- n sp-offset) t v))
               (lp locals vars))
              ((())
               (let lp ((loop-locals (env-loop-locals env))

@@ -63,7 +63,6 @@
          (proc-offset (+ (- stack-size 1) sp-offset))
          (ra-offset (+ proc-offset 1))
          (dl-offset (+ ra-offset 1)))
-    (debug 2 ";;; [ti] subr-call proc-offset=~s~%" proc-offset)
     (set-inferred-type! env ra-offset &false)
     (set-inferred-type! env dl-offset &false)
 
