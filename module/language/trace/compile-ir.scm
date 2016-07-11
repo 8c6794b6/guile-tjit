@@ -64,10 +64,8 @@
   #:use-module (language trace variables)
   #:export (compile-ir))
 
-
-;;;
-;;; Traced bytecode to IR
-;;;
+
+;;;; Traced bytecode to IR
 
 (define (compile-ir env trace)
   "Compiles TRACE to primops with ENV and TRACE."

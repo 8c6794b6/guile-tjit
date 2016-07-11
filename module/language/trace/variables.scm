@@ -41,10 +41,8 @@
             make-tmpvar make-tmpvar/f make-spill
             argr fargr moffs physical-name))
 
-
-;;;
-;;; Symbol cache table
-;;;
+
+;;;; Symbol cache table
 
 ;;; Hash table to cache variable symbols. Used to obtain symbol from
 ;;; number, instead of calling number->string, string-append,
@@ -66,10 +64,8 @@
          (cons n (make-var n)))
        locals))
 
-
-;;;
-;;; Variable
-;;;
+
+;;;; Variable
 
 ;;; XXX: Avoid using cons cell for CON.
 
@@ -149,10 +145,8 @@
 (define (memory? x)
   (eq? 'mem (ref-type x)))
 
-
-;;;
-;;; Temporary variables
-;;;
+
+;;;; Temporary variables
 
 (define *tmpvars*
   #(r0 r1 r2))

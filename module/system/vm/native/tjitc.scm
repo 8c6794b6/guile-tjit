@@ -36,18 +36,15 @@
   #:use-module (language trace parameters)
   #:use-module (language trace snapshot)
   #:export (tjitc init-vm-tjit)
-  #:re-export (tjit-stats
-               set-tjit-dump-option!
-               tjit-dump-log))
+  #:re-export (tjit-stats set-tjit-dump-option! tjit-dump-log))
 
-
-;;;
-;;; Entry point for JIT compiler
-;;;
+
+;;;; Entry point for JIT compiler
 
 (define (tjitc trace-id buffer traces parent-ip parent-exit-id linked-ip
                loop? downrec? uprec?)
-  "Compile recorded bytecodes in BUFFER with TRACES and meta information."
+  "Compile recorded bytecodes in BUFFER with TRACES and meta
+information."
   (let* ((entry-ip (vector-ref (car traces) 1))
          (parent-fragment (get-fragment parent-ip))
          (parent-snapshot (and parent-fragment
@@ -73,10 +70,8 @@
     (when fragment
       (put-fragment! trace-id fragment))))
 
-
-;;;
-;;; Initialization
-;;;
+
+;;;; Initialization
 
 (define (init-vm-tjit use-debug-engine?)
   "Initialize vm-tjit, use vm-debug if USE-DEBUG-ENGINE? is true."

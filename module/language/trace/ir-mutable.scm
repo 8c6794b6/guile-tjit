@@ -1,4 +1,4 @@
-;;; ANF IR for mutable top-level bindings
+;;;; ANF IR for mutable top-level bindings
 
 ;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 ;;;;
@@ -23,6 +23,10 @@
 ;;; Module containing ANF IR definitions for mutable top-level binding
 ;;; operations.
 ;;;
+;;; There is no need to worry about resovling variable in `toplevel-box' and
+;;; `module-box', since the variables are already resolved at the time of
+;;; recording the trace.
+;;;
 ;;; Code:
 
 (define-module (language trace ir-mutable)
@@ -33,12 +37,10 @@
   #:use-module (language trace snapshot)
   #:use-module (language trace types))
 
+
 ;; XXX: current-module
 ;; XXX: resolve
 ;; XXX: define!
-
-;; No need to worry about resovling variable in `toplevel-box' and `module-box',
-;; since the variables are already resolved at the time of recording the trace.
 
 (define-constant (toplevel-box var-offset mod-offset sym-offset bound?)
   (let ((var (dereference-scm (+ ip (* var-offset 4)))))

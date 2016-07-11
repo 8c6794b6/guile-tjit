@@ -47,9 +47,8 @@
             primops-nspills
             anf->primops))
 
-;;;
-;;; Record type
-;;;
+
+;;;; Record type
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primops
@@ -67,10 +66,8 @@
   ;; Hash-table containing variable information.
   (storage primops-storage))
 
-
-;;;
-;;; Auxiliary
-;;;
+
+;;;; Auxiliary
 
 (define-syntax-rule (make-initial-free-gprs)
   (make-vector *num-gpr* #t))
@@ -246,10 +243,8 @@
     (let ((plist (reverse! (assign-term term '()))))
       (values plist snapshot-id))))
 
-
-;;;
-;;; IR to list of primitive operations
-;;;
+
+;;;; IR to list of primitive operations
 
 (define (anf->primops term env initial-snapshot vars snapshots)
   (let ((parent-snapshot (env-parent-snapshot env))

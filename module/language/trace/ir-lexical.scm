@@ -1,4 +1,4 @@
-;;; ANF IR for lexical binding operations
+;;;; ANF IR for lexical binding operations
 
 ;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 ;;;;
@@ -35,6 +35,8 @@
   #:use-module (language trace types)
   #:use-module (language trace variables))
 
+
+
 (define-scan (mov dst src)
   (let* ((sp-offset (env-sp-offset env))
          (dst+sp (+ dst sp-offset))
@@ -69,7 +71,6 @@
       (set-env-live-indices! env (cons dst/i live-indices)))
     `(let ((,dst/v ,src/v))
        ,(next))))
-
 
 ;; XXX: long-mov
 ;; XXX: long-fmov

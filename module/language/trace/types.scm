@@ -128,9 +128,8 @@
                &s64
                %word-size))
 
-;;;
-;;; Record types
-;;;
+
+;;;; Record types
 
 ;; Record type to represent return address in frame.
 (define-record-type $return-address
@@ -150,10 +149,8 @@
   constant?
   (value constant-value))
 
-
-;;;
-;;; Tags
-;;;
+
+;;;; Tags
 
 (define-syntax define-tcx
   (syntax-rules ()
@@ -180,17 +177,11 @@
 
   %tc16-bignum %tc16-real %tc16-complex %tc16-fraction)
 
-;;;
-;;; Exported hash table
-;;;
+
+;;;; Lookup procedure
 
 (define *ti-procedures*
   (make-hash-table 255))
-
-
-;;;
-;;; Lookup procedure
-;;;
 
 (define (infer-type env op ip dl locals)
   (let lp ((procs (hashq-ref *ti-procedures* (car op))))
@@ -201,9 +192,8 @@
            (lp procs)))
       (_ (values)))))
 
-;;;
-;;; Extra types
-;;;
+
+;;;; Extra types
 
 ;; XXX: Any better number to use ...?
 (define &undefined 0)
@@ -217,10 +207,8 @@
 (define-syntax &any
   (identifier-syntax most-positive-fixnum))
 
-
-;;;
-;;; Type checker based on runtime values
-;;;
+
+;;;; Type checker based on runtime values
 
 (define-syntax-rule (inline-fixnum? val)
   (not (= 0 (logand 2 (object-address val)))))
@@ -243,7 +231,7 @@
 (define-inlinable (true? x)
   (eq? x #t))
 
-(define (fraction? x)
+(define-inlinable (fraction? x)
   (let* ((ptr (scm->pointer x))
          (addr (pointer-address ptr)))
     (and (zero? (logand addr 6))
@@ -253,9 +241,42 @@
 (define *unbound*
   (pointer->scm (make-pointer #xb04)))
 
-;;;
-;;; Auxiliary
-;;;
+;; Property to hold type of object.
+(define type-property (make-object-property))
+
+(define (type-of obj)
+  "Return the type of OBJ."
+  (or (type-property obj)
+      (let ((type (cond
+                   ;; From (@ language cps types)
+                   ((inline-fixnum? obj) &fixnum)
+                   ((flonum? obj) &flonum)
+                   ((fraction? obj) &fraction)
+                   ((number? obj) &number)
+                   ((char? obj) &char)
+                   ((unspecified? obj) &unspecified)
+                   ((false? obj) &false)
+                   ((true? obj) &true)
+                   ((null? obj) &null)
+                   ((symbol? obj) &symbol)
+                   ((keyword? obj) &keyword)
+                   ((procedure? obj) &procedure)
+                   ((pointer? obj) &pointer)
+                   ((fluid? obj) &fluid)
+                   ((pair? obj) &pair)
+                   ((vector? obj) &vector)
+                   ((variable? obj) &box)
+                   ((struct? obj) &struct)
+                   ((string? obj) &string)
+                   ((bytevector? obj) &bytevector)
+                   ((bitvector? obj) &bitvector)
+                   ((array? obj) &array)
+                   ((hash-table? obj) &hash-table)
+                   ;; Not from (@ language cps types)
+                   ((undefined? obj) &undefined)
+                   (else &scm))))
+        (set! (type-property obj) type)
+        type)))
 
 (define (gen-type-checker arg-types id)
   "Returns a procedure for checking types.
@@ -340,49 +361,15 @@ false."
                  #f)))
           (() #t))))))
 
+
+;;;; Auxiliary
+
 (define (type->stack-element-type type)
   (cond
    ((eq? type &f64) 'f64)
    ((eq? type &u64) 'u64)
    ((eq? type &s64) 's64)
    (else 'scm)))
-
-;; Property to hold type of object.
-(define type-property (make-object-property))
-
-(define (type-of obj)
-  "Return the type of OBJ."
-  (or (type-property obj)
-      (let ((type (cond
-                   ;; From (@ language cps types)
-                   ((inline-fixnum? obj) &fixnum)
-                   ((flonum? obj) &flonum)
-                   ((fraction? obj) &fraction)
-                   ((number? obj) &number)
-                   ((char? obj) &char)
-                   ((unspecified? obj) &unspecified)
-                   ((false? obj) &false)
-                   ((true? obj) &true)
-                   ((null? obj) &null)
-                   ((symbol? obj) &symbol)
-                   ((keyword? obj) &keyword)
-                   ((procedure? obj) &procedure)
-                   ((pointer? obj) &pointer)
-                   ((fluid? obj) &fluid)
-                   ((pair? obj) &pair)
-                   ((vector? obj) &vector)
-                   ((variable? obj) &box)
-                   ((struct? obj) &struct)
-                   ((string? obj) &string)
-                   ((bytevector? obj) &bytevector)
-                   ((bitvector? obj) &bitvector)
-                   ((array? obj) &array)
-                   ((hash-table? obj) &hash-table)
-                   ;; Not from (@ language cps types)
-                   ((undefined? obj) &undefined)
-                   (else &scm))))
-        (set! (type-property obj) type)
-        type)))
 
 (define (pretty-type type)
   "Show string representation of TYPE."

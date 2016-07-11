@@ -1,4 +1,4 @@
-;;;; Fragment data type
+;;;; Trampoline data type and interace
 
 ;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 ;;;;
@@ -43,14 +43,8 @@
             trampoline-ref
             trampoline-set!))
 
-
-(define (emit-to-bytevector!)
-  (let* ((size (jit-code-size))
-         (bv (make-bytevector size)))
-    (jit-set-code (bytevector->pointer bv) (imm size))
-    (jit-emit)
-    (make-bytevector-executable! bv)
-    bv))
+
+;;;; Auxiliary
 
 (define (get-size-of-jump-to-register)
   (with-jit-state
@@ -80,6 +74,17 @@
 
 (define size-of-trampoline-entry
   (+ size-of-jump-to-register size-of-move-immediate))
+
+(define-inlinable (emit-to-bytevector!)
+  (let* ((size (jit-code-size))
+         (bv (make-bytevector size)))
+    (jit-set-code (bytevector->pointer bv) (imm size))
+    (jit-emit)
+    (make-bytevector-executable! bv)
+    bv))
+
+
+;;;; Exported interface
 
 (define (make-trampoline size)
   (with-jit-state

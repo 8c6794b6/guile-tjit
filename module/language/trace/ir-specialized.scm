@@ -1,4 +1,4 @@
-;;; ANF IR for specialized call stubs
+;;;; ANF IR for specialized call stubs
 
 ;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 ;;;;
@@ -35,6 +35,8 @@
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
+
+
 
 (define-scan (subr-call)
   (let* ((stack-size (vector-length locals))

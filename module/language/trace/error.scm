@@ -38,9 +38,8 @@
             with-tjitc-error-handler
             nyi break recompile failure))
 
-;;;
-;;; Handler
-;;;
+
+;;;; Handler
 
 (define *tjitc-error-prompt-tag*
   (make-prompt-tag 'tjitc))
@@ -74,9 +73,8 @@
            (hashq-set! (tjitc-errors) (env-entry-ip env)
                        (cons meta msg))))))))
 
-;;;
+
 ;;; Errors
-;;;
 
 (define-syntax-rule (make-tjitc-error kind name fmt args)
   (apply abort-to-prompt *tjitc-error-prompt-tag* kind name fmt args))

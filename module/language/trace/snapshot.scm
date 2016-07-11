@@ -62,8 +62,9 @@
             *ip-key-uprec*
             *ip-key-longjmp*))
 
+
+;;; Record type
 
-;; Record type for snapshot.
 (define-record-type $snapshot
   (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
                   live-indices inline-depth inferred-types)
@@ -102,25 +103,16 @@
   ;; Inferred types at the time of snapshot creation.
   (inferred-types snapshot-inferred-types))
 
-
-;;;
-;;; Snapshot
-;;;
+
+;;;; Constructor
 
 (define* (make-snapshot id sp-offset fp-offset nlocals write-indices
                         env ip inline-depth #:optional (refill-ra-dl? #f))
-  (begin
-    (debug 2 ";;; [make-snapshot] id:~s ip=~x sp:~s fp:~s nlocals:~s~%"
-           id ip sp-offset fp-offset nlocals)
-    (debug 2 ";;; write-indices: ~s~%" write-indices)
-    (debug 2 ";;; inline-depth: ~s~%" inline-depth)
-    (debug 2 ";;; refill-ra-dl?:~a~%" refill-ra-dl?)
-    (debug 2 ";;; live-indices: ~a~%" (sort (env-live-indices env) <)))
   (let lp ((is (sort! write-indices <)) (acc '()))
     (match is
       ((i . is)
        (let ((type (assq-ref (env-inferred-types env) i)))
-         (lp is (cons `(,i . ,type) acc))))
+         (lp is (cons (cons i type) acc))))
       (()
        (call-with-values
            (lambda ()
@@ -134,10 +126,8 @@
                            #f #f ip (env-live-indices env) inline-depth
                            (copy-tree (env-inferred-types env)))))))))
 
-
-;;;
-;;; IP Keys
-;;;
+
+;;;; IP Keys
 
 (define *ip-key-link* 0)
 (define *ip-key-downrec* 1)

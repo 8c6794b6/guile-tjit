@@ -109,10 +109,8 @@
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
 
-
-;;;
-;;; Dump options
-;;;
+
+;;;; Dump options
 
 ;; Record type for configuring dump options.
 (define-record-type <tjit-dump>
@@ -198,10 +196,8 @@ fields to @code{#f}."
 (define tjit-dump-log
   (make-parameter (current-output-port)))
 
-
-;;;
-;;; Time log
-;;;
+
+;;;; Time log
 
 ;; Record type to hold internal run time at each stage of compilation.
 (define-record-type <tjit-time-log>
@@ -322,10 +318,8 @@ assumes `objdump' executable already installed."
       (close-pipe pipe)
       (delete-file path))))
 
-
-;;;
-;;; Scheme Parameters
-;;;
+
+;;;; Scheme Parameters
 
 ;; Parameter to control dump setting during compilation of traces.
 (define tjit-dump-option

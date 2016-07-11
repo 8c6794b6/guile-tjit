@@ -79,9 +79,10 @@
             applied-guard
             set-applied-guard!))
 
+
+;;;; The environment
 
 ;; Data type to contain environment.
-;;
 (define-record-type <env>
   (%make-env id entry-ip linked-ip linked-fragment
              parent-exit-id parent-fragment parent-snapshot

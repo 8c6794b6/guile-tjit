@@ -37,12 +37,8 @@
   #:use-module (language trace types)
   #:export (parse-bytecode *scan-procedures*))
 
-;;;
-;;; Exported hash tablel
-;;;
-
-(define *scan-procedures*
-  (make-hash-table 255))
+
+;;;; Auxiliary
 
 ;;; XXX: Not so polite way to refer private procedure.
 ;;;
@@ -53,10 +49,11 @@
 (define-inlinable (disassemble-one buffer offset)
   ((@@ (system vm disassembler) disassemble-one) buffer offset))
 
+(define *scan-procedures*
+  (make-hash-table 255))
 
-;;;
-;;; Parser
-;;;
+
+;;;; The parser
 
 (define (parse-bytecode env bytecode traces)
   "Parse bytecode stored in BYTECODE with TRACES, then initialize ENV.

@@ -63,9 +63,8 @@
             increment-fragment-num-child!
             remove-fragment-and-side-traces))
 
-;;;
-;;; The fragment data
-;;;
+
+;;;; The fragment data
 
 ;; Record type to contain various information for compilation of trace to native
 ;; code.  Information stored in this record type is used when re-entering hot

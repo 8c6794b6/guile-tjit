@@ -1,4 +1,4 @@
-;;; ANF IR for pair
+;;;; ANF IR for pair
 
 ;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 ;;;;
@@ -32,6 +32,7 @@
   #:use-module (language trace types)
   #:use-module (language trace variables))
 
+
 ;; Using dedicated IR for `cons'. Uses C function `scm_inline_cell', which
 ;; expects current thread as first argument. The value of current thread is not
 ;; stored in frame but in register.

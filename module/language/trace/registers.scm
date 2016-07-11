@@ -44,9 +44,8 @@
             %retval
             register-name))
 
-;;;
-;;; Internal aliases
-;;;
+
+;;;; Internal aliases
 
 (define rbx v0)
 (define r13 v1)
@@ -69,10 +68,8 @@
 (define xmm1 (jit-f 14))
 (define xmm0 (jit-f 15))
 
-
-;;;
-;;; Exported
-;;;
+
+;;;; Exported
 
 ;; Non-volatile register to refer FP in native code. This FP came from
 ;; Lightning, not the `vp->fp' passed from VM interpreter.
@@ -127,8 +124,8 @@
 ;; Number of FPRs used for argument passing.
 (define *num-arg-fprs* 8)
 
+;; `gpr-ref' and `fpr-ref' use negative numbers to refer scratch registers.
 (define (gpr-ref i)
-  ;; Using negative numbers to refer scratch GPRs.
   (cond
    ((= i -1) r0)
    ((= i -2) r1)
@@ -137,7 +134,6 @@
    (else (failure 'gpr-ref "~s" i))))
 
 (define (fpr-ref i)
-  ;; Using negative numbers to refer scratch FPRs.
   (cond
    ((= i -1) f0)
    ((= i -2) f1)

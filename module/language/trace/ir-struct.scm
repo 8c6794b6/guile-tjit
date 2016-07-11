@@ -1,4 +1,4 @@
-;;; ANF IR for structs and GOOPS
+;;;; ANF IR for structs and GOOPS
 
 ;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 ;;;;

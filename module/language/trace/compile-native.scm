@@ -51,10 +51,8 @@
   #:use-module (language trace variables)
   #:export (compile-native))
 
-
-;;;
-;;; Scheme constants and syntax
-;;;
+
+;;;; Scheme constants and syntax
 
 (define %scm-set-tjit-retval
   (dynamic-pointer "scm_set_tjit_retval" (dynamic-link)))
@@ -68,10 +66,7 @@
 (define-syntax-rule (scm-i-makinumi n)
   (make-signed-pointer (+ (ash n 2) 2)))
 
-
-;;;
-;;; Auxiliary
-;;;
+;;;; Auxiliary
 
 (define-inlinable (shift-fp nlocals)
   "Shift FP, new value will be SP plus NLOCALS."
@@ -264,9 +259,7 @@ DST-TYPES, and SRC-TYPES are local index number."
         (() (values))))))
 
 
-;;;
-;;; The Native Code Compiler
-;;;
+;;;; Native Code Compiler
 
 (define (compile-native env primops snapshots sline)
   (with-jit-state

@@ -54,9 +54,14 @@
             dump-fragment
             dump-env))
 
-;;;
-;;; Statistics
-;;;
+
+;;;; Auxiliary
+
+(define (car-< a b)
+  (< (car a) (car b)))
+
+
+;;;; Statistics
 
 (define (tjit-stats)
   "Returns statistics of vm-tjit engine.
@@ -95,16 +100,8 @@ option was set to true."
           `(bailout-time . ,bailout-time)
           `(total-time . ,total-time))))
 
-;;;
-;;; Auxiliary
-;;;
-
-(define (car-< a b)
-  (< (car a) (car b)))
-
-;;;
-;;; Dump procedures
-;;;
+
+;;;; Dump procedures
 
 (define-syntax-rule (addr->source-line addr)
   (or (and=> (find-source-for-addr addr)

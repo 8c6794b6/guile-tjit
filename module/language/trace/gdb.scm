@@ -123,6 +123,9 @@
   #:use-module (system vm linker)
   #:export (make-gdb-jit-elf))
 
+
+;;;; Auxiliary
+
 (define-record-type <gdb>
   (%make-gdb next-section-number const symtab shstrtab)
   gdb?
@@ -392,6 +395,9 @@
     ;; types as `PT_NULL'.
     (bytevector-u32-set! bv phoff0 PT_NULL byte-order)
     (bytevector-u32-set! bv phoff1 PT_NULL byte-order)))
+
+
+;;;; Exported
 
 (define (make-gdb-jit-elf trace-id naddr nsize src linenum)
   "Make a bytevector filled with ELF object for GDB JIT interface.

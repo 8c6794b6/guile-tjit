@@ -1,7 +1,7 @@
-;;; Trace to fragment compiler
+;;;; Trace to fragment compiler
 
-;; Copyright (C) 2001, 2010, 2013 Free Software Foundation, Inc.
-
+;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
+;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
 ;;;; License as published by the Free Software Foundation; either
@@ -39,6 +39,9 @@
   #:use-module (language trace parse)
   #:use-module (language trace snapshot)
   #:export (compile-fragment))
+
+
+;;;; Fragment compiler
 
 (define (compile-fragment bv env traces)
   (let ((result #f)

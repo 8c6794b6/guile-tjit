@@ -1,4 +1,4 @@
-;;; Traced bytecode instructions
+;;;; Traced bytecode instructions
 
 ;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 
@@ -16,7 +16,13 @@
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
+;;; Commentary:
+;;;
+;;; Language definition for compiling traced bytecode instruction to fragment
+;;; data used by tracing JIT VM engine.
+;;;
 ;;; Code:
+
 (define-module (language trace spec)
   #:use-module (system base language)
   #:use-module (language trace compile-fragment)

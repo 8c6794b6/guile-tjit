@@ -86,10 +86,8 @@
             guard-type
             store-stack))
 
-
-;;;
-;;; Primitives
-;;;
+
+;;;; Primitives
 
 ;;; Primitives used for vm-tjit engine.  Primitives defined here are used during
 ;;; compilation of traced data to native code. Perhaps useless for ordinal use
@@ -140,9 +138,8 @@
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
 
-;;;
-;;; Scheme constants
-;;;
+
+;;;; Scheme constants
 
 (define *scm-false*
   (scm->pointer #f))
@@ -165,10 +162,8 @@
 (define *scm-null*
   (scm->pointer '()))
 
-
-;;;
-;;; SCM macros
-;;;
+
+;;;; SCM macros
 
 (define (make-signed-pointer addr)
   (if (<= 0 addr)
@@ -427,10 +422,8 @@
 
     (jit-link next)))
 
-
-;;;
-;;; Predicates
-;;;
+
+;;;; Predicates
 
 (define-syntax-rule (scm-imp obj)
   (jit-bmsi obj (imm 6)))
@@ -447,10 +440,8 @@
 (define-syntax-rule (scm-not-realp tag)
   (jit-bnei tag (imm %tc16-real)))
 
-
-;;;
-;;; Assembler state
-;;;
+
+;;;; Assembler state
 
 (define-record-type <asm>
   (%make-asm volatiles exit end-address cargs gc-inline? snapshots)
@@ -579,9 +570,8 @@
     (else
      (failure 'retval-to-reg-or-mem "unknown dst ~s" dst))))
 
-;;;
-;;; Type guards
-;;;
+
+;;;; Type guards
 
 (define-syntax guard-tc2
   (syntax-rules ()
@@ -657,14 +647,10 @@
         ((memq type (list #f &scm &s64 &u64)) (values))
         (else (err)))))))
 
-
-;;;;
+
 ;;;; Native operations
-;;;;
 
-;;;
-;;; Guards
-;;;
+;;;;; Guards
 
 (define-syntax define-binary-guard-int
   (syntax-rules ()
@@ -870,10 +856,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (jump (jit-beqi typx (con tag)) (bailout))
     (jit-link proceed)))
 
-
-;;;
-;;; Call and return
-;;;
+
+;;;;; Call and return
 
 ;;; Scheme procedure call, shift current FP.
 ;;;
@@ -943,10 +927,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (vm-cache-sp r0)
     (set-asm-cargs! asm '())))
 
-
-;;;
-;;; Bitwise arithmetic
-;;;
+
+;;;;; Bitwise arithmetic
 
 ;;; XXX: This macro does not manage overflow and underflow. Make another macro
 ;;; for managing overflow and underflow.
@@ -982,10 +964,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-int %band logand jit-andi jit-andr)
 (define-binary-arith-int %bor logior jit-ori jit-orr)
 
-
-;;;
-;;; Integer arithmetic
-;;;
+
+;;;; Integer arithmetic
 
 (define (rsh a b) (ash a b))
 (define (lsh a b) (ash a (- b)))
@@ -1164,10 +1144,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((mem) (memory-set! dst dst/r))
         (else (err))))))
 
-
-;;;
-;;; Floating point arithmetic
-;;;
+
+;;;;; Floating point arithmetic
 
 (define-syntax define-binary-arith-double
   (syntax-rules ()
@@ -1203,10 +1181,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-double %fmul jit-muli-d jit-mulr-d)
 (define-binary-arith-double %fdiv jit-divi-d jit-divr-d)
 
-
-;;;
-;;; Load and store
-;;;
+
+;;;;; Load and store
 
 ;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
 ;;; instructions with expected type as done in bytecode, to have vector-ref,
@@ -1611,10 +1587,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       ((mem) (memory-set! dst dst/r))
       (else (err)))))
 
-
-;;;
-;;; Heap objects
-;;;
+
+;;;;; Heap objects
 
 ;; Call C function `scm_do_inline_cell'. Save volatile registers before calling,
 ;; restore after getting returned value.
@@ -1652,9 +1626,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (retval-to-reg-or-mem dst))))
 
 
-;;;
-;;; Type conversion
-;;;
+
+;;;;; Type conversion
 
 ;; Integer -> floating point
 (define-native (%i2d (double dst) (int src))
@@ -1712,10 +1685,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       ((mem) (memory-set! dst (op3 r0)))
       (else (err)))))
 
-
-;;;
-;;; Move
-;;;
+
+;;;;; Move
 
 (define (move dst src)
   (let-syntax ((err (syntax-rules ()

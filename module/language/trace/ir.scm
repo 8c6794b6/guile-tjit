@@ -89,9 +89,8 @@
 
             *ir-procedures*))
 
-;;;
-;;; IR record type
-;;;
+
+;;;; IR record type
 
 (define-record-type <ir>
   (make-ir snapshots snapshot-id vars min-sp-offset max-sp-offset
@@ -122,18 +121,8 @@
   ;; Cached snapshot.
   (cached-snapshot ir-cached-snapshot set-ir-cached-snapshot!))
 
-
-;;;
-;;; Exported hash tablel
-;;;
-
-(define *ir-procedures*
-  (make-hash-table 255))
-
-
-;;;
-;;; Macros for scan
-;;;
+
+;;;; Macros for scan
 
 (define-syntax-rule (push-scan-sp-offset! env n)
   (set-env-sp-offset! env (- (env-sp-offset env) n)))
@@ -154,30 +143,8 @@
     (update! set-env-sp-offsets! env-sp-offset env-sp-offsets)
     (update! set-env-fp-offsets! env-fp-offset env-fp-offsets)))
 
-
-;;;
-;;; Macro for ANF
-;;;
-
-(define-syntax-rule (define-anf (name arg ...) . body)
-  (let ((test-proc (lambda (op locals)
-                     #t))
-        (anf-proc (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
-                    (syntax-parameterize
-                        ((env (identifier-syntax %env))
-                         (ir (identifier-syntax %ir))
-                         (next (identifier-syntax %next))
-                         (ip (identifier-syntax %ip))
-                         (ra (identifier-syntax %ra))
-                         (dl (identifier-syntax %dl))
-                         (locals (identifier-syntax %locals)))
-                      . body))))
-    (hashq-set! *ir-procedures* 'name (list (cons test-proc anf-proc)))))
-
-
-;;;
-;;; Macros for ANF
-;;;
+
+;;;; Macros for ANF
 
 (define (current-inline-depth env)
   "Compute current inline depth in ENV.
@@ -345,6 +312,9 @@ returns, current call-num, and current return-num."
 (define-scan-infer-live gen-scan-types gen-infer-type gen-update-live-indices
   (scm fixnum flonum fraction char pair vector box procedure struct string
        bytevector u64 f64 s64))
+
+(define *ir-procedures*
+  (make-hash-table 255))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -526,10 +496,23 @@ runtime."
      (let ((_ (%typeq ,(var-ref src) ,type)))
        ,expr)))
 
+
+;;;; Individual macros for IR definition
 
-;;;
-;;; Macro for scan
-;;;
+(define-syntax-rule (define-anf (name arg ...) . body)
+  (let ((test-proc (lambda (op locals)
+                     #t))
+        (anf-proc (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
+                    (syntax-parameterize
+                        ((env (identifier-syntax %env))
+                         (ir (identifier-syntax %ir))
+                         (next (identifier-syntax %next))
+                         (ip (identifier-syntax %ip))
+                         (ra (identifier-syntax %ra))
+                         (dl (identifier-syntax %dl))
+                         (locals (identifier-syntax %locals)))
+                      . body))))
+    (hashq-set! *ir-procedures* 'name (list (cons test-proc anf-proc)))))
 
 (define-syntax-rule (define-scan (name args ...) . body)
   (let ((test-proc (lambda (op locals)
@@ -544,11 +527,6 @@ runtime."
                      #t)))
     (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
 
-
-;;;
-;;; Macro for Type Inference
-;;;
-
 (define-syntax-rule (define-ti (name args ...) . body)
   (let ((test-proc (lambda (op locals)
                      #t))
@@ -561,10 +539,8 @@ runtime."
                      . body))))
     (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
 
-
-;;;
-;;; Macro for defining constant
-;;;
+
+;;;; Macro for defining constant
 
 (define-syntax define-constant
   (syntax-rules ()
