@@ -54,7 +54,7 @@ then
         GUILE_LOAD_PATH="$GUILE_LOAD_PATH:${top_builddir}/module:${top_builddir}/guile-readline"
     fi
     export GUILE_LOAD_PATH
-    GUILE_LOAD_COMPILED_PATH="${top_builddir}/module:${top_builddir}/bootstrap:${top_builddir}/prebuilt/@host@:${top_builddir}/guile-readline"
+    GUILE_LOAD_COMPILED_PATH="${top_builddir}/module:${top_builddir}/bootstrap:${top_srcdir}/prebuilt/@host@:${top_builddir}/guile-readline"
     export GUILE_LOAD_COMPILED_PATH
 
     # Don't look in installed dirs for guile modules
