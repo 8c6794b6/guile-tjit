@@ -95,8 +95,6 @@
             %tc16-complex
             %tc16-fraction
 
-            *ti-procedures*
-            infer-type
             gen-type-checker
             type->stack-element-type)
   #:re-export (&flonum
@@ -176,21 +174,6 @@
   %tc7-port %tc7-smob
 
   %tc16-bignum %tc16-real %tc16-complex %tc16-fraction)
-
-
-;;;; Lookup procedure
-
-(define *ti-procedures*
-  (make-hash-table 255))
-
-(define (infer-type env op ip dl locals)
-  (let lp ((procs (hashq-ref *ti-procedures* (car op))))
-    (match procs
-      (((test . work) . procs)
-       (if (test op locals)
-           (apply work env ip dl locals (cdr op))
-           (lp procs)))
-      (_ (values)))))
 
 
 ;;;; Extra types

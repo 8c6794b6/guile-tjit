@@ -50,6 +50,12 @@
             ir-vars
             ir-last-op? set-ir-last-op!
 
+            ir-procedure-check-type
+            ir-procedure-parse
+            ir-procedure-infer-type
+            ir-procedure-anf
+            parse-trace infer-type
+
             define-ir
             define-interrupt-ir
             gen-put-element-type
@@ -120,6 +126,14 @@
 
   ;; Cached snapshot.
   (cached-snapshot ir-cached-snapshot set-ir-cached-snapshot!))
+
+(define-record-type <ir-procedure>
+  (make-ir-procedure check-type parse infer-type anf)
+  ir-procedure?
+  (check-type ir-procedure-check-type)
+  (parse ir-procedure-parse set-ir-procedure-parse!)
+  (infer-type ir-procedure-infer-type set-ir-procedure-infer-type!)
+  (anf ir-procedure-anf set-ir-procedure-anf!))
 
 
 ;;;; Macros for scan
@@ -313,8 +327,13 @@ returns, current call-num, and current return-num."
   (scm fixnum flonum fraction char pair vector box procedure struct string
        bytevector u64 f64 s64))
 
-(define *ir-procedures*
-  (make-hash-table 255))
+(define *ir-procedures* (make-hash-table 255))
+
+(define-inlinable (ir-procedures-ref key)
+  (hashq-ref *ir-procedures* key))
+
+(define-inlinable (ir-procedures-set! key val)
+  (hashq-set! *ir-procedures* key val))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -335,8 +354,9 @@ runtime."
                 (match (cons flags ns)
                   (((f . flags) . (n . ns))
                    (case f
-                     ((fixnum flonum fraction char procedure pair
-                       vector box struct string bytevector array)
+                     ((fixnum
+                       flonum fraction char procedure pair vector box
+                       struct string bytevector array)
                       (let ((runtime-value (vector-ref locals n)))
                         (if (eq? (type-of runtime-value) (flag->type f))
                             (lp flags ns)
@@ -372,16 +392,14 @@ runtime."
                 (when (env-parent-snapshot env)
                   (gen-update-live-indices (flag arg) ...))
                 . body))))
-       (let ((add-proc! (lambda (tbl proc)
-                          (let* ((elem (cons test-proc proc))
-                                 (val (or (and=> (hashq-ref tbl 'name)
-                                                 (lambda (found)
-                                                   (cons elem found)))
-                                          (list elem))))
-                            (hashq-set! tbl 'name val)))))
-         (add-proc! *scan-procedures* scan-proc)
-         (add-proc! *ti-procedures* ti-proc)
-         (add-proc! *ir-procedures* anf-proc))))))
+
+       (let* ((ir-procedure (make-ir-procedure test-proc scan-proc
+                                               ti-proc anf-proc))
+              (entry (ir-procedures-ref 'name))
+              (entry (if entry
+                         (cons ir-procedure entry)
+                         (list ir-procedure))))
+         (ir-procedures-set! 'name entry))))))
 
 (define-syntax define-interrupt-ir
   (syntax-rules ()
@@ -400,8 +418,8 @@ runtime."
 (define-syntax-rule (current-sp-for-ti)
   ;; Type inference procedures are called during initialization and ANF IR
   ;; compilation. Some bytecode operation shift SP during env
-  ;; initialization. This macro test whether env is initialized and get
-  ;; current SP offset appropriately.
+  ;; initialization. This macro test whether env is initialized and get current
+  ;; SP offset appropriately.
   (if (env-initialized? env)
       (env-sp-offset env)
       (car (env-sp-offsets env))))
@@ -498,10 +516,17 @@ runtime."
 
 ;;;; Individual macros for IR definition
 
+(define-syntax-rule (update-ir name setter! proc new)
+  (match (ir-procedures-ref 'name)
+    ((ir-procedure)
+     (setter! ir-procedure proc))
+    (_
+     (ir-procedures-set! 'name (list new)))))
+
+(define no-test (lambda (op locals) #t))
+
 (define-syntax-rule (define-anf (name arg ...) . body)
-  (let ((test-proc (lambda (op locals)
-                     #t))
-        (anf-proc (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
+  (let ((anf-proc (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
                     (syntax-parameterize
                         ((env (identifier-syntax %env))
                          (ir (identifier-syntax %ir))
@@ -511,12 +536,11 @@ runtime."
                          (dl (identifier-syntax %dl))
                          (locals (identifier-syntax %locals)))
                       . body))))
-    (hashq-set! *ir-procedures* 'name (list (cons test-proc anf-proc)))))
+    (update-ir name set-ir-procedure-anf! anf-proc
+               (make-ir-procedure no-test #f #f anf-proc))))
 
 (define-syntax-rule (define-scan (name args ...) . body)
-  (let ((test-proc (lambda (op locals)
-                     #t))
-        (scan-proc (lambda (%env %ip %dl %locals args ...)
+  (let ((scan-proc (lambda (%env %ip %dl %locals args ...)
                      (syntax-parameterize
                          ((ip (identifier-syntax %ip))
                           (dl (identifier-syntax %dl))
@@ -524,19 +548,19 @@ runtime."
                           (env (identifier-syntax %env)))
                        . body)
                      #t)))
-    (hashq-set! *scan-procedures* 'name (list (cons test-proc scan-proc)))))
+    (update-ir name set-ir-procedure-parse! scan-proc
+               (make-ir-procedure no-test scan-proc #f #f))))
 
 (define-syntax-rule (define-ti (name args ...) . body)
-  (let ((test-proc (lambda (op locals)
-                     #t))
-        (ti-proc (lambda (%env %ip %dl %locals args ...)
+  (let ((ti-proc (lambda (%env %ip %dl %locals args ...)
                    (syntax-parameterize
                        ((ip (identifier-syntax %ip))
                         (dl (identifier-syntax %dl))
                         (locals (identifier-syntax %locals))
                         (env (identifier-syntax %env)))
                      . body))))
-    (hashq-set! *ti-procedures* 'name (list (cons test-proc ti-proc)))))
+    (update-ir name set-ir-procedure-infer-type! ti-proc
+               (make-ir-procedure no-test #f ti-proc #f))))
 
 
 ;;;; Macro for defining constant
@@ -558,3 +582,45 @@ runtime."
            (unless (memq dst/i+sp live-indices)
              (set-env-live-indices! env (cons dst/i+sp live-indices)))
            (next)))))))
+
+
+;;;; IR lookup procedures
+
+(define-inlinable (infer-type env op ip dl locals)
+  (let lp ((procs (ir-procedures-ref (car op))))
+    (match procs
+      ((proc . procs)
+       (if ((ir-procedure-check-type proc) op locals)
+           (apply (ir-procedure-infer-type proc) env ip dl locals (cdr op))
+           (lp procs)))
+      (_ (values)))))
+
+(define-inlinable (parse-trace env op ip dl locals)
+  ;; Compute local indices and stack element types in op.
+  ;;
+  ;; The stack used by VM interpreter grows down. Lower frame data is
+  ;; saved at the time of accumulation.  If one of the guard operation
+  ;; appeared soon after bytecode sequence `return' or `receive',
+  ;; snapshot does not know the value of locals in lower frame. When
+  ;; recorded bytecode contains `return' before `call', snapshot will
+  ;; recover a frame higher than the one used to enter the native
+  ;; call.
+  ;;
+  (let lp ((procs (ir-procedures-ref (car op))))
+    (define (%nyi op)
+      (let ((verbosity (lightning-verbosity)))
+        (if (and (number? verbosity) (<= 1 verbosity))
+            (begin
+              (debug 1 "NYI: ~a~%" (car op))
+              #f)
+            (nyi "~a" op))))
+    (match procs
+      ((proc . procs)
+       (if ((ir-procedure-check-type proc) op locals)
+           (let* ((args (cdr op))
+                  (ret (apply (ir-procedure-parse proc)
+                              env ip dl locals args)))
+             (apply (ir-procedure-infer-type proc) env ip dl locals args)
+             ret)
+           (lp procs)))
+      (_ (%nyi op)))))

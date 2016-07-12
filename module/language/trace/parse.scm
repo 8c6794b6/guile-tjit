@@ -33,9 +33,10 @@
   #:use-module (language trace error)
   #:use-module (language trace env)
   #:use-module (language trace fragment)
+  #:use-module (language trace ir)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
-  #:export (parse-bytecode *scan-procedures*))
+  #:export (parse-bytecode))
 
 
 ;;;; Auxiliary
@@ -48,9 +49,6 @@
 ;;; hence defined as top level variable in this module.
 (define-inlinable (disassemble-one buffer offset)
   ((@@ (system vm disassembler) disassemble-one) buffer offset))
-
-(define *scan-procedures*
-  (make-hash-table 255))
 
 
 ;;;; The parser
@@ -83,31 +81,6 @@ After successufl parse, this procedure will update fields in ENV."
           (((dst . src) . copies)
            (lp copies (assq-set! dsts dst (assq-ref srcs src))))
           (_ dsts)))))
-  (define (%nyi op)
-    (let ((verbosity (lightning-verbosity)))
-      (if (and (number? verbosity) (<= 1 verbosity))
-          (begin
-            (debug 1 "NYI: ~a~%" (car op))
-            #f)
-          (nyi "~a" op))))
-  (define (scan-trace env op ip dl locals)
-    ;; Compute local indices and stack element types in op.
-    ;;
-    ;; The stack used by VM interpreter grows down. Lower frame data is
-    ;; saved at the time of accumulation.  If one of the guard operation
-    ;; appeared soon after bytecode sequence `return' or `receive',
-    ;; snapshot does not know the value of locals in lower frame. When
-    ;; recorded bytecode contains `return' before `call', snapshot will
-    ;; recover a frame higher than the one used to enter the native
-    ;; call.
-    ;;
-    (let lp ((procs (hashq-ref *scan-procedures* (car op))))
-      (match procs
-        (((test . work) . procs)
-         (if (test op locals)
-             (apply work env ip dl locals (cdr op))
-             (lp procs)))
-        (_ (%nyi op)))))
   (define (make-hint sp-offset env)
     (let lp ((ts (env-inferred-types env)) (acc '()))
       (match ts
@@ -126,8 +99,7 @@ After successufl parse, this procedure will update fields in ENV."
                   (((len op) (disassemble-one bytecode offset))
                    ((implemented?)
                     (and so-far-so-good?
-                         (let* ((ret (scan-trace env op ip dl locals))
-                                (_ (infer-type env op ip dl locals))
+                         (let* ((ret (parse-trace env op ip dl locals))
                                 (ws (let lp ((types (env-inferred-types env))
                                              (acc '()))
                                       (if (null? types)
