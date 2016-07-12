@@ -106,10 +106,10 @@
   ;; Number of child traces, for root trace only.
   (num-child fragment-num-child set-fragment-num-child!)
 
-  ;; Trace id of parent trace, 0 for root trace.
+  ;; Trace id of parent trace, or #f for root trace.
   (parent-id fragment-parent-id)
 
-  ;; Exit id taken by parent, root traces constantly have 0.
+  ;; Exit id taken by parent, or #f for root trace.
   (parent-exit-id fragment-parent-exit-id)
 
   ;; Address of start of loop.
@@ -158,8 +158,8 @@
 
 (set-record-type-printer! <fragment> print-fragment)
 
-(define (root-trace-fragment? fragment)
-  (zero? (fragment-parent-id fragment)))
+(define-inlinable (root-trace-fragment? fragment)
+  (not (fragment-parent-id fragment)))
 
 (define (put-fragment! trace-id fragment)
   (hashq-set! (tjit-fragment) trace-id fragment)
@@ -174,7 +174,7 @@
       (hashq-set! tbl ip fragments))))
 
 (define (get-fragment fragment-id)
-  (hashq-ref (tjit-fragment) fragment-id #f))
+  (and fragment-id (hashq-ref (tjit-fragment) fragment-id #f)))
 
 (define (get-root-trace types ip)
   (let lp ((fragments (hashq-ref (tjit-root-trace) ip #f)))
@@ -188,12 +188,11 @@
 (define (get-origin-fragment fragment)
   "Get origin root trace fragment of FRAGMENT."
   (let lp ((fragment fragment))
-    (if (not fragment)
-        #f
-        (let ((parent-id (fragment-parent-id fragment)))
-          (if (zero? parent-id)
-              fragment
-              (lp (get-fragment parent-id)))))))
+    (and fragment
+         (let ((parent-id (fragment-parent-id fragment)))
+           (if parent-id
+               (lp (get-fragment parent-id))
+               fragment)))))
 
 (define (increment-fragment-num-child! fragment)
   (let ((num-child (fragment-num-child fragment)))

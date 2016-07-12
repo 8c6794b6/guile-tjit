@@ -272,8 +272,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (end-address (or (and=> (env-parent-fragment env)
                                     fragment-end-address)
                              (jit-address epilog-label)))
-            (parent-id (or (and=> (env-parent-fragment env) fragment-id)
-                           0))
+            (parent-id (and=> (env-parent-fragment env) fragment-id))
             (gdb-jit-entry
              (and (tjit-dump-dwarf? (tjit-dump-option))
                   (let* ((addr (pointer-address (bytevector->pointer code)))
@@ -295,7 +294,7 @@ DST-TYPES, and SRC-TYPES are local index number."
                    (filter (match-lambda ((n . _) (< n nlocals)))
                            (env-entry-types env)))
                  (env-entry-types env)))
-            (type-checker (and (zero? parent-id)
+            (type-checker (and (not parent-id)
                                (gen-type-checker checker-types (env-id env))))
             (fragment (make-fragment (env-id env)
                                      code

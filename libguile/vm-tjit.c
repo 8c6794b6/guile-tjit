@@ -208,8 +208,10 @@ tjitc (struct scm_tjit_state *tj, SCM linked_ip, SCM loop_p)
       scm_c_set_vm_engine_x (SCM_I_INUM (tjit_scheme_engine));
       scm_call_9 (tjitc_var, SCM_I_MAKINUM (tjit_trace_id), s_bytecode,
                   scm_reverse_x (tj->traces, SCM_EOL),
-                  SCM_I_MAKINUM (tj->parent_fragment_id),
-                  SCM_I_MAKINUM (tj->parent_exit_id),
+                  tj->parent_fragment_id ?
+                  tj->parent_fragment_id : SCM_BOOL_F,
+                  tj->parent_exit_id ?
+                  tj->parent_exit_id : SCM_BOOL_F,
                   linked_ip, loop_p, downrec_p, uprec_p);
       scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
     }
@@ -453,12 +455,11 @@ call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
 
           if (tjit_hot_exit < count)
             {
-              SCM parent_fragment_id = SCM_FRAGMENT_ID (ret_fragment);
               scm_t_uint32 *start = vp->ip;
               scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-              tj->parent_fragment_id = SCM_I_INUM (parent_fragment_id);
-              tj->parent_exit_id = (int) exit_id;
+              tj->parent_fragment_id = SCM_FRAGMENT_ID (ret_fragment);
+              tj->parent_exit_id = SCM_I_MAKINUM (exit_id);
               start_recording (tj, start, end, SCM_TJIT_TRACE_SIDE);
             }
         }
