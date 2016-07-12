@@ -33,6 +33,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (system vm native debug)
   #:use-module (language trace types)
+  #:use-module (language trace parameters)
   #:export (make-env
             env-id
             env-entry-ip
@@ -44,7 +45,6 @@
             env-loop?
             env-downrec?
             env-uprec?
-            env-linking-roots? set-env-linking-roots!
             env-handle-interrupts? set-env-handle-interrupts!
             env-loop-locals set-env-loop-locals!
             env-loop-vars set-env-loop-vars!
@@ -68,6 +68,9 @@
             env-save-volatiles? set-env-save-volatiles!
             env-applied-guards
             env-min-sp-offset set-env-min-sp-offset!
+            env-bytecode-index set-env-bytecode-index!
+            env-ir-procedures set-env-ir-procedures!
+            env                         ; syntax parameter.
 
             increment-env-call-return-num!
             add-env-call!
@@ -77,7 +80,17 @@
             set-entry-types!
             set-inferred-type!
             applied-guard
-            set-applied-guard!))
+            set-applied-guard!
+
+            current-ir-procedure
+            current-sp-offset
+            current-sp-for-ti
+            current-fp-offset
+            current-inline-depth
+
+            push-scan-sp-offset! pop-scan-sp-offset!
+            push-scan-fp-offset! pop-scan-fp-offset!
+            set-scan-initial-fields!))
 
 
 ;;;; The environment
@@ -86,14 +99,14 @@
 (define-record-type <env>
   (%make-env id entry-ip linked-ip linked-fragment
              parent-exit-id parent-fragment parent-snapshot
-             loop? downrec? uprec? linking-roots?
+             loop? downrec? uprec?
              handle-interrupts? save-volatiles? initialized?
              loop-locals loop-vars
              sp-offsets fp-offsets sp-offset fp-offset last-sp-offset
              write-indices read-indices write-buf live-indices
              entry-types inferred-types
              call-num return-num calls returns inline-depth
-             applied-guards min-sp-offset)
+             applied-guards min-sp-offset bytecode-index ir-procedures)
   env?
 
   ;; Trace ID of this compilation.
@@ -125,10 +138,6 @@
 
   ;; Flag for up recursion trace.
   (uprec? env-uprec?)
-
-  ;; Flag to tell whether the parent trace origin is different from linked
-  ;; trace.
-  (linking-roots? env-linking-roots? set-env-linking-roots!)
 
   ;; Flag to emit interrupt handler.
   (handle-interrupts? env-handle-interrupts? set-env-handle-interrupts!)
@@ -202,7 +211,13 @@
   (applied-guards env-applied-guards)
 
   ;; Minimum SP offset.
-  (min-sp-offset env-min-sp-offset set-env-min-sp-offset!))
+  (min-sp-offset env-min-sp-offset set-env-min-sp-offset!)
+
+  ;; Current bytecode index.
+  (bytecode-index env-bytecode-index set-env-bytecode-index!)
+
+  ;; Possibly type specified IR procedures per bytecode instruction.
+  (ir-procedures env-ir-procedures set-env-ir-procedures!))
 
 (define (make-env id entry-ip linked-ip
                   parent-exit-id parent-fragment parent-snapshot
@@ -210,7 +225,6 @@
                   sp-offset fp-offset write-indices live-indices
                   types-from-parent inline-depth)
   (let ((linked-fragment #f)
-        (linking-roots? #f)
         (handle-interrupts? #f)
         (save-volatiles? #f)
         (initialized? #f)
@@ -228,18 +242,50 @@
         (calls '())
         (returns '())
         (applied-guards (make-hash-table))
-        (min-sp-offset 0))
+        (min-sp-offset 0)
+        (bytecode-index 0)
+        (ir-procedures '()))
     (%make-env id entry-ip linked-ip linked-fragment
                parent-exit-id parent-fragment parent-snapshot
-               loop? downrec? uprec? linking-roots?
+               loop? downrec? uprec?
                handle-interrupts? save-volatiles? initialized?
                loop-locals loop-vars sp-offsets fp-offsets
                sp-offset fp-offset last-sp-offset
                write-indices read-indices write-buf live-indices
-               entry-types inferred-types call-num return-num calls returns
-               inline-depth applied-guards min-sp-offset)))
+               entry-types inferred-types
+               call-num return-num calls returns
+               inline-depth applied-guards min-sp-offset
+               bytecode-index ir-procedures)))
 
-(define (env-local-indices env)
+(define-syntax-parameter env
+  (lambda (x) 'env "uninitialized" x))
+
+
+;;;; Macros for parse
+
+(define-syntax-rule (push-scan-sp-offset! env n)
+  (set-env-sp-offset! env (- (env-sp-offset env) n)))
+
+(define-syntax-rule (pop-scan-sp-offset! env n)
+  (set-env-sp-offset! env (+ (env-sp-offset env) n)))
+
+(define-syntax-rule (push-scan-fp-offset! env n)
+  (set-env-fp-offset! env (- (env-fp-offset env) n)))
+
+(define-syntax-rule (pop-scan-fp-offset! env n)
+  (set-env-fp-offset! env (+ (env-fp-offset env) n)))
+
+(define-syntax-rule (set-scan-initial-fields! env)
+  (let-syntax ((update! (syntax-rules ()
+                          ((_ setter current olds)
+                           (setter env (cons (current env) (olds env)))))))
+    (update! set-env-sp-offsets! env-sp-offset env-sp-offsets)
+    (update! set-env-fp-offsets! env-fp-offset env-fp-offsets)))
+
+
+;;;; For IR compilation
+
+(define-inlinable (env-local-indices env)
   (sort (delete-duplicates (append (env-write-indices env)
                                    (env-read-indices env)))
         >))
@@ -262,7 +308,7 @@ inline depth by one."
     (else
      (values))))
 
-(define (add-env-call! env)
+(define-inlinable (add-env-call! env)
   (let ((new (cons (env-call-num env) #f)))
     (set-env-calls! env (cons new (env-calls env)))))
 
@@ -343,14 +389,56 @@ inline depth by one."
                      acc)))))
     (set-env-entry-types! env entry)))
 
-(define (set-inferred-type! env n t)
+(define-inlinable (set-inferred-type! env n t)
   (let* ((inferred (env-inferred-types env))
          (inferred (assq-set! inferred n t)))
     (hashq-remove! (env-applied-guards env) n)
     (set-env-inferred-types! env inferred)))
 
-(define (applied-guard env n)
+(define-inlinable (applied-guard env n)
   (hashq-ref (env-applied-guards env) n))
 
-(define (set-applied-guard! env n type)
+(define-inlinable (set-applied-guard! env n type)
   (hashq-set! (env-applied-guards env) n type))
+
+(define-inlinable (current-ir-procedure env)
+  (vector-ref (env-ir-procedures env) (env-bytecode-index env)))
+
+
+;;;; Definitions using syntax parameter
+
+(define-syntax-rule (current-inline-depth)
+  "Compute current inline depth in ENV.
+
+Counts the number of inlined calls which are currently opened, by using calls,
+returns, current call-num, and current return-num."
+  (let ((call-num (env-call-num env))
+        (return-num (env-return-num env)))
+    (let lp ((calls (env-calls env)) (acc 0))
+      (match calls
+        (((_ . #f) . calls)
+         (lp calls acc))
+        (((c . r) . calls)
+         (if (and (< c call-num) (<= return-num r))
+             (lp calls (+ acc 1))
+             (lp calls acc)))
+        (()
+         (when (< (tjit-max-inline-depth) acc)
+           ((@ (language trace error) break) 2
+            "too many inlined procedures"))
+         (+ acc (env-inline-depth env)))))))
+
+(define-syntax-rule (current-sp-offset)
+  (vector-ref (env-sp-offsets env) (env-bytecode-index env)))
+
+(define-syntax-rule (current-sp-for-ti)
+  ;; Type inference procedures are called during initialization and ANF IR
+  ;; compilation. Some bytecode operation shift SP during env
+  ;; initialization. This macro test whether env is initialized and get current
+  ;; SP offset appropriately.
+  (if (env-initialized? env)
+      (env-sp-offset env)
+      (car (env-sp-offsets env))))
+
+(define-syntax-rule (current-fp-offset)
+  (vector-ref (env-fp-offsets env) (env-bytecode-index env)))

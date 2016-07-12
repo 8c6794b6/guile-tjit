@@ -136,13 +136,12 @@ After successufl parse, this procedure will update fields in ENV."
                                          snapshot-inline-depth)
                                   0)))
                   (when linking-roots?
-                    (let* ((old-ids
-                            (fragment-linked-root-ids linked-fragment))
+                    (let* ((old-ids (fragment-linked-root-ids
+                                     linked-fragment))
                            (new-ids (cons origin-id old-ids)))
-                      (set-fragment-linked-root-ids!
-                       linked-fragment new-ids)))
+                      (set-fragment-linked-root-ids! linked-fragment
+                                                     new-ids)))
                   (set-env-linked-fragment! env linked-fragment)
-                  (set-env-linking-roots! env linking-roots?)
                   (set-env-last-sp-offset! env last-sp-offset)
                   (set-env-call-num! env 0)
                   (set-env-return-num! env 0)
@@ -150,6 +149,8 @@ After successufl parse, this procedure will update fields in ENV."
                   (set-reversed-vector! set-env-sp-offsets! env-sp-offsets)
                   (set-reversed-vector! set-env-fp-offsets! env-fp-offsets)
                   (set-reversed-vector! set-env-write-buf! env-write-buf)
+                  (set-reversed-vector! set-env-ir-procedures!
+                                        env-ir-procedures)
                   (let* ((entry (env-entry-types env))
                          (inferred (env-inferred-types env)))
                     (set-env-entry-types! env (resolve-copies entry entry))

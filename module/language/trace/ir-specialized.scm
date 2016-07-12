@@ -57,9 +57,7 @@
 (define-ti (subr-call)
   ;; Filling in return address and dynamic link with false.
   (let* ((stack-size (vector-length locals))
-         (sp-offset (if (env-initialized? env)
-                        (env-sp-offset env)
-                        (car (env-sp-offsets env))))
+         (sp-offset (current-sp-for-ti))
          (proc-offset (+ (- stack-size 1) sp-offset))
          (ra-offset (+ proc-offset 1))
          (dl-offset (+ ra-offset 1)))

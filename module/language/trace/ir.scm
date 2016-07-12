@@ -46,7 +46,6 @@
             ir-snapshot-id set-ir-snapshot-id!
             ir-min-sp-offset set-ir-min-sp-offset!
             ir-max-sp-offset set-ir-max-sp-offset!
-            ir-bytecode-index set-ir-bytecode-index!
             ir-vars
             ir-last-op? set-ir-last-op!
 
@@ -71,12 +70,10 @@
             with-boxing
             with-type-guard
             with-type-guard-always
-            current-sp-offset
-            current-sp-for-ti
-            current-fp-offset
             inline-current-call?
             inline-current-return?
-            env ir ip ra dl locals next
+
+            ir ip ra dl locals next ; syntax parameters
 
             take-snapshot
             gen-load-thunk
@@ -87,12 +84,6 @@
             define-anf
             define-constant
 
-            push-scan-sp-offset!
-            pop-scan-sp-offset!
-            push-scan-fp-offset!
-            pop-scan-fp-offset!
-            set-scan-initial-fields!
-
             *ir-procedures*))
 
 
@@ -100,7 +91,7 @@
 
 (define-record-type <ir>
   (make-ir snapshots snapshot-id vars min-sp-offset max-sp-offset
-           bytecode-index last-op? cached-snapshot)
+           last-op? cached-snapshot)
   ir?
 
   ;; Hash table containing snapshots.
@@ -118,9 +109,6 @@
   ;; Current maximum SP offset.
   (max-sp-offset ir-max-sp-offset set-ir-max-sp-offset!)
 
-  ;; Current bytecode index.
-  (bytecode-index ir-bytecode-index set-ir-bytecode-index!)
-
   ;; Flag for last recorded operation.
   (last-op? ir-last-op? set-ir-last-op!)
 
@@ -136,49 +124,7 @@
   (anf ir-procedure-anf set-ir-procedure-anf!))
 
 
-;;;; Macros for scan
-
-(define-syntax-rule (push-scan-sp-offset! env n)
-  (set-env-sp-offset! env (- (env-sp-offset env) n)))
-
-(define-syntax-rule (pop-scan-sp-offset! env n)
-  (set-env-sp-offset! env (+ (env-sp-offset env) n)))
-
-(define-syntax-rule (push-scan-fp-offset! env n)
-  (set-env-fp-offset! env (- (env-fp-offset env) n)))
-
-(define-syntax-rule (pop-scan-fp-offset! env n)
-  (set-env-fp-offset! env (+ (env-fp-offset env) n)))
-
-(define-syntax-rule (set-scan-initial-fields! env)
-  (let-syntax ((update! (syntax-rules ()
-                          ((_ setter current olds)
-                           (setter env (cons (current env) (olds env)))))))
-    (update! set-env-sp-offsets! env-sp-offset env-sp-offsets)
-    (update! set-env-fp-offsets! env-fp-offset env-fp-offsets)))
-
-
 ;;;; Macros for ANF
-
-(define (current-inline-depth env)
-  "Compute current inline depth in ENV.
-
-Counts the number of inlined calls which are currently opened, by using calls,
-returns, current call-num, and current return-num."
-  (let ((call-num (env-call-num env))
-        (return-num (env-return-num env)))
-    (let lp ((calls (env-calls env)) (acc 0))
-      (match calls
-        (((_ . #f) . calls)
-         (lp calls acc))
-        (((c . r) . calls)
-         (if (and (< c call-num) (<= return-num r))
-             (lp calls (+ acc 1))
-             (lp calls acc)))
-        (()
-         (when (< (tjit-max-inline-depth) acc)
-           (break 2 "too many inlined procedures"))
-         (+ acc (env-inline-depth env)))))))
 
 (define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
                         min-sp-offset max-sp-offset inline-depth env
@@ -275,7 +221,7 @@ returns, current call-num, and current return-num."
            'name "uninitialized" x))
        ...))))
 
-(define-ir-syntax-parameters env ir ip ra dl locals next)
+(define-ir-syntax-parameters ir ip ra dl locals next)
 
 (eval-when (compile load expand)
   (define (format-id k fmt . args)
@@ -412,21 +358,6 @@ runtime."
 (define-syntax-rule (dereference-scm addr)
   (pointer->scm (dereference-pointer (make-pointer addr))))
 
-(define-syntax-rule (current-sp-offset)
-  (vector-ref (env-sp-offsets env) (ir-bytecode-index ir)))
-
-(define-syntax-rule (current-sp-for-ti)
-  ;; Type inference procedures are called during initialization and ANF IR
-  ;; compilation. Some bytecode operation shift SP during env
-  ;; initialization. This macro test whether env is initialized and get current
-  ;; SP offset appropriately.
-  (if (env-initialized? env)
-      (env-sp-offset env)
-      (car (env-sp-offsets env))))
-
-(define-syntax-rule (current-fp-offset)
-  (vector-ref (env-fp-offsets env) (ir-bytecode-index ir)))
-
 ;; `call' and `call-label' at last position are always inlined, no need to emit
 ;; FP shifting would be done with offsets stored in snapshot.
 (define-syntax-rule (inline-current-call?)
@@ -472,15 +403,16 @@ runtime."
          (let-values (((ret snapshot)
                        (take-snapshot ip dst-offset locals (ir-vars ir)
                                       (if (env-parent-snapshot env)
-                                          (vector-ref (env-write-buf env)
-                                                      (ir-bytecode-index ir))
+                                          (vector-ref
+                                           (env-write-buf env)
+                                           (env-bytecode-index env))
                                           (env-write-indices env))
                                       (ir-snapshot-id ir)
                                       (current-sp-offset)
                                       (current-fp-offset)
                                       (ir-min-sp-offset ir)
                                       (ir-max-sp-offset ir)
-                                      (current-inline-depth env) env
+                                      (current-inline-depth) env
                                       refill?)))
            (let ((old-id (ir-snapshot-id ir)))
              (snapshots-set! (ir-snapshots ir) old-id snapshot)
@@ -584,16 +516,7 @@ runtime."
            (next)))))))
 
 
-;;;; IR lookup procedures
-
-(define-inlinable (infer-type env op ip dl locals)
-  (let lp ((procs (ir-procedures-ref (car op))))
-    (match procs
-      ((proc . procs)
-       (if ((ir-procedure-check-type proc) op locals)
-           (apply (ir-procedure-infer-type proc) env ip dl locals (cdr op))
-           (lp procs)))
-      (_ (values)))))
+;;;; Procedures with IR lookup
 
 (define-inlinable (parse-trace env op ip dl locals)
   ;; Compute local indices and stack element types in op.
@@ -621,6 +544,11 @@ runtime."
                   (ret (apply (ir-procedure-parse proc)
                               env ip dl locals args)))
              (apply (ir-procedure-infer-type proc) env ip dl locals args)
+             (set-env-ir-procedures! env (cons proc (env-ir-procedures env)))
              ret)
            (lp procs)))
       (_ (%nyi op)))))
+
+(define-inlinable (infer-type env op ip dl locals)
+  (let ((proc (current-ir-procedure env)))
+    (apply (ir-procedure-infer-type proc) env ip dl locals (cdr op))))
