@@ -53,38 +53,22 @@
             ir-procedure-parse
             ir-procedure-infer-type
             ir-procedure-anf
-            parse-trace infer-type
-
-            define-ir
-            define-interrupt-ir
-            gen-put-element-type
-            gen-put-index
-            dereference-scm
-            take-snapshot!
-            scm-ref
-            u64-ref
-            var-ref
-            src-ref
-            dst-ref
-            type-ref
-            with-boxing
-            with-type-guard
-            with-type-guard-always
-            inline-current-call?
-            inline-current-return?
 
             ir ip ra dl locals next ; syntax parameters
+            gen-load-thunk dereference-scm
+            take-snapshot take-snapshot!
+            scm-ref u64-ref var-ref src-ref dst-ref type-ref
+            with-stack-ref with-boxing
+            with-type-guard with-type-guard-always
+            inline-current-call? inline-current-return?
 
-            take-snapshot
-            gen-load-thunk
-            with-stack-ref
-
-            define-scan
-            define-ti
-            define-anf
+            *ir-procedures*
+            define-ir define-interrupt-ir
+            define-scan define-ti define-anf
             define-constant
 
-            *ir-procedures*))
+            parse-trace
+            infer-type))
 
 
 ;;;; IR record type
@@ -124,10 +108,12 @@
   (anf ir-procedure-anf set-ir-procedure-anf!))
 
 
-;;;; Macros for ANF
+;;;; For IR body
 
-(define* (take-snapshot ip dst-offset locals vars indices id sp-offset fp-offset
-                        min-sp-offset max-sp-offset inline-depth env
+(define* (take-snapshot ip dst-offset locals vars indices id
+                        sp-offset fp-offset
+                        min-sp-offset max-sp-offset
+                        inline-depth env
                         #:optional (refill? #f) (arg-nlocals #f))
   (let* ((nlocals (or arg-nlocals (vector-length locals)))
          (dst-ip (+ ip (* dst-offset 4)))
@@ -152,6 +138,17 @@
          (snapshot (make-snapshot id sp-offset fp-offset nlocals indices
                                   env dst-ip inline-depth refill?)))
     (values `(%snap ,id ,@args) snapshot)))
+
+(define-syntax define-ir-syntax-parameters
+  (syntax-rules ()
+    ((_ name ...)
+     (begin
+       (define-syntax-parameter name
+         (lambda (x)
+           'name "uninitialized" x))
+       ...))))
+
+(define-ir-syntax-parameters ir ip ra dl locals next)
 
 (define-syntax gen-load-thunk
   (syntax-rules ()
@@ -196,6 +193,71 @@
            (break 1 "root trace with up-frame load"))
          (load-up-frame))))))
 
+(define-syntax-rule (dereference-scm addr)
+  (pointer->scm (dereference-pointer (make-pointer addr))))
+
+;; `call' and `call-label' at last position are always inlined, no need to emit
+;; FP shifting would be done with offsets stored in snapshot.
+(define-syntax-rule (inline-current-call?)
+  (or (assq-ref (env-calls env) (env-call-num env))
+      (< 0 (env-inline-depth env))
+      (ir-last-op? ir)))
+
+(define-syntax-rule (inline-current-return?)
+  (or (assq-ref (env-returns env) (env-return-num env))
+      (< 0 (env-inline-depth env))))
+
+(define-syntax-rule (scm-ref n)
+  (vector-ref locals n))
+
+(define-syntax-rule (u64-ref n)
+  (object-address (vector-ref locals n)))
+
+(define-syntax-rule (var-ref n)
+  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
+
+(define-syntax-rule (src-ref n)
+  (let* ((sp-offset (current-sp-offset))
+         (type (assq-ref (env-inferred-types env) (+ n sp-offset))))
+    (if (constant? type)
+        (constant-value type)
+        (assq-ref (ir-vars ir) (+ n sp-offset)))))
+
+(define-syntax-rule (dst-ref n)
+  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
+
+(define-syntax-rule (type-ref n)
+  (assq-ref (env-inferred-types env) (+ n (current-sp-offset))))
+
+(define-syntax take-snapshot!
+  (syntax-rules ()
+    ((_ ip dst-offset)
+     (take-snapshot! ip dst-offset #f))
+    ((_ ip dst-offset refill?)
+     ;; Compare IP of cached snapshot. Reuse it if the IP was same with current
+     ;; IP. Take a new snapshot and increment snapshot ID if not.
+     (if (eq? ip (and=> (ir-cached-snapshot ir) snapshot-ip))
+         '_
+         (let-values (((ret snapshot)
+                       (take-snapshot ip dst-offset locals (ir-vars ir)
+                                      (if (env-parent-snapshot env)
+                                          (vector-ref
+                                           (env-write-buf env)
+                                           (env-bytecode-index env))
+                                          (env-write-indices env))
+                                      (ir-snapshot-id ir)
+                                      (current-sp-offset)
+                                      (current-fp-offset)
+                                      (ir-min-sp-offset ir)
+                                      (ir-max-sp-offset ir)
+                                      (current-inline-depth) env
+                                      refill? #f)))
+           (let ((old-id (ir-snapshot-id ir)))
+             (snapshots-set! (ir-snapshots ir) old-id snapshot)
+             (set-ir-snapshot-id! ir (+ old-id 1))
+             (set-ir-cached-snapshot! ir snapshot))
+           ret)))))
+
 (define-syntax-rule (with-stack-ref var type idx next . args)
   (cond
    ((dynamic-link? type)
@@ -212,33 +274,49 @@
     `(let ((,var (%sref ,idx ,type)))
        ,(next . args)))))
 
-(define-syntax define-ir-syntax-parameters
-  (syntax-rules ()
-    ((_ name ...)
-     (begin
-       (define-syntax-parameter name
-         (lambda (x)
-           'name "uninitialized" x))
-       ...))))
+(define-syntax-rule (with-boxing type var tmp proc)
+  (if (eq? type &flonum)
+      (begin
+        (set-env-handle-interrupts! env #t)
+        `(let ((,tmp (%d2s ,var)))
+           ,(proc tmp)))
+      (proc var)))
 
-(define-ir-syntax-parameters ir ip ra dl locals next)
+(define-syntax-rule (with-type-guard type src expr)
+  (if (let ((src/t (type-ref src)))
+        (or (eq? type src/t)
+            (constant? src/t)
+            (eq? type (applied-guard env (+ src (current-sp-offset))))))
+      expr
+      (begin
+        (set-applied-guard! env (+ src (current-sp-offset)) type)
+        `(let ((_ ,(take-snapshot! ip 0)))
+           (let ((_ (%typeq ,(var-ref src) ,type)))
+             ,expr)))))
+
+(define-syntax-rule (with-type-guard-always type src expr)
+  `(let ((_ ,(take-snapshot! ip 0)))
+     (let ((_ (%typeq ,(var-ref src) ,type)))
+       ,expr)))
+
+
+;;;; Macros for defining IR
 
 (eval-when (compile load expand)
   (define (format-id k fmt . args)
-    (datum->syntax k (string->symbol (apply format #f fmt args)))))
+    (datum->syntax k (string->symbol
+                      (apply format #f fmt (map syntax->datum args))))))
 
 (define-syntax define-scan-infer-live
   (lambda (x)
     (syntax-case x ()
       ((k scan-name infer-name live-name (type ...))
-       (with-syntax (((tag ...)
-                      (map (lambda (t)
-                             (format-id #'k "&~s" (syntax->datum t)))
-                           #'(type ...)))
-                     ((punct ...)
-                      (map (lambda (t)
-                             (format-id #'k "~s!" (syntax->datum t)))
-                           #'(type ...))))
+       (with-syntax (((tag ...) (map (lambda (t)
+                                       (format-id #'k "&~s" t))
+                                     #'(type ...)))
+                     ((punct ...) (map (lambda (t)
+                                         (format-id #'k "~s!" t))
+                                       #'(type ...))))
          #`(begin
              (define-syntax scan-helper
                (syntax-rules (type ...)
@@ -273,13 +351,22 @@
   (scm fixnum flonum fraction char pair vector box procedure struct string
        bytevector u64 f64 s64))
 
-(define *ir-procedures* (make-hash-table 255))
+(define-syntax-rule (update-ir name setter! proc new)
+  (match (ir-procedures-ref 'name)
+    ((ir-procedure)
+     (setter! ir-procedure proc))
+    (_
+     (ir-procedures-set! 'name (list new)))))
 
-(define-inlinable (ir-procedures-ref key)
-  (hashq-ref *ir-procedures* key))
+(define no-test (lambda (op locals) #t))
 
-(define-inlinable (ir-procedures-set! key val)
-  (hashq-set! *ir-procedures* key val))
+(define *ir-procedures* (make-hash-table))
+
+(define-inlinable (ir-procedures-ref name)
+  (hashq-ref *ir-procedures* name))
+
+(define-inlinable (ir-procedures-set! name val)
+  (hashq-set! *ir-procedures* name val))
 
 (define-syntax define-ir
   (syntax-rules ()
@@ -355,108 +442,6 @@ runtime."
          (set-env-handle-interrupts! env #t)
          . body)))))
 
-(define-syntax-rule (dereference-scm addr)
-  (pointer->scm (dereference-pointer (make-pointer addr))))
-
-;; `call' and `call-label' at last position are always inlined, no need to emit
-;; FP shifting would be done with offsets stored in snapshot.
-(define-syntax-rule (inline-current-call?)
-  (or (assq-ref (env-calls env) (env-call-num env))
-      (< 0 (env-inline-depth env))
-      (ir-last-op? ir)))
-
-(define-syntax-rule (inline-current-return?)
-  (or (assq-ref (env-returns env) (env-return-num env))
-      (< 0 (env-inline-depth env))))
-
-(define-syntax-rule (scm-ref n)
-  (vector-ref locals n))
-
-(define-syntax-rule (u64-ref n)
-  (object-address (vector-ref locals n)))
-
-(define-syntax-rule (var-ref n)
-  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
-
-(define-syntax-rule (src-ref n)
-  (let* ((sp-offset (current-sp-offset))
-         (type (assq-ref (env-inferred-types env) (+ n sp-offset))))
-    (if (constant? type)
-        (constant-value type)
-        (assq-ref (ir-vars ir) (+ n sp-offset)))))
-
-(define-syntax-rule (dst-ref n)
-  (assq-ref (ir-vars ir) (+ n (current-sp-offset))))
-
-(define-syntax-rule (type-ref n)
-  (assq-ref (env-inferred-types env) (+ n (current-sp-offset))))
-
-(define-syntax take-snapshot!
-  (syntax-rules ()
-    ((_ ip dst-offset)
-     (take-snapshot! ip dst-offset #f))
-    ((_ ip dst-offset refill?)
-     ;; Compare IP of cached snapshot. Reuse it if the IP was same with current
-     ;; IP. Take a new snapshot and increment snapshot ID if not.
-     (if (eq? ip (and=> (ir-cached-snapshot ir) snapshot-ip))
-         '_
-         (let-values (((ret snapshot)
-                       (take-snapshot ip dst-offset locals (ir-vars ir)
-                                      (if (env-parent-snapshot env)
-                                          (vector-ref
-                                           (env-write-buf env)
-                                           (env-bytecode-index env))
-                                          (env-write-indices env))
-                                      (ir-snapshot-id ir)
-                                      (current-sp-offset)
-                                      (current-fp-offset)
-                                      (ir-min-sp-offset ir)
-                                      (ir-max-sp-offset ir)
-                                      (current-inline-depth) env
-                                      refill?)))
-           (let ((old-id (ir-snapshot-id ir)))
-             (snapshots-set! (ir-snapshots ir) old-id snapshot)
-             (set-ir-snapshot-id! ir (+ old-id 1))
-             (set-ir-cached-snapshot! ir snapshot))
-           ret)))))
-
-(define-syntax-rule (with-boxing type var tmp proc)
-  (if (eq? type &flonum)
-      (begin
-        (set-env-handle-interrupts! env #t)
-        `(let ((,tmp (%d2s ,var)))
-           ,(proc tmp)))
-      (proc var)))
-
-(define-syntax-rule (with-type-guard type src expr)
-  (if (let ((src/t (type-ref src)))
-        (or (eq? type src/t)
-            (constant? src/t)
-            (eq? type (applied-guard env (+ src (current-sp-offset))))))
-      expr
-      (begin
-        (set-applied-guard! env (+ src (current-sp-offset)) type)
-        `(let ((_ ,(take-snapshot! ip 0)))
-           (let ((_ (%typeq ,(var-ref src) ,type)))
-             ,expr)))))
-
-(define-syntax-rule (with-type-guard-always type src expr)
-  `(let ((_ ,(take-snapshot! ip 0)))
-     (let ((_ (%typeq ,(var-ref src) ,type)))
-       ,expr)))
-
-
-;;;; Individual macros for IR definition
-
-(define-syntax-rule (update-ir name setter! proc new)
-  (match (ir-procedures-ref 'name)
-    ((ir-procedure)
-     (setter! ir-procedure proc))
-    (_
-     (ir-procedures-set! 'name (list new)))))
-
-(define no-test (lambda (op locals) #t))
-
 (define-syntax-rule (define-anf (name arg ...) . body)
   (let ((anf-proc (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
                     (syntax-parameterize
@@ -493,9 +478,6 @@ runtime."
                      . body))))
     (update-ir name set-ir-procedure-infer-type! ti-proc
                (make-ir-procedure no-test #f ti-proc #f))))
-
-
-;;;; Macro for defining constant
 
 (define-syntax define-constant
   (syntax-rules ()
