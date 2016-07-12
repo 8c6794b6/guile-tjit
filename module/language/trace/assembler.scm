@@ -1215,6 +1215,17 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                (failure 'store-stack "~s ~a ~s"
                         local (pretty-type type) src))))
     (cond
+     ;; Refilled immediates
+     ((eq? type &false)
+      (jit-movi r0 *scm-false*)
+      (sp-set! local r0))
+     ((eq? type &undefined)
+      (jit-movi r0 *scm-undefined*)
+      (sp-set! local r0))
+     ((eq? type &unspecified)
+      (jit-movi r0 *scm-unspecified*)
+      (sp-set! local r0))
+     ;; Types containing value
      ((return-address? type)
       ;; Moving value coupled with type to frame local. Return address of VM
       ;; frame need to be recovered when taking exit from inlined procedure
@@ -1228,6 +1239,14 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       ;; execution.
       (jit-movi r0 (imm (dynamic-link-offset type)))
       (sp-set! local r0))
+     ((constant? type)
+      ;; Value of constant could be flonum. In such case, using `scm->pointer'
+      ;; to store the SCM representation.
+      (let ((val (constant-value type)))
+        (if (flonum? val)
+            (jit-movi r0 (scm->pointer val))
+            (jit-movi r0 (imm val)))
+        (sp-set! local r0)))
      ;; Unboxed flonum values
      ((eq? type &flonum)
       (case (ref-type src)
@@ -1262,25 +1281,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          (memory-ref/f f0 src)
          (sp-set!/f local f0))
         (else (err))))
-     ;; Refilled immediates
-     ((eq? type &false)
-      (jit-movi r0 *scm-false*)
-      (sp-set! local r0))
-     ((eq? type &undefined)
-      (jit-movi r0 *scm-undefined*)
-      (sp-set! local r0))
-     ((eq? type &unspecified)
-      (jit-movi r0 *scm-unspecified*)
-      (sp-set! local r0))
-     ((constant? type)
-      (let ((val (constant-value type)))
-        (cond
-         ((flonum? val)
-          (jit-movi r0 (scm->pointer val))
-          (sp-set! local r0))
-         (else
-          (jit-movi r0 (imm (constant-value type)))
-          (sp-set! local r0)))))
      ;; Missing source code, do nothing.
      ((not src) (values))
      ;; All the other values
