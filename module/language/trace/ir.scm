@@ -351,6 +351,33 @@
   (scm fixnum flonum fraction char pair vector box procedure struct string
        bytevector u64 f64 s64))
 
+(define-syntax define-type-checker
+  (lambda (x)
+    (syntax-case x ()
+      ((k name (type ...))
+       (with-syntax (((&type ...) (map (lambda (s)
+                                         (format-id #'k "&~s" s))
+                                       #'(type ...))))
+         #`(define-syntax name
+             (syntax-rules (type ...)
+               ((_ locals n type)
+                (eq? &type (type-of (vector-ref locals n))))
+               ...
+               ((_ _ locals n) #t))))))))
+
+(define-type-checker type-check-one
+  (fixnum
+   flonum fraction char procedure pair vector box
+   struct string bytevector array))
+
+(define-syntax type-check
+  (syntax-rules ()
+    ((_ locals _ ()) #t)
+    ((_ locals ns (flag . flags))
+     (and (type-check-one locals (car ns) flag)
+          (let ((ns* (cdr ns)))
+            (type-check locals ns* flags))))))
+
 (define-syntax-rule (update-ir name setter! proc new)
   (match (ir-procedures-ref 'name)
     ((ir-procedure)
@@ -383,19 +410,7 @@ runtime."
     ((_ (name (flag arg) ...) . body)
      (let ((test-proc
             (lambda (op locals)
-              (let lp ((flags '(flag ...)) (ns (cdr op)))
-                (match (cons flags ns)
-                  (((f . flags) . (n . ns))
-                   (case f
-                     ((fixnum
-                       flonum fraction char procedure pair vector box
-                       struct string bytevector array)
-                      (let ((runtime-value (vector-ref locals n)))
-                        (if (eq? (type-of runtime-value) (flag->type f))
-                            (lp flags ns)
-                            #f)))
-                     (else (lp flags ns))))
-                  (_ #t)))))
+              (type-check locals (cdr op) (flag ...))))
            (scan-proc
             (lambda (%env %ip %dl %locals arg ...)
               (syntax-parameterize ((env (identifier-syntax %env)))
