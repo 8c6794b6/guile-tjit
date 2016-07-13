@@ -46,27 +46,23 @@
   "Compile recorded bytecodes in BUFFER with TRACES and meta
 information."
   (let* ((entry-ip (vector-ref (car traces) 1))
-         (parent-fragment (get-fragment parent-ip))
-         (parent-snapshot (and parent-fragment
-                               (hashq-ref (fragment-snapshots parent-fragment)
-                                          parent-exit-id)))
+         (fragment (get-fragment parent-ip))
+         (snapshot (and fragment
+                        (snapshots-ref (fragment-snapshots fragment)
+                                       parent-exit-id)))
          (env (call-with-values
                   (lambda ()
-                    (match parent-snapshot
+                    (match snapshot
                       (($ $snapshot id sp fp nlocals locals variables code
                           ip lives depth)
                        (values sp fp (map car locals) lives locals depth))
                       (_
                        (values 0 0 '() '() '() 0))))
                 (lambda args
-                  (apply make-env trace-id entry-ip linked-ip
-                         parent-exit-id parent-fragment parent-snapshot
-                         loop? downrec? uprec? args))))
-         (fragment (compile buffer
-                            #:from 'trace
-                            #:to 'value
-                            #:env env
-                            #:opts traces)))
+                  (apply make-env trace-id entry-ip linked-ip parent-exit-id
+                         fragment snapshot loop? downrec? uprec? args))))
+         (fragment (compile buffer #:from 'trace #:to 'value
+                            #:env env #:opts traces)))
     (when fragment
       (put-fragment! trace-id fragment))))
 
