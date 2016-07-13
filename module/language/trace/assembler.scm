@@ -75,8 +75,7 @@
             prim-procedures-ref
             prim-types-ref
             reverse-native-prim-alist!
-            define-native)
-  #:re-export (%word-size))
+            define-native))
 
 
 ;;;; Scheme constants

@@ -51,52 +51,26 @@
             constant?
             constant-value
 
-            &fixnum
-            &undefined
-            &scm
-            &any
+            &fixnum &undefined &scm &any
 
-            flonum?
-            fraction?
-            unbound?
-            true?
-            false?
-            undefined?
-            eof?
-            unbound?
-            type-of
-            pretty-type
+            flonum? fraction? unbound? true? false? undefined? unbound?
+
             *unbound*
-            flag->type
 
             %tc2-int
-            %tc3-imm24
-            %tc3-cons
-            %tc8-char
-            %tc3-struct
-            %tc7-symbol
-            %tc7-variable
-            %tc7-vector
-            %tc7-wvect
-            %tc7-string
-            %tc7-number
-            %tc7-hashtable
-            %tc7-pointer
-            %tc7-fluid
-            %tc7-stringbuf
-            %tc7-keyword
-            %tc7-program
-            %tc7-bytevector
-            %tc7-array
-            %tc7-bitvector
-            %tc7-port
-            %tc16-bignum
-            %tc16-real
-            %tc16-complex
-            %tc16-fraction
 
-            gen-type-checker
-            type->stack-element-type)
+            %tc3-imm24 %tc3-cons %tc3-struct
+
+            %tc7-symbol %tc7-variable %tc7-vector %tc7-wvect %tc7-string
+            %tc7-number %tc7-hashtable %tc7-pointer %tc7-fluid
+            %tc7-stringbuf %tc7-keyword %tc7-program %tc7-bytevector
+            %tc7-array %tc7-bitvector %tc7-port
+
+            %tc8-char %tc8-flag
+
+            %tc16-bignum %tc16-real %tc16-complex %tc16-fraction
+
+            type-of pretty-type gen-type-checker)
   #:re-export (&flonum
                &complex
                &fraction
@@ -202,9 +176,6 @@
 (define-inlinable (undefined? x)
   (= (object-address x) #x904))
 
-(define-inlinable (eof? x)
-  (= (object-address x) #xa04))
-
 (define-inlinable (unbound? x)
   (= (object-address x) #xb04))
 
@@ -291,67 +262,51 @@
   "Returns a procedure for checking types.
 
 Takes assoc list ARG-TYPES, with its keys being local index and values being
-type values. Returns a procedure taking two argument INFERRED-TYPES and LOCALS.
-LOCALS is a vector containing stack elements. The returned procedure will return
-true if all of the types in ARG-TYPES matched with LOCALS, otherwise return
-false."
+type value. Returns a procedure taking an argument HINT.  HINT could be a vector
+containing stack elements, or an assoc list of index and type pairs. The
+returned procedure will return true if all of the types in ARG-TYPES matched
+with HINT, otherwise return false."
+  (define ignored (list #f &scm &u64 &f64 &s64 &any))
+  (define types-to-check
+    (let lp ((arg-types arg-types) (acc '()))
+      (match arg-types
+        ((arg-type . arg-types)
+         (lp arg-types (if (memq (cdr arg-type) ignored)
+                           acc
+                           (cons arg-type acc))))
+        (_ acc))))
   (lambda (hint)
     (let ((checker
            (cond
             ((vector? hint)
              (lambda (n t)
-               (let ((tr (and (<= 0 n (- (vector-length hint) 1))
-                              (type-of (vector-ref hint n)))))
-                 (eq? t tr))))
+               (eq? t (type-of (vector-ref hint n)))))
             ((null? hint)
              (lambda (n t)
                #t))
             ((pair? hint)
              (lambda (n t)
-               (let ((ti (assq-ref hint n)))
-                 (or (not ti)
-                     (eq? ti &scm)
-                     (eq? ti &u64)
-                     (eq? ti &f64)
-                     (eq? ti &s64)
-                     (eq? ti &any)
-                     (eq? t ti)
-                     (and (constant? ti)
-                          (let* ((val (constant-value ti))
+               (let ((inferred (assq-ref hint n)))
+                 (or (memq inferred ignored)
+                     (eq? t inferred)
+                     (and (constant? inferred)
+                          (let* ((val (constant-value inferred))
                                  (tr (if (flonum? val)
                                          &flonum
-                                         (let ((ptr (make-pointer val)))
-                                           (type-of (pointer->scm ptr))))))
+                                         (type-of (pointer->scm
+                                                   (make-pointer val))))))
                             (eq? t tr)))
-                     (and (pair? ti) (eq? 'copy (car ti)))))))
+                     (and (pair? inferred)
+                          (eq? 'copy (car inferred)))))))
             (else
-             (failure 'type-checker "unknown hint ~a" hint))))
-          )
-      (let lp ((types arg-types))
+             (failure 'type-checker "unknown hint ~a" hint)))))
+      (let lp ((types types-to-check))
         (match types
-          (((n . t) . types)
-           (if (or (not t)
-                   (eq? t &scm)
-                   (eq? t &u64)
-                   (eq? t &f64)
-                   (eq? t &s64)
-                   (eq? t &any)
-                   (checker n t))
-               (lp types)
-               (begin
-                 ;; (dump-debug arg-types id hint n t)
-                 #f)))
-          (() #t))))))
+          (((n . t) . types) (and (checker n t) (lp types)))
+          (_ #t))))))
 
 
 ;;;; Auxiliary
-
-(define (type->stack-element-type type)
-  (cond
-   ((eq? type &f64) 'f64)
-   ((eq? type &u64) 'u64)
-   ((eq? type &s64) 's64)
-   (else 'scm)))
 
 (define (pretty-type type)
   "Show string representation of TYPE."
@@ -398,21 +353,3 @@ false."
    ((constant? type)
     (string-append "c:" (cyan (number->string (constant-value type)))))
    (else type)))
-
-(define (flag->type flag)
-  (cond
-   ((eq? flag 'scm) &scm)
-   ((eq? flag 'fixnum) &fixnum)
-   ((eq? flag 'flonum) &flonum)
-   ((eq? flag 'fraction) &fraction)
-   ((eq? flag 'char) &char)
-   ((eq? flag 'procedure) &procedure)
-   ((eq? flag 'pair) &pair)
-   ((eq? flag 'vector) &vector)
-   ((eq? flag 'struct) &struct)
-   ((eq? flag 'string) &string)
-   ((eq? flag 'box) &box)
-   ((eq? flag 'bytevector) &bytevector)
-   ((eq? flag 'array) &array)
-   (else
-    (failure 'flag->type "~s" flag))))
