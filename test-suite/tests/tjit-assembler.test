@@ -20,8 +20,9 @@
   #:use-module (test-suite lib)
   #:use-module (ice-9 match)
   #:use-module (language trace assembler)
-  #:use-module (language trace variables)
+  #:use-module (language trace primitives)
   #:use-module (language trace registers)
+  #:use-module (language trace variables)
   #:use-module (language trace types)
   #:use-module (rnrs bytevectors)
   #:use-module ((rnrs arithmetic fixnums) #:select (fixnum?))
@@ -79,7 +80,7 @@
              (match ops
                (((op-name . vars) . ops)
                 (cond
-                 ((hashq-ref *native-prim-procedures* op-name)
+                 ((prim-procedures-ref  op-name)
                   => (lambda (proc)
                        (apply proc asm vars)
                        (lp ops)))

@@ -156,7 +156,7 @@
 ;;     (set-env-live-indices! env (list (current-sp-offset)))
 ;;     `(let ((_ ,(take-snapshot! ip 0)))
 ;;        (let ((,r2 (%cref ,cont/v ,(+ 2 contreg-idx))))
-;;          (let ((_ (%cntcall ,(var-ref 0) ,cont/i ,snapshot-id ,next-ip)))
+;;          (let ((_ (%callcnt ,(var-ref 0) ,cont/i ,snapshot-id ,next-ip)))
 ;;            ,(next))))))
 
 ;; XXX: compose-continuation

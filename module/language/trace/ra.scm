@@ -180,8 +180,7 @@
        (free-fprs (identifier-syntax arg-free-fprs))
        (mem-idx (identifier-syntax arg-mem-idx)))
     (define (lookup-prim-type op)
-      (hashq-ref (@ (language trace assembler) *native-prim-types*)
-                 op))
+      ((@ (language trace assembler) prim-types-ref) op))
     (define (get-arg-types! op dst args)
       (let ((types (lookup-prim-type op)))
         (let lp ((types (if dst

@@ -67,6 +67,8 @@ TJIT_IR_TARGETS = 				\
 
 $(TJIT_IR_TARGETS): language/trace/ir.scm
 
+language/trace/primitives.go: language/trace/assembler.scm
+
 TJIT_COMPAT_SOURCES = 				\
 	language/trace/compat-x86_64-linux.scm
 
@@ -242,6 +244,7 @@ SOURCES =					\
   language/trace/ir-specialized.scm		\
   language/trace/ir-string.scm			\
   language/trace/ir-struct.scm			\
+  language/trace/primitives.scm			\
   language/trace/ra.scm				\
   language/trace/dump.scm			\
   language/trace/compile-ir.scm			\
