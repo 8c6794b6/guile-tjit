@@ -80,7 +80,7 @@
              (match ops
                (((op-name . vars) . ops)
                 (cond
-                 ((prim-procedures-ref  op-name)
+                 ((prim-procedures-ref op-name)
                   => (lambda (proc)
                        (apply proc asm vars)
                        (lp ops)))
@@ -97,9 +97,9 @@
    (let ((exit (jit-forward)))
      (assemble ops exit)
      (jit-retr r0)
-     (jit-link exit)
-     (jit-movi r0 (scm->pointer bailout-tag))
-     (jit-retr r0))
+     (jit-link exit))
+   (jit-movi r0 (scm->pointer bailout-tag))
+   (jit-retr r0)
    (jit-epilog)
    (jit-realize)
    (let* ((size (jit-code-size))
@@ -465,8 +465,7 @@ Example:
       (-1000 -17 ,(modulo -1000 -17)))
      ("rem" %rem (1000 17 ,(remainder 1000 17)))
      ("quo" %quo (1000 17 ,(quotient 1000 17)))
-     ("mul" %mul (123 456 ,(* 123 456)))
-     ("div" %div (123 41 ,(/ 123 41)))))
+     ("mul" %mul (123 456 ,(* 123 456)))))
 
   (with-test-prefix "mod"
     (with-storages (dst a b)
@@ -504,7 +503,25 @@ Example:
        '((100 17)
          (-100 17)
          (100 -17)
-         (-100 -17))))))
+         (-100 -17)))))
+
+  (with-test-prefix "div"
+    (with-storages (dst a b)
+      (for-each
+       (match-lambda
+         ((arg1 arg2)
+          (unless (eq? a b)
+            (pass-if-equal (format #f "dst=~a a=~a b=~a" dst a b)
+                (/ arg1 arg2)
+              (run-asm `((%rsh ,a arg1 2)
+                         (%rsh ,b arg2 2)
+                         (%div ,dst ,a ,b)
+                         (%move ret ,dst))
+                       arg1 arg2)))))
+       '((123 41)
+         (1024 2)
+         (17 17)
+         (0 123))))))
 
 (with-test-prefix "Floating point arithmetic"
   (for-each
