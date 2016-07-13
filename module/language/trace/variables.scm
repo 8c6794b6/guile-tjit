@@ -44,17 +44,17 @@
 
 ;;;; Symbol cache table
 
-;; Hash table to cache variable symbols. Used to obtain symbol from
-;; number, instead of calling number->string, string-append,
-;; string->symbol ... etc for each time.
-(define *var-cache-table* (make-hash-table))
-
-(define (make-var index)
-  (or (hashq-ref *var-cache-table* index)
-      (let ((var (string->symbol
-                  (string-append "v" (number->string index)))))
-        (hashq-set! *var-cache-table* index var)
-        var)))
+;; Contains internal hash table to cache variable symbols. Used to obtain symbol
+;; from number, instead of calling number->string, string-append, string->symbol
+;; ... etc for each time.
+(define make-var
+  (let ((cache-table (make-hash-table)))
+    (lambda (index)
+      (or (hashq-ref cache-table index)
+          (let ((var (string->symbol
+                      (string-append "v" (number->string index)))))
+            (hashq-set! cache-table index var)
+            var)))))
 
 (define (make-vars locals)
   ;; Might better to use other data structure than alist for variables.
@@ -98,15 +98,14 @@
      (else
       (scm->pointer val)))))
 
-(define *gpr-cache-vector*
-  ;; Total number is *num-gpr* plus three scratch registers.
-  (make-vector (+ *num-gpr* 3) #f))
-
-(define (make-gpr x)
-  (or (vector-ref *gpr-cache-vector* (+ x 3))
-      (let ((val (cons 'gpr x)))
-        (vector-set! *gpr-cache-vector* (+ x 3) val)
-        val)))
+(define make-gpr
+  ;; Total number of GPR is *num-gpr* plus three scratch registers.
+  (let ((cache-vector (make-vector (+ *num-gpr* 3) #f)))
+    (lambda (x)
+      (or (vector-ref cache-vector (+ x 3))
+          (let ((val (cons 'gpr x)))
+            (vector-set! cache-vector (+ x 3) val)
+            val)))))
 
 (define-inlinable (gpr x)
   (gpr-ref (%ref-value x)))
@@ -114,15 +113,14 @@
 (define (gpr? x)
   (eq? 'gpr (ref-type x)))
 
-(define *fpr-cache-vector*
-  ;; Total number is *num-fpr* plus three scratch registers.
-  (make-vector (+ *num-fpr* 3) #f))
-
-(define (make-fpr x)
-  (or (vector-ref *fpr-cache-vector* (+ x 3))
-      (let ((val (cons 'fpr x)))
-        (vector-set! *fpr-cache-vector* (+ x 3) val)
-        val)))
+(define make-fpr
+  ;; Total number of FPR is *num-fpr* plus three scratch registers.
+  (let ((cache-vector (make-vector (+ *num-fpr* 3) #f)))
+    (lambda (x)
+      (or (vector-ref cache-vector (+ x 3))
+          (let ((val (cons 'fpr x)))
+            (vector-set! cache-vector (+ x 3) val)
+            val)))))
 
 (define-inlinable (fpr x)
   (fpr-ref (%ref-value x)))
@@ -134,13 +132,13 @@
   (or (eq? 'gpr (ref-type x))
       (eq? 'fpr (ref-type x))))
 
-(define *mem-cache-table* (make-hash-table))
-
-(define (make-memory x)
-  (or (hashq-ref *mem-cache-table* x)
-      (let ((val (cons 'mem x)))
-        (hashq-set! *mem-cache-table* x val)
-        val)))
+(define make-memory
+  (let ((cache-table (make-hash-table)))
+    (lambda (x)
+      (or (hashq-ref cache-table x)
+          (let ((val (cons 'mem x)))
+            (hashq-set! cache-table x val)
+            val)))))
 
 (define (memory? x)
   (eq? 'mem (ref-type x)))
@@ -160,13 +158,13 @@
 (define (make-tmpvar/f n)
   (vector-ref *tmpvars/f* n))
 
-(define *spill-cache-table* (make-hash-table))
-
-(define (make-spill n)
-  (or (hashq-ref *spill-cache-table* n)
-      (let ((v (string->symbol (string-append "m" (number->string n)))))
-        (hashq-set! *spill-cache-table* n v)
-        v)))
+(define make-spill
+  (let ((cache-table (make-hash-table)))
+    (lambda (n)
+      (or (hashq-ref cache-table n)
+          (let ((v (string->symbol (string-append "m" (number->string n)))))
+            (hashq-set! cache-table n v)
+            v)))))
 
 (define (argr n)
   (if (< *num-arg-gprs* n)

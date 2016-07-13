@@ -99,38 +99,37 @@
   (code trampoline-code set-trampoline-code!)
   (address trampoline-address set-trampoline-address!))
 
-(define *trampoline-code-cache* '())
-
 
 ;;;; Exported interface
 
-(define (make-trampoline num-entries)
-  (let* ((size (* num-entries size-of-trampoline-entry))
-         (paged-size (* 4096 (+ (quotient size 4096) 1)))
-         (cached (assq-ref *trampoline-code-cache* paged-size)))
-    (if cached
-        (let* ((bv (bytevector-copy cached))
-               (addr (pointer-address (bytevector->pointer bv))))
-          (make-bytevector-executable! bv)
-          (%make-trampoline bv addr))
-        (with-jit-state
-         (jit-prolog)
-         (jit-tramp (imm (* 4 %word-size)))
-         (do ((i 0 (+ i 1)))
-             ((<= (/ paged-size size-of-trampoline-entry) i))
-           ;; Dummy jump destination.
-           (jit-movi r0 (imm #xdeadbeaf))
-           (jit-jmpr r0))
-         (jit-epilog)
-         (jit-realize)
-         (let* ((size (jit-code-size))
-                (bv (make-bytevector size))
-                (_ (jit-set-code (bytevector->pointer bv) (imm size)))
-                (ptr (jit-emit)))
-           (make-bytevector-executable! bv)
-           (set! *trampoline-code-cache*
-             (acons paged-size bv *trampoline-code-cache*))
-           (%make-trampoline bv (pointer-address ptr)))))))
+(define make-trampoline
+  (let ((code-cache '()))
+    (lambda (num-entries)
+      (let* ((size (* num-entries size-of-trampoline-entry))
+             (paged-size (* 4096 (+ (quotient size 4096) 1)))
+             (cached (assq-ref code-cache paged-size)))
+        (if cached
+            (let* ((bv (bytevector-copy cached))
+                   (addr (pointer-address (bytevector->pointer bv))))
+              (make-bytevector-executable! bv)
+              (%make-trampoline bv addr))
+            (with-jit-state
+             (jit-prolog)
+             (jit-tramp (imm (* 4 %word-size)))
+             (do ((i 0 (+ i 1)))
+                 ((<= (/ paged-size size-of-trampoline-entry) i))
+               ;; Dummy jump destination.
+               (jit-movi r0 (imm #xdeadbeaf))
+               (jit-jmpr r0))
+             (jit-epilog)
+             (jit-realize)
+             (let* ((size (jit-code-size))
+                    (bv (make-bytevector size))
+                    (_ (jit-set-code (bytevector->pointer bv) (imm size)))
+                    (ptr (jit-emit)))
+               (make-bytevector-executable! bv)
+               (set! code-cache (acons paged-size bv code-cache))
+               (%make-trampoline bv (pointer-address ptr)))))))))
 
 (define (trampoline-ref trampoline i)
   (make-pointer (+ (trampoline-address trampoline)
