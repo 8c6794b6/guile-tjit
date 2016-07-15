@@ -105,6 +105,13 @@
       (with-type-guard &pair 0
         `(let ((,dst/v (%cref ,(src-ref 0) 1)))
            ,(next))))
+     ((eq? subr/a (object-address cadr))
+      `(let ((_ ,(take-snapshot! ip 0)))
+         ,(with-type-guard &pair 0
+            `(let ((,r1 (%cref ,(src-ref 0) 1)))
+               (let ((_ (%tceq ,r1 1 ,%tc3-cons)))
+                 (let ((,dst/v (%cref ,r1 0)))
+                   ,(next)))))))
 
      ;; ports.c
      ((eq? subr/a (object-address eof-object?))

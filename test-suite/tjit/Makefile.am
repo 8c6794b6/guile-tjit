@@ -250,6 +250,7 @@ TESTS = \
 	t-subr-call-08.scm \
 	t-subr-call-09.scm \
 	t-subr-call-10.scm \
+	t-subr-call-11.scm \
 	t-string-length-01.scm \
 	t-string-ref-01.scm \
 	t-string-to-number-01.scm \
