@@ -216,7 +216,7 @@ Currently does nothing, returns the given argument."
                            (not (memq k acc)))
                       (cons k acc)
                       acc))))
-        (hash-fold f parent-live-vars storage)))
+        (fold-storage f parent-live-vars storage)))
     (define (make-anf)
       (let ((emit (lambda ()
                     (let ((ir (make-ir snapshots snapshot-id vars

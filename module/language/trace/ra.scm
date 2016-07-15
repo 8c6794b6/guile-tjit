@@ -48,10 +48,11 @@
             anf->primops
 
             storage-ref
-            storage-set!))
+            storage-set!
+            fold-storage))
 
 
-;;;; Record type
+;;;; Data types
 
 ;; Record type to hold lists of primitives.
 (define-record-type $primops
@@ -65,6 +66,123 @@
   (nspills primops-nspills)
   ;; Hash-table containing variable information.
   (storage primops-storage))
+
+(define-inlinable (%make-storage alist)
+  (cons 'storage alist))
+
+(define-inlinable (storage-alist storage)
+  (cdr storage))
+
+(define-inlinable (set-storage-alist! storage alist)
+  (set-cdr! storage alist))
+
+(define-inlinable (storage-ref storage key)
+  (assq-ref (storage-alist storage) key))
+
+(define-inlinable (storage-set! storage key val)
+  (cond
+   ((assq key (storage-alist storage))
+    => (lambda (handle)
+         (set-cdr! handle val)))
+   (else
+    (set-storage-alist! storage (cons (cons key val)
+                                      (storage-alist storage))))))
+
+(define-inlinable (fold-storage proc init storage)
+  (let lp ((alist (storage-alist storage)) (init init))
+    (if (null? alist)
+        init
+        (let ((kv (car alist)))
+          (lp (cdr alist) (proc (car kv) (cdr kv) init))))))
+
+(define-inlinable (make-storage env free-gprs free-fprs mem-idx)
+  (let ((alist '())
+        (parent-storage (and=> (env-parent-fragment env)
+                               fragment-storage)))
+    (%make-storage
+     (if parent-storage
+         (let lp ((parent-alist (storage-alist parent-storage))
+                  (acc '()))
+           (match parent-alist
+             (((k . v) . parent-alist)
+              (cond
+               ((not v) (lp parent-alist acc))
+               ((gpr? v)
+                (let ((i (ref-value v)))
+                  (when (<= 0 i)
+                    (vector-set! free-gprs i #f))
+                  (lp parent-alist (acons k v acc))))
+               ((fpr? v)
+                (let ((i (ref-value v)))
+                  (when (<= 0 i)
+                    (vector-set! free-fprs i #f))
+                  (lp parent-alist (acons k v acc))))
+               ((memory? v)
+                (let ((i (ref-value v)))
+                  (when (<= (variable-ref mem-idx) i)
+                    (variable-set! mem-idx (+ i 1)))
+                  (lp parent-alist (acons k v acc))))
+               (else
+                (failure 'make-storage "unknown var ~s" v))))
+             (() acc)))
+         (let* ((alist (acons (make-tmpvar 0) (make-gpr -1) alist))
+                (alist (acons (make-tmpvar 1) (make-gpr -2) alist))
+                (alist (acons (make-tmpvar 2) (make-gpr -3) alist))
+                (alist (acons (make-tmpvar/f 0) (make-fpr -1) alist))
+                (aistt (acons (make-tmpvar/f 1) (make-fpr -2) alist))
+                (alist (acons (make-tmpvar/f 2) (make-fpr -3) alist))
+                (alist (acons (make-spill 0) (make-memory -1) alist)))
+           alist)))))
+
+;;; Alternative implementation of storage using hash-table.
+
+;; (define-inlinable (storage-ref storage key)
+;;   (hashq-ref storage key))
+;;
+;; (define-inlinable (storage-set! storage key val)
+;;   (hashq-set! storage key val))
+;;
+;; (define-inlinable (fold-storage proc init storage)
+;;   (hash-fold proc init storage))
+;;
+;; (define-inlinable (make-storage env free-gprs free-fprs mem-idx)
+;;   (let ((storage (make-hash-table))
+;;         (parent-storage (and=> (env-parent-fragment env)
+;;                                fragment-storage)))
+;;     (if parent-storage
+;;         ;; Share registers and memory offset for side trace with parent
+;;         ;; trace.
+;;         (hash-for-each
+;;          (lambda (k v)
+;;            (cond
+;;             ((not v) (values))
+;;             ((gpr? v)
+;;              (storage-set! storage k v)
+;;              (let ((i (ref-value v)))
+;;                (when (<= 0 i)
+;;                  (vector-set! free-gprs i #f))))
+;;             ((fpr? v)
+;;              (storage-set! storage k v)
+;;              (let ((i (ref-value v)))
+;;                (when (<= 0 i)
+;;                  (vector-set! free-fprs i #f))))
+;;             ((memory? v)
+;;              (storage-set! storage k v)
+;;              (let ((i (ref-value v)))
+;;                (when (<= (variable-ref mem-idx) i)
+;;                  (variable-set! mem-idx (+ i 1)))))
+;;             (else
+;;              (failure 'anf->primops "unknown var ~s" v))))
+;;          parent-storage)
+;;         (begin
+;;           (storage-set! storage (make-tmpvar 0) (make-gpr -1))
+;;           (storage-set! storage (make-tmpvar 1) (make-gpr -2))
+;;           (storage-set! storage (make-tmpvar 2) (make-gpr -3))
+;;           (storage-set! storage (make-tmpvar/f 0) (make-fpr -1))
+;;           (storage-set! storage (make-tmpvar/f 1) (make-fpr -2))
+;;           (storage-set! storage (make-tmpvar/f 2) (make-fpr -3))
+;;           (storage-set! storage (make-spill 0) (make-memory -1))))
+;;     storage))
 
 
 ;;;; Auxiliary
@@ -114,7 +232,7 @@
 
 (define-syntax-rule (set-storage! gen var)
   (let ((ret gen))
-    (hashq-set! storage var ret)
+    (storage-set! storage var ret)
     ret))
 
 (define-syntax-rule (get-mem! var)
@@ -125,51 +243,6 @@
 
 (define-syntax-rule (get-fpr! var)
   (set-storage! (or (acquire-fpr! free-fprs) (gen-mem)) var))
-
-(define-inlinable (storage-ref storage key)
-  (hashq-ref storage key))
-
-(define-inlinable (storage-set! storage key val)
-  (hashq-set! storage key val))
-
-(define-inlinable (make-storage env free-gprs free-fprs mem-idx)
-  (let ((storage (make-hash-table))
-        (parent-storage (and=> (env-parent-fragment env)
-                               fragment-storage)))
-    (if parent-storage
-        ;; Share registers and memory offset for side trace with parent
-        ;; trace.
-        (hash-for-each
-         (lambda (k v)
-           (cond
-            ((not v) (values))
-            ((gpr? v)
-             (storage-set! storage k v)
-             (let ((i (ref-value v)))
-               (when (<= 0 i)
-                 (vector-set! free-gprs i #f))))
-            ((fpr? v)
-             (storage-set! storage k v)
-             (let ((i (ref-value v)))
-               (when (<= 0 i)
-                 (vector-set! free-fprs i #f))))
-            ((memory? v)
-             (storage-set! storage k v)
-             (let ((i (ref-value v)))
-               (when (<= (variable-ref mem-idx) i)
-                 (variable-set! mem-idx (+ i 1)))))
-            (else
-             (failure 'anf->primops "unknown var ~s" v))))
-         parent-storage)
-        (begin
-          (storage-set! storage (make-tmpvar 0) (make-gpr -1))
-          (storage-set! storage (make-tmpvar 1) (make-gpr -2))
-          (storage-set! storage (make-tmpvar 2) (make-gpr -3))
-          (storage-set! storage (make-tmpvar/f 0) (make-fpr -1))
-          (storage-set! storage (make-tmpvar/f 1) (make-fpr -2))
-          (storage-set! storage (make-tmpvar/f 2) (make-fpr -3))
-          (storage-set! storage (make-spill 0) (make-memory -1))))
-    storage))
 
 (define (assign-registers term snapshots arg-storage arg-free-gprs
                           arg-free-fprs arg-mem-idx snapshot-id)

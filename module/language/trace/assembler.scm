@@ -34,6 +34,7 @@
   #:use-module (system vm native lightning)
   #:use-module (language trace error)
   #:use-module (language trace parameters)
+  #:use-module (language trace ra)
   #:use-module (language trace registers)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
@@ -147,14 +148,11 @@
 (define registers-offset
   (make-negative-pointer (* -1 %word-size)))
 
-(define (volatile-offset reg)
+(define-syntax-rule (volatile-offset reg)
   (let ((n (case (ref-type reg)
-             ((gpr)
-              (+ 2 (- (ref-value reg) *num-non-volatiles*)))
-             ((fpr)
-              (+ 2 1 (ref-value reg) *num-volatiles*))
-             (else
-              (failure 'volatile-offset "~s" reg)))))
+             ((gpr) (+ 2 (- (ref-value reg) *num-non-volatiles*)))
+             ((fpr) (+ 2 1 (ref-value reg) *num-volatiles*))
+             (else (failure 'volatile-offset "~s" reg)))))
     (make-negative-pointer (* (- n) %word-size))))
 
 (define-syntax-rule (fpr->gpr dst src)
@@ -405,16 +403,15 @@
 
 (define (make-asm storage end-address gc-inline save-volatiles? snapshots)
   (define (volatile-regs-in-use storage)
-    (hash-fold (lambda (_ reg acc)
-                 (if (or (and reg (gpr? reg)
-                              (<= *num-non-volatiles* (ref-value reg)))
-                         (and reg (fpr? reg)
-                              ;; Suppressing scratch registers.
-                              (<= 0 (ref-value reg))))
-                     (cons reg acc)
-                     acc))
-               '()
-               storage))
+    (fold-storage (lambda (k reg acc)
+                    (if (or (and reg (gpr? reg)
+                                 (<= *num-non-volatiles* (ref-value reg)))
+                            (and reg (fpr? reg)
+                                 (<= 0 (ref-value reg))))
+                        (cons reg acc)
+                        acc))
+                  '()
+                  storage))
   (let ((volatiles (volatile-regs-in-use storage)))
     (when save-volatiles?
       (for-each store-volatile volatiles))

@@ -426,12 +426,12 @@ DST-TYPES, and SRC-TYPES are local index number."
                   (lp ops acc))
                  (else
                   (let ((out-code (trampoline-ref trampoline snapshot-id))
-                        (gen-bailout (compile-bailout env asm snapshot
-                                                      trampoline args)))
-                    (let ((exit (jit-forward)))
-                      (jit-patch-abs exit out-code)
-                      (set-asm-exit! asm exit))
-                    (lp ops (cons gen-bailout acc)))))))
+                        (bailout (compile-bailout env asm snapshot
+                                                  trampoline args))
+                        (exit (jit-forward)))
+                    (jit-patch-abs exit out-code)
+                    (set-asm-exit! asm exit)
+                    (lp ops (cons bailout acc)))))))
           (else
            (failure 'compile-ops "no snapshot ~s" snapshot-id))))
         (((op-name . args) . ops)
