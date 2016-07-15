@@ -401,23 +401,23 @@
 (define-mul-div-scm-scm mul %mulov %fmul %cmul)
 (define-mul-div-scm-scm div %div %fdiv %cdiv)
 
-(define-ir (div (fraction! dst) (fixnum a) (fixnum b))
-  (let* ((a/v (src-ref a))
-         (b/v (src-ref b))
-         (dst/v (dst-ref dst))
-         (a/t (type-ref a))
-         (b/t (type-ref b))
-         (r0 (make-tmpvar 0))
-         (r1 (make-tmpvar 1)))
-    (when (env-parent-snapshot env)
-      (set-env-save-volatiles! env #t))
-    (with-type-guard &fixnum a
-      (with-type-guard &fixnum b
-        `(let ((_ ,(take-snapshot! ip 0)))
-           (let ((,r0 (%rsh ,a/v 2)))
-             (let ((,r1 (%rsh ,b/v 2)))
-               (let ((,dst/v (%div ,r0 ,r1)))
-                 ,(next)))))))))
+;; (define-ir (div (fraction! dst) (fixnum a) (fixnum b))
+;;   (let* ((a/v (src-ref a))
+;;          (b/v (src-ref b))
+;;          (dst/v (dst-ref dst))
+;;          (a/t (type-ref a))
+;;          (b/t (type-ref b))
+;;          (r0 (make-tmpvar 0))
+;;          (r1 (make-tmpvar 1)))
+;;     (when (env-parent-snapshot env)
+;;       (set-env-save-volatiles! env #t))
+;;     (with-type-guard &fixnum a
+;;       (with-type-guard &fixnum b
+;;         `(let ((_ ,(take-snapshot! ip 0)))
+;;            (let ((,r0 (%rsh ,a/v 2)))
+;;              (let ((,r1 (%rsh ,b/v 2)))
+;;                (let ((,dst/v (%div ,r0 ,r1)))
+;;                  ,(next)))))))))
 
 ;; Primitive %mod, %quo, and %rem may use volatile register. Setting
 ;; `env-save-volatiles?' flag to true.
