@@ -122,69 +122,78 @@ Avoids overwriting source in hash-table SRCS while updating destinations in
 hash-table DSTS.  If source is not found, load value from frame with using type
 from hash-table TYPES to get memory offset.  Hash-table key of SRCS, DSTS,
 DST-TYPES, and SRC-TYPES are local index number."
-  (begin
-    (define (dst-is-full? as bs)
-      (let lp ((as as))
-        (match as
-          ((a . as) (and (member a bs) (lp as)))
-          (() #t))))
-    (define (in-srcs? var)
-      (call/ec
-       (lambda (escape)
-         (hash-fold (lambda (k v acc)
-                      (and (equal? v var) (escape (hashq-ref dsts k))))
-                    #f
-                    srcs))))
-    (define (find-src-local var)
-      (call/ec
-       (lambda (escape)
-         (hash-fold (lambda (k v ret)
-                      (and (equal? v var) (escape k)))
-                    #f
-                    srcs))))
-    (define (unbox dst src type local)
-      (case (ref-type src)
-        ((gpr)
-         (guard-type (gpr src) type)
-         (unbox-stack-element dst (gpr src) type))
-        ((fpr)
-         (fpr->gpr r0 (fpr src))
-         (guard-type r0 type)
-         (unbox-stack-element dst r0 type))
-        ((mem)
-         (memory-ref r0 src)
-         (guard-type r0 type)
-         (unbox-stack-element dst r0 type))
-        (else
-         (failure 'move-or-load-carefully "unbox ~a ~a ~a" dst src type))))
-    (define (dump-move local dst/v dst/t src/v src/t)
-      (debug 3 ";;; molc: [local ~a] (move ~a:~a ~a:~a)~%" local
-             (physical-name dst/v) (pretty-type dst/t)
-             (physical-name src/v) (pretty-type src/t)))
-    (define (dump-load local dst type)
-      (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
-             (physical-name dst) (pretty-type type)))
-    (define (car-< a b)
-      (< (car a) (car b)))
-    (define (dump-regs label regs)
-      (debug 3 ";;; molc: ~s vars: ~a~%" label
-             (sort (map (match-lambda ((k . v) (cons k (physical-name v))))
-                        regs)
-                   car-<)))
-    (define (dump-types label tbl)
-      (debug 3 ";;; molc: ~s types: ~a~%"
-             label
-             (sort (map (match-lambda ((n . t) (cons n (pretty-type t))))
-                        (hash-map->list cons tbl))
-                   car-<)))
-    (define (move-typed d/v d/t s/v s/t)
-      (cond
-       ((constant? d/t)
-        (values))
-       ((constant? s/t)
-        (move d/v (make-con (constant-value s/t))))
-       (else
-        (move d/v s/v))))
+  (let* ((dst-is-full?
+          (lambda (as bs)
+            (let lp ((as as))
+              (match as
+                ((a . as) (and (member a bs) (lp as)))
+                (() #t)))))
+         (in-srcs?
+          (lambda (var)
+            (call/ec
+             (lambda (escape)
+               (hash-fold (lambda (k v acc)
+                            (and (equal? v var) (escape (hashq-ref dsts k))))
+                          #f
+                          srcs)))))
+         (find-src-local
+          (lambda (var)
+            (call/ec
+             (lambda (escape)
+               (hash-fold (lambda (k v ret)
+                            (and (equal? v var) (escape k)))
+                          #f
+                          srcs)))))
+         (unbox
+          (lambda (dst src type local)
+            (case (ref-type src)
+              ((gpr)
+               (guard-type (gpr src) type)
+               (unbox-stack-element dst (gpr src) type))
+              ((fpr)
+               (fpr->gpr r0 (fpr src))
+               (guard-type r0 type)
+               (unbox-stack-element dst r0 type))
+              ((mem)
+               (memory-ref r0 src)
+               (guard-type r0 type)
+               (unbox-stack-element dst r0 type))
+              (else
+               (failure 'move-or-load-carefully "unbox ~a ~a ~a"
+                        dst src type)))))
+         (dump-move
+          (lambda (local dst/v dst/t src/v src/t)
+            (debug 3 ";;; molc: [local ~a] (move ~a:~a ~a:~a)~%" local
+                   (physical-name dst/v) (pretty-type dst/t)
+                   (physical-name src/v) (pretty-type src/t))))
+         (dump-load
+          (lambda (local dst type)
+            (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local
+                   (physical-name dst) (pretty-type type))))
+         (car-<
+          (lambda (a b)
+            (< (car a) (car b))))
+         (dump-regs
+          (lambda (label regs)
+            (debug 3 ";;; molc: ~s vars: ~a~%" label
+                   (sort (map (match-lambda
+                                ((k . v) (cons k (physical-name v))))
+                              regs)
+                         car-<))))
+         (dump-types
+          (lambda (label tbl)
+            (debug 3 ";;; molc: ~s types: ~a~%"
+                   label
+                   (sort (map (match-lambda
+                                ((n . t) (cons n (pretty-type t))))
+                              (hash-map->list cons tbl))
+                         car-<))))
+         (move-typed
+          (lambda (d/v d/t s/v s/t)
+            (cond
+             ((constant? d/t) (values))
+             ((constant? s/t) (move d/v (make-con (constant-value s/t))))
+             (else (move d/v s/v))))))
     ;; (dump-regs 'dsts (hash-map->list cons dsts))
     ;; (dump-regs 'srcs (hash-map->list cons srcs))
     ;; (dump-types 'dsts dst-types)
@@ -633,15 +642,16 @@ DST-TYPES, and SRC-TYPES are local index number."
                    (shift-sp env %asm sp-offset)
                    (shift-fp nlocals)))
 
-                 ;; Move or load locals for linked fragment.
                  (syntax-parameterize ((asm (identifier-syntax %asm)))
-                   (move-or-load-carefully dst-var-table src-var-table
-                                           dst-type-table src-type-table)
-
-                   ;; Handle interrupts if linked fragment didn't.
+                   ;; Handle interrupts if linked fragment didn't. Calling
+                   ;; before move or load done for linked fragment, since
+                   ;; volatile registers in linked fragment might get
+                   ;; overwritten when handler was called.
                    (when (and (env-handle-interrupts? env)
                               (not (fragment-handle-interrupts? linked)))
-                     (vm-handle-interrupts)))
+                     (vm-handle-interrupts))
+                   (move-or-load-carefully dst-var-table src-var-table
+                                           dst-type-table src-type-table))
 
                  ;; Jump to beginning of the loop in linked fragment.
                  (jmpa (fragment-loop-address linked))))))))))
