@@ -87,12 +87,12 @@
     ;; Stack space might ran out in the middle of next run, expand stack with
     ;; twice of the spaces used for current iteration to ensure enough space
     ;; allocated. Then adjust with SP offset saved in snapshot.
-    (let* ((next-offset (* (env-min-sp-offset env) 2))
-           (diff (- offset next-offset)))
-      (vm-expand-stack %asm next-offset)
-      (if (< 0 diff)
-          (jit-addi %sp %sp (imm (* diff %word-size)))
-          (jit-subi %sp %sp (imm (* (- diff) %word-size))))
+    (let ((next-offset (* (env-min-sp-offset env) 2)))
+      (if (< next-offset offset)
+          (let ((diff (- offset next-offset)))
+            (vm-expand-stack %asm next-offset)
+            (jit-addi %sp %sp (imm (* diff %word-size))))
+          (vm-expand-stack %asm offset))
       (vm-sync-sp %sp)))))
 
 (define-inlinable (load-stack local type dst)
@@ -274,13 +274,13 @@ DST-TYPES, and SRC-TYPES are local index number."
             (code (make-bytevector estimated-size))
             (_ (jit-set-code (bytevector->pointer code) (imm estimated-size)))
             (ptr (jit-emit))
+            (parent-fragment (env-parent-fragment env))
             (size (jit-code-size))
             (exit-counts (make-vector (hash-count (const #t) snapshots) 0))
             (loop-address (and loop-label (jit-address loop-label)))
-            (end-address (or (and=> (env-parent-fragment env)
-                                    fragment-end-address)
+            (end-address (or (and=> parent-fragment fragment-end-address)
                              (jit-address epilog-label)))
-            (parent-id (and=> (env-parent-fragment env) fragment-id))
+            (parent-id (and=> parent-fragment fragment-id))
             (gdb-jit-entry
              (and (tjit-dump-dwarf? (tjit-dump-option))
                   (let* ((addr (pointer-address (bytevector->pointer code)))
@@ -325,21 +325,16 @@ DST-TYPES, and SRC-TYPES are local index number."
                                      #f
                                      (env-handle-interrupts? env)
                                      '() '()))
-            (origin (or (and=> (env-parent-fragment env) get-origin-fragment)
+            (origin (or (and=> parent-fragment get-origin-fragment)
                         fragment))
             (bailout-code (compile-bailouts env end-address trampoline
                                             fragment origin bailouts)))
        (make-bytevector-executable! code)
        (set-fragment-bailout-code! fragment bailout-code)
-
-       ;; Same entry-ip could be used when side exit 0 was taken for
-       ;; multiple times. Using trace ID as hash table key.
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
-
        ;; When this trace is a side trace, replace the native code of trampoline
        ;; in parent fragment.
-       (let ((parent-fragment (env-parent-fragment env))
-             (code-address (pointer-address ptr)))
+       (let ((code-address (pointer-address ptr)))
          (when parent-fragment
            (let ((trampoline (fragment-trampoline parent-fragment))
                  (side-trace-ids (fragment-side-trace-ids parent-fragment)))
@@ -391,7 +386,6 @@ DST-TYPES, and SRC-TYPES are local index number."
             (registers r1))
         (when (< max-spills nspills)
           (break 1 "too many spills ~s" nspills))
-
         ;; Root trace allocates spaces for spilled variables. One word to store
         ;; `registers' from argument, and space to save volatile registers.
         ;;
@@ -402,12 +396,11 @@ DST-TYPES, and SRC-TYPES are local index number."
         (let ((nwords (+ max-spills *num-fpr* *num-volatiles* 1)))
           (jit-allocai (imm (* nwords %word-size))))
 
-        ;; Get arguments.
+        ;; Get and store arguments. Thread has dedicated %thread register. SP is
+        ;; loaded from vp and cached to %sp register.
         (jit-getarg %thread (jit-arg))   ; thread
         (jit-getarg vp (jit-arg))        ; vp
         (jit-getarg registers (jit-arg)) ; registers, for prompt
-
-        ;; Store `vp', `vp->sp', and `registers'.
         (store-vp vp)
         (vm-cache-sp vp)
         (jit-stxi registers-offset %fp registers))))
@@ -491,33 +484,28 @@ DST-TYPES, and SRC-TYPES are local index number."
                   (store-stack (- local shift) type arg)
                   (lp locals args))
                  (_ (values)))))
-
-           ;; Choose order to shift SP and store frame by sign of SP.
+           ;; Choose the order to shift SP and store frame by sign of SP, then
+           ;; shift FP, sync IP, and set return values.
+           ;;
+           ;; Snapshot for longjmp does not recover locals with bailout code,
+           ;; the locals are stored before calling C function containing
+           ;; longjmp.
            (unless (snapshot-longjmp? snapshot)
              (cond
-              ((= sp-offset 0)
-               (store-locals 0)
-               (shift-fp nlocals))
-              ((< sp-offset 0)
+              ((<= sp-offset 0)
                (shift-sp env %asm sp-offset)
-               (store-locals sp-offset)
-               (shift-fp nlocals))
+               (store-locals sp-offset))
               (else
                (store-locals 0)
-               (shift-sp env %asm sp-offset)
-               (shift-fp nlocals)))
-
-             ;; Sync next IP with vp->ip for VM.
+               (shift-sp env %asm sp-offset)))
+             (shift-fp nlocals)
              (jit-movi r0 (imm ip))
              (vm-sync-ip r0)
-
-             ;; Set tjit return values for VM interpreter.
              (jit-prepare)
              (jit-pushargi (imm id))
              (jit-pushargi (scm->pointer self-fragment))
              (jit-pushargi (scm->pointer origin))
              (jit-calli %scm-set-tjit-retval))
-
            ;; Debug code to dump tjit-retval and locals.
            (let ((dump-option (tjit-dump-option)))
              (when (tjit-dump-exit? dump-option)
@@ -532,12 +520,11 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (load-vp r0)
                  (jit-pushargr r0)
                  (jit-calli %scm-tjit-dump-locals))))
-
+           ;; Indicate whether this bailout is a long jump or not.
            (if (snapshot-longjmp? snapshot)
                (jit-movi %retval (imm 0))
                (jit-movi %retval (imm 1)))
            (jmpa end-address)
-
            (cons id entry))
           (_
            (debug 2 "*** compile-bailout: not a snapshot ~a~%" snapshot)))))))
@@ -609,7 +596,6 @@ DST-TYPES, and SRC-TYPES are local index number."
             (linked-snapshots (fragment-snapshots linked))
             (linked-snap1 (snapshots-ref linked-snapshots 1))
             (my-depth (snapshot-inline-depth snapshot)))
-
        (let lp ((loop-locals loop-locals)
                 (vars (fragment-loop-vars linked)))
          (match (cons loop-locals vars)
@@ -630,18 +616,13 @@ DST-TYPES, and SRC-TYPES are local index number."
                  ;; then shift FP with nlocals. This order is taken to preserve
                  ;; stored locals from garbage collection.
                  (cond
-                  ((= 0 sp-offset)
-                   (maybe-store %asm locals args ref-table 0)
-                   (shift-fp nlocals))
-                  ((< sp-offset 0)
+                  ((<= sp-offset 0)
                    (shift-sp env %asm sp-offset)
-                   (maybe-store %asm locals args ref-table sp-offset)
-                   (shift-fp nlocals))
+                   (maybe-store %asm locals args ref-table sp-offset))
                   (else
                    (maybe-store %asm locals args ref-table 0)
-                   (shift-sp env %asm sp-offset)
-                   (shift-fp nlocals)))
-
+                   (shift-sp env %asm sp-offset)))
+                 (shift-fp nlocals)
                  (syntax-parameterize ((asm (identifier-syntax %asm)))
                    ;; Handle interrupts if linked fragment didn't. Calling
                    ;; before move or load done for linked fragment, since
