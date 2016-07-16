@@ -234,8 +234,6 @@ Currently does nothing, returns the given argument."
           => (lambda (parent-snapshot)
                (let* ((parent-fragment (env-parent-fragment env))
                       (parent-locals (snapshot-locals parent-snapshot))
-                      (parent-inferred-types
-                       (snapshot-inferred-types parent-snapshot))
                       (live-vars-in-parent
                        (get-live-vars (fragment-storage parent-fragment)
                                       parent-snapshot))
@@ -268,20 +266,12 @@ Currently does nothing, returns the given argument."
                      (((n . t) . srcs)
                       (lp srcs (assq-set! dsts n t)))
                      (()
-                      (let lp ((srcs parent-inferred-types)
-                               (dsts dsts))
+                      (let lp ((srcs parent-locals) (dsts dsts))
                         (match srcs
                           (((n . t) . srcs)
-                           (let* ((t (if (and (<= min-sp n max-sp)
-                                              (not (dynamic-link? t))
-                                              (not (return-address? t))
-                                              (not (eq? &undefined t))
-                                              (not (eq? &false t)))
-                                         t
-                                         (assq-ref parent-locals n)))
-                                  (dsts (if t
-                                            (assq-set! dsts n t)
-                                            dsts)))
+                           (let ((dsts (if t
+                                           (assq-set! dsts n t)
+                                           dsts)))
                              (lp srcs dsts)))
                           (()
                            (set-env-inferred-types! env dsts)

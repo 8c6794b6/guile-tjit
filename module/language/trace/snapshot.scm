@@ -1,4 +1,4 @@
-;;;; Snapshot and other data to restore frame locals
+;;;; Snapshot data to restore frame locals
 
 ;;;; Copyright (C) 2015, 2016 Free Software Foundation, Inc.
 ;;;;
@@ -51,7 +51,6 @@
             snapshot-env-types
             snapshot-live-indices
             snapshot-inline-depth
-            snapshot-inferred-types
 
             make-empty-snapshots
             snapshots-ref
@@ -67,11 +66,11 @@
             *ip-key-longjmp*))
 
 
-;;;; Snapshot
+;;;; Data types
 
 (define-record-type $snapshot
-  (%make-snapshot id sp-offset fp-offset nlocals locals variables code ip
-                  live-indices inline-depth inferred-types)
+  (%make-snapshot id sp-offset fp-offset nlocals locals variables code
+                  ip live-indices inline-depth)
   snapshot?
 
   ;; ID number of this snapshot.
@@ -102,13 +101,10 @@
   (live-indices snapshot-live-indices)
 
   ;; Call depth.
-  (inline-depth snapshot-inline-depth)
+  (inline-depth snapshot-inline-depth))
 
-  ;; Inferred types at the time of snapshot creation.
-  (inferred-types snapshot-inferred-types))
-
-(define (make-snapshot id sp-offset fp-offset nlocals write-indices
-                       env ip inline-depth refill-ra-dl?)
+(define (make-snapshot id sp-offset fp-offset nlocals write-indices env ip
+                       inline-depth refill-ra-dl?)
   (let lp ((is (sort! write-indices <)) (acc '()))
     (match is
       ((i . is)
@@ -124,11 +120,8 @@
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
            (%make-snapshot id sp-offset fp-offset nlocals (reverse! acc)
-                           #f #f ip (env-live-indices env) inline-depth
-                           (copy-tree (env-inferred-types env)))))))))
-
-
-;;;; Snapshots
+                           #f #f ip (env-live-indices env)
+                           inline-depth)))))))
 
 (define-inlinable (make-empty-snapshots)
   (make-hash-table))
