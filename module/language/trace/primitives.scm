@@ -46,7 +46,29 @@
   ;; The renamed `link' is not exported from this module, avoid showing warning
   ;; message during module compilation.
   #:duplicates (last)
-  #:export ())
+  #:export (%eq
+            %ne %le %lt %ge %gt
+            %feq %fne %flt %fle %fgt %fge
+            %eqv %nev %typeq %tceq %tcne
+
+            %scall %return %carg %ccall
+
+            %band %bor
+
+            %add %sub %mul %rsh %lsh
+            %addov %subov %mulov
+            %mod %rem %quo %div
+
+            %fadd %fsub %fmul %fdiv
+
+            %sref %sref/f %cref %cref/f %u8ref
+            %cset %u8set %fill
+
+            %cell %words
+
+            %i2d %d2s
+
+            %move %call/cc %callcnt))
 
 
 ;;;; Auxiliary
@@ -897,7 +919,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (else (err)))))
 
 
-;;;; Heap objects
+;;;; Allocation
 
 ;; Call C function `scm_do_inline_cell'. Save volatile registers before calling,
 ;; restore after getting returned value.
@@ -1107,6 +1129,3 @@ was constant. And, uses OP-RR when both arguments were register or memory."
             ))))
       (_
        (failure '%cont "not a snapshot")))))
-
-;; Reverse the order of primitive definitions stored in alist.
-(reverse-native-prim-alist!)

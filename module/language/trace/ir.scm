@@ -37,6 +37,7 @@
   #:use-module (language trace env)
   #:use-module (language trace parameters)
   #:use-module (language trace parse)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables)
@@ -268,17 +269,17 @@
        ,(next . args)))
    ((or (eq? type &flonum)
         (eq? type &f64))
-    `(let ((,var (%sref/f ,idx ,type)))
+    `(let ((,var (,%sref/f ,idx ,type)))
        ,(next . args)))
    (else
-    `(let ((,var (%sref ,idx ,type)))
+    `(let ((,var (,%sref ,idx ,type)))
        ,(next . args)))))
 
 (define-syntax-rule (with-boxing type var tmp proc)
   (if (eq? type &flonum)
       (begin
         (set-env-handle-interrupts! env #t)
-        `(let ((,tmp (%d2s ,var)))
+        `(let ((,tmp (,%d2s ,var)))
            ,(proc tmp)))
       (proc var)))
 
@@ -291,12 +292,12 @@
       (begin
         (set-applied-guard! env (+ src (current-sp-offset)) type)
         `(let ((_ ,(take-snapshot! ip 0)))
-           (let ((_ (%typeq ,(var-ref src) ,type)))
+           (let ((_ (,%typeq ,(var-ref src) ,type)))
              ,expr)))))
 
 (define-syntax-rule (with-type-guard-always type src expr)
   `(let ((_ ,(take-snapshot! ip 0)))
-     (let ((_ (%typeq ,(var-ref src) ,type)))
+     (let ((_ (,%typeq ,(var-ref src) ,type)))
        ,expr)))
 
 
@@ -440,7 +441,6 @@ runtime."
                 (when (env-parent-snapshot env)
                   (gen-update-live-indices (flag arg) ...))
                 . body))))
-
        (let* ((ir-procedure (make-ir-procedure test-proc scan-proc
                                                ti-proc anf-proc))
               (entry (ir-procedures-ref 'name))

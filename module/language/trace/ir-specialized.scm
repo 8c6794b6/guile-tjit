@@ -32,6 +32,7 @@
   #:use-module (language trace ir)
   #:use-module (language trace env)
   #:use-module (language trace parameters)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
@@ -79,11 +80,11 @@
          (emit-ccall
           (lambda ()
             (if (inline-current-return?)
-                `(let ((,dst/v (%ccall ,proc-addr)))
+                `(let ((,dst/v (,%ccall ,proc-addr)))
                    ,(next))
                 `(let ((_ ,(take-snapshot! ip 0)))
-                   (let ((_ (%return ,ra)))
-                     (let ((,dst/v (%ccall ,proc-addr)))
+                   (let ((_ (,%return ,ra)))
+                     (let ((,dst/v (,%ccall ,proc-addr)))
                        ,(next)))))))
          (r1 (make-tmpvar 1))
          (r2 (make-tmpvar 2)))
@@ -95,39 +96,39 @@
      ;; pairs.c
      ((eq? subr/a (object-address cons))
       (set-env-handle-interrupts! env #t)
-      `(let ((,dst/v (%cell ,(src-ref 1) ,(src-ref 0))))
+      `(let ((,dst/v (,%cell ,(src-ref 1) ,(src-ref 0))))
          ,(next)))
      ((eq? subr/a (object-address car))
       (with-type-guard &pair 0
-        `(let ((,dst/v (%cref ,(src-ref 0) 0)))
+        `(let ((,dst/v (,%cref ,(src-ref 0) 0)))
            ,(next))))
      ((eq? subr/a (object-address cdr))
       (with-type-guard &pair 0
-        `(let ((,dst/v (%cref ,(src-ref 0) 1)))
+        `(let ((,dst/v (,%cref ,(src-ref 0) 1)))
            ,(next))))
      ((eq? subr/a (object-address cadr))
       `(let ((_ ,(take-snapshot! ip 0)))
          ,(with-type-guard &pair 0
-            `(let ((,r1 (%cref ,(src-ref 0) 1)))
-               (let ((_ (%tceq ,r1 1 ,%tc3-cons)))
-                 (let ((,dst/v (%cref ,r1 0)))
+            `(let ((,r1 (,%cref ,(src-ref 0) 1)))
+               (let ((_ (,%tceq ,r1 1 ,%tc3-cons)))
+                 (let ((,dst/v (,%cref ,r1 0)))
                    ,(next)))))))
 
      ;; ports.c
      ((eq? subr/a (object-address eof-object?))
       (if (eof-object? (scm-ref 0))
-          `(let ((_ (%eq ,(src-ref 0) #xa04)))
+          `(let ((_ (,%eq ,(src-ref 0) #xa04)))
              (let ((,dst/v #t))
                ,(next)))
-          `(let ((_ (%ne ,(src-ref 0) #xa04)))
+          `(let ((_ (,%ne ,(src-ref 0) #xa04)))
              (let ((,dst/v #f))
                ,(next)))))
 
      ;; strings.c
      ((eq? subr/a (object-address string-ref))
-      `(let ((_ (%carg ,(src-ref 0))))
-         (let ((_ (%carg ,(src-ref 1))))
-           (let ((,dst/v (%ccall ,(object-address scm-do-i-string-ref))))
+      `(let ((_ (,%carg ,(src-ref 0))))
+         (let ((_ (,%carg ,(src-ref 1))))
+           (let ((,dst/v (,%ccall ,(object-address scm-do-i-string-ref))))
              ,(next)))))
 
      (else
@@ -141,7 +142,7 @@
                   (t (type-ref n)))
               (with-boxing t n/v r1
                 (lambda (boxed)
-                  `(let ((_ (%carg ,boxed)))
+                  `(let ((_ (,%carg ,boxed)))
                      ,(lp (+ n 1))))))
             (emit-ccall)))))))
 
@@ -182,7 +183,7 @@
     ;; bailout code of call/cc, stack elements have been filled in with captured
     ;; data data by continuation-call.
     `(let ((_ ,(take-snapshot! *ip-key-longjmp* 0)))
-       (let ((,r2 (%call/cc ,(- (ir-snapshot-id ir) 1))))
+       (let ((,r2 (,%call/cc ,(- (ir-snapshot-id ir) 1))))
          (let ((,dst/v ,cont/v))
            (let ((,cont/v ,r2))
              ,(next)))))))

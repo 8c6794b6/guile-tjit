@@ -32,6 +32,7 @@
   #:use-module (language trace fragment)
   #:use-module (language trace ir)
   #:use-module (language trace parameters)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
@@ -63,7 +64,7 @@
               (dest (if test/r
                         (if invert offset 2)
                         (if invert 2 offset)))
-              (op (if test/r 'op-t 'op-f)))
+              (op (if test/r op-t op-f)))
          (ensure-loop test/r invert offset 2)
          (if (symbol? test/v)
              `(let ((_ ,(take-snapshot! ip dest)))
@@ -120,11 +121,11 @@
          (dest (if test/r
                    (if invert offset 2)
                    (if invert 2 offset)))
-         (op (if test/r '%eq '%ne))
+         (op (if test/r %eq %ne))
          (r2 (make-tmpvar 2)))
     (ensure-loop test/r invert offset 2)
     `(let ((_ ,(take-snapshot! ip dest)))
-       (let ((,r2 (%band ,test/v #xf)))
+       (let ((,r2 (,%band ,test/v #xf)))
          (let ((_ (,op ,r2 ,%tc8-char)))
            ,(next))))))
 
@@ -141,7 +142,7 @@
          (dest (if (eq? tc7 tc7/l)
                    (if invert offset 2)
                    (if invert 2 offset)))
-         (op (if (eq? tc7 tc7/l) '%tceq '%tcne)))
+         (op (if (eq? tc7 tc7/l) %tceq %tcne)))
     (ensure-loop (eq? tc7 tc7/l) invert offset 2)
     `(let ((_ ,(take-snapshot! ip dest)))
        (let ((_ (,op ,test/v #x7f ,tc7)))
@@ -151,7 +152,7 @@
   (br-binary-scm-scm-body
    a b invert offset eq? a/l b/l a/v b/v dest
    (let* ((test/l (eq? a/l b/l))
-          (op (if test/l '%eq '%ne)))
+          (op (if test/l %eq %ne)))
      (ensure-loop test/l invert offset 3)
      `(let ((_ ,(take-snapshot! ip dest)))
         (let ((_ (,op ,a/v ,b/v)))
@@ -161,7 +162,7 @@
   (br-binary-scm-scm-body
    a b invert offset eqv? a/l b/l a/v b/v dest
    (let* ((test/l (eqv? a/l b/l))
-          (op (if test/l '%eqv '%nev))
+          (op (if test/l %eqv %nev))
           (r1 (make-tmpvar 1))
           (r2 (make-tmpvar 2)))
      (ensure-loop test/l invert offset 3)
@@ -179,7 +180,7 @@
    (let* ((test/l (eqv? a/l b/l))
           (a/t (type-ref a))
           (b/t (type-ref b))
-          (op (if test/l '%eq '%ne))
+          (op (if test/l %eq %ne))
           (f1 (make-tmpvar/f 1))
           (f2 (make-tmpvar/f 2))
           (emit-next (lambda (x y)
@@ -193,24 +194,24 @@
       ((and (eq? &flonum a/t) (eq? &flonum b/t))
        (emit-next a/v b/v))
       ((and (eq? &flonum a/t) (constant? b/t))
-       `(let ((,f1 (%cref/f ,(object-address (constant-value b/t)) 2)))
+       `(let ((,f1 (,%cref/f ,(object-address (constant-value b/t)) 2)))
           ,(emit-next a/v f1)))
       ((and (constant? a/t) (eq? &flonum b/t))
-       `(let ((,f1 (%cref/f ,(object-address (constant-value a/t)) 2)))
+       `(let ((,f1 (,%cref/f ,(object-address (constant-value a/t)) 2)))
           ,(emit-next f1 b/v)))
       ((and (eq? &flonum a/t) (eq? &scm b/t))
        (with-type-guard-always &flonum b
-         `(let ((,f1 (%cref/f ,b/v 2)))
+         `(let ((,f1 (,%cref/f ,b/v 2)))
             ,(emit-next a/v f1))))
       ((and (eq? &scm a/t) (eq? &flonum b/t))
        (with-type-guard-always &flonum a
-         `(let ((,f2 (%cref/f ,a/v 2)))
+         `(let ((,f2 (,%cref/f ,a/v 2)))
             ,(emit-next f2 b/v))))
       ((and (eq? &scm a/t) (eq? &scm b/t))
        (with-type-guard-always &flonum a
          (with-type-guard-always &flonum b
-           `(let ((,f1 (%cref/f ,a/v 2)))
-              (let ((,f2 (%cref/f ,b/v 2)))
+           `(let ((,f1 (,%cref/f ,a/v 2)))
+              (let ((,f2 (,%cref/f ,b/v 2)))
                 ,(emit-next f1 f2))))))
       (else
        (nyi "br-if-eqv: et=(flonum flonum) it=(~a ~a)"
@@ -223,13 +224,13 @@
   (br-binary-scm-scm-body
    a b invert offset logtest a/l b/l a/v b/v dest
    (let* ((test/l (logtest a/l b/l))
-          (op (if test/l '%ne '%eq))
+          (op (if test/l %ne %eq))
           (r1 (make-tmpvar 1))
           (r2 (make-tmpvar 2)))
      (ensure-loop test/l invert offset 3)
      `(let ((_ ,(take-snapshot! ip dest)))
-        (let ((,r1 (%band ,a/v ,b/v)))
-          (let ((,r1 (%band ,r1 ,(lognot 2))))
+        (let ((,r1 (,%band ,a/v ,b/v)))
+          (let ((,r1 (,%band ,r1 ,(lognot 2))))
             (let ((_ (,op ,r1 0)))
               ,(next))))))))
 
@@ -244,7 +245,7 @@
        (define-ir (name (fixnum a) (fixnum b) (const invert) (const offset))
          (br-binary-scm-scm-body
           a b invert offset op-scm ra rb va vb dest
-          (let* ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f))
+          (let* ((op (if (op-scm ra rb) op-fx-t op-fx-f))
                  (a/t (type-ref a))
                  (b/t (type-ref b)))
             (ensure-loop (op-scm ra rb) invert offset 3)
@@ -256,7 +257,7 @@
        (define-ir (name (flonum a) (fixnum b) (const invert) (const offset))
          (br-binary-scm-scm-body
           a b invert offset op-scm a/l b/l a/v b/v dest
-          (let* ((op (if (op-scm a/l b/l) 'op-fl-t 'op-fl-f))
+          (let* ((op (if (op-scm a/l b/l) op-fl-t op-fl-f))
                  (r2 (make-tmpvar 2))
                  (f2 (make-tmpvar/f 2))
                  (a/t (type-ref a))
@@ -264,8 +265,8 @@
                  (emit-next
                   (lambda (unboxed)
                     `(let ((_ ,(take-snapshot! ip dest)))
-                       (let ((,r2 (%rsh ,b/v 2)))
-                         (let ((,f2 (%i2d ,r2)))
+                       (let ((,r2 (,%rsh ,b/v 2)))
+                         (let ((,f2 (,%i2d ,r2)))
                            (let ((_ (,op ,unboxed ,f2)))
                              ,(next))))))))
             (ensure-loop (op-scm a/l b/l) invert offset 3)
@@ -276,14 +277,14 @@
              ((eq? &scm a/t)
               (with-type-guard &flonum a
                 (with-type-guard &fixnum b
-                  `(let ((,f2 (%cref/f ,a/v 2)))
+                  `(let ((,f2 (,%cref/f ,a/v 2)))
                      ,(emit-next f2)))))
              (else
               (nyi "~s" 'name))))))
        (define-ir (name (flonum a) (flonum b) (const invert) (const offset))
          (br-binary-scm-scm-body
           a b invert offset op-scm ra rb va vb dest
-          (let* ((op (if (op-scm ra rb) 'op-fl-t 'op-fl-f))
+          (let* ((op (if (op-scm ra rb) op-fl-t op-fl-f))
                  (a/t (type-ref a))
                  (b/t (type-ref b))
                  (f1 (make-tmpvar/f 1))
@@ -301,17 +302,17 @@
                  ,(emit-next va vb)))
              ((and (flo-or-const? a/t) (eq? &scm b/t))
               (with-type-guard-always &flonum b
-                `(let ((,f2 (%cref/f ,vb 2)))
+                `(let ((,f2 (,%cref/f ,vb 2)))
                    ,(emit-next va f2))))
              ((and (eq? &scm a/t) (flo-or-const? b/t))
               (with-type-guard-always &flonum a
-                `(let ((,f2 (%cref/f ,va 2)))
+                `(let ((,f2 (,%cref/f ,va 2)))
                    ,(emit-next f2 vb))))
              ((and (eq? &scm a/t) (eq? &scm b/t))
               (with-type-guard-always &flonum a
                 (with-type-guard-always &flonum b
-                  `(let ((,f1 (%cref/f ,va 2)))
-                     (let ((,f2 (%cref/f ,vb 2)))
+                  `(let ((,f1 (,%cref/f ,va 2)))
+                     (let ((,f2 (,%cref/f ,vb 2)))
                        ,(emit-next f1 f2))))))
              (else
               (nyi "~s: et=(flonum flonum) it=(~a ~a)" 'name
@@ -326,7 +327,7 @@
     ((_ name op-scm op-fx-t op-fx-f)
      (define-ir (name (u64 a) (u64 b) (const invert) (const offset))
        (br-binary-u64-u64-body a b invert offset op-scm ra rb va vb dest
-         (let ((op (if (op-scm ra rb) 'op-fx-t 'op-fx-f)))
+         (let ((op (if (op-scm ra rb) op-fx-t op-fx-f)))
            (ensure-loop (op-scm ra rb) invert offset 3)
            `(let ((_ ,(take-snapshot! ip dest)))
               (let ((_ (,op ,va ,vb)))
@@ -350,18 +351,18 @@
           (let ((f1 (make-tmpvar/f 1))
                 (f2 (make-tmpvar/f 2))
                 (b/t (type-ref b))
-                (op (if (op-scm a/l b/l) 'op-fl-t 'op-fl-f)))
+                (op (if (op-scm a/l b/l) op-fl-t op-fl-f)))
             (ensure-loop (op-scm a/l b/l) invert offset 3)
             (cond
              ((eq? &flonum b/t)
               `(let ((_ ,(take-snapshot! ip dest)))
-                 (let ((,f2 (%i2d ,a/v)))
+                 (let ((,f2 (,%i2d ,a/v)))
                    (let ((_ (,op ,f2 ,b/v)))
                      ,(next)))))
              ((eq? &scm b/t)
               (with-type-guard-always &flonum b
-                `(let ((,f1 (%i2d ,a/v)))
-                   (let ((,f2 (%cref/f ,b/v 2)))
+                `(let ((,f1 (,%i2d ,a/v)))
+                   (let ((,f2 (,%cref/f ,b/v 2)))
                      (let ((_ (,op ,f1 ,f2)))
                        ,(next))))))
              (else
@@ -372,11 +373,11 @@
           a b invert offset op-scm ra rb va vb dest
           (let* ((r2 (make-tmpvar 2))
                  (b/t (type-ref b))
-                 (op (if (op-scm ra rb) 'op-fx-t 'op-fx-f)))
+                 (op (if (op-scm ra rb) op-fx-t op-fx-f)))
             (ensure-loop (op-scm ra rb) invert offset 3)
             (with-type-guard &fixnum b
               `(let ((_ ,(take-snapshot! ip dest)))
-                 (let ((,r2 (%rsh ,vb 2)))
+                 (let ((,r2 (,%rsh ,vb 2)))
                    (let ((_ (,op ,va ,r2)))
                      ,(next))))))))))))
 

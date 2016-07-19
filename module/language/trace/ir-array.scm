@@ -30,6 +30,7 @@
   #:use-module (language trace error)
   #:use-module (language trace ir)
   #:use-module (language trace env)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
@@ -46,8 +47,8 @@
          (dst/v (dst-ref dst))
          (tmp (make-tmpvar 2)))
     (with-type-guard &bytevector src
-      `(let ((,tmp (%cref ,src/v 2)))
-         (let ((,dst/v (%u8ref ,tmp ,idx/v)))
+      `(let ((,tmp (,%cref ,src/v 2)))
+         (let ((,dst/v (,%u8ref ,tmp ,idx/v)))
            ,(next))))))
 
 ;; XXX: bv-s8-ref
@@ -68,8 +69,8 @@
          (tmp1 (make-tmpvar 1))
          (tmp2 (make-tmpvar 2)))
     (with-type-guard &bytevector dst
-      `(let ((,tmp2 (%cref ,dst/v 2)))
-         (let ((_ (%u8set ,tmp2 ,idx/v ,src/v)))
+      `(let ((,tmp2 (,%cref ,dst/v 2)))
+         (let ((_ (,%u8set ,tmp2 ,idx/v ,src/v)))
            ,(next))))))
 
 ;; XXX: bv-s8-set!
@@ -86,5 +87,5 @@
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &bytevector src
-      `(let ((,dst/v (%cref ,src/v 1)))
+      `(let ((,dst/v (,%cref ,src/v 1)))
          ,(next)))))

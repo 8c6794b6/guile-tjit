@@ -31,6 +31,7 @@
   #:use-module (language trace error)
   #:use-module (language trace ir)
   #:use-module (language trace env)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
@@ -84,7 +85,7 @@
          (src/t (type-ref src)))
     (with-boxing src/t src/v r1
       (lambda (boxed)
-        `(let ((,dst/v (%cell ,%tc7-variable ,boxed)))
+        `(let ((,dst/v (,%cell ,%tc7-variable ,boxed)))
            ,(next))))))
 
 ;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'.
@@ -95,7 +96,7 @@
 (define-ir (box-ref (scm! dst) (box src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
-    `(let ((,dst/v (%cref ,src/v 1)))
+    `(let ((,dst/v (,%cref ,src/v 1)))
        ,(next))))
 
 (define-ir (box-set! (box dst) (scm src))
@@ -105,7 +106,7 @@
          (r1 (make-tmpvar 1)))
     (with-boxing src/t src/v r1
       (lambda (tmp)
-        `(let ((_ (%cset ,dst/v 1 ,tmp)))
+        `(let ((_ (,%cset ,dst/v 1 ,tmp)))
            ,(next))))))
 
 (define-interrupt-ir (make-closure (procedure! dst) (const offset)
@@ -113,14 +114,14 @@
   (let* ((dst/v (dst-ref dst))
          (tag (logior %tc7-program (ash nfree 16)))
          (nwords (+ nfree 2)))
-    `(let ((,dst/v (%words ,tag ,nwords)))
-       (let ((_ (%cset ,dst/v 1 ,(+ ip (* offset 4)))))
+    `(let ((,dst/v (,%words ,tag ,nwords)))
+       (let ((_ (,%cset ,dst/v 1 ,(+ ip (* offset 4)))))
          ,(next)))))
 
 (define-ir (free-ref (scm! dst) (procedure src) (const idx))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
-    `(let ((,dst/v (%cref ,src/v ,(+ idx 2))))
+    `(let ((,dst/v (,%cref ,src/v ,(+ idx 2))))
        ,(next))))
 
 (define-ir (free-set! (procedure dst) (scm src) (const idx))
@@ -130,5 +131,5 @@
          (r1 (make-tmpvar 1)))
     (with-boxing src/t src/v r1
       (lambda (tmp)
-        `(let ((_ (%cset ,dst/v ,(+ 2 idx) ,tmp)))
+        `(let ((_ (,%cset ,dst/v ,(+ 2 idx) ,tmp)))
            ,(next))))))

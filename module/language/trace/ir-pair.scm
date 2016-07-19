@@ -28,6 +28,7 @@
   #:use-module (language trace error)
   #:use-module (language trace ir)
   #:use-module (language trace env)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
@@ -49,41 +50,41 @@
          (r2 (make-tmpvar 2))
          (m0 (make-spill 0)))
     (if (and (eq? &flonum x/t) (eq? &flonum y/t))
-        `(let ((,m0 (%d2s ,x/v)))
-           (let ((,r2 (%d2s ,y/v)))
-             (let ((,dst/v (%cell ,m0 ,r2)))
+        `(let ((,m0 (,%d2s ,x/v)))
+           (let ((,r2 (,%d2s ,y/v)))
+             (let ((,dst/v (,%cell ,m0 ,r2)))
                ,(next))))
         (with-boxing (type-ref x) x/v r2
           (lambda (x/boxed)
             (with-boxing (type-ref y) y/v r2
               (lambda (y/boxed)
-                `(let ((,dst/v (%cell ,x/boxed ,y/boxed)))
+                `(let ((,dst/v (,%cell ,x/boxed ,y/boxed)))
                    ,(next)))))))))
 
 (define-ir (car (scm! dst) (pair src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &pair src
-      `(let ((,dst/v (%cref ,src/v 0)))
+      `(let ((,dst/v (,%cref ,src/v 0)))
          ,(next)))))
 
 (define-ir (cdr (scm! dst) (pair src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &pair src
-      `(let ((,dst/v (%cref ,src/v 1)))
+      `(let ((,dst/v (,%cref ,src/v 1)))
          ,(next)))))
 
 (define-ir (set-car! (pair dst) (scm src))
   (let ((src/v (src-ref src))
         (dst/v (src-ref dst)))
     (with-type-guard &pair dst
-      `(let ((_ (%cset ,dst/v 0 ,src/v)))
+      `(let ((_ (,%cset ,dst/v 0 ,src/v)))
          ,(next)))))
 
 (define-ir (set-cdr! (pair dst) (scm src))
   (let ((src/v (src-ref src))
         (dst/v (src-ref dst)))
     (with-type-guard &pair dst
-      `(let ((_ (%cset ,dst/v 1 ,src/v)))
+      `(let ((_ (,%cset ,dst/v 1 ,src/v)))
          ,(next)))))

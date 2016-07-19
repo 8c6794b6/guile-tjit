@@ -33,9 +33,11 @@
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (language trace assembler)
   #:use-module (language trace error)
   #:use-module (language trace fragment)
   #:use-module (language trace env)
+  #:use-module (language trace primitives)
   #:use-module (language trace registers)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
@@ -47,9 +49,11 @@
             primops-nspills
             anf->primops
 
+            make-empty-storage
             storage-ref
             storage-set!
-            fold-storage))
+            fold-storage
+            volatiles-in-storage))
 
 
 ;;;; Data types
@@ -67,38 +71,41 @@
   ;; Hash-table containing variable information.
   (storage primops-storage))
 
-(define-inlinable (%make-storage alist)
+(define-syntax-rule (%make-storage alist)
   (cons 'storage alist))
 
-(define-inlinable (storage-alist storage)
+(define-syntax-rule (storage-alist storage)
   (cdr storage))
 
-(define-inlinable (set-storage-alist! storage alist)
+(define-syntax-rule (set-storage-alist! storage alist)
   (set-cdr! storage alist))
 
 (define-inlinable (storage-ref storage key)
   (assq-ref (storage-alist storage) key))
 
-(define-inlinable (storage-set! storage key val)
-  (cond
-   ((assq key (storage-alist storage))
-    => (lambda (handle)
-         (set-cdr! handle val)))
-   (else
-    (set-storage-alist! storage (cons (cons key val)
-                                      (storage-alist storage))))))
+(define-inlinable (storage-set! storage key* val)
+  (let ((key key*))
+    (cond
+     ((assq key (storage-alist storage))
+      => (lambda (handle)
+           (set-cdr! handle val)))
+     (else
+      (set-storage-alist! storage (cons (cons key val)
+                                        (storage-alist storage)))))))
 
-(define-inlinable (fold-storage proc init storage)
-  (let lp ((alist (storage-alist storage)) (init init))
+(define-inlinable (fold-storage proc init* storage)
+  (let lp ((alist (storage-alist storage)) (init init*))
     (if (null? alist)
         init
         (let ((kv (car alist)))
           (lp (cdr alist) (proc (car kv) (cdr kv) init))))))
 
-(define-inlinable (make-storage env free-gprs free-fprs mem-idx)
+(define (make-empty-storage)
+  (%make-storage '()))
+
+(define (make-storage env free-gprs free-fprs mem-idx)
   (let ((alist '())
-        (parent-storage (and=> (env-parent-fragment env)
-                               fragment-storage)))
+        (parent-storage (and=> (env-parent-fragment env) fragment-storage)))
     (%make-storage
      (if parent-storage
          (let lp ((parent-alist (storage-alist parent-storage))
@@ -134,55 +141,16 @@
                 (alist (acons (make-spill 0) (make-memory -1) alist)))
            alist)))))
 
-;;; Alternative implementation of storage using hash-table.
-
-;; (define-inlinable (storage-ref storage key)
-;;   (hashq-ref storage key))
-;;
-;; (define-inlinable (storage-set! storage key val)
-;;   (hashq-set! storage key val))
-;;
-;; (define-inlinable (fold-storage proc init storage)
-;;   (hash-fold proc init storage))
-;;
-;; (define-inlinable (make-storage env free-gprs free-fprs mem-idx)
-;;   (let ((storage (make-hash-table))
-;;         (parent-storage (and=> (env-parent-fragment env)
-;;                                fragment-storage)))
-;;     (if parent-storage
-;;         ;; Share registers and memory offset for side trace with parent
-;;         ;; trace.
-;;         (hash-for-each
-;;          (lambda (k v)
-;;            (cond
-;;             ((not v) (values))
-;;             ((gpr? v)
-;;              (storage-set! storage k v)
-;;              (let ((i (ref-value v)))
-;;                (when (<= 0 i)
-;;                  (vector-set! free-gprs i #f))))
-;;             ((fpr? v)
-;;              (storage-set! storage k v)
-;;              (let ((i (ref-value v)))
-;;                (when (<= 0 i)
-;;                  (vector-set! free-fprs i #f))))
-;;             ((memory? v)
-;;              (storage-set! storage k v)
-;;              (let ((i (ref-value v)))
-;;                (when (<= (variable-ref mem-idx) i)
-;;                  (variable-set! mem-idx (+ i 1)))))
-;;             (else
-;;              (failure 'anf->primops "unknown var ~s" v))))
-;;          parent-storage)
-;;         (begin
-;;           (storage-set! storage (make-tmpvar 0) (make-gpr -1))
-;;           (storage-set! storage (make-tmpvar 1) (make-gpr -2))
-;;           (storage-set! storage (make-tmpvar 2) (make-gpr -3))
-;;           (storage-set! storage (make-tmpvar/f 0) (make-fpr -1))
-;;           (storage-set! storage (make-tmpvar/f 1) (make-fpr -2))
-;;           (storage-set! storage (make-tmpvar/f 2) (make-fpr -3))
-;;           (storage-set! storage (make-spill 0) (make-memory -1))))
-;;     storage))
+(define (volatiles-in-storage storage)
+  (fold-storage
+   (lambda (k reg acc)
+     (if (or (and reg (gpr? reg)
+                  (<= *num-non-volatiles* (ref-value reg)))
+             (and reg (fpr? reg)
+                  (<= 0 (ref-value reg))))
+         (cons reg acc)
+         acc))
+   '() storage))
 
 
 ;;;; Auxiliary
@@ -252,10 +220,8 @@
        (free-gprs (identifier-syntax arg-free-gprs))
        (free-fprs (identifier-syntax arg-free-fprs))
        (mem-idx (identifier-syntax arg-mem-idx)))
-    (define (lookup-prim-type op)
-      ((@ (language trace assembler) prim-types-ref) op))
     (define (get-arg-types! op dst args)
-      (let ((types (lookup-prim-type op)))
+      (let ((types (prim-types-ref op)))
         (let lp ((types (if dst
                             (if (pair? types)
                                 (cdr types)
@@ -289,7 +255,7 @@
              (reverse! acc))))))
     (define (get-dst-type! op dst)
       ;; Get assigned register. Will assign new register if not assigned yet.
-      (let ((type (car (lookup-prim-type op)))
+      (let ((type (car (prim-types-ref op)))
             (assigned (storage-ref storage dst)))
         (cond
          (assigned        assigned)
@@ -331,7 +297,7 @@
                       ((ref dst) => identity)
                       ((flonum? val) (get-fpr! dst))
                       (else (get-gpr! dst))))
-                (prim `(%move ,reg ,(make-con val))))
+                (prim `(,%move ,reg ,(make-con val))))
            (assign-term term1 (cons prim acc))))
         (('let ((dst (? symbol? src))) term1)
          (let ((src-reg (ref src)))
@@ -341,7 +307,7 @@
                                 ((gpr? src-reg) (get-gpr! dst))
                                 ((fpr? src-reg) (get-fpr! dst))
                                 ((memory? src-reg) (get-mem! dst))))
-                      (prim `(%move ,dst-reg ,src-reg)))
+                      (prim `(,%move ,dst-reg ,src-reg)))
                  (assign-term term1 (cons prim acc)))
                (assign-term term1 acc))))
         (('let ((dst (op . args))) term1)

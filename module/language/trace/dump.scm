@@ -112,6 +112,12 @@ option was set to true."
                      (source-line-for-user source))))
       (cons "(unknown source)" #f)))
 
+(define (symbolize-op op)
+  (match op
+    (((? number? op) . rest)
+     (cons (prim-names-ref op) rest))
+    (_ op)))
+
 (define (dump-bytecode port trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)
     (let lp ((ip-x-ops ip-x-ops) (level 0) (lowest 0))
@@ -162,15 +168,13 @@ option was set to true."
     (format port "(lambda ~a~%  (let* (" args)
     (let lp ((term term))
       (match term
-        (('let ((var exp))
-           '_)
-         (format port "(~4a ~a))~%    _))~%" var exp))
-        (('let ((var exp))
-           ('loop . args))
-         (format port "(~4a ~a))~%    ~a))~%" var exp (cons 'loop args)))
-        (('let ((var exp))
-           next-term)
-         (format port "(~4a ~a)~%         " var exp)
+        (('let ((var exp)) '_)
+         (format port "(~4a ~a))~%    _))~%" var (symbolize-op exp)))
+        (('let ((var exp)) ('loop . args))
+         (format port "(~4a ~a))~%    ~a))~%"
+                 var (symbolize-op exp) (cons 'loop args)))
+        (('let ((var exp)) next-term)
+         (format port "(~4a ~a)~%         " var (symbolize-op exp))
          (lp next-term)))))
   (match scm
     (`(letrec ((entry (lambda ,entry-args ,entry))
@@ -247,12 +251,14 @@ option was set to true."
                    "")))
       (_
        (format port "----     NOT-A-SNAPSHOT~%"))))
+
   (define (dump-one idx op)
     (match op
       (('%snap id . _)
        (dump-snapshot (snapshots-ref snapshots id)))
       (_
-       (let ((mark (mark-op op)))
+       (let* ((op (symbolize-op op))
+              (mark (mark-op op)))
          (match op
            (('%sref dst n type)
             (format port "~4,,,'0@a ~a (~8a ~a ~a ~a)~%" idx mark
@@ -299,8 +305,7 @@ option was set to true."
         ((op . ops)
          (dump-one idx op)
          (lp ops (+ idx 1)))
-        (()
-         idx))))
+        (() idx))))
   (match plist
     (($ $primops entry loop)
      (format port ";;; trace ~a: primops (~a snapshots):~%" trace-id

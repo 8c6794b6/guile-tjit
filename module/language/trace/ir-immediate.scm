@@ -30,8 +30,9 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (language trace error)
-  #:use-module (language trace ir)
   #:use-module (language trace env)
+  #:use-module (language trace ir)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types))
 

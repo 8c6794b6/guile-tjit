@@ -34,7 +34,6 @@
   #:use-module (system vm native lightning)
   #:use-module (language trace error)
   #:use-module (language trace parameters)
-  #:use-module (language trace ra)
   #:use-module (language trace registers)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
@@ -75,32 +74,27 @@
 
             prim-procedures-ref
             prim-types-ref
-            reverse-native-prim-alist!
+            prim-names-ref
+            current-prim-counter
+            increment-prim-counter!
             define-native))
 
 
 ;;;; Scheme constants
 
-(define *scm-false*
-  (scm->pointer #f))
+(define *scm-false* (scm->pointer #f))
 
-(define *scm-true*
-  (scm->pointer #t))
+(define *scm-true* (scm->pointer #t))
 
-(define *scm-nil*
-  (scm->pointer #nil))
+(define *scm-nil* (scm->pointer #nil))
 
-(define *scm-unspecified*
-  (scm->pointer *unspecified*))
+(define *scm-unspecified* (scm->pointer *unspecified*))
 
-(define *scm-undefined*
-  (make-pointer #x904))
+(define *scm-undefined* (make-pointer #x904))
 
-(define *scm-unbound*
-  (make-pointer #xb04))
+(define *scm-unbound* (make-pointer #xb04))
 
-(define *scm-null*
-  (scm->pointer '()))
+(define *scm-null* (scm->pointer '()))
 
 
 ;;;; SCM macros
@@ -401,18 +395,10 @@
   (lambda (x)
     (syntax-violation 'err "err used outside of primitive definition" x)))
 
-(define (make-asm storage end-address gc-inline save-volatiles? snapshots)
-  (define (add-volatile k reg acc)
-    (if (or (and reg (gpr? reg)
-                 (<= *num-non-volatiles* (ref-value reg)))
-            (and reg (fpr? reg)
-                 (<= 0 (ref-value reg))))
-        (cons reg acc)
-        acc))
-  (let ((volatiles (fold-storage add-volatile '() storage)))
-    (when save-volatiles?
-      (for-each store-volatile volatiles))
-    (%make-asm volatiles #f end-address '() gc-inline snapshots)))
+(define (make-asm volatiles end-address gc-inline save-volatiles? snapshots)
+  (when save-volatiles?
+    (for-each store-volatile volatiles))
+  (%make-asm volatiles #f end-address '() gc-inline snapshots))
 
 (define-syntax jump
   (syntax-rules ()
@@ -751,48 +737,60 @@
 ;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
 ;;; F1, and F2 for floating point.
 
-(define *native-prim-procedures* '())
+(define *native-prim-counter* 0)
+
+(define *native-prim-procedures* (make-vector 255 #f))
+
+(define *native-prim-types* (make-vector 255 #f))
+
+(define *native-prim-names* (make-vector 255 #f))
+
+(define (current-prim-counter)
+  *native-prim-counter*)
+
+(define (increment-prim-counter!)
+  (set! *native-prim-counter* (+ *native-prim-counter* 1)))
 
 (define (prim-procedures-ref key)
-  (assq-ref *native-prim-procedures* key))
-
-(define *native-prim-types* '())
+  (vector-ref *native-prim-procedures* key))
 
 (define (prim-types-ref key)
-  (assq-ref *native-prim-types* key))
+  (vector-ref *native-prim-types* key))
 
-(define (reverse-native-prim-alist!)
-  (set! *native-prim-procedures* (reverse! *native-prim-procedures*))
-  (set! *native-prim-types* (reverse! *native-prim-types*)))
+(define (prim-names-ref key)
+  (vector-ref *native-prim-names* key))
 
 (define-syntax define-native
   (syntax-rules ()
     ((_ (name (ty arg) ...) <body>)
      (begin
-       (define (name %asm arg ...)
-         (let ((verbosity (lightning-verbosity)))
-           (when (and verbosity (<= 4 verbosity))
-             (let ((f (lambda (x)
-                        (case (ref-type x)
-                          ((con) (ref-value x))
-                          (else (physical-name x))))))
-               (jit-note (format #f "~a" (cons 'name (map f `(,arg ...)))) 0)))
-           (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
-         (syntax-parameterize
-             ((asm (identifier-syntax %asm))
-              (err (syntax-rules ()
-                     ((_)
-                      (failure 'name
-                               ((lambda args
-                                  (let lp ((args args) (acc '()))
-                                    (if (null? args)
-                                        (string-join acc " ")
-                                        (lp (cdr args)
-                                            (cons "~a" acc)))))
-                                'arg ...)
-                               arg ...)))))
-           <body>))
-       (set! *native-prim-procedures*
-         (acons 'name name *native-prim-procedures*))
-       (set! *native-prim-types*
-         (acons 'name `(,ty ...) *native-prim-types*))))))
+       (define name (current-prim-counter))
+       (let ((native-proc
+              (lambda (%asm arg ...)
+                (let ((verbosity (lightning-verbosity)))
+                  (when (and verbosity (<= 4 verbosity))
+                    (let ((f (lambda (x)
+                               (case (ref-type x)
+                                 ((con) (ref-value x))
+                                 (else (physical-name x))))))
+                      (jit-note
+                       (format #f "~a" (cons 'name (map f `(,arg ...)))) 0)))
+                  (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...))
+                  (syntax-parameterize
+                      ((asm (identifier-syntax %asm))
+                       (err (syntax-rules ()
+                              ((_)
+                               (failure 'name
+                                        ((lambda args
+                                           (let lp ((args args) (acc '()))
+                                             (if (null? args)
+                                                 (string-join acc " ")
+                                                 (lp (cdr args)
+                                                     (cons "~a" acc)))))
+                                         'arg ...)
+                                        arg ...)))))
+                    <body>)))))
+         (vector-set! *native-prim-procedures* name native-proc)
+         (vector-set! *native-prim-types* name `(,ty ...))
+         (vector-set! *native-prim-names* name 'name)
+         (increment-prim-counter!))))))

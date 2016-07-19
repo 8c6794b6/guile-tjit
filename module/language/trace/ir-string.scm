@@ -30,6 +30,7 @@
   #:use-module (language trace ir)
   #:use-module (language trace env)
   #:use-module (language trace parameters)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
@@ -40,7 +41,7 @@
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &string src
-      `(let ((,dst/v (%cref ,src/v 3)))
+      `(let ((,dst/v (,%cref ,src/v 3)))
          ,(next)))))
 
 ;; XXX: Inline with `scm_i_string_ref'.
@@ -50,31 +51,31 @@
          (dst/v (dst-ref dst))
          (r2 (make-tmpvar 2)))
     (with-type-guard &string src
-      `(let ((_ (%carg ,idx/v)))
-         (let ((_ (%carg ,src/v)))
-           (let ((,dst/v (%ccall ,(object-address scm-do-i-string-ref))))
+      `(let ((_ (,%carg ,idx/v)))
+         (let ((_ (,%carg ,src/v)))
+           (let ((,dst/v (,%ccall ,(object-address scm-do-i-string-ref))))
              ,(next)))))))
 
 (define-ir (string->number (scm! dst) (string src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &string src
-      `(let ((_ (%carg #x904)))
-         (let ((_ (%carg ,src/v)))
-           (let ((,dst/v (%ccall ,(object-address string->number))))
+      `(let ((_ (,%carg #x904)))
+         (let ((_ (,%carg ,src/v)))
+           (let ((,dst/v (,%ccall ,(object-address string->number))))
              ,(next)))))))
 
 (define-ir (string->symbol (scm! dst) (string src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &string src
-      `(let ((_ (%carg ,src/v)))
-         (let ((,dst/v (%ccall ,(object-address string->symbol))))
+      `(let ((_ (,%carg ,src/v)))
+         (let ((,dst/v (,%ccall ,(object-address string->symbol))))
            ,(next))))))
 
 (define-ir (symbol->keyword (scm! dst) (scm src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
-    `(let ((_ (%carg ,src/v)))
-       (let ((,dst/v (%ccall ,(object-address symbol->keyword))))
+    `(let ((_ (,%carg ,src/v)))
+       (let ((,dst/v (,%ccall ,(object-address symbol->keyword))))
          ,(next)))))

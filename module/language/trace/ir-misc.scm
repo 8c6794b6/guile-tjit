@@ -30,6 +30,7 @@
   #:use-module (language trace error)
   #:use-module (language trace ir)
   #:use-module (language trace env)
+  #:use-module (language trace primitives)
   #:use-module (language trace snapshot)
   #:use-module (language trace types)
   #:use-module (language trace variables))
@@ -39,15 +40,15 @@
 (define-ir (scm->f64 (f64! dst) (scm src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
-    `(let ((,dst/v (%cref/f ,src/v 2)))
+    `(let ((,dst/v (,%cref/f ,src/v 2)))
        ,(next))))
 
 (define-ir (scm->f64 (f64! dst) (fixnum src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst))
          (r2 (make-tmpvar 2)))
-    `(let ((,r2 (%rsh ,src/v 2)))
-       (let ((,dst/v (%i2d ,r2)))
+    `(let ((,r2 (,%rsh ,src/v 2)))
+       (let ((,dst/v (,%i2d ,r2)))
          ,(next)))))
 
 (define-ir (scm->f64 (f64! dst) (flonum src))
@@ -72,7 +73,7 @@
 (define-ir (scm->u64 (u64! dst) (fixnum src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
-    `(let ((,dst/v (%rsh ,src/v 2)))
+    `(let ((,dst/v (,%rsh ,src/v 2)))
        ,(next))))
 
 (define-ir (scm->u64/truncate (u64! dst) (scm src))
@@ -82,7 +83,7 @@
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &fixnum src
-      `(let ((,dst/v (%rsh ,src/v 2)))
+      `(let ((,dst/v (,%rsh ,src/v 2)))
          ,(next)))))
 
 (define-scan (u64->scm dst src)
@@ -101,8 +102,8 @@
 (define-anf (u64->scm dst src)
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
-    `(let ((,dst/v (%lsh ,src/v 2)))
-       (let ((,dst/v (%add ,dst/v 2)))
+    `(let ((,dst/v (,%lsh ,src/v 2)))
+       (let ((,dst/v (,%add ,dst/v 2)))
          ,(next)))))
 
 ;; XXX: scm->s64
@@ -116,14 +117,14 @@
          (dst/v (dst-ref dst))
          (codepoint-max #x10ffff))
     `(let ((_ ,(take-snapshot! ip 0)))
-       (let ((_ (%gt ,codepoint-max ,src/v)))
-         (let ((,r2 (%lsh ,src/v 8)))
-           (let ((,dst/v (%add ,r2 ,%tc8-char)))
+       (let ((_ (,%gt ,codepoint-max ,src/v)))
+         (let ((,r2 (,%lsh ,src/v 8)))
+           (let ((,dst/v (,%add ,r2 ,%tc8-char)))
              ,(next)))))))
 
 (define-ir (char->integer (u64! dst) (char src))
   (let* ((src/v (src-ref src))
          (dst/v (dst-ref dst)))
     (with-type-guard &char src
-      `(let ((,dst/v (%rsh ,src/v 8)))
+      `(let ((,dst/v (,%rsh ,src/v 8)))
          ,(next)))))
