@@ -360,7 +360,7 @@ NODE_2 (jit_new_node_p, "jit-new-node-p", c, u, SCM_I_INUM (c), JIT_PTR (u))
 NODE_3 (jit_new_node_ww, "jit-new-node-ww", c, u, v,
         SCM_I_INUM (c), JIT_WORD (u), JIT_WORD (v))
 NODE_3 (jit_new_node_wp, "jit-new-node-wp", c, u, v,
-        SCM_I_INUM (c), JIT_WORD (u), JIT_NODE (v))
+        SCM_I_INUM (c), JIT_WORD (u), JIT_PTR (v))
 NODE_3 (jit_new_node_pw, "jit-new-node-pw", c, u, v,
         SCM_I_INUM (c), JIT_PTR (u), JIT_WORD (v))
 NODE_3 (jit_new_node_wf, "jit-new-node-wf", c, u, v,

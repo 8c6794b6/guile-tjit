@@ -423,8 +423,7 @@ static inline void
 call_native (SCM fragment, scm_i_thread *thread, struct scm_vm *vp,
              scm_i_jmp_buf *registers, struct scm_tjit_state *tj)
 {
-  SCM s_ip, code, origin;
-  SCM exit_counts, count, ret_fragment;
+  SCM s_ip, code, origin, exit_counts, count, ret_fragment;
   size_t max_retries, exit_id;
   scm_t_native_code fn;
   int retval;

@@ -58,9 +58,8 @@ struct scm_tjit_state
 typedef int (*scm_t_native_code) (scm_i_thread *thread, struct scm_vm *vp,
                                   scm_i_jmp_buf *registers);
 
-SCM_API void
-scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits exit_ip,
-                     scm_t_bits nlocals);
+SCM_API void scm_set_tjit_retval (scm_t_bits exit_id, scm_t_bits exit_ip,
+                                  scm_t_bits nlocals);
 
 SCM_API void scm_tjit_dump_retval (struct scm_vm *vp);
 SCM_API void scm_tjit_dump_locals (SCM trace_id, int n, struct scm_vm *vp);
