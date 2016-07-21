@@ -346,20 +346,6 @@ Currently does nothing, returns the given argument."
                            (vector-ref fp-offsets i)))
          (initial-inline-depth (env-inline-depth env))
          (root-trace? (not (env-parent-snapshot env))))
-    (define (entry-snapshot! ip locals sp-offset min-sp nlocals)
-      (let-values (((ret snapshot)
-                    (take-snapshot ip 0 locals (ir-vars ir)
-                                   (env-write-indices env)
-                                   (ir-snapshot-id ir)
-                                   sp-offset last-fp-offset
-                                   min-sp
-                                   (+ sp-offset (or nlocals initial-nlocals))
-                                   (env-inline-depth env) env #f
-                                   nlocals)))
-        (let ((old-id (ir-snapshot-id ir)))
-          (snapshots-set! (ir-snapshots ir) old-id snapshot)
-          (set-ir-snapshot-id! ir (+ old-id 1))
-          ret)))
     (define (gen-last-op op ip ra dl locals)
       (define (nlocals-from-op op)
         ;; Get the new `nlocals' when side trace ended with one of the call
@@ -374,6 +360,21 @@ Currently does nothing, returns the given argument."
           (('tail-call-label nlocals _) nlocals)
           (('return-values nlocals) (+ nlocals dl))
           (_ #f)))
+      (define (patch! ip nlocals)
+        (let-values (((ret snapshot)
+                      (take-snapshot ip 0 locals (ir-vars ir)
+                                     (env-write-indices env)
+                                     (ir-snapshot-id ir)
+                                     last-sp-offset last-fp-offset
+                                     (ir-min-sp-offset ir)
+                                     (+ last-sp-offset
+                                        (or nlocals initial-nlocals))
+                                     (env-inline-depth env) env #f
+                                     nlocals)))
+          (let ((old-id (ir-snapshot-id ir)))
+            (snapshots-set! (ir-snapshots ir) old-id snapshot)
+            (set-ir-snapshot-id! ir (+ old-id 1))
+            ret)))
       ;; Last operation is wrapped in a thunk, to assign snapshot ID in last
       ;; expression after taking snapshots from various works defined in `ir-*'
       ;; modules. Trace with loop will emit `loop'.  Side traces and loop-less
@@ -383,18 +384,13 @@ Currently does nothing, returns the given argument."
       (cond
        (root-trace?
         (cond
-         ((or (env-downrec? env)
-              (< last-sp-offset 0))
+         ((or (env-downrec? env) (< last-sp-offset 0))
           (lambda ()
-            `(let ((_ ,(entry-snapshot! *ip-key-downrec* locals last-sp-offset
-                                        (ir-min-sp-offset ir)
-                                        (nlocals-from-op op))))
+            `(let ((_ ,(patch! *ip-key-downrec* (nlocals-from-op op))))
                (loop ,@(reverse (map cdr (ir-vars ir)))))))
          ((env-uprec? env)
           (lambda ()
-            `(let ((_ ,(entry-snapshot! *ip-key-uprec* locals last-sp-offset
-                                        (ir-min-sp-offset ir)
-                                        (vector-length locals))))
+            `(let ((_ ,(patch! *ip-key-uprec* (vector-length locals))))
                (loop ,@(reverse (map cdr (ir-vars ir)))))))
          ((zero? last-sp-offset)
           (lambda ()
@@ -403,9 +399,7 @@ Currently does nothing, returns the given argument."
           (nyi "root trace with up SP shift"))))
        (else                            ; Side trace
         (lambda ()
-          `(let ((_ ,(entry-snapshot! *ip-key-link* locals last-sp-offset
-                                      (ir-min-sp-offset ir)
-                                      (nlocals-from-op op))))
+          `(let ((_ ,(patch! *ip-key-link* (nlocals-from-op op))))
              _)))))
     (define (gen-next ip dl locals op rest)
       (lambda ()
@@ -415,7 +409,8 @@ Currently does nothing, returns the given argument."
                (old-sp-offset
                 (or (and (<= 0 old-index (1- (vector-length sp-offsets)))
                          (vector-ref sp-offsets old-index))
-                    (failure 'trace->anf "gen-next: SP index ~s out of range ~s"
+                    (failure 'trace->anf
+                             "gen-next: SP index ~s out of range ~s"
                              old-index sp-offsets)))
                (fp-offsets (env-fp-offsets env))
                (old-fp-offset (vector-ref fp-offsets old-index))
