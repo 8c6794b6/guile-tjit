@@ -93,7 +93,7 @@
         (macros '()))
     (let lp ((codes codes) (n 0))
       (unless (null? codes)
-        (format #t "(define ~a ~a)~%"
+        (format #t "(define-syntax ~a (identifier-syntax ~a))~%"
                 (c-name->s-name (cadr (car codes))) n)
         (lp (cdr codes) (+ n 1))))))
 
