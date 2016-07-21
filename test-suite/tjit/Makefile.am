@@ -240,6 +240,11 @@ TESTS = \
 	t-side-exit-16.scm \
 	t-side-exit-17.scm \
 	t-side-exit-18.scm \
+	t-static-ref-01.scm \
+	t-string-length-01.scm \
+	t-string-ref-01.scm \
+	t-string-to-number-01.scm \
+	t-string-to-symbol-01.scm \
 	t-subr-call-01.scm \
 	t-subr-call-02.scm \
 	t-subr-call-03.scm \
@@ -251,10 +256,6 @@ TESTS = \
 	t-subr-call-09.scm \
 	t-subr-call-10.scm \
 	t-subr-call-11.scm \
-	t-string-length-01.scm \
-	t-string-ref-01.scm \
-	t-string-to-number-01.scm \
-	t-string-to-symbol-01.scm \
 	t-tail-call-01.scm \
 	t-tail-call-02.scm \
 	t-tail-call-03.scm \
