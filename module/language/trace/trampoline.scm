@@ -68,10 +68,10 @@
    (jit-movi r0 (imm #xdeadbeaf))
    (jit-epilog)
    (jit-realize)
-   (let* ((ptr (jit-emit))
+   (let* ((code-address (jit-emit))
           (size (jit-code-size)))
      (set! *move-immediate-template*
-       (pointer->bytevector ptr size))
+       (pointer->bytevector (make-pointer code-address) size))
      size)))
 
 (define size-of-jump-to-register
@@ -86,7 +86,7 @@
 (define-inlinable (emit-to-bytevector!)
   (let* ((size (jit-code-size))
          (bv (make-bytevector size)))
-    (jit-set-code (bytevector->pointer bv) (imm size))
+    (jit-set-code (pointer-address (bytevector->pointer bv)) size)
     (jit-emit)
     (make-bytevector-executable! bv)
     bv))
@@ -125,18 +125,19 @@
              (jit-realize)
              (let* ((size (jit-code-size))
                     (bv (make-bytevector size))
-                    (_ (jit-set-code (bytevector->pointer bv) (imm size)))
-                    (ptr (jit-emit)))
+                    (_ (jit-set-code (pointer-address (bytevector->pointer bv))
+                                     size))
+                    (code-address (jit-emit)))
                (make-bytevector-executable! bv)
                (set! code-cache (acons paged-size bv code-cache))
-               (%make-trampoline bv (pointer-address ptr)))))))))
+               (%make-trampoline bv code-address))))))))
 
 (define (trampoline-ref trampoline i)
-  (make-pointer (+ (trampoline-address trampoline)
-                   (* i size-of-trampoline-entry))))
+  (+ (trampoline-address trampoline) (* i size-of-trampoline-entry)))
 
 (define (trampoline-set! trampoline i dest)
-  (bytevector-copy! (move-immediate-code dest) 0
-                    (trampoline-code trampoline)
-                    (* i size-of-trampoline-entry)
-                    size-of-move-immediate))
+  (let ((code (move-immediate-code dest)))
+    (bytevector-copy! code 0
+                      (trampoline-code trampoline)
+                      (* i size-of-trampoline-entry)
+                      size-of-move-immediate)))

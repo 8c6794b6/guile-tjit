@@ -91,14 +91,13 @@
 
 (define-anf (alloc-frame nlocals)
   (let* ((stack-size (vector-length locals))
-         (diff (- nlocals stack-size))
-         (undefined (pointer->scm (make-pointer #x904))))
+         (diff (- nlocals stack-size)))
     (if (< 0 diff)
         (begin
           (expand-stack! diff)
           (let lp ((n 1))
             (if (<= n diff)
-                `(let ((,(dst-ref (- n)) ,undefined))
+                `(let ((,(dst-ref (- n)) ,*scm-undefined*))
                    ,(lp (+ n 1)))
                 (next))))
         (next))))
@@ -129,9 +128,8 @@
       (set-inferred-type! env (- sp-offset n) &undefined))))
 
 (define-anf (assert-nargs-ee/locals expected nlocals)
-  (let ((undefined (pointer->scm (make-pointer #x904))))
-    (expand-stack! nlocals)
-    (next)))
+  (expand-stack! nlocals)
+  (next))
 
 ;; XXX: br-if-npos-gt
 ;; XXX: bind-kw-args
@@ -159,7 +157,7 @@
          (stack-size (vector-length locals))
          (dst/i (- stack-size dst 1)))
     (if (< dst/i 0)
-        `(let ((,(dst-ref dst/i) ()))
+        `(let ((,(dst-ref dst/i) ,*scm-null*))
            ,(next))
         (let lp ((n 0))
           (if (< dst/i n)
@@ -168,7 +166,7 @@
                               (dst-ref dst/i)
                               r2))
                     (tail (if (zero? n)
-                              '()
+                              *scm-null*
                               r2)))
                 (set-env-handle-interrupts! env #t)
                 `(let ((,rest (,%cell ,(src-ref n) ,tail)))

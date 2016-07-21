@@ -55,7 +55,8 @@
 
             flonum? fraction? unbound? true? false? undefined? unbound?
 
-            *unbound*
+            *scm-false* *scm-true* *scm-nil* *scm-null*
+            *scm-unbound* *scm-unspecified* *scm-undefined* *scm-unbound*
 
             %tc2-int
 
@@ -192,10 +193,27 @@
          (= (logand #xffff (pointer-address (dereference-pointer ptr)))
             %tc16-fraction))))
 
-(define *unbound*
-  (pointer->scm (make-pointer #xb04)))
+
+;;;; Scheme constants
 
-;; Property to hold type of object.
+(define-syntax-rule (define-inline name val)
+  (define-syntax name (identifier-syntax val)))
+
+(define-inline *scm-false* #x4)
+
+(define-inline *scm-true* #x404)
+
+(define-inline *scm-nil* #x104)
+
+(define-inline *scm-unspecified* #x804)
+
+(define-inline *scm-undefined* #x904)
+
+(define-inline *scm-unbound* #xb04)
+
+(define-inline *scm-null* #x304)
+
+;; Property to hold the type of an object.
 (define type-property (make-object-property))
 
 (define (type-of obj)
@@ -276,30 +294,23 @@ with HINT, otherwise return false."
                            (cons arg-type acc))))
         (_ acc))))
   (lambda (hint)
-    (let ((checker
-           (cond
-            ((vector? hint)
-             (lambda (n t)
-               (eq? t (type-of (vector-ref hint n)))))
-            ((null? hint)
-             (lambda (n t)
-               #t))
-            ((pair? hint)
-             (lambda (n t)
-               (let ((inferred (assq-ref hint n)))
-                 (or (memq inferred ignored)
-                     (eq? t inferred)
-                     (and (constant? inferred)
-                          (let* ((val (constant-value inferred))
-                                 (tr (if (flonum? val)
-                                         &flonum
-                                         (type-of (pointer->scm
-                                                   (make-pointer val))))))
-                            (eq? t tr)))
-                     (and (pair? inferred)
-                          (eq? 'copy (car inferred)))))))
-            (else
-             (failure 'type-checker "unknown hint ~a" hint)))))
+    (let ((checker (cond
+                    ((vector? hint)
+                     (lambda (n t)
+                       (eq? t (type-of (vector-ref hint n)))))
+                    ((null? hint)
+                     (lambda (n t)
+                       #t))
+                    ((pair? hint)
+                     (lambda (n t)
+                       (let ((inferred (assq-ref hint n)))
+                         (or (memq inferred ignored)
+                             (eq? t inferred)
+                             (constant? inferred)
+                             (and (pair? inferred)
+                                  (eq? 'copy (car inferred)))))))
+                    (else
+                     (failure 'type-checker "unknown hint ~a" hint)))))
       (let lp ((types types-to-check))
         (match types
           (((n . t) . types) (and (checker n t) (lp types)))

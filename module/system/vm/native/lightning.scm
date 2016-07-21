@@ -273,7 +273,7 @@
 (define f6 (jit-f 6))
 (define f7 (jit-f 7))
 
-(define-syntax imm (identifier-syntax make-pointer))
+(define-syntax-rule (imm x) x)
 (define-syntax null (identifier-syntax %null-pointer))
 
 

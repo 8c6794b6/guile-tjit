@@ -47,11 +47,10 @@
             asm-gc-inline?
             asm-snapshots
 
-            *scm-false* *scm-true* *scm-undefined*
-            *scm-unspecified* *scm-null*
             make-signed-pointer
             %word-size-in-bits
             constant-word
+            define-address-for-c-function
             gpr->fpr fpr->gpr
             movi/r movi/f movr/r move
             jump jmpa
@@ -80,29 +79,7 @@
             define-native))
 
 
-;;;; Scheme constants
-
-(define *scm-false* (scm->pointer #f))
-
-(define *scm-true* (scm->pointer #t))
-
-(define *scm-nil* (scm->pointer #nil))
-
-(define *scm-unspecified* (scm->pointer *unspecified*))
-
-(define *scm-undefined* (make-pointer #x904))
-
-(define *scm-unbound* (make-pointer #xb04))
-
-(define *scm-null* (scm->pointer '()))
-
-
 ;;;; SCM macros
-
-(define (make-signed-pointer addr)
-  (if (<= 0 addr)
-      (make-pointer addr)
-      (make-negative-pointer addr)))
 
 (define-syntax-rule (constant-word i)
   (imm (* (ref-value i) %word-size)))
@@ -115,17 +92,19 @@
     (jit-ldxi-d dst src (imm (* 2 %word-size)))
     dst))
 
-(define %scm-from-double
-  (dynamic-pointer "scm_from_double" (dynamic-link)))
+(define-syntax define-address-for-c-function
+  (syntax-rules ()
+    ((_ (sname cname) ...)
+     (begin
+       (define sname
+         (pointer-address (dynamic-pointer cname (dynamic-link))))
+       ...))))
 
-(define %scm-inline-from-double
-  (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
-
-(define %scm-async-tick
-  (dynamic-pointer "scm_async_tick" (dynamic-link)))
-
-(define %scm-vm-expand-stack
-  (dynamic-pointer "scm_do_vm_expand_stack" (dynamic-link)))
+(define-address-for-c-function
+  (%scm-from-double "scm_from_double")
+  (%scm-inline-from-double "scm_do_inline_from_double")
+  (%scm-async-tick "scm_async_tick")
+  (%scm-vm-expand-stack "scm_do_vm_expand_stack"))
 
 (define-syntax-rule (scm-frame-return-address dst vp->fp)
   (jit-ldr dst vp->fp))
@@ -140,14 +119,14 @@
   (jit-stxi (imm %word-size) vp->fp src))
 
 (define registers-offset
-  (make-negative-pointer (* -1 %word-size)))
+  (* -1 %word-size))
 
 (define-syntax-rule (volatile-offset reg)
   (let ((n (case (ref-type reg)
              ((gpr) (+ 2 (- (ref-value reg) *num-non-volatiles*)))
              ((fpr) (+ 2 1 (ref-value reg) *num-volatiles*))
              (else (failure 'volatile-offset "~s" reg)))))
-    (make-negative-pointer (* (- n) %word-size))))
+    (* (- n) %word-size)))
 
 (define-syntax-rule (fpr->gpr dst src)
   (let ((tmp-offset (volatile-offset `(gpr . 8))))
@@ -174,7 +153,7 @@
   (jit-stxi (imm (* 2 %word-size)) vp src))
 
 (define-syntax-rule (vm-cache-sp vp)
-  (jit-ldxi %sp vp (make-pointer %word-size)))
+  (jit-ldxi %sp vp (imm %word-size)))
 
 (define-syntax-rule (vm-sync-ip src)
   (let ((vp (if (eq? src r0) r1 r0)))
@@ -198,22 +177,22 @@
 (define-syntax-rule (sp-ref dst n)
   (if (= 0 n)
       (jit-ldr dst %sp)
-      (jit-ldxi dst %sp (make-signed-pointer (* n %word-size)))))
+      (jit-ldxi dst %sp (* n %word-size))))
 
 (define-syntax-rule (sp-set! n src)
   (if (= 0 n)
       (jit-str %sp src)
-      (jit-stxi (make-signed-pointer (* n %word-size)) %sp src)))
+      (jit-stxi (* n %word-size) %sp src)))
 
 (define-syntax-rule (sp-ref/f dst n)
   (if (= 0 n)
       (jit-ldr-d dst %sp)
-      (jit-ldxi-d dst %sp (make-signed-pointer (* n %word-size)))))
+      (jit-ldxi-d dst %sp (* n %word-size))))
 
 (define-syntax-rule (sp-set!/f n src)
   (if (= 0 n)
       (jit-str-d %sp src)
-      (jit-stxi-d (make-signed-pointer (* n %word-size)) %sp src)))
+      (jit-stxi-d (* n %word-size) %sp src)))
 
 (define (store-volatile src)
   (case (ref-type src)
@@ -447,7 +426,7 @@
          dst))
 
 (define-syntax-rule (movi/f dst src)
-  (begin (jit-movi-d dst (con src))
+  (begin (jit-movi-d dst (ref-value src))
          dst))
 
 (define-syntax-rule (movr/r dst src)
@@ -579,7 +558,7 @@
          ((con) (let ((val (ref-value src)))
                   (cond
                    ((flonum? val)
-                    (jit-movi-d f0 (con src))
+                    (jit-movi-d f0 val)
                     (fpr->gpr (gpr dst) f0))
                    (else
                     (jit-movi (gpr dst) (con src))))))
@@ -592,7 +571,7 @@
          ((con) (let ((val (ref-value src)))
                   (cond
                    ((flonum? val)
-                    (jit-movi-d (fpr dst) (con src)))
+                    (jit-movi-d (fpr dst) val))
                    (else
                     (jit-movi r0 (con src))
                     (gpr->fpr (fpr dst) r0)))))
@@ -605,7 +584,7 @@
          ((con) (let ((val (ref-value src)))
                   (cond
                    ((flonum? val)
-                    (jit-movi-d f0 (con src))
+                    (jit-movi-d f0 val)
                     (memory-set!/f dst f0))
                    (else
                     (jit-movi r0 (con src))
@@ -671,14 +650,14 @@
       ;; to store the SCM representation.
       (let ((val (constant-value type)))
         (if (flonum? val)
-            (jit-movi r0 (scm->pointer val))
+            (jit-movi r0 (object-address val))
             (jit-movi r0 (imm val)))
         (sp-set! local r0)))
      ;; Unboxed flonum values
      ((eq? type &flonum)
       (case (ref-type src)
         ((con)
-         (jit-movi-d f0 (con src))
+         (jit-movi-d f0 (ref-value src))
          (scm-from-double r0 f0)
          (sp-set! local r0))
         ((gpr)
@@ -697,7 +676,7 @@
      ((eq? type &f64)
       (case (ref-type src)
         ((con)
-         (jit-movi-d f0 (con src))
+         (jit-movi-d f0 (ref-value src))
          (sp-set!/f local f0))
         ((gpr)
          (gpr->fpr f0 (gpr src))
@@ -728,14 +707,6 @@
 
 
 ;;;; Macro for defining primitives
-
-;;; Primitives used for vm-tjit engine.  Primitives defined here are used during
-;;; compilation of traced data to native code. Perhaps useless for ordinal use
-;;; as scheme procedure, except for managing docstring.
-;;;
-;;; Need at least 3 general purpose scratch registers, and 3 floating point
-;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
-;;; F1, and F2 for floating point.
 
 (define *native-prim-counter* 0)
 

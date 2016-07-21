@@ -106,8 +106,8 @@
 (define-ir (br (const offset))
   (next))
 
-(define-br-unary br-if-true (lambda (x) x) %ne %eq (#f))
-(define-br-unary br-if-null null? %eq %ne (()))
+(define-br-unary br-if-true (lambda (x) x) %ne %eq (,*scm-false*))
+(define-br-unary br-if-null null? %eq %ne (,*scm-null*))
 (define-br-unary br-if-pair pair? %tceq %tcne (1 ,%tc3-cons))
 
 ;; XXX: br-if-nil
@@ -194,10 +194,10 @@
       ((and (eq? &flonum a/t) (eq? &flonum b/t))
        (emit-next a/v b/v))
       ((and (eq? &flonum a/t) (constant? b/t))
-       `(let ((,f1 (,%cref/f ,(object-address (constant-value b/t)) 2)))
+       `(let ((,f1 (,%cref/f ,(constant-value b/t) 2)))
           ,(emit-next a/v f1)))
       ((and (constant? a/t) (eq? &flonum b/t))
-       `(let ((,f1 (,%cref/f ,(object-address (constant-value a/t)) 2)))
+       `(let ((,f1 (,%cref/f ,(constant-value a/t) 2)))
           ,(emit-next f1 b/v)))
       ((and (eq? &flonum a/t) (eq? &scm b/t))
        (with-type-guard-always &flonum b

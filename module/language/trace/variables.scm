@@ -91,12 +91,12 @@
 (define (con x)
   (let ((val (ref-value x)))
     (cond
-     ((and (number? val) (exact? val))
-      (if (<= 0 val)
-          (make-pointer val)
-          (make-negative-pointer val)))
-     (else
-      (scm->pointer val)))))
+     ((flonum? val) (object-address val))
+     ((number? val) val)
+     ((not val) *scm-false*)
+     ((null? val) *scm-null*)
+     ((true? val) *scm-true*)
+     (else (error 'con x)))))
 
 (define make-gpr
   ;; Total number of GPR is *num-gpr* plus three scratch registers.
@@ -178,20 +178,10 @@
 
 (define-inlinable (moffs mem)
   (let ((n (- (+ 2 1 (%ref-value mem) *num-volatiles* *num-fpr*))))
-    (make-negative-pointer (* n %word-size))))
+    (* n %word-size)))
 
 (define (physical-name x)
   (cond
-   ((register? x)
-    (register-name x))
-   ((memory? x)
-    (format #f "[0x~x]"
-            (+ (- (case %word-size
-                    ((4) #xffffffff)
-                    ((8) #xffffffffffffffff)
-                    (else
-                     (failure 'physical-name "unknown word-size ~s"
-                              %word-size)))
-                  (pointer-address (moffs x)))
-               1)))
+   ((register? x) (register-name x))
+   ((memory? x) (format #f "[0x~x]" (- (moffs x))))
    (else x)))

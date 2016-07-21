@@ -55,17 +55,13 @@
 
 ;;;; Auxiliary
 
-(define %scm-set-tjit-retval
-  (dynamic-pointer "scm_set_tjit_retval" (dynamic-link)))
-
-(define %scm-tjit-dump-retval
-  (dynamic-pointer "scm_tjit_dump_retval" (dynamic-link)))
-
-(define %scm-tjit-dump-locals
-  (dynamic-pointer "scm_tjit_dump_locals" (dynamic-link)))
+(define-address-for-c-function
+  (%scm-set-tjit-retval "scm_set_tjit_retval")
+  (%scm-tjit-dump-retval "scm_tjit_dump_retval")
+  (%scm-tjit-dump-locals "scm_tjit_dump_locals"))
 
 (define-syntax-rule (scm-i-makinumi n)
-  (make-signed-pointer (+ (ash n 2) 2)))
+  (+ (ash n 2) 2))
 
 (define-inlinable (shift-fp nlocals)
   "Shift FP, new value will be SP plus NLOCALS."
@@ -272,8 +268,9 @@ DST-TYPES, and SRC-TYPES are local index number."
                  (jit-realize)))
             (estimated-size (jit-code-size))
             (code (make-bytevector estimated-size))
-            (_ (jit-set-code (bytevector->pointer code) (imm estimated-size)))
-            (ptr (jit-emit))
+            (_ (jit-set-code (pointer-address (bytevector->pointer code))
+                             (imm estimated-size)))
+            (code-address (jit-emit))
             (parent-fragment (env-parent-fragment env))
             (size (jit-code-size))
             (exit-counts (make-vector (hash-count (const #t) snapshots) 0))
@@ -334,15 +331,15 @@ DST-TYPES, and SRC-TYPES are local index number."
        (debug 4 ";;; jit-print:~%~a~%" (jit-print))
        ;; When this trace is a side trace, replace the native code of trampoline
        ;; in parent fragment.
-       (let ((code-address (pointer-address ptr)))
-         (when parent-fragment
-           (let ((trampoline (fragment-trampoline parent-fragment))
-                 (side-trace-ids (fragment-side-trace-ids parent-fragment)))
-             (trampoline-set! trampoline (env-parent-exit-id env) ptr)
-             (set-snapshot-code! (env-parent-snapshot env) code)
-             (let ((new-ids (cons (env-id env) side-trace-ids)))
-               (set-fragment-side-trace-ids! parent-fragment new-ids))))
-         (values fragment code size code-address loop-address trampoline))))))
+       (when parent-fragment
+         (let ((trampoline (fragment-trampoline parent-fragment))
+               (side-trace-ids (fragment-side-trace-ids parent-fragment)))
+           (trampoline-set! trampoline (env-parent-exit-id env)
+                            code-address)
+           (set-snapshot-code! (env-parent-snapshot env) code)
+           (let ((new-ids (cons (env-id env) side-trace-ids)))
+             (set-fragment-side-trace-ids! parent-fragment new-ids))))
+       (values fragment code size code-address loop-address trampoline)))))
 
 (define (compile-entry env primops snapshots)
   (when (tjit-dump-time? (tjit-dump-option))
@@ -395,7 +392,7 @@ DST-TYPES, and SRC-TYPES are local index number."
         ;; exceeds the number returned from parameter `(tjit-max-spills)'.
         ;;
         (let ((nwords (+ max-spills *num-fpr* *num-volatiles* 1)))
-          (jit-allocai (imm (* nwords %word-size))))
+          (jit-frame (imm (* nwords %word-size))))
 
         ;; Get and store arguments. Thread has dedicated %thread register. SP is
         ;; loaded from vp and cached to %sp register.
@@ -506,8 +503,8 @@ DST-TYPES, and SRC-TYPES are local index number."
              (vm-sync-ip r0)
              (jit-prepare)
              (jit-pushargi (imm id))
-             (jit-pushargi (scm->pointer self-fragment))
-             (jit-pushargi (scm->pointer origin))
+             (jit-pushargi (object-address self-fragment))
+             (jit-pushargi (object-address origin))
              (jit-calli %scm-set-tjit-retval))
            ;; Debug code to dump tjit-retval and locals.
            (let ((dump-option (tjit-dump-option)))
@@ -553,7 +550,7 @@ DST-TYPES, and SRC-TYPES are local index number."
      (jit-realize)
      (let* ((estimated-size (jit-code-size))
             (code (make-bytevector estimated-size))
-            (_ (jit-set-code (bytevector->pointer code)
+            (_ (jit-set-code (pointer-address (bytevector->pointer code))
                              (imm estimated-size)))
             (ptr (jit-emit)))
        (make-bytevector-executable! code)

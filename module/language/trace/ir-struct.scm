@@ -40,9 +40,9 @@
 ;;         (dst/v (dst-ref dst))
 ;;         (r2 (make-tmpvar 2)))
 ;;     (with-type-guard &struct src
-;;       `(let ((,r2 (%cref ,src/v 0)))
-;;          (let ((,r2 (%sub ,r2 1)))
-;;            (let ((,dst/v (%cref ,r2 2)))
+;;       `(let ((,r2 (,%cref ,src/v 0)))
+;;          (let ((,r2 (,%sub ,r2 1)))
+;;            (let ((,dst/v (,%cref ,r2 2)))
 ;;              ,(next)))))))
 
 ;; XXX: allocate-struct
@@ -54,9 +54,9 @@
 ;;                                       (const nfields))
 ;;   (let ((vt/v (src-ref vtable))
 ;;         (dst/v (dst-ref dst)))
-;;     `(let ((_ (%carg ,(+ (ash nfields 2) 2))))
-;;        (let ((_ (%carg ,vt/v)))
-;;          (let ((,dst/v (%ccall ,(object-address allocate-struct))))
+;;     `(let ((_ (,%carg ,(+ (ash nfields 2) 2))))
+;;        (let ((_ (,%carg ,vt/v)))
+;;          (let ((,dst/v (,%ccall ,(object-address allocate-struct))))
 ;;            ,(next))))))
 
 ;; XXX: struct-ref/immediate
@@ -65,8 +65,8 @@
 ;;         (dst/v (dst-ref dst))
 ;;         (r2 (make-tmpvar 2)))
 ;;     (with-type-guard &struct src
-;;       `(let ((,r2 (%cref ,src/v 1)))
-;;         (let ((,dst/v (%cref ,r2 ,idx)))
+;;       `(let ((,r2 (,%cref ,src/v 1)))
+;;         (let ((,dst/v (,%cref ,r2 ,idx)))
 ;;           ,(next))))))
 
 ;; XXX: struct-set!/immediate
@@ -75,8 +75,8 @@
 ;;         (dst/v (src-ref dst))
 ;;         (r2 (make-tmpvar 2)))
 ;;     (with-type-guard &struct dst
-;;       `(let ((,r2 (%cref ,dst/v 1)))
-;;         (let ((_ (%cset ,r2 ,idx ,src/v)))
+;;       `(let ((,r2 (,%cref ,dst/v 1)))
+;;         (let ((_ (,%cset ,r2 ,idx ,src/v)))
 ;;           ,(next))))))
 
 ;; XXX: class-of

@@ -32,16 +32,12 @@
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjitc))
 
+
+;;;; Auxiliary
 
-;;;
-;;; Auxiliary
-;;;
+(define code-buffer (make-bytevector 65536))
 
-(define code-buffer
-  (make-bytevector 65536))
-
-(define bailout-tag
-  'bailout)
+(define bailout-tag 'bailout)
 
 (define (reify-asm-variable x)
   (cond
@@ -99,14 +95,15 @@
      (assemble ops exit)
      (jit-retr r0)
      (jit-link exit))
-   (jit-movi r0 (scm->pointer bailout-tag))
+   (jit-movi r0 (object-address bailout-tag))
    (jit-retr r0)
    (jit-epilog)
    (jit-realize)
    (let* ((size (jit-code-size))
-          (_ (jit-set-code (bytevector->pointer code-buffer) (imm size)))
-          (ptr (jit-emit))
-          (raw-proc (pointer->procedure '* ptr '(* * *)))
+          (_ (jit-set-code (pointer-address (bytevector->pointer code-buffer))
+                           (imm size)))
+          (code (jit-emit))
+          (raw-proc (pointer->procedure '* (make-pointer code) '(* * *)))
           (proc (lambda (thread a b)
                   (pointer->scm (raw-proc (scm->pointer thread)
                                           (scm->pointer a)
@@ -153,17 +150,13 @@ Example:
        (let ((reg (car rs)))
          (with-storages regs . body))))))
 
-;;;
-;;; Initializations
-;;;
 
+
+;;;; Test codes
+
+;;; Initializations
 (init-vm-tjit #f)
 (make-bytevector-executable! code-buffer)
-
-
-;;;
-;;; Test codes
-;;;
 
 (define-record-type <foo>
   (make-foo a b c)

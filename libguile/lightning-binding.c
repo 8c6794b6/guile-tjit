@@ -83,28 +83,28 @@ SCM_DEFINE (scm_jit_code_size, "jit-code-size", 0, 0, 0, (SCM jit), "")
 SCM_DEFINE (scm_jit_r, "jit-r", 1, 0, 0, (SCM i), "")
 #define FUNC_NAME s_scm_jit_r
 {
-  return scm_from_pointer (SCM_PACK (jit_r (SCM_I_INUM (i))), NULL);
+  return SCM_I_MAKINUM (jit_r (SCM_I_INUM (i)));
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_v, "jit-v", 1, 0, 0, (SCM i), "")
 #define FUNC_NAME s_scm_jit_v
 {
-  return scm_from_pointer (SCM_PACK (jit_v (SCM_I_INUM (i))), NULL);
+  return SCM_I_MAKINUM (jit_v (SCM_I_INUM (i)));
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_f, "jit-f", 1, 0, 0, (SCM i), "")
 #define FUNC_NAME s_scm_jit_f
 {
-  return scm_from_pointer (SCM_PACK (jit_f (SCM_I_INUM (i))), NULL);
+  return SCM_I_MAKINUM (jit_f (SCM_I_INUM (i)));
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_fp, "jit-fp", 0, 0, 0, (), "")
 #define FUNC_NAME s_scm_jit_fp
 {
-  return scm_from_pointer (SCM_PACK (JIT_FP), NULL);
+  return SCM_I_MAKINUM (JIT_FP);
 }
 #undef FUNC_NAME
 
@@ -163,55 +163,45 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
     return SCM_UNSPECIFIED;                             \
   } \
 
-
 #define NODE_0(cname, sname)                                    \
   SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")              \
   {                                                             \
-    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE), \
-                             NULL);                             \
+    return SCM_PACK (_##cname (SCM_JIT_STATE)); \
   }                                                             \
 
 #define NODE_1(cname, sname, s1, c1)                                    \
   SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "")                \
   {                                                                     \
-    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE, c1),     \
-                             NULL);                                     \
+    return SCM_PACK (_##cname (SCM_JIT_STATE, c1));    \
   }                                                                     \
 
 #define NODE_2(cname, sname, s1, s2, c1, c2)                            \
   SCM_DEFINE (scm_##cname, sname, 2, 0, 0, (SCM s1, SCM s2), "")        \
   {                                                                     \
-    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE, c1, c2), \
-                             NULL);                                     \
+    return SCM_PACK (_##cname (SCM_JIT_STATE, c1, c2)); \
   }                                                                     \
 
 #define NODE_3(cname, sname, s1, s2, s3, c1, c2, c3)                    \
   SCM_DEFINE (scm_##cname, sname, 3, 0, 0,                              \
               (SCM s1, SCM s2, SCM s3), "")                             \
   {                                                                     \
-    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE,          \
-                                                c1, c2, c3),            \
-                             NULL);                                     \
+    return SCM_PACK (_##cname (SCM_JIT_STATE, c1, c2, c3)); \
   }                                                                     \
 
 #define NODE_4(cname, sname, s1, s2, s3, s4, c1, c2, c3, c4)            \
   SCM_DEFINE (scm_##cname, sname, 4, 0, 0,                              \
               (SCM s1, SCM s2, SCM s3, SCM s4), "")                     \
   {                                                                     \
-    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE,          \
-                                                c1, c2, c3, c4),        \
-                             NULL);                                     \
+    return SCM_PACK (_##cname (SCM_JIT_STATE, c1, c2, c3, c4)); \
   }                                                                     \
 
 #define NODE_5(cname, sname, s1, s2, s3, s4, s5, c1, c2, c3, c4, c5)    \
   SCM_DEFINE (scm_##cname, sname, 5, 0, 0,                              \
               (SCM s1, SCM s2, SCM s3, SCM s4, SCM s5), "")             \
   {                                                                     \
-    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE,          \
-                                                c1, c2, c3, c4, c5),    \
-                             NULL);                                     \
+    return SCM_PACK (_##cname (SCM_JIT_STATE,          \
+                                       c1, c2, c3, c4, c5));            \
   }                                                                     \
-
 
 #define I32T_1(cname, sname, s1, c1)                            \
   SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "")        \
@@ -219,14 +209,17 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
     return scm_from_int32 (_##cname (SCM_JIT_STATE, c1));       \
   }                                                             \
 
+#define PTR_0(cname, sname)                                     \
+  SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")              \
+  {                                                             \
+    return SCM_I_MAKINUM ((void *) _##cname (SCM_JIT_STATE));   \
+  }                                                             \
 
 #define PTR_1(cname, sname, s1, c1)                                     \
   SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "")                \
   {                                                                     \
-    return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE, c1),     \
-                             NULL);                                     \
+    return SCM_I_MAKINUM ((void *) _##cname (SCM_JIT_STATE, c1));       \
   }                                                                     \
-
 
 #define BOOL_0(cname, sname)                                     \
   SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")               \
@@ -259,15 +252,14 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
  * Macros for argument in lightning functions
  */
 
-#define JIT_NODE(u) ((jit_node_t *) SCM_POINTER_VALUE (u))
-#define JIT_GPR(u) ((jit_gpr_t) ((scm_t_intptr) SCM_POINTER_VALUE (u)))
-#define JIT_FPR(u) ((jit_fpr_t) ((scm_t_intptr) SCM_POINTER_VALUE (u)))
-#define JIT_PTR(u) ((jit_pointer_t) SCM_POINTER_VALUE (u))
-#define JIT_INT32(u) ((jit_int32_t) ((scm_t_intptr) SCM_POINTER_VALUE (u)))
-#define JIT_WORD(u) ((jit_word_t) SCM_POINTER_VALUE (u))
-#define JIT_FLOAT32(u) ((jit_float32_t) SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
-#define JIT_FLOAT64(u) ((jit_float64_t) SCM_REAL_VALUE (SCM_POINTER_VALUE (u)))
-
+#define JIT_NODE(u) ((jit_node_t *) SCM_UNPACK (u))
+#define JIT_GPR(u) ((jit_gpr_t) SCM_I_INUM (u))
+#define JIT_FPR(u) ((jit_fpr_t) SCM_I_INUM (u))
+#define JIT_PTR(u) ((jit_pointer_t) SCM_I_INUM (u))
+#define JIT_INT32(u) ((jit_int32_t) SCM_I_INUM (u))
+#define JIT_WORD(u) ((jit_word_t) scm_to_ssize_t (u))
+#define JIT_FLOAT32(u) ((jit_float32_t) SCM_REAL_VALUE (u))
+#define JIT_FLOAT64(u) ((jit_float64_t) SCM_REAL_VALUE (u))
 
 VOID_0 (jit_clear_state, "jit-clear-state")
 VOID_0 (jit_destroy_state, "jit-destroy-state")
@@ -326,7 +318,7 @@ VOID_3 (jit_set_data, "jit-set-data", u, v, w,
         JIT_PTR (u), JIT_WORD (v), JIT_WORD (w))
 VOID_1 (jit_frame, "jit-frame", u, JIT_INT32 (u))
 VOID_1 (jit_tramp, "jit-tramp", u, JIT_INT32 (u))
-NODE_0 (jit_emit, "jit-emit")
+PTR_0 (jit_emit, "jit-emit")
 
 VOID_0 (jit_print, "jit-print")
 

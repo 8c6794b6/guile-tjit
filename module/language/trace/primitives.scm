@@ -22,6 +22,14 @@
 ;;;
 ;;; Primitives for native code used in vm-tjit engine.
 ;;;
+;;; Primitives defined here are used during compilation of traced data to native
+;;; code. Perhaps useless for ordinal use as scheme procedure, except for
+;;; managing docstring.
+;;;
+;;; Need at least 3 general purpose scratch registers, and 3 floating point
+;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
+;;; F1, and F2 for floating point.
+;;;
 ;;; Code:
 
 (define-module (language trace primitives)
@@ -73,15 +81,7 @@
 
 ;;;; Auxiliary
 
-(define-syntax define-pointer-for-c-function
-  (syntax-rules ()
-    ((_ (sname cname) ...)
-     (begin
-       (define sname
-         (dynamic-pointer cname (dynamic-link)))
-       ...))))
-
-(define-pointer-for-c-function
+(define-address-for-c-function
   (%scm-from-double "scm_from_double")
   (%scm-inline-from-double "scm_do_inline_from_double")
   (%scm-cell "scm_cell")
@@ -160,7 +160,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
      (define-native (name (double a) (double b))
        (case (ref-type a)
          ((con)
-          (movi-d f0 (con a))
+          (movi/f f0 a)
           (case (ref-type b)
             ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
             ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
@@ -169,14 +169,14 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          ((gpr)
           (gpr->fpr f0 (gpr a))
           (case (ref-type b)
-            ((con) (jump (op-ri f0 (con b)) (bailout)))
+            ((con) (jump (op-ri f0 (ref-value b)) (bailout)))
             ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
             ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
             ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
             (else (err))))
          ((fpr)
           (case (ref-type b)
-            ((con) (jump (op-ri (fpr a) (con b)) (bailout)))
+            ((con) (jump (op-ri (fpr a) (ref-value b)) (bailout)))
             ((gpr) (jump (op-rr (fpr a) (gpr->fpr f1 (gpr b))) (bailout)))
             ((fpr) (jump (op-rr (fpr a) (fpr b)) (bailout)))
             ((mem) (jump (op-rr (fpr a) (memory-ref/f f1 b)) (bailout)))
@@ -184,7 +184,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
          ((mem)
           (memory-ref/f f0 a)
           (case (ref-type b)
-            ((con) (jump (op-ri f0 (con b)) (bailout)))
+            ((con) (jump (op-ri f0 (ref-value b)) (bailout)))
             ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
             ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
             ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
@@ -351,7 +351,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (let ((subr (pointer->scm (make-pointer subr-addr))))
         (let ((var0 (program-free-variable-ref subr 0)))
           (if (pointer? var0)
-              var0
+              (pointer-address var0)
               (failure '%ccall "not a primitive ~s" subr)))))
     (with-volatiles volatiles dst
       (prepare)
@@ -510,7 +510,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         ((fpr) (gpr->fpr (fpr dst) (op3a r0)))
         ((mem) (memory-set! dst (op3a r0)))
         (else (err)))
-      (jump (beqi tmp (make-negative-pointer -1)) proceed)
+      (jump (beqi tmp (imm -1)) proceed)
       (jump (bnei tmp (imm 0)) (bailout))
       (link proceed))))
 
@@ -750,7 +750,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
   (let ((nw (constant-word n))
         (static-address
          (lambda ()
-           (imm (+ (ref-value src) (* (ref-value n) %word-size))))))
+           (imm (+ (object-address (ref-value src))
+                   (* (ref-value n) %word-size))))))
     (case (ref-type dst)
       ((gpr)
        (case (ref-type src)
@@ -809,12 +810,20 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;; was memory and argument `n' was not constant.
 (define-native (%cset (int cell) (int n) (int src))
   (letrec-syntax
-      ((op3a
+      ((con->gpr
+        (syntax-rules ()
+          ((_ dst obj)
+           (let* ((dst* dst)
+                  (obj* obj)
+                  (val (ref-value obj*)))
+             (movi dst* (con obj*))
+             dst*))))
+       (op3a
         (syntax-rules ()
           ((_ dst)
            (let ((nw (* (ref-value n) %word-size)))
              (case (ref-type src)
-               ((con) (stxi (imm nw) dst (movi/r r1 src)))
+               ((con) (stxi (imm nw) dst (con->gpr r1 src)))
                ((gpr) (stxi (imm nw) dst (gpr src)))
                ((fpr) (stxi (imm nw) dst (fpr->gpr r1 (fpr src))))
                ((mem) (stxi (imm nw) dst (memory-ref r1 src)))
@@ -822,18 +831,18 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        (op3b (syntax-rules ()
                ((_ dst)
                 (case (ref-type src)
-                  ((con) (stxr r0 dst (movi/r r1 src)))
+                  ((con) (stxr r0 dst (con->gpr r1 src)))
                   ((gpr) (stxr r0 dst (gpr src)))
                   ((fpr) (stxr r0 dst (fpr->gpr r1 (fpr src))))
                   ((mem) (stxr r0 dst (memory-ref r1 src)))))))
        (op3c (syntax-rules ()
                ((_ dst-addr)
                 (sti (imm dst-addr)
-                         (case (ref-type src)
-                           ((con) (movi/r r1 src))
-                           ((gpr) (gpr src))
-                           ((fpr) (fpr->gpr r1 (fpr src)))
-                           ((mem) (memory-ref r1 src))))))))
+                     (case (ref-type src)
+                       ((con) (con->gpr r1 src))
+                       ((gpr) (gpr src))
+                       ((fpr) (fpr->gpr r1 (fpr src)))
+                       ((mem) (memory-ref r1 src))))))))
     (case (ref-type n)
       ((con)
        (case (ref-type cell)
@@ -956,14 +965,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
           (calli %scm-words))
       (retval-to-reg-or-mem dst))))
 
-
 
 ;;;; Type conversion
 
 ;; Integer -> floating point
 (define-native (%i2d (double dst) (int src))
   (let ((con->double (lambda (x)
-                       (scm->pointer (exact->inexact (ref-value x))))))
+                       (exact->inexact (ref-value x)))))
     (case (ref-type dst)
       ((gpr)
        (case (ref-type src)
@@ -1024,7 +1032,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 (define-native (%call/cc (int dst) (void id))
   (let ((volatiles (asm-volatiles asm)))
-
     ;; While making continuation, stack contents will get copied to continuation
     ;; data. Store register contents to stack before calling
     ;; `scm-make-continuation', to use updated stack element.
@@ -1038,8 +1045,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
            (_
             (values)))))
       (_
-       (failure '%cont "not a snapshot")))
-
+       (failure '%call/cc "not a snapshot")))
     ;; Make continuation data via C function.
     (with-volatiles volatiles dst
       (prepare)
@@ -1048,8 +1054,8 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (pushargr r0)
       (calli %scm-make-continuation)
       (retval-to-reg-or-mem dst))
-
-    ;; Bailout when returned continuation was #<undefined>.
+    ;; Bailout when returned continuation was #<undefined>. Otherwise, continue
+    ;; with next instruction.
     (let ((dst/r (case (ref-type dst)
                    ((gpr) (gpr dst))
                    ((fpr) (fpr->gpr r0 (fpr dst)))

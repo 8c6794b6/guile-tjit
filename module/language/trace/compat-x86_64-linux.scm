@@ -100,6 +100,5 @@
 
 (define-inlinable (move-immediate-code dest)
   (let ((bv (bytevector-copy #vu8(#xb8 0 0 0 0))))
-    (bytevector-u32-native-set! bv 1 (pointer-address dest))
+    (bytevector-u32-native-set! bv 1 dest)
     bv))
-

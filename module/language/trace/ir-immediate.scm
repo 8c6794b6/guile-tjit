@@ -52,10 +52,15 @@
 
 (define-constant (static-ref offset)
   (let* ((ref (dereference-pointer (make-pointer (+ ip (* 4 offset)))))
-         (src (pointer->scm ref)))
-    (if (flonum? src)
-        src
-        (pointer-address ref))))
+         (src (pointer->scm ref))
+         (val (cond
+               ((flonum? src) src)
+               ((and (number? src)
+                     (< most-negative-fixnum src most-positive-fixnum))
+                ;; Using signed tagged SCM value for fixnum.
+                (+ (ash src 2) 2))
+               (else (pointer-address ref)))))
+    val))
 
 ;; XXX: static-set!
 ;; XXX: static-patch!
