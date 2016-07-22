@@ -333,15 +333,14 @@ assumes `objdump' executable already installed."
            (objdump (format #f fmt adjust path))
            (pipe (open-input-pipe objdump)))
       ;; Skip first two lines.
-      (read-line pipe) (read-line pipe)
+      (read-line pipe)
+      (read-line pipe)
       (let lp ((line (read-line pipe)) (done? #f))
         (when (not done?)
-          (when (and loop-address/i
-                     (regexp-exec loop-start/rx line))
+          (when (and loop-address/i (regexp-exec loop-start/rx line))
             (display "loop:\n" port))
           (display line port)
-          (when (and loop-address/i
-                     (regexp-exec loop-jump/rx line))
+          (when (and loop-address/i (regexp-exec loop-jump/rx line))
             (display "    ->loop" port))
           (and=> (side-exit-jump? line)
                  (lambda (id)

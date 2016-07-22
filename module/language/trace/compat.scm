@@ -39,10 +39,10 @@
    ;; Vector of available GPRs for locals. This vector should not
    ;; contain scratch registers, %fp, %sp, and %thread.
    *gprs*
-            
+
    ;; Vector of FPRs. This vector should not contain scratch registers.
    *fprs*
-            
+
    ;; Volatile registers.
    ;;
    ;; Ordering of *volatile-registers* is mandatory. The last element in
@@ -51,20 +51,20 @@
    ;; the beginning of the vector. R0, R1, and R2 are used as scratch
    ;; register.
    *volatile-registers*
-            
+
    ;; Vector of non-volatile registers. Should not contain
    *non-volatile-registers*
-            
+
    ;; Number of GPRs used for passing arguments.
    *num-arg-gprs*
-            
+
    ;; Number of FPRs used for passing arguments.
    *num-arg-fprs*
-            
+
    ;; Name of register, for pretty printing. Scratch registers may
    ;; passed to this procedure.
    register-name
-            
+
    ;; Piece of native code to update an entry in trampoline.
    move-immediate-code))
 
@@ -89,6 +89,3 @@
         ((k) #`(include #,(datum->syntax #'k (the-file))))))))
 
 (replaced-contents)
-
-
-
