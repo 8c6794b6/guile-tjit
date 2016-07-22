@@ -176,7 +176,7 @@
       #f
       (make-fpr (- *num-fpr* n))))
 
-(define-inlinable (moffs mem)
+(define-syntax-rule (moffs mem)
   (let ((n (- (+ 2 1 (%ref-value mem) *num-volatiles* *num-fpr*))))
     (* n %word-size)))
 

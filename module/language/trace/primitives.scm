@@ -309,9 +309,9 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; run while native code is running. Return address is not filled in at this
 ;;; momement, later filled in by bailout code with snapshot value.
 (define-native (%scall (void proc))
-  (let* ((vp r0)
-         (vp->fp r1)
-         (dl r2))
+  (let ((vp r0)
+        (vp->fp r1)
+        (dl r2))
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (subi vp->fp vp->fp (imm (* (ref-value proc) %word-size)))
@@ -326,13 +326,10 @@ was constant. And, uses OP-RR when both arguments were register or memory."
   (let ((vp r0)
         (vp->fp r1)
         (tmp r2))
-    (when (not (con? ra))
-      (failure '%return "got non-constant ra: ~s" ra))
     (load-vp vp)
     (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
     (jump (bnei tmp (con ra)) (bailout))
-
     (scm-frame-dynamic-link tmp vp->fp)
     (lshi tmp tmp (imm %word-size-in-bits))
     (addr vp->fp vp->fp tmp)

@@ -392,46 +392,35 @@
      (jit-patch-abs (jit-jmpi) address))))
 
 (define-syntax-rule (memory-ref dst src)
-  (cond
-   ((not (memory? src))
-    (failure 'memory-ref "not a memory ~s" src))
-   (else
+  (begin
     (jit-ldxi dst %fp (moffs src))
-    dst)))
+    dst))
 
 (define-syntax-rule (memory-ref/f dst src)
-  (cond
-   ((not (memory? src))
-    (failure 'memory-ref/f "not a memory ~s" src))
-   (else
+  (begin
     (jit-ldxi-d dst %fp (moffs src))
-    dst)))
+    dst))
 
 (define-syntax-rule (memory-set! dst src)
-  (cond
-   ((not (memory? dst))
-    (failure 'memory-set! "not a memory ~s" dst))
-   (else
-    (jit-stxi (moffs dst) %fp src))))
+  (jit-stxi (moffs dst) %fp src))
 
 (define-syntax-rule (memory-set!/f dst src)
-  (cond
-   ((not (memory? dst))
-    (failure 'memory-set!/f "not a memory" dst))
-   (else
-    (jit-stxi-d (moffs dst) %fp src))))
+  (jit-stxi-d (moffs dst) %fp src))
 
 (define-syntax-rule (movi/r dst src)
-  (begin (jit-movi dst (con src))
-         dst))
+  (begin
+    (jit-movi dst (con src))
+    dst))
 
 (define-syntax-rule (movi/f dst src)
-  (begin (jit-movi-d dst (ref-value src))
-         dst))
+  (begin
+    (jit-movi-d dst (ref-value src))
+    dst))
 
 (define-syntax-rule (movr/r dst src)
-  (begin (jit-movr dst src)
-         dst))
+  (begin
+    (jit-movr dst src)
+    dst))
 
 (define-syntax-rule (bailout)
   (asm-exit asm))
@@ -646,7 +635,7 @@
       (jit-movi r0 (imm (dynamic-link-offset type)))
       (sp-set! local r0))
      ((constant? type)
-      ;; Value of constant could be flonum. In such case, using `scm->pointer'
+      ;; Value of constant could be flonum. In such case, using `object-address'
       ;; to store the SCM representation.
       (let ((val (constant-value type)))
         (if (flonum? val)

@@ -258,8 +258,8 @@
       (let ((type (car (prim-types-ref op)))
             (assigned (storage-ref storage dst)))
         (cond
-         (assigned        assigned)
-         ((= type int)    (get-gpr! dst))
+         (assigned assigned)
+         ((= type int) (get-gpr! dst))
          ((= type double) (get-fpr! dst))
          (else (failure 'get-dst-types! "dst ~s ~s" dst type)))))
     (define (ref k)
@@ -274,11 +274,7 @@
             (cons (ref (car ks)) (lp (cdr ks))))))
     (define (constant-value? x)
       (or (boolean? x)
-          (char? x)
-          (number? x)
-          (null? x)
-          (undefined? x)
-          (unspecified? x)))
+          (number? x)))
     (define (assign-term term acc)
       (match term
         (('let (('_ '_)) term1)
