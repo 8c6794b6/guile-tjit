@@ -203,7 +203,8 @@ Currently does nothing, returns the given argument."
                                    (min initial-sp-offset 0)
                                    (+ (max initial-sp-offset 0)
                                       initial-nlocals)
-                                   initial-inline-depth env)))
+                                   initial-inline-depth env
+                                   #f #f)))
         (snapshots-set! snapshots snapshot-id snapshot)
         (set! snapshot-id (+ snapshot-id 1))
         ret))
@@ -369,8 +370,8 @@ Currently does nothing, returns the given argument."
                                      (ir-min-sp-offset ir)
                                      (+ last-sp-offset
                                         (or nlocals initial-nlocals))
-                                     (env-inline-depth env) env #f
-                                     nlocals)))
+                                     (env-inline-depth env) env
+                                     #f nlocals)))
           (let ((old-id (ir-snapshot-id ir)))
             (snapshots-set! (ir-snapshots ir) old-id snapshot)
             (set-ir-snapshot-id! ir (+ old-id 1))

@@ -111,11 +111,11 @@
 
 ;;;; For IR body
 
-(define* (take-snapshot ip dst-offset locals vars indices id
-                        sp-offset fp-offset
-                        min-sp-offset max-sp-offset
-                        inline-depth env
-                        #:optional (refill? #f) (arg-nlocals #f))
+(define (take-snapshot ip dst-offset locals vars indices id
+                       sp-offset fp-offset
+                       min-sp-offset max-sp-offset
+                       inline-depth env
+                       refill? arg-nlocals)
   (let* ((nlocals (or arg-nlocals (vector-length locals)))
          (dst-ip (+ ip (* dst-offset 4)))
          (test (if (and (env-uprec? env)
@@ -164,18 +164,16 @@
                (let lp ((vars (reverse (ir-vars ir))) (loaded '()))
                  (match vars
                    (((n . var) . vars)
-                    (cond
-                     ((or (skip-var? var)
-                          (memq n live-indices)
-                          (not (memq n (env-read-indices env))))
-                      (lp vars loaded))
-                     ((< min-local-index n max-local-index)
-                      (let* ((t (assq-ref (env-entry-types env) n))
-                             (t (if (eq? t &flonum)
-                                    t
-                                    #f)))
-                        (with-stack-ref var t n lp vars (cons n loaded))))
-                     (else (lp vars loaded))))
+                    (if (and (< min-local-index n max-local-index)
+                             (not (skip-var? var))
+                             (not (memq n live-indices))
+                             (memq n (env-read-indices env)))
+                        (let* ((t (assq-ref (env-entry-types env) n))
+                               (t (if (eq? t &flonum)
+                                      t
+                                      #f)))
+                          (with-stack-ref var t n lp vars (cons n loaded)))
+                        (lp vars loaded)))
                    (()
                     (let ((live-indices
                            (let lp ((loaded loaded) (acc live-indices))
@@ -427,14 +425,13 @@ runtime."
                 (gen-infer-type (flag arg) ...))))
            (anf-proc
             (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
-              (syntax-parameterize
-                  ((env (identifier-syntax %env))
-                   (ir (identifier-syntax %ir))
-                   (next (identifier-syntax %next))
-                   (ip (identifier-syntax %ip))
-                   (ra (identifier-syntax %ra))
-                   (dl (identifier-syntax %dl))
-                   (locals (identifier-syntax %locals)))
+              (syntax-parameterize ((env (identifier-syntax %env))
+                                    (ir (identifier-syntax %ir))
+                                    (next (identifier-syntax %next))
+                                    (ip (identifier-syntax %ip))
+                                    (ra (identifier-syntax %ra))
+                                    (dl (identifier-syntax %dl))
+                                    (locals (identifier-syntax %locals)))
                 ;; Updating live indices, only for side traces. Live indices in
                 ;; root traces are constantly same as write indices, loaded at
                 ;; the time of entry.
@@ -458,39 +455,39 @@ runtime."
          . body)))))
 
 (define-syntax-rule (define-anf (name arg ...) . body)
-  (let ((anf-proc (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
-                    (syntax-parameterize
-                        ((env (identifier-syntax %env))
-                         (ir (identifier-syntax %ir))
-                         (next (identifier-syntax %next))
-                         (ip (identifier-syntax %ip))
-                         (ra (identifier-syntax %ra))
-                         (dl (identifier-syntax %dl))
-                         (locals (identifier-syntax %locals)))
-                      . body))))
+  (let ((anf-proc
+         (lambda (%env %ir %next %ip %ra %dl %locals arg ...)
+           (syntax-parameterize ((env (identifier-syntax %env))
+                                 (ir (identifier-syntax %ir))
+                                 (next (identifier-syntax %next))
+                                 (ip (identifier-syntax %ip))
+                                 (ra (identifier-syntax %ra))
+                                 (dl (identifier-syntax %dl))
+                                 (locals (identifier-syntax %locals)))
+             . body))))
     (update-ir name set-ir-procedure-anf! anf-proc
                (make-ir-procedure no-test #f #f anf-proc))))
 
 (define-syntax-rule (define-scan (name args ...) . body)
-  (let ((scan-proc (lambda (%env %ip %dl %locals args ...)
-                     (syntax-parameterize
-                         ((ip (identifier-syntax %ip))
-                          (dl (identifier-syntax %dl))
-                          (locals (identifier-syntax %locals))
-                          (env (identifier-syntax %env)))
-                       . body)
-                     #t)))
+  (let ((scan-proc
+         (lambda (%env %ip %dl %locals args ...)
+           (syntax-parameterize ((ip (identifier-syntax %ip))
+                                 (dl (identifier-syntax %dl))
+                                 (locals (identifier-syntax %locals))
+                                 (env (identifier-syntax %env)))
+             . body)
+           #t)))
     (update-ir name set-ir-procedure-parse! scan-proc
                (make-ir-procedure no-test scan-proc #f #f))))
 
 (define-syntax-rule (define-ti (name args ...) . body)
-  (let ((ti-proc (lambda (%env %ip %dl %locals args ...)
-                   (syntax-parameterize
-                       ((ip (identifier-syntax %ip))
-                        (dl (identifier-syntax %dl))
-                        (locals (identifier-syntax %locals))
-                        (env (identifier-syntax %env)))
-                     . body))))
+  (let ((ti-proc
+         (lambda (%env %ip %dl %locals args ...)
+           (syntax-parameterize ((ip (identifier-syntax %ip))
+                                 (dl (identifier-syntax %dl))
+                                 (locals (identifier-syntax %locals))
+                                 (env (identifier-syntax %env)))
+             . body))))
     (update-ir name set-ir-procedure-infer-type! ti-proc
                (make-ir-procedure no-test #f ti-proc #f))))
 
