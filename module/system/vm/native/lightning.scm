@@ -29,9 +29,7 @@
   #:use-module (system foreign)
   #:export
   (
-   ;;
    ;; Prototypes
-   ;;
 
    init-jit
    finish-jit
@@ -52,7 +50,7 @@
    jit-prepare jit-pushargr jit-pushargi jit-finishr jit-finishi
    jit-ret jit-retr jit-reti
    jit-retval jit-retval-c jit-retval-uc jit-retval-s jit-retval-us
-   jit-retval-i jit-retval-ui jit-retval-l ;; x86-64
+   jit-retval-i jit-retval-ui jit-retval-l ; x86-64
    jit-epilog
 
    jit-patch jit-patch-at jit-patch-abs jit-realize
@@ -83,9 +81,7 @@
    %jit-set-memory-functions %jit-get-memory-functions
 
 
-   ;;
    ;; jit_code_t
-   ;;
 
    ;; Ops with general purporse registers
 
@@ -114,34 +110,34 @@
 
    jit-movr jit-movi
    jit-extr-c jit-extr-uc jit-extr-s jit-extr-us
-   jit-extr-i jit-extr-ui ;; x86-64
+   jit-extr-i jit-extr-ui               ; x86-64
 
    jit-htonr-us jit-ntohr-us jit-ntohr-ui jit-ntohr-ui
-   jit-htonr jit-ntohr ; x86-64
+   jit-htonr jit-ntohr                  ; x86-64
 
    jit-ldr jit-ldi
    jit-ldr-c jit-ldi-c jit-ldr-uc jit-ldi-uc
    jit-ldr-s jit-ldi-s jit-ldr-us jit-ldi-us
    jit-ldr-i jit-ldi-i jit-ldr-ui jit-ldi-ui
-   jit-ldr-l jit-ldi-l ;; x86-64
+   jit-ldr-l jit-ldi-l                  ; x86-64
 
    jit-ldxr jit-ldxi
    jit-ldxr-c jit-ldxi-c jit-ldxr-uc jit-ldxi-uc
    jit-ldxr-s jit-ldxi-s jit-ldxr-us jit-ldxi-us
    jit-ldxr-i jit-ldxi-i
-   jit-ldxr-ui jit-ldxi-ui jit-ldxr-l jit-ldxi-l ;; x86-64
+   jit-ldxr-ui jit-ldxi-ui jit-ldxr-l jit-ldxi-l ; x86-64
 
    jit-str jit-sti
    jit-str-c jit-sti-c jit-str-uc jit-sti-uc
    jit-str-s jit-sti-s jit-str-us jit-sti-us
    jit-str-i jit-sti-i jit-str-ui jit-sti-ui
-   jit-str-l jit-sti-l ;; x86-64
+   jit-str-l jit-sti-l                  ; x86-64
 
    jit-stxr jit-stxi
    jit-stxr-c jit-stxi-c jit-stxr-uc jit-stxi-uc
    jit-stxr-s jit-stxi-s jit-stxr-us jit-stxi-us
    jit-stxr-i jit-stxi-i jit-stxr-ui jit-stxi-ui
-   jit-stxr-l jit-stxi-l ;; x86-64
+   jit-stxr-l jit-stxi-l                ; x86-64
 
    jit-bltr jit-blti jit-bltr-u jit-blti-u
    jit-bler jit-blei jit-bler-u jit-blei-u
@@ -174,7 +170,7 @@
    jit-ungtr-f jit-ungti-f jit-ltgtr-f jit-ltgti-f
    jit-ordr-f jit-ordi-f jit-unordr-f jit-unordi-f
 
-   jit-truncr-f-i jit-truncr-f-l jit-truncr-f ;; x86-64
+   jit-truncr-f-i jit-truncr-f-l jit-truncr-f ; x86-64
    jit-extr-f jit-extr-d-f jit-movr-f jit-movi-f
 
    jit-ldr-f jit-ldi-f jit-ldxr-f jit-ldxi-f
@@ -203,7 +199,7 @@
    jit-ungtr-d jit-ungti-d jit-ltgtr-d jit-ltgti-d
    jit-ordr-d jit-ordi-d jit-unordr-d jit-unordi-d
 
-   jit-truncr-d-i jit-truncr-d-l jit-truncr-d ;; x86
+   jit-truncr-d-i jit-truncr-d-l jit-truncr-d ; x86
    jit-extr-d jit-extr-f-d jit-movr-d jit-movi-d
 
    jit-ldr-d jit-ldi-d jit-ldxr-d jit-ldxi-d
@@ -221,65 +217,68 @@
    jit-movr-f-w jit-movi-f-w jit-movr-d-ww jit-movi-d-ww
    jit-movr-d-w jit-movi-d-w
 
-   ;;
    ;; Registers
-   ;;
 
    r0 r1 r2 r3 v0 v1 v2 v3 f0 f1 f2 f3 f4 f5 f6 f7 jit-fp
    jit-r jit-v jit-f jit-r-num jit-v-num jit-f-num
    imm null
 
-   ;;
    ;; Miscellaneous
-   ;;
 
    jit-code-size
    make-bytevector-executable!
    with-jit-state))
 
+
+
 ;;; To silent warning messages for `possibly unbound variable'.
 (define %jit-state #f)
 
-(load-extension (string-append "libguile-" (effective-version))
-                "scm_init_lightning")
+(eval-when (expand load)
+  (load-extension (string-append "libguile-" (effective-version))
+                  "scm_init_lightning"))
 
 ;;; Fluid to contain jit state.
 (define jit-state (%jit-state))
 
-
-;;;
-;;; Registers
-;;;
+
+;;;; Registers
 
 ;; Interfaces for C wrapper code containing functions for C macros: JIT_R(),
 ;; JIT_V(), and JIT_F().
 
-(define r0 (jit-r 0))
-(define r1 (jit-r 1))
-(define r2 (jit-r 2))
-(define r3 (jit-r 3))
+(define-syntax define-register
+  (lambda (x)
+    (syntax-case x ()
+      ((k name exp)
+       #`(define-syntax name
+           (identifier-syntax
+            #,(datum->syntax #'k (primitive-eval #'exp))))))))
 
-(define v0 (jit-v 0))
-(define v1 (jit-v 1))
-(define v2 (jit-v 2))
-(define v3 (jit-v 3))
+(define-register r0 (jit-r 0))
+(define-register r1 (jit-r 1))
+(define-register r2 (jit-r 2))
+(define-register r3 (jit-r 3))
 
-(define f0 (jit-f 0))
-(define f1 (jit-f 1))
-(define f2 (jit-f 2))
-(define f3 (jit-f 3))
-(define f4 (jit-f 4))
-(define f5 (jit-f 5))
-(define f6 (jit-f 6))
-(define f7 (jit-f 7))
+(define-register v0 (jit-v 0))
+(define-register v1 (jit-v 1))
+(define-register v2 (jit-v 2))
+(define-register v3 (jit-v 3))
+
+(define-register f0 (jit-f 0))
+(define-register f1 (jit-f 1))
+(define-register f2 (jit-f 2))
+(define-register f3 (jit-f 3))
+(define-register f4 (jit-f 4))
+(define-register f5 (jit-f 5))
+(define-register f6 (jit-f 6))
+(define-register f7 (jit-f 7))
+
+
+;;;; Miscellaneous
 
 (define-syntax-rule (imm x) x)
 (define-syntax null (identifier-syntax %null-pointer))
-
-
-;;;
-;;; Miscellaneous
-;;;
 
 (define-syntax-rule (with-jit-state . expr)
   (with-fluid* jit-state
@@ -292,8 +291,7 @@
           (apply values vals))))))
 
 
-;;;
-;;; jit_code_t and C macros
-;;;
+
+;;;; jit_code_t and C macros
 
 (include "jit-code-t.scm")
