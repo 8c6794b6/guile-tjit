@@ -1,5 +1,5 @@
 /* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2006,
- *   2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+ *   2008, 2009, 2010, 2011, 2012, 2013, 2014, 2016 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -605,6 +605,12 @@ scm_storage_prehistory ()
   /* BDW-GC 7.4.0 has a bug making it loop indefinitely when using more
      than one marker thread: <https://github.com/ivmai/bdwgc/pull/30>.
      Work around it by asking for one marker thread.  */
+  setenv ("GC_MARKERS", "1", 1);
+#endif
+
+#if SCM_I_GSC_USE_NULL_THREADS
+  /* If we have disabled threads in Guile, ensure that the GC doesn't
+     spawn any marker threads.  */
   setenv ("GC_MARKERS", "1", 1);
 #endif
 
