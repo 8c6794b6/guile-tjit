@@ -251,7 +251,6 @@ option was set to true."
                    "")))
       (_
        (format port "----     NOT-A-SNAPSHOT~%"))))
-
   (define (dump-one idx op)
     (match op
       (('%snap id . _)
