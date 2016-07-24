@@ -512,7 +512,7 @@ runtime."
 
 ;;;; Procedures with IR lookup
 
-(define-inlinable (parse-trace env op ip dl locals)
+(define-syntax-rule (parse-trace env op ip dl locals)
   ;; Compute local indices and stack element types in op.
   ;;
   ;; The stack used by VM interpreter grows down. Lower frame data is
@@ -543,6 +543,6 @@ runtime."
            (lp procs)))
       (_ (%nyi op)))))
 
-(define-inlinable (infer-type env op ip dl locals)
+(define-syntax-rule (infer-type env op ip dl locals)
   (let ((proc (current-ir-procedure env)))
     (apply (ir-procedure-infer-type proc) env ip dl locals (cdr op))))
