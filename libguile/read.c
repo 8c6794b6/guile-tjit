@@ -31,6 +31,7 @@
 #include <unictype.h>
 #include <c-strcase.h>
 #include <c-ctype.h>
+#include <alloca.h>
 
 #include "libguile/_scm.h"
 #include "libguile/bytevectors.h"
