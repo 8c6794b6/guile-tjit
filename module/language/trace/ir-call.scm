@@ -332,25 +332,22 @@
       (set-inferred-type! env dl-offset &false))))
 
 (define-anf (return-values nlocals)
-  ;; Add guard to test return address.
-  ;;
-  ;; Two locals below callee procedure in VM frame contain dynamic link and
-  ;; return address.
-  (let* ((stack-size (vector-length locals))
-         (snapshot (take-snapshot! ip 0))
-         (maybe-add-indices (lambda (i indices)
-                              (if (memq i indices)
-                                  indices
-                                  (cons i indices)))))
-    `(let ((_ ,snapshot))
-       ,(if (inline-current-return?)
-            (next)
-            (let* ((ra/i (+ stack-size (current-sp-offset)))
-                   (dl/i (+ ra/i 1))
-                   (live-indices (env-live-indices env))
-                   (live-indices (maybe-add-indices ra/i live-indices))
-                   (live-indices (maybe-add-indices dl/i live-indices)))
-              (set-env-live-indices! env live-indices)
-              `(let ((_ (,%return ,ra)))
-                 (let ((_ ,(take-snapshot! ra 0 #t)))
-                   ,(next))))))))
+  ;; Add guard to test return address. Two locals below callee procedure in VM
+  ;; frame contain dynamic link and return address.
+  (let ((stack-size (vector-length locals))
+        (maybe-add-indices (lambda (i indices)
+                             (if (memq i indices)
+                                 indices
+                                 (cons i indices)))))
+    (if (inline-current-return?)
+        (next)
+        (let* ((ra/i (+ stack-size (current-sp-offset)))
+               (dl/i (+ ra/i 1))
+               (live-indices (env-live-indices env))
+               (live-indices (maybe-add-indices ra/i live-indices))
+               (live-indices (maybe-add-indices dl/i live-indices)))
+          (set-env-live-indices! env live-indices)
+          `(let ((_ ,(take-snapshot! ip 0)))
+             (let ((_ (,%return ,dl ,ra)))
+               (let ((_ ,(take-snapshot! ra 0 #t)))
+                 ,(next))))))))

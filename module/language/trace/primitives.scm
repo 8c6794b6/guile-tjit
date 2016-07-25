@@ -322,7 +322,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
-(define-native (%return (void ra))
+(define-native (%return (void dl) (void ra))
   (let ((vp r0)
         (vp->fp r1)
         (tmp r2))
@@ -330,9 +330,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (load-vp->fp vp->fp vp)
     (scm-frame-return-address tmp vp->fp)
     (jump (bnei tmp (con ra)) (bailout))
-    (scm-frame-dynamic-link tmp vp->fp)
-    (lshi tmp tmp (imm %word-size-in-bits))
-    (addr vp->fp vp->fp tmp)
+    (addi vp->fp vp->fp (imm (* (ref-value dl) %word-size)))
     (store-vp->fp vp vp->fp)))
 
 ;;; Prepare argument for calling C function.

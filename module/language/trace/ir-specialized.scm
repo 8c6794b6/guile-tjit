@@ -83,7 +83,7 @@
                 `(let ((,dst/v (,%ccall ,proc-addr)))
                    ,(next))
                 `(let ((_ ,(take-snapshot! ip 0)))
-                   (let ((_ (,%return ,ra)))
+                   (let ((_ (,%return ,dl ,ra)))
                      (let ((,dst/v (,%ccall ,proc-addr)))
                        ,(next)))))))
          (r1 (make-tmpvar 1))
@@ -175,10 +175,6 @@
         (dst/v (var-ref 1))
         (cont/l (scm-ref 0))
         (r2 (make-tmpvar 2)))
-
-    (debug 1 ";;; [IR] call/cc, cont/l=~a program-code=~x ra=~x dl=~x~%"
-           cont/l (program-code cont/l) ra dl)
-
     ;; Using special IP key to skip restoring stack element on bailout. Before
     ;; bailout code of call/cc, stack elements have been filled in with captured
     ;; data data by continuation-call.

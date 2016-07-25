@@ -276,10 +276,11 @@ option was set to true."
                     '%typeq
                     (pretty-storage src)
                     (pretty-type (cdr type))))
-           (('%return (const . ra))
+           (('%return dl (const . ra))
             (let ((sinfo (addr->source-line ra)))
-              (format port "~4,,,'0@a ~a (~8a ~a/~a:~a)~%" idx mark
+              (format port "~4,,,'0@a ~a (~8a ~a ~a/~a:~a)~%" idx mark
                       '%return
+                      (pretty-constant dl)
                       (cyan (number->string ra 16))
                       (basename (car sinfo))
                       (cdr sinfo))))
