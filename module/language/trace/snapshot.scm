@@ -48,6 +48,7 @@
             snapshot-variables set-snapshot-variables!
             snapshot-code set-snapshot-code!
             snapshot-ip
+            snapshot-dynamic-links
             snapshot-env-types
             snapshot-live-indices
             snapshot-inline-depth
@@ -70,7 +71,7 @@
 
 (define-record-type $snapshot
   (%make-snapshot id sp-offset fp-offset nlocals locals variables code
-                  ip live-indices inline-depth)
+                  ip dynamic-links live-indices inline-depth)
   snapshot?
 
   ;; ID number of this snapshot.
@@ -97,6 +98,9 @@
   ;; Bytecode IP of this snapshot to return.
   (ip snapshot-ip)
 
+  ;; List of dynamic links.
+  (dynamic-links snapshot-dynamic-links)
+
   ;; Live indices.
   (live-indices snapshot-live-indices)
 
@@ -120,8 +124,8 @@
                  (values fp-offset nlocals acc)))
          (lambda (fp-offset nlocals acc)
            (%make-snapshot id sp-offset fp-offset nlocals (reverse! acc)
-                           #f #f ip (env-live-indices env)
-                           inline-depth)))))))
+                           #f #f ip (env-dynamic-links env)
+                           (env-live-indices env) inline-depth)))))))
 
 (define-inlinable (make-empty-snapshots)
   (make-hash-table))

@@ -360,7 +360,7 @@ DST-TYPES, and SRC-TYPES are local index number."
            ;; Store values passed from parent trace when it's not used by this
            ;; side trace.
            (match (env-parent-snapshot env)
-             (($ $snapshot _ _ _ _ locals vars)
+             (($ $snapshot id sp-offset _ nlocals locals vars _ _ dls)
               (let* ((snap0 (snapshots-ref snapshots 0))
                      (locals0 (snapshot-locals snap0))
                      (vars0 (snapshot-variables snap0))
@@ -374,7 +374,8 @@ DST-TYPES, and SRC-TYPES are local index number."
                      (hashq-set! references local var)
                      (lp locals0 vars0))
                     (_
-                     (maybe-store asm locals vars references 0))))))
+                     (maybe-store asm locals vars references 0)
+                     (store-dynamic-links dls))))))
              (_
               (failure 'compile-entry "snapshot not found")))))
      (else                              ; Root trace.
@@ -633,7 +634,6 @@ DST-TYPES, and SRC-TYPES are local index number."
                      (vm-handle-interrupts))
                    (move-or-load-carefully dst-var-table src-var-table
                                            dst-type-table src-type-table))
-
                  ;; Jump to beginning of the loop in linked fragment.
                  (jmpa (fragment-loop-address linked))))))))))
     (_

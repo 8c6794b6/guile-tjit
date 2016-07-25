@@ -243,7 +243,7 @@ option was set to true."
   (define (dump-snapshot snapshot)
     (match snapshot
       (($ $snapshot id sp-offset fp-offset nlocals locals variables
-          code ip live-indices inline-depth)
+          code ip _ live-indices inline-depth)
        (format port "----     [snap~3,,,' @a] ~a:~a:~a:~a ~a~%"
                id sp-offset fp-offset nlocals inline-depth
                (if (tjit-dump-snapshot? (tjit-dump-option))

@@ -54,7 +54,7 @@ information."
                   (lambda ()
                     (match snapshot
                       (($ $snapshot id sp fp nlocals locals variables code
-                          ip lives depth)
+                          ip _ lives depth)
                        (values sp fp (map car locals) lives locals depth))
                       (_
                        (values 0 0 '() '() '() 0))))

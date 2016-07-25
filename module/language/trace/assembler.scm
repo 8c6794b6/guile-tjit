@@ -68,6 +68,7 @@
             vm-sync-ip vm-sync-sp vm-sync-fp
             vm-handle-interrupts
             vm-expand-stack
+            store-dynamic-links
             store-stack unbox-stack-element
             bailout err guard-type guard-tc16
 
@@ -322,6 +323,25 @@
     (vm-sync-sp %sp vp)
 
     (jit-link next)))
+
+;; Fill in the dynamic link, so that libguile/vm.c:scm_i_vm_mark_stack can keep
+;; on traversing the stack with SCM_FRAME_DYNAMIC_LINK, garbage collector may
+;; run while native code is running. Return address is not filled in with this
+;; macro, later filled in by bailout code with snapshot value.
+(define-syntax-rule (store-dynamic-links dls*)
+  (unless (null? dls*)
+    (let ((vp r0)
+          (vp->fp r1)
+          (tmp r2))
+      (load-vp vp)
+      (load-vp->fp vp->fp vp)
+      (do ((dls (reverse dls*) (cdr dls)))
+          ((null? dls))
+        (let ((dl (car dls)))
+          (jit-subi vp->fp vp->fp (imm (* dl %word-size)))
+          (jit-movi tmp dl)
+          (scm-frame-set-dynamic-link! vp->fp tmp)))
+      (store-vp->fp vp vp->fp))))
 
 
 ;;;; Predicates

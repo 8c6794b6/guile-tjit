@@ -70,6 +70,7 @@
             env-min-sp-offset set-env-min-sp-offset!
             env-bytecode-index set-env-bytecode-index!
             env-ir-procedures set-env-ir-procedures!
+            env-dynamic-links set-env-dynamic-links!
             env                         ; syntax parameter.
 
             increment-env-call-return-num!
@@ -106,7 +107,8 @@
              write-indices read-indices write-buf live-indices
              entry-types inferred-types
              call-num return-num calls returns inline-depth
-             applied-guards min-sp-offset bytecode-index ir-procedures)
+             applied-guards min-sp-offset bytecode-index ir-procedures
+             dynamic-links)
   env?
 
   ;; Trace ID of this compilation.
@@ -217,7 +219,10 @@
   (bytecode-index env-bytecode-index set-env-bytecode-index!)
 
   ;; Possibly type specified IR procedures per bytecode instruction.
-  (ir-procedures env-ir-procedures set-env-ir-procedures!))
+  (ir-procedures env-ir-procedures set-env-ir-procedures!)
+
+  ;; List of dynamic links.
+  (dynamic-links env-dynamic-links set-env-dynamic-links!))
 
 (define (make-env id entry-ip linked-ip
                   parent-exit-id parent-fragment parent-snapshot
@@ -244,7 +249,8 @@
         (applied-guards (make-hash-table))
         (min-sp-offset 0)
         (bytecode-index 0)
-        (ir-procedures '()))
+        (ir-procedures '())
+        (dynamic-links '()))
     (%make-env id entry-ip linked-ip linked-fragment
                parent-exit-id parent-fragment parent-snapshot
                loop? downrec? uprec?
@@ -255,7 +261,7 @@
                entry-types inferred-types
                call-num return-num calls returns
                inline-depth applied-guards min-sp-offset
-               bytecode-index ir-procedures)))
+               bytecode-index ir-procedures dynamic-links)))
 
 (define-syntax-parameter env
   (lambda (x) 'env "uninitialized" x))

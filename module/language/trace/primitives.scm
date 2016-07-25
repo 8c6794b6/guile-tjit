@@ -302,23 +302,6 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;;;; Call and return
 
-;;; Scheme procedure call, shift current FP.
-;;;
-;;; Fill in the dynamic link, so that libguile/vm.c:scm_i_vm_mark_stack can keep
-;;; on traversing the stack with SCM_FRAME_DYNAMIC_LINK, garbage collector may
-;;; run while native code is running. Return address is not filled in at this
-;;; momement, later filled in by bailout code with snapshot value.
-(define-native (%scall (void proc))
-  (let ((vp r0)
-        (vp->fp r1)
-        (dl r2))
-    (load-vp vp)
-    (load-vp->fp vp->fp vp)
-    (subi vp->fp vp->fp (imm (* (ref-value proc) %word-size)))
-    (movi dl (con proc))
-    (scm-frame-set-dynamic-link! vp->fp dl)
-    (store-vp->fp vp vp->fp)))
-
 ;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
@@ -1031,14 +1014,15 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     ;; data. Store register contents to stack before calling
     ;; `scm-make-continuation', to use updated stack element.
     (match (snapshots-ref (asm-snapshots asm) (ref-value id))
-      (($ $snapshot _ sp-offset fp-offset nlocals locals vars)
+      (($ $snapshot _ sp-offset fp-offset nlocals locals vars _ _ dls)
        (let lp ((locals locals) (vars vars))
          (match (cons locals vars)
            ((((n . t) . locals) . (v . vars))
             (store-stack n t v)
             (lp locals vars))
            (_
-            (values)))))
+            ;; Store dynamic links after storing locals.
+            (store-dynamic-links dls)))))
       (_
        (failure '%call/cc "not a snapshot")))
     ;; Make continuation data via C function.
