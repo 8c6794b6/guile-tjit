@@ -164,3 +164,4 @@ INSTALL
 /libguile/vm-operations.h
 /test-suite/standalone/test-foreign-object-c
 /test-suite/standalone/test-srfi-4
+/meta/build-env
