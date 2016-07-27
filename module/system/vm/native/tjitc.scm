@@ -56,9 +56,10 @@ information."
                        (values sp fp (map car locals) lives locals depth))
                       (_
                        (values 0 0 '() '() '() 0))))
-                (lambda args
-                  (apply make-env trace-id entry-ip linked-ip parent-exit-id
-                         fragment snapshot loop? downrec? uprec? args))))
+                (lambda (sp fp writes lives types depth)
+                  (make-env trace-id entry-ip linked-ip parent-exit-id
+                            fragment snapshot loop? downrec? uprec?
+                            sp fp writes lives types depth))))
          (fragment (compile buffer #:from 'trace #:to 'value
                             #:env env #:opts traces)))
     (when fragment

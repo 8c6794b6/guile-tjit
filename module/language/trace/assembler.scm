@@ -77,7 +77,7 @@
             prim-names-ref
             current-prim-counter
             increment-prim-counter!
-            define-native))
+            define-primitive))
 
 
 ;;;; SCM macros
@@ -446,22 +446,16 @@
   (asm-exit asm))
 
 (define-syntax-rule (push-as-gpr arg overwritten?)
-  (cond
-   (overwritten?
-    (jit-ldxi r1 %fp (volatile-offset arg))
-    (jit-pushargr r1))
-   (else
-    (case (ref-type arg)
-      ((con)
-       (jit-pushargi (con arg)))
-      ((gpr)
-       (jit-pushargr (gpr arg)))
-      ((fpr)
-       (jit-pushargr (fpr->gpr r1 (fpr arg))))
-      ((mem)
-       (jit-pushargr (memory-ref r1 arg)))
-      (else
-       (failure 'push-as-gpr "unknown arg ~s" arg))))))
+  (if overwritten?
+      (begin
+        (jit-ldxi r1 %fp (volatile-offset arg))
+        (jit-pushargr r1))
+      (case (ref-type arg)
+        ((con) (jit-pushargi (con arg)))
+        ((gpr) (jit-pushargr (gpr arg)))
+        ((fpr) (jit-pushargr (fpr->gpr r1 (fpr arg))))
+        ((mem) (jit-pushargr (memory-ref r1 arg)))
+        (else (failure 'push-as-gpr "unknown arg ~s" arg)))))
 
 (define-syntax-rule (retval-to-reg-or-mem dst)
   (case (ref-type dst)
@@ -725,8 +719,7 @@
 
 (define *native-prim-names* (make-vector 255 #f))
 
-(define (current-prim-counter)
-  *native-prim-counter*)
+(define (current-prim-counter) *native-prim-counter*)
 
 (define (increment-prim-counter!)
   (set! *native-prim-counter* (+ *native-prim-counter* 1)))
@@ -740,7 +733,7 @@
 (define (prim-names-ref key)
   (vector-ref *native-prim-names* key))
 
-(define-syntax define-native
+(define-syntax define-primitive
   (syntax-rules ()
     ((_ (name (ty arg) ...) <body>)
      (begin

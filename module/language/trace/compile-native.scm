@@ -435,14 +435,14 @@ DST-TYPES, and SRC-TYPES are local index number."
                     (lp ops (cons bailout acc)))))))
           (else
            (failure 'compile-ops "no snapshot ~s" snapshot-id))))
-        (((op-name . args) . ops)
+        (((op-code . args) . ops)
          (cond
-          ((prim-procedures-ref op-name)
+          ((prim-procedures-ref op-code)
            => (lambda (proc)
                 (apply proc asm args)
                 (lp ops acc)))
           (else
-           (failure 'compile-ops "op not found ~s" op-name))))
+           (failure 'compile-ops "primitive op `~s' not found" op-code))))
         (() acc))))
   (define (compile-loop %asm loop storage gen-bailouts)
     (if (null? loop)

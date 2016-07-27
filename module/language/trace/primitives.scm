@@ -22,13 +22,10 @@
 ;;;
 ;;; Primitives for native code used in vm-tjit engine.
 ;;;
-;;; Primitives defined here are used during compilation of traced data to native
-;;; code. Perhaps useless for ordinal use as scheme procedure, except for
-;;; managing docstring.
-;;;
-;;; Need at least 3 general purpose scratch registers, and 3 floating point
-;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
-;;; F1, and F2 for floating point.
+;;; Primitives defined here are used while compiling IR to native code. Need at
+;;; least 3 general purpose scratch registers, and 3 floating point scratch
+;;; registers. Currently using R0, R1, and R2 for general purpose, F0, F1, and
+;;; F2 for floating point.
 ;;;
 ;;; Code:
 
@@ -79,7 +76,7 @@
             %move %call/cc %callcnt))
 
 
-;;;; Auxiliary
+;;;; C function addresses
 
 (define-address-for-c-function
   (%scm-from-double "scm_from_double")
@@ -95,54 +92,52 @@
 
 ;;;; Guards
 
-(define-syntax define-binary-guard-int
-  (syntax-rules ()
-    "Macro for defining guard primitive which takes two int arguments.
+(define-syntax-rule (define-binary-guard-int name op-ii op-ri op-rr)
+  "Macro for defining guard primitive which takes two int arguments.
 
 `define-binary-guard-int NAME OP-II OP-RI OP-RR' will define a primitive named
-NAME. Uses OP-II when both arguments matched `con?' predicate. Uses OP-RI
-when the first argument matched `gpr?'  or `memory?' predicate while the second
-was constant. And, uses OP-RR when both arguments were register or memory."
-    ((_ name op-ii op-ri op-rr)
-     (define-native (name (int a) (int b))
-       (case (ref-type a)
-         ((con)
-          (let ((rt (ref-type b)))
+NAME. Uses OP-II when both arguments matched `con?' predicate. Uses OP-RI when
+the first argument matched `gpr?'  or `memory?' predicate while the second was
+constant. And, uses OP-RR when both arguments were register or memory."
+  (define-primitive (name (int a) (int b))
+    (case (ref-type a)
+      ((con)
+       (let ((rt (ref-type b)))
+         (case rt
+           ((con)
+            (debug 1 ";;; [assembler:~a] a=~a b=~a~%" 'name a b))
+           (else
+            (movi r0 (con a))
             (case rt
-              ((con)
-               (debug 1 ";;; [assembler:~a] a=~a b=~a~%" 'name a b))
-              (else
-               (movi r0 (con a))
-               (case rt
-                 ((gpr) (jump (op-rr r0 (gpr b)) (bailout)))
-                 ((fpr) (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
-                 ((mem) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
-                 (else (err)))))))
-         ((gpr)
-          (case (ref-type b)
-            ((con) (jump (op-ri (gpr a) (con b)) (bailout)))
-            ((gpr) (jump (op-rr (gpr a) (gpr b)) (bailout)))
-            ((fpr) (jump (op-rr (gpr a) (fpr->gpr r1 (fpr b))) (bailout)))
-            ((mem) (jump (op-rr (gpr a) (memory-ref r1 b)) (bailout)))
-            (else (err))))
-         ((fpr)
-          (fpr->gpr r0 (fpr a))
-          (case (ref-type b)
-            ((con) (jump (op-ri r0 (con b)) (bailout)))
-            ((gpr) (jump (op-rr r0 (gpr b)) (bailout)))
-            ((fpr) (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
-            ((mem) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
-            (else (err))))
-         ((mem)
-          (memory-ref r0 a)
-          (case (ref-type b)
-            ((con) (jump (op-ri r0 (con b)) (bailout)))
-            ((gpr) (jump (op-rr r0 (gpr b)) (bailout)))
-            ((fpr) (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
-            ((mem) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
-            (else (err))))
-         (else
-          (err)))))))
+              ((gpr) (jump (op-rr r0 (gpr b)) (bailout)))
+              ((fpr) (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
+              ((mem) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
+              (else (err)))))))
+      ((gpr)
+       (case (ref-type b)
+         ((con) (jump (op-ri (gpr a) (con b)) (bailout)))
+         ((gpr) (jump (op-rr (gpr a) (gpr b)) (bailout)))
+         ((fpr) (jump (op-rr (gpr a) (fpr->gpr r1 (fpr b))) (bailout)))
+         ((mem) (jump (op-rr (gpr a) (memory-ref r1 b)) (bailout)))
+         (else (err))))
+      ((fpr)
+       (fpr->gpr r0 (fpr a))
+       (case (ref-type b)
+         ((con) (jump (op-ri r0 (con b)) (bailout)))
+         ((gpr) (jump (op-rr r0 (gpr b)) (bailout)))
+         ((fpr) (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
+         ((mem) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
+         (else (err))))
+      ((mem)
+       (memory-ref r0 a)
+       (case (ref-type b)
+         ((con) (jump (op-ri r0 (con b)) (bailout)))
+         ((gpr) (jump (op-rr r0 (gpr b)) (bailout)))
+         ((fpr) (jump (op-rr r0 (fpr->gpr r1 (fpr b))) (bailout)))
+         ((mem) (jump (op-rr r0 (memory-ref r1 b)) (bailout)))
+         (else (err))))
+      (else
+       (err)))))
 
 ;; Auxiliary procedure for %ne.
 (define (/= a b) (not (= a b)))
@@ -154,43 +149,41 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-guard-int %ge < blti bltr)
 (define-binary-guard-int %gt <= blei bler)
 
-(define-syntax define-binary-guard-double
-  (syntax-rules ()
-    ((_ name op-ii op-ri op-rr)
-     (define-native (name (double a) (double b))
-       (case (ref-type a)
-         ((con)
-          (movi/f f0 a)
-          (case (ref-type b)
-            ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
-            ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
-            ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
-            (else (err))))
-         ((gpr)
-          (gpr->fpr f0 (gpr a))
-          (case (ref-type b)
-            ((con) (jump (op-ri f0 (ref-value b)) (bailout)))
-            ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
-            ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
-            ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
-            (else (err))))
-         ((fpr)
-          (case (ref-type b)
-            ((con) (jump (op-ri (fpr a) (ref-value b)) (bailout)))
-            ((gpr) (jump (op-rr (fpr a) (gpr->fpr f1 (gpr b))) (bailout)))
-            ((fpr) (jump (op-rr (fpr a) (fpr b)) (bailout)))
-            ((mem) (jump (op-rr (fpr a) (memory-ref/f f1 b)) (bailout)))
-            (else (err))))
-         ((mem)
-          (memory-ref/f f0 a)
-          (case (ref-type b)
-            ((con) (jump (op-ri f0 (ref-value b)) (bailout)))
-            ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
-            ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
-            ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
-            (else (err))))
-         (else
-          (err)))))))
+(define-syntax-rule (define-binary-guard-double name op-ii op-ri op-rr)
+  (define-primitive (name (double a) (double b))
+    (case (ref-type a)
+      ((con)
+       (movi/f f0 a)
+       (case (ref-type b)
+         ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
+         ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
+         ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
+         (else (err))))
+      ((gpr)
+       (gpr->fpr f0 (gpr a))
+       (case (ref-type b)
+         ((con) (jump (op-ri f0 (ref-value b)) (bailout)))
+         ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
+         ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
+         ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
+         (else (err))))
+      ((fpr)
+       (case (ref-type b)
+         ((con) (jump (op-ri (fpr a) (ref-value b)) (bailout)))
+         ((gpr) (jump (op-rr (fpr a) (gpr->fpr f1 (gpr b))) (bailout)))
+         ((fpr) (jump (op-rr (fpr a) (fpr b)) (bailout)))
+         ((mem) (jump (op-rr (fpr a) (memory-ref/f f1 b)) (bailout)))
+         (else (err))))
+      ((mem)
+       (memory-ref/f f0 a)
+       (case (ref-type b)
+         ((con) (jump (op-ri f0 (ref-value b)) (bailout)))
+         ((gpr) (jump (op-rr f0 (gpr->fpr f1 (gpr b))) (bailout)))
+         ((fpr) (jump (op-rr f0 (fpr b)) (bailout)))
+         ((mem) (jump (op-rr f0 (memory-ref/f f1 b)) (bailout)))
+         (else (err))))
+      (else
+       (err)))))
 
 (define-binary-guard-double %feq /= bnei-d bner-d)
 (define-binary-guard-double %fne = beqi-d beqr-d)
@@ -199,7 +192,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-guard-double %fgt <= blei-d bler-d)
 (define-binary-guard-double %fge < blti-d bltr-d)
 
-(define-native (%eqv (int a) (int b))
+(define-primitive (%eqv (int a) (int b))
   (let ((volatiles (asm-volatiles asm))
         (proceed (forward))
         (a/r (case (ref-type a)
@@ -229,7 +222,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (jump (beqi r0 *scm-false*) (bailout))
     (link proceed)))
 
-(define-native (%nev (int a) (int b))
+(define-primitive (%nev (int a) (int b))
   (let ((volatiles (asm-volatiles asm))
         (proceed (forward))
         (a/r (case (ref-type a)
@@ -260,7 +253,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (link proceed)))
 
 ;;; Type guard.
-(define-native (%typeq (int src) (void type))
+(define-primitive (%typeq (int src) (void type))
   (let ((rt (ref-type src)))
     (unless (eq? 'con rt)
       (let ((reg (case rt
@@ -270,7 +263,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
         (guard-type reg (ref-value type))))))
 
 ;;; TC tag equal.
-(define-native (%tceq (int src) (void mask) (void tag))
+(define-primitive (%tceq (int src) (void mask) (void tag))
   (let ((typx r0)
         (obj (case (ref-type src)
                ((con) (movi/r r1 src))
@@ -284,7 +277,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (jump (bnei typx (con tag)) (bailout))))
 
 ;;; TC tag not equal.
-(define-native (%tcne (int src) (void mask) (void tag))
+(define-primitive (%tcne (int src) (void mask) (void tag))
   (let ((typx r0)
         (obj (case (ref-type src)
                ((con) (movi/r r1 src))
@@ -305,7 +298,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;; Return from Scheme procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, checks whether it match with the IP used at
 ;;; the time of compilation.
-(define-native (%return (void dl) (void ra))
+(define-primitive (%return (void dl) (void ra))
   (let ((vp r0)
         (vp->fp r1)
         (tmp r2))
@@ -317,12 +310,12 @@ was constant. And, uses OP-RR when both arguments were register or memory."
     (store-vp->fp vp vp->fp)))
 
 ;;; Prepare argument for calling C function.
-(define-native (%carg (int arg))
+(define-primitive (%carg (int arg))
   (set-asm-cargs! asm (cons arg (asm-cargs asm))))
 
 ;;; C function call. Appears when Scheme primitive procedure defined as `gsubr'
 ;;; in C were called.
-(define-native (%ccall (int dst) (void cfunc))
+(define-primitive (%ccall (int dst) (void cfunc))
   (let ((volatiles (asm-volatiles asm))
         (cargs (asm-cargs asm)))
     (define (subrf subr-addr)
@@ -351,34 +344,32 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;;;; Bitwise arithmetic
 
-(define-syntax define-binary-arith-int
-  (syntax-rules ()
-    ((_ name op-ii op-ri op-rr)
-     (define-native (name (int dst) (int a) (int b))
-       (letrec-syntax
-           ((op3b (syntax-rules ()
-                    ((_ dst a)
-                     (case (ref-type b)
-                       ((con) (op-ri dst a (con b)))
-                       ((gpr) (op-rr dst a (gpr b)))
-                       ((fpr) (op-rr dst a (fpr->gpr r1 (fpr b))))
-                       ((mem) (op-rr dst a (memory-ref r1 b)))
-                       (else (err))))))
-            (op3a (syntax-rules ()
-                    ((_ dst)
-                     (begin
-                       (case (ref-type a)
-                         ((con) (op3b dst (movi/r r0 a)))
-                         ((gpr) (op3b dst (gpr a)))
-                         ((fpr) (op3b dst (fpr->gpr r0 (fpr a))))
-                         ((mem) (op3b dst (memory-ref r0 a)))
-                         (else (err)))
-                       dst)))))
-         (case (ref-type dst)
-           ((gpr) (op3a (gpr dst)))
-           ((fpr) (gpr->fpr (fpr dst) (op3a r0)))
-           ((mem) (memory-set! dst (op3a r0)))
-           (else (err))))))))
+(define-syntax-rule (define-binary-arith-int name op-ii op-ri op-rr)
+  (define-primitive (name (int dst) (int a) (int b))
+    (letrec-syntax
+        ((op3b (syntax-rules ()
+                 ((_ dst a)
+                  (case (ref-type b)
+                    ((con) (op-ri dst a (con b)))
+                    ((gpr) (op-rr dst a (gpr b)))
+                    ((fpr) (op-rr dst a (fpr->gpr r1 (fpr b))))
+                    ((mem) (op-rr dst a (memory-ref r1 b)))
+                    (else (err))))))
+         (op3a (syntax-rules ()
+                 ((_ dst)
+                  (begin
+                    (case (ref-type a)
+                      ((con) (op3b dst (movi/r r0 a)))
+                      ((gpr) (op3b dst (gpr a)))
+                      ((fpr) (op3b dst (fpr->gpr r0 (fpr a))))
+                      ((mem) (op3b dst (memory-ref r0 a)))
+                      (else (err)))
+                    dst)))))
+      (case (ref-type dst)
+        ((gpr) (op3a (gpr dst)))
+        ((fpr) (gpr->fpr (fpr dst) (op3a r0)))
+        ((mem) (memory-set! dst (op3a r0)))
+        (else (err))))))
 
 (define-binary-arith-int %band logand andi andr)
 (define-binary-arith-int %bor logior ori orr)
@@ -395,34 +386,32 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-int %rsh rsh rshi rshr)
 (define-binary-arith-int %lsh lsh lshi lshr)
 
-(define-syntax define-binary-arith-int-overflow
-  (syntax-rules ()
-    ((_ name op-rr op-ri)
-     (define-native (name (int dst) (int a) (int b))
-       (let ((tmp r2)
-             (a/r (case (ref-type a)
-                    ((con) (movi/r r1 a))
-                    ((gpr) (gpr a))
-                    ((fpr) (fpr->gpr r1 (fpr a)))
-                    ((mem) (memory-ref r1 a))
-                    (else (err)))))
-         (movr tmp a/r)
-         (jump (case (ref-type b)
-                 ((con) (op-ri tmp (con b)))
-                 ((gpr) (op-rr tmp (gpr b)))
-                 ((fpr) (op-rr tmp (fpr->gpr r0 (fpr b))))
-                 ((mem) (op-rr tmp (memory-ref r0 b))))
-               (bailout))
-         (case (ref-type dst)
-           ((gpr) (movr (gpr dst) tmp))
-           ((fpr) (gpr->fpr (fpr dst) tmp))
-           ((mem) (memory-set! dst tmp))
-           (else (err))))))))
+(define-syntax-rule (define-binary-arith-int-overflow name op-rr op-ri)
+  (define-primitive (name (int dst) (int a) (int b))
+    (let ((tmp r2)
+          (a/r (case (ref-type a)
+                 ((con) (movi/r r1 a))
+                 ((gpr) (gpr a))
+                 ((fpr) (fpr->gpr r1 (fpr a)))
+                 ((mem) (memory-ref r1 a))
+                 (else (err)))))
+      (movr tmp a/r)
+      (jump (case (ref-type b)
+              ((con) (op-ri tmp (con b)))
+              ((gpr) (op-rr tmp (gpr b)))
+              ((fpr) (op-rr tmp (fpr->gpr r0 (fpr b))))
+              ((mem) (op-rr tmp (memory-ref r0 b))))
+            (bailout))
+      (case (ref-type dst)
+        ((gpr) (movr (gpr dst) tmp))
+        ((fpr) (gpr->fpr (fpr dst) tmp))
+        ((mem) (memory-set! dst tmp))
+        (else (err))))))
 
 (define-binary-arith-int-overflow %addov boaddr boaddi)
 (define-binary-arith-int-overflow %subov bosubr bosubi)
 
-(define-native (%mod (int dst) (int a) (int b))
+(define-primitive (%mod (int dst) (int a) (int b))
   (let ((neg-b (forward))
         (proceed (forward))
         (tmp/r r0)
@@ -460,7 +449,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 (define-binary-arith-int %quo modulo divi divr)
 
 ;; Integer multiplication, with overflow check.
-(define-native (%mulov (int dst) (int a) (int b))
+(define-primitive (%mulov (int dst) (int a) (int b))
   (let ((tmp r1)
         (proceed (forward)))
     (letrec-syntax
@@ -494,7 +483,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;; Integer division, returns SCM value with fraction type when remainder is not
 ;; zero.
-(define-native (%div (int dst) (int a) (int b))
+(define-primitive (%div (int dst) (int a) (int b))
   (let* ((tmp1-offset (moffs (make-memory -4)))
          (tmp2-offset (moffs (make-memory -5)))
          (make-fixnum (forward))
@@ -565,34 +554,32 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;;;; Floating point arithmetic
 
-(define-syntax define-binary-arith-double
-  (syntax-rules ()
-    ((k name op-ri op-rr)
-     (define-native (name (double dst) (double a) (double b))
-       (letrec-syntax
-           ((op3b (syntax-rules ()
-                    ((_ dst a)
-                     (case (ref-type b)
-                       ((con) (op-rr dst a (movi/f f0 b)))
-                       ((gpr) (op-rr dst a (gpr->fpr f0 (gpr b))))
-                       ((fpr) (op-rr dst a (fpr b)))
-                       ((mem) (op-rr dst a (memory-ref/f f0 b)))
-                       (else (err))))))
-            (op3a (syntax-rules ()
-                    ((_ dst)
-                     (begin
-                       (case (ref-type a)
-                         ((con) (op3b dst (movi/f f1 a)))
-                         ((gpr) (op3b dst (gpr->fpr f1 (gpr a))))
-                         ((fpr) (op3b dst (fpr a)))
-                         ((mem) (op3b dst (memory-ref/f f1 a)))
-                         (else (err)))
-                       dst)))))
-         (case (ref-type dst)
-           ((gpr) (fpr->gpr (gpr dst) (op3a f2)))
-           ((fpr) (op3a (fpr dst)))
-           ((mem) (memory-set!/f dst (op3a f2)))
-           (else (err))))))))
+(define-syntax-rule (define-binary-arith-double name op-ri op-rr)
+  (define-primitive (name (double dst) (double a) (double b))
+    (letrec-syntax
+        ((op3b (syntax-rules ()
+                 ((_ dst a)
+                  (case (ref-type b)
+                    ((con) (op-rr dst a (movi/f f0 b)))
+                    ((gpr) (op-rr dst a (gpr->fpr f0 (gpr b))))
+                    ((fpr) (op-rr dst a (fpr b)))
+                    ((mem) (op-rr dst a (memory-ref/f f0 b)))
+                    (else (err))))))
+         (op3a (syntax-rules ()
+                 ((_ dst)
+                  (begin
+                    (case (ref-type a)
+                      ((con) (op3b dst (movi/f f1 a)))
+                      ((gpr) (op3b dst (gpr->fpr f1 (gpr a))))
+                      ((fpr) (op3b dst (fpr a)))
+                      ((mem) (op3b dst (memory-ref/f f1 a)))
+                      (else (err)))
+                    dst)))))
+      (case (ref-type dst)
+        ((gpr) (fpr->gpr (gpr dst) (op3a f2)))
+        ((fpr) (op3a (fpr dst)))
+        ((mem) (memory-set!/f dst (op3a f2)))
+        (else (err))))))
 
 (define-binary-arith-double %fadd addi-d addr-d)
 (define-binary-arith-double %fsub subi-d subr-d)
@@ -610,7 +597,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 
 ;; Type check local N with TYPE and load to gpr or memory DST.
-(define-native (%sref (int dst) (void n) (void type))
+(define-primitive (%sref (int dst) (void n) (void type))
   (let ((tref (ref-value type)))
     (when (or (not (con? n))
               (not (con? type))
@@ -632,7 +619,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;; Load frame local to fpr or memory, with type check. This primitive
 ;; is used for loading floating point number to FPR.
-(define-native (%sref/f (double dst) (void n) (void type))
+(define-primitive (%sref/f (double dst) (void n) (void type))
   (let ((t (ref-value type)))
     (when (or (not (con? n))
               (not (con? type))
@@ -666,7 +653,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
      (else (err)))))
 
 ;; Cell object reference.
-(define-native (%cref (int dst) (int src) (int n))
+(define-primitive (%cref (int dst) (int src) (int n))
   (let-syntax
       ((op3const
         (syntax-rules ()
@@ -724,7 +711,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
        (err)))))
 
 ;; Cell reference to floating point register.
-(define-native (%cref/f (double dst) (int src) (void n))
+(define-primitive (%cref/f (double dst) (int src) (void n))
   (let ((nw (constant-word n))
         (static-address
          (lambda ()
@@ -757,7 +744,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (else (err)))))
 
 ;; Unsigned char ref.
-(define-native (%u8ref (int dst) (int src) (int n))
+(define-primitive (%u8ref (int dst) (int src) (int n))
   (let ((dst/r (case (ref-type dst)
                  ((gpr) (gpr dst))
                  ((fpr) (fpr->gpr r1 (fpr dst)))
@@ -786,46 +773,30 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;; Set cell object. This operation uses `r2' register when the argument `cell'
 ;; was memory and argument `n' was not constant.
-(define-native (%cset (int cell) (int n) (int src))
+(define-primitive (%cset (int cell) (int n) (int src))
   (letrec-syntax
-      ((con->gpr
-        (syntax-rules ()
-          ((_ dst obj)
-           (let* ((dst* dst)
-                  (obj* obj)
-                  (val (ref-value obj*)))
-             (movi dst* (con obj*))
-             dst*))))
-       (op3a
-        (syntax-rules ()
-          ((_ dst)
-           (let ((nw (* (ref-value n) %word-size)))
-             (case (ref-type src)
-               ((con) (stxi (imm nw) dst (con->gpr r1 src)))
-               ((gpr) (stxi (imm nw) dst (gpr src)))
-               ((fpr) (stxi (imm nw) dst (fpr->gpr r1 (fpr src))))
-               ((mem) (stxi (imm nw) dst (memory-ref r1 src)))
-               (else (err)))))))
+      ((src->r1 (syntax-rules ()
+                  ((_)
+                   (case (ref-type src)
+                     ((con) (movi/r r1 src))
+                     ((gpr) (gpr src))
+                     ((fpr) (fpr->gpr r1 (fpr src)))
+                     ((mem) (memory-ref r1 src))
+                     (else (err))))))
+       (op3a (syntax-rules ()
+               ((_ dst)
+                (let ((nw (* (ref-value n) %word-size)))
+                  (stxi (imm nw) dst (src->r1))))))
        (op3b (syntax-rules ()
                ((_ dst)
-                (case (ref-type src)
-                  ((con) (stxr r0 dst (con->gpr r1 src)))
-                  ((gpr) (stxr r0 dst (gpr src)))
-                  ((fpr) (stxr r0 dst (fpr->gpr r1 (fpr src))))
-                  ((mem) (stxr r0 dst (memory-ref r1 src)))))))
+                (stxr r0 dst (src->r1)))))
        (op3c (syntax-rules ()
                ((_ dst-addr)
-                (sti (imm dst-addr)
-                     (case (ref-type src)
-                       ((con) (con->gpr r1 src))
-                       ((gpr) (gpr src))
-                       ((fpr) (fpr->gpr r1 (fpr src)))
-                       ((mem) (memory-ref r1 src))))))))
+                (sti (imm dst-addr) (src->r1))))))
     (case (ref-type n)
       ((con)
        (case (ref-type cell)
-         ((con) (op3c (+ (* (ref-value n) %word-size)
-                         (ref-value cell))))
+         ((con) (op3c (+ (* (ref-value n) %word-size) (ref-value cell))))
          ((gpr) (op3a (gpr cell)))
          ((fpr) (op3a (fpr->gpr r0 (fpr cell))))
          ((mem) (op3a (memory-ref r0 cell)))
@@ -848,7 +819,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
       (else (err)))))
 
 ;; Unsigned char set.
-(define-native (%u8set (int dst) (int n) (int src))
+(define-primitive (%u8set (int dst) (int n) (int src))
   (let ((dst/r (case (ref-type dst)
                  ((gpr) (gpr dst))
                  ((fpr) (fpr->gpr r2 (fpr dst)))
@@ -858,12 +829,13 @@ was constant. And, uses OP-RR when both arguments were register or memory."
                  ((gpr) (gpr src))
                  ((fpr) (fpr->gpr r1 (fpr src)))
                  ((mem) (memory-ref r1 src))
-                 (else (err)))))
-    (case (ref-type n)
+                 (else (err))))
+        (n/t (ref-type n)))
+    (case n/t
       ((con)
        (stxi-c (con n) dst/r src/r))
       (else
-       (let ((n/r (case (ref-type n)
+       (let ((n/r (case n/t
                     ((gpr) (gpr n))
                     ((fpr) (fpr->gpr r0 (fpr n)))
                     ((mem) (memory-ref r0 n))
@@ -875,7 +847,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 ;;
 ;; XXX: Cannot use `r2' for `n' and 'src', since r2 is hard coded to `dst'.
 ;;
-(define-native (%fill (int dst) (int n) (int src))
+(define-primitive (%fill (int dst) (int n) (int src))
   (let ((l0 (forward))
         (dst/r (case (ref-type dst)
                  ((gpr) (gpr dst))
@@ -908,94 +880,78 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;;;; Allocation
 
+(define-syntax-rule (define-alloc-primitive name inline-fn noinline-fn)
+  (define-primitive (name (int dst) (int x) (int y))
+    (let ((volatiles (asm-volatiles asm))
+          (x-overwritten? (equal? x (argr 1)))
+          (y-overwritten? (or (equal? y (argr 1))
+                              (equal? y (argr 2)))))
+      (with-volatiles volatiles dst
+        (prepare)
+        (when (asm-gc-inline? asm)
+          (pushargr %thread))
+        (push-as-gpr x x-overwritten?)
+        (push-as-gpr y y-overwritten?)
+        (if (asm-gc-inline? asm)
+            (calli inline-fn)
+            (calli noinline-fn))
+        (retval-to-reg-or-mem dst)))))
+
 ;; Call C function `scm_do_inline_cell'. Save volatile registers before calling,
 ;; restore after getting returned value.
-(define-native (%cell (int dst) (int x) (int y))
-  (let ((volatiles (asm-volatiles asm))
-        (x-overwritten? (equal? x (argr 1)))
-        (y-overwritten? (or (equal? y (argr 1))
-                            (equal? y (argr 2)))))
-    (with-volatiles volatiles dst
-      (prepare)
-      (when (asm-gc-inline? asm)
-        (pushargr %thread))
-      (push-as-gpr x x-overwritten?)
-      (push-as-gpr y y-overwritten?)
-      (if (asm-gc-inline? asm)
-          (calli %scm-inline-cell)
-          (calli %scm-cell))
-      (retval-to-reg-or-mem dst))))
+(define-alloc-primitive %cell %scm-inline-cell %scm-cell)
 
-;; Allocate words for n bytes, store to dst, fill head with a.
-(define-native (%words (int dst) (int a) (int n))
-  (let ((volatiles (asm-volatiles asm))
-        (a-overwritten? (equal? a (argr 1)))
-        (n-overwritten? (or (equal? n (argr 1))
-                            (equal? n (argr 2)))))
-    (with-volatiles volatiles dst
-      (prepare)
-      (when (asm-gc-inline? asm)
-        (pushargr %thread))
-      (push-as-gpr a a-overwritten?)
-      (push-as-gpr n n-overwritten?)
-      (if (asm-gc-inline? asm)
-          (calli %scm-inline-words)
-          (calli %scm-words))
-      (retval-to-reg-or-mem dst))))
+;; Allocate words for arg2 bytes, store to dst, fill head with arg1.
+(define-alloc-primitive %words %scm-inline-words %scm-words)
 
 
 ;;;; Type conversion
 
 ;; Integer -> floating point
-(define-native (%i2d (double dst) (int src))
-  (let ((con->double (lambda (x)
-                       (exact->inexact (ref-value x)))))
+(define-primitive (%i2d (double dst) (int src))
+  (letrec-syntax ((con->double
+                   (syntax-rules ()
+                     ((_ x) (exact->inexact (ref-value x)))))
+                  (src->fpr
+                   (syntax-rules ()
+                     ((_ dst)
+                      (case (ref-type src)
+                        ((con) (movi-d dst (con->double src)))
+                        ((gpr) (extr-d dst (gpr src)))
+                        ((fpr) (extr-d dst (fpr->gpr r0 (fpr src))))
+                        ((mem) (extr-d dst (memory-ref r0 src)))
+                        (else (err)))))))
     (case (ref-type dst)
       ((gpr)
-       (case (ref-type src)
-         ((con) (movi-d f0 (con->double src)))
-         ((gpr) (extr-d f0 (gpr src)))
-         ((fpr) (extr-d f0 (fpr->gpr r0 (fpr src))))
-         ((mem) (extr-d f0 (memory-ref r0 src)))
-         (else (err)))
+       (src->fpr f0)
        (fpr->gpr (gpr dst) f0))
       ((fpr)
-       (case (ref-type src)
-         ((con) (movi-d (fpr dst) (con->double src)))
-         ((gpr) (extr-d (fpr dst) (gpr src)))
-         ((fpr) (extr-d (fpr dst) (fpr->gpr r0 (fpr src))))
-         ((mem) (extr-d (fpr dst) (memory-ref r0 src)))
-         (else (err))))
+       (src->fpr (fpr dst)))
       ((mem)
-       (case (ref-type src)
-         ((con) (movi-d f0 (con->double src)))
-         ((gpr) (extr-d f0 (gpr src)))
-         ((fpr) (extr-d f0 (fpr->gpr r0 (fpr src))))
-         ((mem) (extr-d f0 (memory-ref r0 src)))
-         (else (err)))
+       (src->fpr f0)
        (memory-set!/f dst f0))
       (else (err)))))
 
 ;; Floating point -> SCM
-(define-native (%d2s (int dst) (double src))
+(define-primitive (%d2s (int dst) (double src))
   (let-syntax
-      ((op3
-        (syntax-rules ()
-          ((_ dst)
-           (begin
-             (case (ref-type src)
-               ((con) (begin (movi-d f0 (con src))
-                             (scm-from-double dst f0)))
-               ((gpr)
-                (gpr->fpr f0 (gpr src))
-                (scm-from-double dst f0))
-               ((fpr)
-                (scm-from-double dst (fpr src)))
-               ((mem)
-                (memory-ref/f f0 src)
-                (scm-from-double dst f0))
-               (else (err)))
-             dst)))))
+      ((op3 (syntax-rules ()
+              ((_ dst)
+               (begin
+                 (case (ref-type src)
+                   ((con)
+                    (movi-d f0 (con src))
+                    (scm-from-double dst f0))
+                   ((gpr)
+                    (gpr->fpr f0 (gpr src))
+                    (scm-from-double dst f0))
+                   ((fpr)
+                    (scm-from-double dst (fpr src)))
+                   ((mem)
+                    (memory-ref/f f0 src)
+                    (scm-from-double dst f0))
+                   (else (err)))
+                 dst)))))
     (case (ref-type dst)
       ((gpr) (op3 (gpr dst)))
       ((fpr) (gpr->fpr (fpr dst) (op3 r0)))
@@ -1005,10 +961,10 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;;;; Miscellaneous
 
-(define-native (%move (int dst) (int src))
+(define-primitive (%move (int dst) (int src))
   (move dst src))
 
-(define-native (%call/cc (int dst) (void id))
+(define-primitive (%call/cc (int dst) (void id))
   (let ((volatiles (asm-volatiles asm)))
     ;; While making continuation, stack contents will get copied to continuation
     ;; data. Store register contents to stack before calling
@@ -1051,7 +1007,7 @@ was constant. And, uses OP-RR when both arguments were register or memory."
 
 ;; Primitive for `continuation-call'. The SCM continuation value is stored in
 ;; r2.
-(define-native (%callcnt (int local0) (void ncount) (void id) (void ip))
+(define-primitive (%callcnt (int local0) (void ncount) (void id) (void ip))
   (let ((vp r0)
         (cont r2))
     (scm-continuation-next-ip r1 cont)
