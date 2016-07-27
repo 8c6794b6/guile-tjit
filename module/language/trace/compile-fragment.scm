@@ -31,13 +31,17 @@
   #:use-module (system vm native debug)
   #:use-module (language trace compile-ir)
   #:use-module (language trace compile-native)
-  #:use-module (language trace dump)
   #:use-module (language trace env)
   #:use-module (language trace error)
   #:use-module (language trace fragment)
   #:use-module (language trace parameters)
   #:use-module (language trace parse)
   #:use-module (language trace snapshot)
+  #:autoload (language trace dump) (dump-sline
+                                    dump-bytecode
+                                    dump-anf
+                                    dump-primops
+                                    dump-ncode)
   #:export (compile-fragment))
 
 

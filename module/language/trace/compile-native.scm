@@ -39,7 +39,6 @@
   #:use-module (language trace error)
   #:use-module (language trace compile-ir)
   #:use-module (language trace fragment)
-  #:use-module (language trace gdb)
   #:use-module (language trace ir)
   #:use-module (language trace env)
   #:use-module (language trace parameters)
@@ -50,6 +49,7 @@
   #:use-module (language trace trampoline)
   #:use-module (language trace types)
   #:use-module (language trace variables)
+  #:autoload (language trace gdb) (make-gdb-jit-elf)
   #:export (compile-native))
 
 

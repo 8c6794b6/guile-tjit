@@ -29,14 +29,12 @@
 (define-module (system vm native tjitc)
   #:use-module (ice-9 match)
   #:use-module (system base compile)
-  #:use-module (system vm native debug)
-  #:use-module (language trace dump)
   #:use-module (language trace env)
   #:use-module (language trace fragment)
   #:use-module (language trace parameters)
   #:use-module (language trace snapshot)
   #:export (tjitc init-vm-tjit)
-  #:re-export (tjit-stats set-tjit-dump-option! tjit-dump-log))
+  #:re-export (set-tjit-dump-option! tjit-dump-log))
 
 
 ;;;; Entry point for JIT compiler

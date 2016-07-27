@@ -27,6 +27,7 @@
              (system vm vm)
              (system vm loader)
              (system vm native debug)
+             (language trace dump)
              (language trace error)
              (language trace parameters)
              (system vm native tjitc)
