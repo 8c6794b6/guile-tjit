@@ -49,6 +49,7 @@
 
             make-signed-pointer
             %word-size-in-bits
+            %scm-from-double %scm-inline-from-double
             constant-word
             define-address-for-c-function
             gpr->fpr fpr->gpr
