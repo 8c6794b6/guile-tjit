@@ -215,12 +215,16 @@
                 (if (and (can-rotate? back-edges)
                          (trivial-intset
                           (intset-subtract (intmap-ref succs entry) scc))
-                         (trivial-intset (loop-successors scc succs)))
+                         (trivial-intset (loop-successors scc succs))
+                         (match (intmap-ref cps entry)
+                           ;; Can't rotate $prompt out of loop header.
+                           (($ $kargs _ _ ($ $continue _ _ ($ $prompt))) #f)
+                           (_ #t)))
                     ;; Loop header is an exit, and there is only one
-                    ;; exit continuation.  Loop header must then be a
-                    ;; conditional branch and only one successor is an
-                    ;; exit.  The values flowing out of the loop are the
-                    ;; loop variables.
+                    ;; exit continuation.  Loop header isn't a prompt,
+                    ;; so it must be a conditional branch and only one
+                    ;; successor is an exit.  The values flowing out of
+                    ;; the loop are the loop variables.
                     (rotate-loop cps entry scc succs preds back-edges)
                     cps))))
         (else cps)))
