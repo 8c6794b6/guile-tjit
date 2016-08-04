@@ -1757,6 +1757,7 @@ respectively.  Whether the port supports the @code{port-position} and
 
 @deffn {Scheme Procedure} make-custom-binary-input-port id read! get-position set-position! close
 @deffnx {Scheme Procedure} make-custom-binary-output-port id write! get-position set-position! close
+@deffnx {Scheme Procedure} make-custom-binary-input/output-port id read! write! get-position set-position! close
 @xref{Custom Ports}.
 @end deffn
 

@@ -12,6 +12,7 @@ Changes in 2.1.4 (changes since the 2.1.3 alpha release):
 * New interfaces
 
 ** Implement R6RS output-buffer-mode
+** Implement R6RS custom binary input/output ports
 ** Implement R6RS bytevector->string, string->bytevector
 
 * New deprecations

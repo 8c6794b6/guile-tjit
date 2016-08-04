@@ -1299,6 +1299,18 @@ though an end-of-file was sent to the byte sink.
 The other arguments are as for @code{make-custom-binary-input-port}.
 @end deffn
 
+@cindex custom binary input/output ports
+@deffn {Scheme Procedure} make-custom-binary-input/output-port id read! write! get-position set-position! close
+Return a new custom binary input/output port named @var{id} (a string).
+The various arguments are the same as for The other arguments are as for
+@code{make-custom-binary-input-port} and
+@code{make-custom-binary-output-port}.  If buffering is enabled on the
+port, as is the case by default, input will be buffered in both
+directions; @xref{Buffering}.  If the @var{set-position!} function is
+provided and not @code{#f}, then the port will also be marked as
+random-access, causing the buffer to be flushed between reads and
+writes.
+@end deffn
 
 @node Soft Ports
 @subsubsection Soft Ports

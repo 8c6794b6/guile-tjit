@@ -42,7 +42,8 @@
             put-bytevector
             unget-bytevector
             open-bytevector-output-port
-            make-custom-binary-output-port))
+            make-custom-binary-output-port
+            make-custom-binary-input/output-port))
 
 ;; Note that this extension also defines %make-transcoded-port, which is
 ;; not exported but is used by (rnrs io ports).

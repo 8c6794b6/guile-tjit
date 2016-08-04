@@ -39,6 +39,8 @@ SCM_API SCM scm_put_u8 (SCM, SCM);
 SCM_API SCM scm_put_bytevector (SCM, SCM, SCM, SCM);
 SCM_API SCM scm_open_bytevector_output_port (SCM);
 SCM_API SCM scm_make_custom_binary_output_port (SCM, SCM, SCM, SCM, SCM);
+SCM_API SCM scm_make_custom_binary_input_output_port (SCM, SCM, SCM,
+                                                      SCM, SCM, SCM);
 SCM_API SCM scm_get_string_n_x (SCM, SCM, SCM, SCM);
 
 SCM_API void scm_init_r6rs_ports (void);

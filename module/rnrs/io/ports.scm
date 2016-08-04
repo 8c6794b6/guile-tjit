@@ -71,6 +71,7 @@
 
           ;; input/output ports
           open-file-input/output-port
+          make-custom-binary-input/output-port
 
           ;; binary output
           put-u8 put-bytevector
