@@ -50,19 +50,19 @@ static const int op_sizes[256] = {
 #define TJIT_HASH_SIZE ((TJIT_HASH_MASK + 1) / 4)
 #define TJIT_HASH_FUNC(ip) ((TJIT_HASH_MASK & ip) >> 2)
 
-#define SCM_TJIT_HASH(name)                             \
-  static scm_t_uint16 name##_hash[TJIT_HASH_SIZE];      \
-                                                        \
-  static inline scm_t_uint16                            \
-  name##_ref (scm_t_uint32 key)                         \
-  {                                                     \
-    return name##_hash[TJIT_HASH_FUNC (key)];           \
-  }                                                     \
-                                                        \
-  static inline void                                    \
-  name##_set (scm_t_uint32 key, scm_t_uint16 val)       \
-  {                                                     \
-    name##_hash[TJIT_HASH_FUNC (key)] = val;            \
+#define SCM_TJIT_HASH(name)                                     \
+  static scm_t_uint16 name##_hash[TJIT_HASH_SIZE] = { 0 };      \
+                                                                \
+  static inline scm_t_uint16                                    \
+  name##_ref (scm_t_uint32 key)                                 \
+  {                                                             \
+    return name##_hash[TJIT_HASH_FUNC (key)];                   \
+  }                                                             \
+                                                                \
+  static inline void                                            \
+  name##_set (scm_t_uint32 key, scm_t_uint16 val)               \
+  {                                                             \
+    name##_hash[TJIT_HASH_FUNC (key)] = val;                    \
   }
 
 #define SCM_TJIT_PARAM(name, sname, ini)                                \
@@ -909,34 +909,13 @@ static void scm_tjit_cleanup_gdb_entries (void)
  * Initialization
  */
 
-static inline void
-init_tjit_hash (void)
-{
-  int i;
-
-  GC_exclude_static_roots (hot_ip_hash, hot_ip_hash + TJIT_HASH_SIZE);
-  GC_exclude_static_roots (root_ip_hash, root_ip_hash + TJIT_HASH_SIZE);
-  GC_exclude_static_roots (failed_ip_hash, failed_ip_hash + TJIT_HASH_SIZE);
-
-  for (i = 0; i < TJIT_HASH_SIZE; ++i)
-    {
-      hot_ip_hash[i] = 0;
-      root_ip_hash[i] = 0;
-      failed_ip_hash[i] = 0;
-    }
-}
-
 void
 scm_bootstrap_vm_tjit(void)
 {
-  GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
-
-  init_tjit_hash ();
   tjit_state_fluid = scm_make_fluid ();
   tjit_fragment_table = scm_c_make_hash_table (31);
   tjit_root_trace_table = scm_c_make_hash_table (31);
   tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));
-
   atexit (scm_tjit_cleanup_gdb_entries);
 }
 
@@ -946,6 +925,11 @@ scm_init_vm_tjit (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/vm-tjit.x"
 #endif
+
+  GC_exclude_static_roots (hot_ip_hash, hot_ip_hash + TJIT_HASH_SIZE);
+  GC_exclude_static_roots (root_ip_hash, root_ip_hash + TJIT_HASH_SIZE);
+  GC_exclude_static_roots (failed_ip_hash, failed_ip_hash + TJIT_HASH_SIZE);
+  GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
 
   /* Define gsubr for non fixnum or flonum arithmetic. */
   scm_c_define_gsubr ("%cadd", 2, 0, 0, scm_sum);
