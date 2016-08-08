@@ -64,7 +64,6 @@
          (dl-offset (+ ra-offset 1)))
     (set-inferred-type! env ra-offset &false)
     (set-inferred-type! env dl-offset &false)
-
     ;; Returned value from C function is stored in (- proc-offset 1). The stack
     ;; item type of the returned value is always `scm'.
     (set-inferred-type! env (- proc-offset 1) &scm)))
@@ -88,34 +87,34 @@
                        ,(next)))))))
          (r1 (make-tmpvar 1))
          (r2 (make-tmpvar 2)))
-
+    (define-syntax-rule (subr? subr)
+      (eq? subr/a (object-address subr)))
     (when (not (primitive-code? ccode))
       (failure 'subr-call "not a primitive ~s" subr/l))
-
+    ;; Inline if callee was known C function.
     (cond
      ;; pairs.c
-     ((eq? subr/a (object-address cons))
+     ((subr? cons)
       (set-env-handle-interrupts! env #t)
       `(let ((,dst/v (,%cell ,(src-ref 1) ,(src-ref 0))))
          ,(next)))
-     ((eq? subr/a (object-address car))
+     ((subr? car)
       (with-type-guard &pair 0
         `(let ((,dst/v (,%cref ,(src-ref 0) 0)))
            ,(next))))
-     ((eq? subr/a (object-address cdr))
+     ((subr? cdr)
       (with-type-guard &pair 0
         `(let ((,dst/v (,%cref ,(src-ref 0) 1)))
            ,(next))))
-     ((eq? subr/a (object-address cadr))
+     ((subr? cadr)
       `(let ((_ ,(take-snapshot! ip 0)))
          ,(with-type-guard &pair 0
             `(let ((,r1 (,%cref ,(src-ref 0) 1)))
                (let ((_ (,%tceq ,r1 1 ,%tc3-cons)))
                  (let ((,dst/v (,%cref ,r1 0)))
                    ,(next)))))))
-
      ;; ports.c
-     ((eq? subr/a (object-address eof-object?))
+     ((subr? eof-object?)
       (if (eof-object? (scm-ref 0))
           `(let ((_ (,%eq ,(src-ref 0) #xa04)))
              (let ((,dst/v #t))
@@ -123,14 +122,12 @@
           `(let ((_ (,%ne ,(src-ref 0) #xa04)))
              (let ((,dst/v #f))
                ,(next)))))
-
      ;; strings.c
-     ((eq? subr/a (object-address string-ref))
+     ((subr? string-ref)
       `(let ((_ (,%carg ,(src-ref 0))))
          (let ((_ (,%carg ,(src-ref 1))))
            (let ((,dst/v (,%ccall ,(object-address scm-do-i-string-ref))))
              ,(next)))))
-
      (else
       ;; Not inlineable, emit `%ccall' primitive.
       (set-env-handle-interrupts! env #t)
@@ -193,7 +190,6 @@
                ((2) abort-to-prompt)
                ((3) call-with-values)
                ((4) call-with-current-continuation)
-               (else
-                (failure 'builtin-ref "unknown builtin ~a" idx)))))
+               (else (failure 'builtin-ref "unknown builtin ~a" idx)))))
     `(let ((,(dst-ref dst) ,(object-address ref)))
        ,(next))))

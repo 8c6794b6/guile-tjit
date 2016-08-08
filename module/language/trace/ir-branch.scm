@@ -188,7 +188,6 @@
                           (let ((_ (,op ,x ,y)))
                             ,(next))))))
      (ensure-loop test/l invert offset 3)
-
      ;; When inferred type is not flonum, add guard and unbox from SCM value.
      (cond
       ((and (eq? &flonum a/t) (eq? &flonum b/t))
