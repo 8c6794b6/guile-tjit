@@ -2286,7 +2286,7 @@ For an input pipe, the child's standard output is the pipe and
 standard input is inherited from @code{current-input-port}.  For an
 output pipe, the child's standard input is the pipe and standard
 output is inherited from @code{current-output-port}.  In all cases
-cases the child's standard error is inherited from
+the child's standard error is inherited from
 @code{current-error-port} (@pxref{Default Ports}).
 
 If those @code{current-X-ports} are not files of some kind, and hence
