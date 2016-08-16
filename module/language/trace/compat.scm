@@ -71,9 +71,8 @@
 
 ;;;; Replaced file contents
 
-;; Below will include target specific variant of this module by
-;; evaluating syntax when compiling module to bytecode.
-
+;; Macro to include target specific variant of this module by evaluating syntax
+;; at the time of bytecode compilation.
 (eval-when (compile expand)
   (define-syntax replaced-contents
     (lambda (x)

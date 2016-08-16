@@ -54,7 +54,7 @@
             define-address-for-c-function
             gpr->fpr fpr->gpr
             movi/r movi/f movr/r move
-            jump jmpa
+            jump
             sp-ref sp-set! sp-ref/f sp-set!/f
             memory-ref memory-set! memory-ref/f memory-set!/f
             scm-frame-dynamic-link scm-frame-set-dynamic-link!
@@ -406,11 +406,6 @@
      (jit-patch-at (jit-jmpi) label))
     ((_ condition label)
      (jit-patch-at condition label))))
-
-(define-syntax jmpa
-  (syntax-rules ()
-    ((_ address)
-     (jit-patch-abs (jit-jmpi) address))))
 
 (define-syntax-rule (memory-ref dst src)
   (begin

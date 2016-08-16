@@ -402,8 +402,8 @@
 (define (make-gdb-jit-elf trace-id naddr nsize src linenum)
   "Make a bytevector filled with ELF object for GDB JIT interface.
 
-Uses TRACE-ID to make temorary functin name to break in GDB, and bytevector
-NCODE which should contain native code. The temporary function name will be
+Uses TRACE-ID to make temorary function name to break in GDB, and NADDR which
+should point the address of native code. The temporary function name will be
 `trace~a', where `~a' replaced with TRACE-ID. Currently for x86-64 only."
   (let*-values
       (((gdb) (make-gdb))

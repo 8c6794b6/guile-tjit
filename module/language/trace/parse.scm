@@ -162,7 +162,6 @@ After successufl parse, this procedure will update fields in ENV."
                   (set-env-fp-offset! env initial-fp-offset)
                   (set-env-initialized! env #t)
                   #t)))))))
-
   (catch #t go
     (lambda (x y fmt args . z)
       (debug 1 "parse-bytecode: ~a~%" (apply format #f fmt args))

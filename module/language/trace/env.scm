@@ -311,8 +311,7 @@ inline depth by one."
                     (lambda (paired) (< paired 0)))
          (set-env-inline-depth! env (- (env-inline-depth env) 1)))
        (set-env-return-num! env (1+ return-num))))
-    (else
-     (values))))
+    (else (values))))
 
 (define-inlinable (add-env-call! env)
   (let ((new (cons (env-call-num env) #f)))
@@ -391,8 +390,7 @@ inline depth by one."
                                      (assq-set! acc i t))))
                     ((_ . current)
                      (lp current acc))
-                    (_
-                     acc)))))
+                    (_ acc)))))
     (set-env-entry-types! env entry)))
 
 (define-inlinable (set-inferred-type! env n t)

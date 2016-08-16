@@ -34,6 +34,8 @@
   #:use-module (language trace types)
   #:use-module (language trace variables))
 
+;;; XXX: Disabled until the traces without these IRs get stable.
+
 ;; XXX: struct-vtable
 ;; (define-ir (struct-vtable (struct! dst) (struct src))
 ;;   (let ((src/v (src-ref src))

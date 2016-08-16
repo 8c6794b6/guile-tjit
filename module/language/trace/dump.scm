@@ -57,8 +57,14 @@
 
 ;;;; Auxiliary
 
-(define (car-< a b)
+(define-inlinable (car-< a b)
   (< (car a) (car b)))
+
+(define-inlinable (symbolize-op op)
+  (match op
+    (((? number? op) . rest)
+     (cons (prim-names-ref op) rest))
+    (_ op)))
 
 
 ;;;; Statistics
@@ -111,12 +117,6 @@ option was set to true."
                            "(unknown file)"))
                      (source-line-for-user source))))
       (cons "(unknown source)" #f)))
-
-(define (symbolize-op op)
-  (match op
-    (((? number? op) . rest)
-     (cons (prim-names-ref op) rest))
-    (_ op)))
 
 (define (dump-bytecode port trace-id ip-x-ops)
   (define (lowest-level ip-x-ops)

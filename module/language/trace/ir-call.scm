@@ -61,16 +61,16 @@
 (define-syntax scm-f-program-is-bytecode-mask
   (identifier-syntax #xff00))
 
-(define (program-flag p)
+(define-inlinable (program-flag p)
   (pointer-address (dereference-pointer (scm->pointer p))))
 
-(define (bytecode-program? pflag)
+(define-inlinable (bytecode-program? pflag)
   (zero? (logand pflag scm-f-program-is-bytecode-mask)))
 
-(define (primitive-program? pflag)
+(define-inlinable (primitive-program? pflag)
   (not (zero? (logand pflag scm-f-program-is-primitive))))
 
-(define (continuation-program? pflag)
+(define-inlinable (continuation-program? pflag)
   (not (zero? (logand pflag scm-f-program-is-continuation))))
 
 (define-syntax-rule (scan-call proc nlocals label?)

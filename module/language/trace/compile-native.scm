@@ -63,6 +63,9 @@
 (define-syntax-rule (scm-i-makinumi n)
   (+ (ash n 2) 2))
 
+(define-inlinable (jmpa address)
+  (jit-patch-abs (jit-jmpi) address))
+
 (define-inlinable (shift-fp nlocals)
   "Shift FP, new value will be SP plus NLOCALS."
   (let ((vp r0)
@@ -454,7 +457,7 @@ DST-TYPES, and SRC-TYPES are local index number."
             (syntax-parameterize ((asm (identifier-syntax %asm)))
               (vm-handle-interrupts)))
           (let ((gen-bailouts (compile-ops %asm loop storage gen-bailouts)))
-            (jump loop-label)
+            (jit-patch-at (jit-jmpi) loop-label)
             (values loop-label gen-bailouts)))))
   (match primops
     (($ $primops entry loop mem-idx storage)
