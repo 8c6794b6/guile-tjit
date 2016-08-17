@@ -15,14 +15,14 @@ Requirements
 * [GNU lightning][https://www.gnu.org/software/lightning/]
 
 
-Building
---------
+Building And Installing
+-----------------------
 
 From top level directory:
 
 > ./autogen.sh
 > ./configure --enable-lightning
-> make
+> make && make install
 
 
 Usage
