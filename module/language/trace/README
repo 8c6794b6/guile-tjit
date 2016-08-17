@@ -1,0 +1,37 @@
+Experimental Tracing JIT VM for Guile
+=====================================
+
+About
+-----
+
+This directory contains modules for JIT compiling traced bytecode
+instructions. Currently works under x86-64 architecture only.
+
+
+Requirements
+------------
+
+* Requirements for Guile
+* [GNU lightning][https://www.gnu.org/software/lightning/]
+
+
+Building
+--------
+
+From top level directory:
+
+> ./autogen.sh
+> ./configure --enable-lightning
+> make
+
+
+Usage
+-----
+
+To run a script with tracing JIT VM:
+
+> guile --tjit file.scm
+
+To start REPL with tracing JIT VM:
+
+> guile --tjit
